@@ -127,6 +127,8 @@ def disabled() -> None:
            404, "Paid delivery must also be disabled by default")
     expect(buy_batch(Client(), {"chapters": []}, key="A" * 42 + "8"), 404,
            "S035 batch checkout must also be disabled by default")
+    expect(Client().call("GET", "/me/purchases"), 404,
+           "Checkout-off must not mount purchase recovery")
     print("D-04 default-off: PASS")
 
 
@@ -208,6 +210,35 @@ def enabled() -> None:
     require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
                    f"WHERE user_id={buyer_id}") == 425,
             "Lost-ACK purchase must debit exactly the accepted price")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_snapshots "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Lost-ACK checkout must pin one immutable revenue share snapshot")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_lines "
+                   f"WHERE purchase_id={purchase_id} AND user_id={author_id} "
+                   "AND share_percent=100") == 1,
+            "Lost-ACK checkout must freeze the owner's initial 100% share")
+    # Creator/platform finance posting remains OFF on this public route.
+    # Do not mistake an internal wallet purchase for a settled payout.
+    require(scalar("SELECT count(*) FROM finance_chapter_postings "
+                   f"WHERE purchase_id={purchase_id}") == 0,
+            "Disabled creator posting must not invent finance credits")
+    # A buyer who never saw the original HTTP receipt can recover through
+    # their existing authenticated library *before* attempting another POST.
+    paid_href = f'/read/paid/{chapter}?purchase_id={purchase_id}'
+    library_status, _, library_html = buyer.call("GET", "/me/purchases")
+    purchase_marker = f'data-chapter-id="{chapter}" data-purchase-id="{purchase_id}"'
+    require(library_status == 200 and purchase_marker in library_html,
+            f"Lost-ACK purchase not in buyer's library (HTTP {library_status})")
+    # This test deliberately runs checkout-only without a paid S3 reader:
+    # recovery metadata is visible, but there must be no unusable reader link.
+    require(f'href="{paid_href}"' not in library_html
+            and "Чтение временно недоступно" in library_html,
+            "Checkout-only recovery advertised a disabled paid reader")
+    other_status, _, other_html = stranger.call("GET", "/me/purchases")
+    require(other_status == 200 and purchase_marker not in other_html,
+            "Lost-ACK purchase must never appear in an unrelated library")
+    require("SECRET-PAID" not in library_html,
+            "Purchased-library recovery leaked paid chapter text")
     status, headers, data = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and headers.get("cache-control") == "no-store",
             "Original-key recovery after lost acknowledgement failed")
@@ -238,6 +269,12 @@ def enabled() -> None:
     require(scalar("SELECT count(*) FROM library_purchased_chapters "
                    f"WHERE user_id={buyer_id} AND chapter_id={chapter}") == 1,
             "Purchased pinned entitlement missing")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_snapshots "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Same-key replay must not duplicate the economic share snapshot")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_lines "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Same-key replay must not multiply creator share lines")
 
     uri = ("/api/v1/me/progress/purchased?"
            f"purchase_id={purchase_id}&chapter_id={chapter}&version_id={version}")

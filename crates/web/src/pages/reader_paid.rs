@@ -329,6 +329,13 @@ pub fn paid_reader_shell(
 /// A paid library entry exists only for a row already authorized by D.
 /// Never interpolate chapter contents, S3 keys, DEKs or bearer links.
 pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
+    purchased_chapters_page_with_reader(page, true)
+}
+
+pub fn purchased_chapters_page_with_reader(
+    page: &ReadablePurchasesPage,
+    reader_available: bool,
+) -> Html<String> {
     let mut cards = String::new();
     if page.items.is_empty() {
         cards.push_str("<div class=\"library-empty\"><h2>Доступных покупок пока нет</h2><p>Здесь появятся купленные главы, на которые сохраняется право чтения.</p><a class=\"button\" href=\"/catalog\">К каталогу</a></div>");
@@ -336,9 +343,17 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
     for item in &page.items {
         let book = escape_html(&item.book_title);
         let chapter = escape_html(&item.chapter_title);
+        let action = if reader_available {
+            format!(
+                "<a class=\"button\" href=\"/read/paid/{}?purchase_id={}\">Читать купленную редакцию</a>",
+                item.chapter_id, item.purchase_id
+            )
+        } else {
+            "<span class=\"paid-library__unavailable\">Чтение временно недоступно</span>".to_owned()
+        };
         write!(
             cards,
-            "<article class=\"library-card paid-library__item\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div><a class=\"button\" href=\"/read/paid/{chapter_id}?purchase_id={purchase_id}\">Читать купленную редакцию</a></article>",
+            "<article class=\"library-card paid-library__item\" data-chapter-id=\"{chapter_id}\" data-purchase-id=\"{purchase_id}\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div>{action}</article>",
             version_no = item.version_no,
             chapter_no = item.chapter_no,
             chapter_id = item.chapter_id,
@@ -387,6 +402,12 @@ mod tests {
         assert!(!html.contains("<script>опасно</script>"));
         assert!(!html.contains("dek_b64u"));
         assert!(!html.contains("ciphertext_url"));
+
+        let checkout_only = purchased_chapters_page_with_reader(&page, false).0;
+        assert!(checkout_only.contains("data-chapter-id=\"23\" data-purchase-id=\"31\""));
+        assert!(checkout_only.contains("Чтение временно недоступно"));
+        assert!(!checkout_only.contains("href=\"/read/paid/23?purchase_id=31\""));
+        assert!(!checkout_only.contains("ciphertext_url"));
     }
 
     #[test]

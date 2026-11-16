@@ -58,7 +58,7 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 437)  # Two reviewed admin policy operations and one package cover-choice route.
+        self.assertEqual(report["route_bindings"], 438)  # Includes S034 checkout-only purchase recovery policy.
         self.assertEqual(report["route_pairs"], 435)  # Exact route+method pairs, including the new owner-only cover-choice endpoint.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)

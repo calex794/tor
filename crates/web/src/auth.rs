@@ -100,6 +100,7 @@ mod personal_books;
 mod private_reader;
 mod profile_http;
 mod public_profile;
+mod purchased_library;
 mod rankings;
 mod referral_alias;
 mod referral_capture;
@@ -223,7 +224,16 @@ fn router_inner(
         cover_upload_enabled,
         age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
+    // Checkout-only installations must still expose an owned purchase receipt
+    // after a lost HTTP acknowledgement. The S3-enabled router owns this path
+    // when private reading is enabled, so these routes never overlap.
+    let checkout_only_purchases = if paid_checkout_enabled && !paid_reader_available {
+        purchased_library::router()
+    } else {
+        Router::new()
+    };
     let app = Router::new()
+        .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())
         .merge(surprise_admin::router())
