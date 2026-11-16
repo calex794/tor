@@ -878,8 +878,19 @@ export async function startPaidReader(root) {
   );
   let progressSaving = false;
   let progressBlocked = false;
+  // The C-owned cursor is monotonic: an identical or older button click must
+  // never issue a second CAS PUT and incorrectly block later progress.
+  let acknowledgedPlace = stored.block_id == null ? null :
+    { blockId: stored.block_id, charOffset: stored.char_offset };
   const blocks = renderPaidBlocks(article, text, async (blockId, charOffset) => {
     if (progressSaving || progressBlocked) return;
+    if (acknowledgedPlace &&
+        (blockId < acknowledgedPlace.blockId ||
+         (blockId === acknowledgedPlace.blockId &&
+          charOffset <= acknowledgedPlace.charOffset))) {
+      resume.textContent = "Место уже сохранено здесь или дальше.";
+      return;
+    }
     progressSaving = true;
     try {
       const result = await savePaidProgressWithReconcile(
@@ -890,6 +901,7 @@ export async function startPaidReader(root) {
       );
       if (result) {
         revision = result.revision;
+        acknowledgedPlace = { blockId, charOffset };
         resume.textContent = result.recovered
           ? "Место чтения подтверждено после восстановления связи." : "Место сохранено.";
       } else {
