@@ -828,6 +828,7 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_tor_store_benchmark_is_disposable_and_never_reads_drive_secrets(self):
         workflow = (WORKFLOWS / "tor-store-benchmark.yml").read_text()
         bench = (ROOT / "tools/tor_store_bench.py").read_text()
+        seekable = (ROOT / "tools/tor_store_seekable.py").read_text()
         profiles = (ROOT / "tools/tor_store_corpus_profiles.json").read_text()
         self.assertIn("image: postgres:18", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
@@ -842,8 +843,13 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("single_zstd3", bench)
         self.assertIn("pack_4mib_zstd3", bench)
         self.assertIn("encoded frame", bench)
+        self.assertIn("tools/tor_store_seekable.py", workflow)
+        self.assertIn("python tools/tor_store_seekable.py --self-test", workflow)
+        self.assertIn("SEEKABLE_MAGIC", seekable)
+        self.assertIn("trusted_manifest_sha256", seekable)
+        self.assertIn("must_reject", seekable)
         self.assertIn("measured_chapters", profiles)
-        for item in (workflow, bench, profiles):
+        for item in (workflow, bench, seekable, profiles):
             self.assertNotIn("https://drive.google.com", item)
             self.assertNotIn("www.googleapis.com", item)
         self.assertNotIn("secrets:", workflow)
