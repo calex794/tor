@@ -15,10 +15,11 @@ async fn d_05_lost_checkout_ack_replays_across_fresh_pools_without_another_debit
 
     // The database transaction commits, but imagine the client connection
     // dropping before any HTTP acknowledgement reaches the buyer.
-    let committed = original_node.buy(&buy).await.unwrap();
-    assert!(!committed.replayed);
-    let committed_term_id = committed.term_id;
-    drop(committed);
+    let committed_term_id = {
+        let committed = original_node.buy(&buy).await.unwrap();
+        assert!(!committed.replayed);
+        committed.term_id
+    };
     drop(original_node);
     pool.close().await;
 
