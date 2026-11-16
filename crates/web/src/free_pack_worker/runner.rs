@@ -2,7 +2,11 @@
 //! No HTTP route or live reader cutover. Errors never delete source SINGLEs.
 use std::{sync::Arc, time::Duration};
 
-use tokio::{sync::Semaphore, task::JoinHandle, time::{Instant, MissedTickBehavior}};
+use tokio::{
+    sync::Semaphore,
+    task::JoinHandle,
+    time::{Instant, MissedTickBehavior},
+};
 use tor_books::{
     repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim},
     services::authoring::AuthorError,
@@ -35,15 +39,19 @@ impl WorkerFault {
     fn from_storage(error: StorageError) -> Self {
         match error {
             StorageError::Unavailable => Self::Retryable,
-            StorageError::Invalid | StorageError::Conflict | StorageError::Corrupt => Self::Terminal,
+            StorageError::Invalid | StorageError::Conflict | StorageError::Corrupt => {
+                Self::Terminal
+            }
         }
     }
 
     fn from_author(error: AuthorError) -> Self {
         match error {
             AuthorError::Unavailable => Self::Retryable,
-            AuthorError::Invalid | AuthorError::Forbidden
-                | AuthorError::Missing | AuthorError::Conflict => Self::Terminal,
+            AuthorError::Invalid
+            | AuthorError::Forbidden
+            | AuthorError::Missing
+            | AuthorError::Conflict => Self::Terminal,
         }
     }
 }
@@ -128,7 +136,10 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
         }
         // A trusted and *current* B SQL lookup establishes where each original
         // SINGLE really lives. A forged job frame cannot redirect G source GET.
-        let inventory = self.catalog.approved_pack_sources(claim).await
+        let inventory = self
+            .catalog
+            .approved_pack_sources(claim)
+            .await
             .map_err(WorkerFault::from_author)?;
         let mut source_bytes = Vec::with_capacity(inventory.len());
         for src in inventory {
@@ -136,9 +147,16 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
                 return Err(WorkerFault::Terminal);
             }
             let edition = FreeChapterObject::from_metadata(
-                src.chapter_id, src.version_id, src.content_sha256, src.size_bytes
-            ).map_err(WorkerFault::from_storage)?;
-            let bytes = self.single.get_verified(&edition).await
+                src.chapter_id,
+                src.version_id,
+                src.content_sha256,
+                src.size_bytes,
+            )
+            .map_err(WorkerFault::from_storage)?;
+            let bytes = self
+                .single
+                .get_verified(&edition)
+                .await
                 .map_err(WorkerFault::from_storage)?;
             source_bytes.push((edition, bytes));
         }
@@ -149,32 +167,45 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
         // A cancelled waiter does not stop spawn_blocking. Hold the CPU slot
         // in the blocking closure itself, so a timeout cannot launch a second
         // 128 MiB pack build before the orphaned task has finished.
-        let cpu_slot = self.cpu_slot.clone().acquire_owned().await
+        let cpu_slot = self
+            .cpu_slot
+            .clone()
+            .acquire_owned()
+            .await
             .map_err(|_| WorkerFault::Retryable)?;
         let prepared = tokio::task::spawn_blocking(move || {
             let _cpu_slot = cpu_slot;
             prepare_free_pack(&bucket, &key, &source_bytes)
-        }).await.map_err(|_| WorkerFault::Retryable)?
-          .map_err(WorkerFault::from_storage)?;
+        })
+        .await
+        .map_err(|_| WorkerFault::Retryable)?
+        .map_err(WorkerFault::from_storage)?;
         if *prepared.receipt() != claim.receipt {
             return Err(WorkerFault::Terminal);
         }
         // Prevent a known-expired or stolen worker from starting *new* S3 PUTs.
         // Any takeover in flight is still fenced by B's finish_pack_job.
-        match self.catalog.renew_pack_job(claim.job_id, claim.epoch,
-                                         self.lease_seconds).await {
+        match self
+            .catalog
+            .renew_pack_job(claim.job_id, claim.epoch, self.lease_seconds)
+            .await
+        {
             Ok(true) => (),
             Ok(false) => return Err(WorkerFault::Terminal),
             Err(_) => return Err(WorkerFault::Retryable),
         }
-        let verified = self.writer.upload_and_verify(&prepared).await
+        let verified = self
+            .writer
+            .upload_and_verify(&prepared)
+            .await
             .map_err(WorkerFault::from_storage)?;
         if verified.placement_receipt() != claim.receipt {
             return Err(WorkerFault::Terminal);
         }
-        self.catalog.finish_pack_job(
-            claim.job_id, claim.epoch, &verified.placement_receipt()
-        ).await.map_err(WorkerFault::from_author)
+        self.catalog
+            .finish_pack_job(claim.job_id, claim.epoch, &verified.placement_receipt())
+            .await
+            .map_err(WorkerFault::from_author)
     }
 }
 
@@ -196,7 +227,9 @@ pub fn worker_opt_in(
 }
 
 /// One job at a time per process; no shared PG lease is held over external I/O.
-pub fn start_background<S: FreeChapterStore + 'static>(worker: DropPackWorker<S>) -> JoinHandle<()> {
+pub fn start_background<S: FreeChapterStore + 'static>(
+    worker: DropPackWorker<S>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(5));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -220,13 +253,13 @@ mod tests {
 
     #[test]
     fn explicit_drop_worker_opt_in_fails_closed_without_auth_pg_and_s3() {
-        assert_eq!(worker_opt_in(None,false,true,true,true),Ok(false));
-        assert_eq!(worker_opt_in(Some("0"),false,true,true,true),Ok(false));
-        assert!(worker_opt_in(Some("1"),true,true,true,true).is_err());
-        assert!(worker_opt_in(Some("1"),false,false,true,true).is_err());
-        assert!(worker_opt_in(Some("1"),false,true,false,true).is_err());
-        assert!(worker_opt_in(Some("1"),false,true,true,false).is_err());
-        assert!(worker_opt_in(Some("yes"),false,true,true,true).is_err());
-        assert_eq!(worker_opt_in(Some("1"),false,true,true,true),Ok(true));
+        assert_eq!(worker_opt_in(None, false, true, true, true), Ok(false));
+        assert_eq!(worker_opt_in(Some("0"), false, true, true, true), Ok(false));
+        assert!(worker_opt_in(Some("1"), true, true, true, true).is_err());
+        assert!(worker_opt_in(Some("1"), false, false, true, true).is_err());
+        assert!(worker_opt_in(Some("1"), false, true, false, true).is_err());
+        assert!(worker_opt_in(Some("1"), false, true, true, false).is_err());
+        assert!(worker_opt_in(Some("yes"), false, true, true, true).is_err());
+        assert_eq!(worker_opt_in(Some("1"), false, true, true, true), Ok(true));
     }
 }

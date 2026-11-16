@@ -35,9 +35,11 @@ impl PgFreePackCatalog {
         // A forged 4,096-member spec must never make G allocate hundreds
         // of MiB by fetching all SINGLEs before the Zstd builder rejects it.
         const MAX_DECODED_PACK_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
-        let budget = claim.receipt.frames.iter().try_fold(0_u64, |total, f| {
-            total.checked_add(f.size_bytes)
-        });
+        let budget = claim
+            .receipt
+            .frames
+            .iter()
+            .try_fold(0_u64, |total, f| total.checked_add(f.size_bytes));
         if budget.is_none_or(|total| total > MAX_DECODED_PACK_SOURCE_BYTES) {
             return Err(AuthorError::Invalid);
         }

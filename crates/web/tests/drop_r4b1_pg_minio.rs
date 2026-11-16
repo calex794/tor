@@ -652,15 +652,27 @@ async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry(
     // no ninth claim is permitted even when the lease expires.
     let exhausted_key = format!("private/free-packs/ci/drop-r4b3-exhausted-{book}.zst");
     let exhausted_spec = prepare_free_pack(BUCKET, &exhausted_key, &pair).unwrap();
-    let exhausted_job = repo.schedule_pack_job(actor, book, exhausted_spec.receipt())
-        .await.unwrap();
-    pg(&url, &format!(
-        "UPDATE free_pack_jobs SET status='running',lease_epoch=8,
+    let exhausted_job = repo
+        .schedule_pack_job(actor, book, exhausted_spec.receipt())
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "UPDATE free_pack_jobs SET status='running',lease_epoch=8,
          locked_until=clock_timestamp()-interval '1 second' WHERE id={exhausted_job}"
-    ));
-    assert_eq!(repo.claim_pack_job(60).await.unwrap().map(|c| c.job_id), None);
-    assert_eq!(pg(&url, &format!(
-        "SELECT status FROM free_pack_jobs WHERE id={exhausted_job}"
-    )), "failed");
+        ),
+    );
+    assert_eq!(
+        repo.claim_pack_job(60).await.unwrap().map(|c| c.job_id),
+        None
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT status FROM free_pack_jobs WHERE id={exhausted_job}")
+        ),
+        "failed"
+    );
     pool.close().await;
 }

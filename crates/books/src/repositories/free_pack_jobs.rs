@@ -43,9 +43,10 @@ impl PgFreePackCatalog {
         }
         // Bound B's preapproval to G's 128 MiB decoded PACK budget.
         // Refuse impossible jobs before writing a durable pending row.
-        let decoded = receipt.frames.iter().try_fold(0_u64, |total, frame| {
-            total.checked_add(frame.size_bytes)
-        });
+        let decoded = receipt
+            .frames
+            .iter()
+            .try_fold(0_u64, |total, frame| total.checked_add(frame.size_bytes));
         if decoded.is_none_or(|bytes| bytes > 128 * 1024 * 1024) {
             return Err(AuthorError::Invalid);
         }
@@ -192,7 +193,7 @@ impl PgFreePackCatalog {
             "UPDATE free_pack_jobs SET status='failed',locked_until=NULL,
                  finished_at=clock_timestamp(),updated_at=clock_timestamp()
              WHERE status='running' AND lease_epoch>=8
-               AND locked_until<=clock_timestamp()"
+               AND locked_until<=clock_timestamp()",
         )
         .execute(&mut *tx)
         .await
