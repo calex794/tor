@@ -6,14 +6,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub(super) async fn committed_cursor_survives_lost_ack(
     app: &Router,
     url: &str,
-    sync_get: &str,
-    sync_put: &str,
     reader_token: &str,
     csrf: &str,
     json: &str,
     user_id: i64,
     chapter_id: i64,
 ) {
+    let sync_get = format!("/api/v1/me/progress/free?chapter_id={chapter_id}");
+    let sync_put = "/api/v1/me/progress/free";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let wire = format!(
@@ -83,7 +83,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         ),
     );
     assert_eq!(durable, "2|1|2");
-    let (status, state) = send(app, "GET", sync_get, "", Some(reader_token), &csrf, ORIGIN).await;
+    let (status, state) = send(app, "GET", &sync_get, "", Some(reader_token), csrf, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(state.contains("\"revision\":2"));
     assert!(state.contains("\"char_offset\":2"));
@@ -97,7 +97,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         sync_put,
         json,
         Some(reader_token),
-        &csrf,
+        csrf,
         ORIGIN,
     )
     .await;
