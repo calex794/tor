@@ -285,7 +285,7 @@ def cost_projection(report, measured_chapters, annual_chapters):
         projected_payload_bytes = row["stored_bytes"] * scale
         if name.startswith("single_"):
             objects = annual_chapters
-        elif "_mib_" in name:
+        elif name.split("_")[1].endswith("mib"):
             # A small sample's last partially-filled pack must not be replicated
             # thousands of times. Calculate only the IDEAL lower bound on objects;
             # production placement and max-size fragmentation may require more.
