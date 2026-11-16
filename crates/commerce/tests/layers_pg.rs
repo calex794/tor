@@ -11,6 +11,8 @@ mod layer_covers;
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
+#[path = "layers_pg/layer_lost_ack.rs"]
+mod layer_lost_ack;
 #[path = "layers_pg/layer_offer.rs"]
 mod layer_offer;
 #[path = "layers_pg/layer_paid_sales.rs"]
