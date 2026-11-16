@@ -208,6 +208,18 @@ def enabled() -> None:
     require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
                    f"WHERE user_id={buyer_id}") == 425,
             "Lost-ACK purchase must debit exactly the accepted price")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_snapshots "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Lost-ACK checkout must pin one immutable revenue share snapshot")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_lines "
+                   f"WHERE purchase_id={purchase_id} AND user_id={author_id} "
+                   "AND share_percent=100") == 1,
+            "Lost-ACK checkout must freeze the owner's initial 100% share")
+    # Creator/platform finance posting remains OFF on this public route.
+    # Do not mistake an internal wallet purchase for a settled payout.
+    require(scalar("SELECT count(*) FROM finance_chapter_postings "
+                   f"WHERE purchase_id={purchase_id}") == 0,
+            "Disabled creator posting must not invent finance credits")
     # A buyer who never saw the original HTTP receipt can recover through
     # their existing authenticated library *before* attempting another POST.
     paid_href = f'/read/paid/{chapter}?purchase_id={purchase_id}'
@@ -249,6 +261,12 @@ def enabled() -> None:
     require(scalar("SELECT count(*) FROM library_purchased_chapters "
                    f"WHERE user_id={buyer_id} AND chapter_id={chapter}") == 1,
             "Purchased pinned entitlement missing")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_snapshots "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Same-key replay must not duplicate the economic share snapshot")
+    require(scalar("SELECT count(*) FROM chapter_purchase_share_lines "
+                   f"WHERE purchase_id={purchase_id}") == 1,
+            "Same-key replay must not multiply creator share lines")
 
     uri = ("/api/v1/me/progress/purchased?"
            f"purchase_id={purchase_id}&chapter_id={chapter}&version_id={version}")
