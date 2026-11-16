@@ -196,6 +196,93 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     );
 }
 
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO only"]
+async fn s005_real_s3_head_transport_failure_never_returns_presigned_grant() {
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("isolated MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "only loopback S3 may be used for fault injection"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test access");
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").expect("test secret");
+    let configure = |endpoint: &str| {
+        aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::new(
+                access.clone(),
+                secret.clone(),
+                None,
+                None,
+                "loopback-test",
+            ))
+            .endpoint_url(endpoint)
+            .force_path_style(true)
+            .retry_config(RetryConfig::standard().with_max_attempts(1))
+            .build()
+    };
+    let bucket = "tor-private-s005-outage-ci";
+    let live = Client::from_conf(configure(&endpoint));
+    live.create_bucket().bucket(bucket).send().await.unwrap();
+    let working = S3PrivateStore::new(live, bucket.to_owned()).unwrap();
+    let record = object(
+        b"S005 isolated S3 transport failure, not a paid chapter",
+        ObjectId::parse("f0050000-0000-4000-8000-000000000001").unwrap(),
+    );
+    working
+        .put_immutable(
+            &record,
+            b"S005 isolated S3 transport failure, not a paid chapter",
+        )
+        .await
+        .unwrap();
+    assert_eq!(working.head_verified(&record).await, Ok(true));
+
+    // Use a separate local TCP endpoint which accepts each connection but
+    // closes before an S3 HEAD response. Real MinIO stays healthy for all
+    // neighbouring acceptance tests; this is a real transport disconnect
+    // through the AWS SDK, not a mocked StorageError.
+    let breaker = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let unavailable_endpoint = format!("http://{}", breaker.local_addr().unwrap());
+    let disconnect = tokio::spawn(async move {
+        while let Ok((socket, _)) = breaker.accept().await {
+            drop(socket);
+        }
+    });
+    let offline = S3PrivateStore::new(
+        Client::from_conf(configure(&unavailable_endpoint)),
+        bucket.to_owned(),
+    )
+    .unwrap();
+    let failed = tokio::time::timeout(
+        Duration::from_secs(8),
+        offline.presign_verified(&record, Duration::from_secs(90)),
+    )
+    .await
+    .expect("S3 transport outage must be bounded");
+    assert_eq!(
+        failed,
+        Err(StorageError::Unavailable),
+        "connection reset is not a missing object or a signed success"
+    );
+    disconnect.abort();
+
+    // After the isolated transport failure, the genuine private object and
+    // its 90-second grant remain available without any repair to the record.
+    assert_eq!(working.head_verified(&record).await, Ok(true));
+    let live_url = working
+        .presign_verified(&record, Duration::from_secs(90))
+        .await
+        .unwrap();
+    let signed = serde_json::to_value(live_url).unwrap();
+    assert_eq!(
+        curl_status(signed.as_str().unwrap()),
+        "200",
+        "a recovered private S3 signer still grants the exact object"
+    );
+}
+
 #[test]
 fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
     let config = aws_sdk_s3::Config::builder()
