@@ -90,8 +90,46 @@ def pg_benchmark(blobs, samples):
                         read_p50_ms=pct(durations, 50), read_p95_ms=pct(durations, 95))
 
 
+def packed_groups(parts, max_items=None, target_bytes=None):
+    """Yield nonempty groups of chapter indices without splitting encoded frames."""
+    assert (max_items is None) != (target_bytes is None)
+    pending, used = [], 0
+    for index, part in enumerate(parts):
+        if pending and ((max_items is not None and len(pending) >= max_items)
+                        or (target_bytes is not None and used + len(part) > target_bytes)):
+            yield pending
+            pending, used = [], 0
+        pending.append(index)
+        used += len(part)
+    if pending:
+        yield pending
+
+
+def self_test():
+    """Small bounded preflight of grouping and independently decodable frames."""
+    import zstandard as zstd
+    source = [b"a" * 400, b"b" * 500, b"c" * 600, b"d" * 700]
+    z = zstd.ZstdCompressor(level=3)
+    encoded = [z.compress(x) for x in source]
+    for kwargs in ({"max_items": 2}, {"target_bytes": len(encoded[0]) + len(encoded[1])}):
+        groups = list(packed_groups(encoded, **kwargs))
+        assert [i for group in groups for i in group] == list(range(len(source)))
+        for group in groups:
+            cursor = 0
+            container = b"".join(encoded[i] for i in group)
+            for i in group:
+                part = container[cursor:cursor + len(encoded[i])]
+                assert zstd.ZstdDecompressor().decompress(part) == source[i]
+                cursor += len(encoded[i])
+            assert cursor == len(container)
+    assert list(packed_groups([], max_items=2)) == []
+    print("TOR-STORE codec/grouping preflight: PASS")
+
+
 def s3_benchmark(blobs, samples):
+    """Single vs pack on identical compressed frames. Local MinIO, not provider latency."""
     import boto3
+    import zstandard as zstd
     from botocore import UNSIGNED
     from botocore.config import Config
     from botocore.exceptions import ClientError
@@ -104,121 +142,197 @@ def s3_benchmark(blobs, samples):
                           config=Config(signature_version="s3v4", s3={"addressing_style": "path"}))
     bucket = "tor-storage-disposable-bench"
     client.create_bucket(Bucket=bucket)
-    t0 = time.perf_counter()
-    for i, blob in enumerate(blobs, 1):
-        client.put_object(Bucket=bucket, Key=f"single/{i:08d}", Body=blob)
-    put_seconds = time.perf_counter() - t0
+
+    zstd_c = zstd.ZstdCompressor(level=3)
+    zstd_d = zstd.ZstdDecompressor()
+    encoders = {"raw": lambda b: b,
+                "zlib6": lambda b: zlib.compress(b, 6),
+                "zstd3": zstd_c.compress}
+    decoders = {"raw": lambda b: b,
+                "zlib6": zlib.decompress,
+                "zstd3": zstd_d.decompress}
+
+    # Precompress once: both layouts use exactly the same bytes for each chapter.
+    # Report codec CPU time separately, rather than hiding it inside PACK writes.
+    compressed = {}
+    compression = {}
+    input_bytes = sum(map(len, blobs))
+    for codec, encode in encoders.items():
+        t0 = time.perf_counter()
+        parts = [encode(b) for b in blobs]
+        seconds = time.perf_counter() - t0
+        compressed[codec] = parts
+        compression[codec] = {"stored_bytes": sum(map(len, parts)),
+                              "ratio": round(sum(map(len, parts)) / input_bytes, 4),
+                              "encode_seconds": round(seconds, 3)}
+    report = {"compression": compression}
 
     unsigned = boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1",
                             config=Config(signature_version=UNSIGNED, s3={"addressing_style": "path"}))
     anonymous_denied = False
-    try:
-        unsigned.get_object(Bucket=bucket, Key="single/00000001")
-    except ClientError as exc:
-        anonymous_denied = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403
-    assert anonymous_denied, "private bucket is anonymously readable"
-    durations = []
-    for i in samples:
-        t0 = time.perf_counter()
-        data = client.get_object(Bucket=bucket, Key=f"single/{i:08d}")["Body"].read()
-        assert data == blobs[i - 1]
-        durations.append((time.perf_counter() - t0) * 1000)
-    report = {
-        "single": dict(objects=len(blobs), stored_bytes=sum(map(len, blobs)),
-                       write_seconds=round(put_seconds, 3),
-                       read_p50_ms=pct(durations, 50), read_p95_ms=pct(durations, 95))
-    }
-    for group in (20, 100):
-        pointers, stored_bytes, objects = {}, 0, 0
-        cross_example = None
-        t0 = time.perf_counter()
-        for start in range(0, len(blobs), group):
-            objects += 1
-            key = f"packed-{group}/{objects:07d}"
-            packed = bytearray()
-            first_two = []
-            for i in range(start, min(start + group, len(blobs))):
-                encoded = zlib.compress(blobs[i], 6)
-                offset = len(packed)
-                pointers[i + 1] = (key, offset, len(encoded))
-                first_two.append((offset, len(encoded)))
-                packed.extend(encoded)
-            if cross_example is None and len(first_two) >= 2:
-                cross_example = (key, first_two[1])
-            stored_bytes += len(packed)
-            client.put_object(Bucket=bucket, Key=key, Body=bytes(packed))
-        write_s = time.perf_counter() - t0
+
+    def timings(values):
+        return {"read_p50_ms": pct(values, 50), "read_p95_ms": pct(values, 95),
+                "read_p99_ms": pct(values, 99)}
+
+    def verified_read(name, codec, pointers, expected_objects, write_seconds, stored_bytes):
+        parts = compressed[codec]
         durations = []
         for i in samples:
             key, offset, size = pointers[i]
+            kwargs = {"Bucket": bucket, "Key": key}
+            if offset is not None:
+                kwargs["Range"] = f"bytes={offset}-{offset + size - 1}"
             t0 = time.perf_counter()
-            part = client.get_object(Bucket=bucket, Key=key,
-                                     Range=f"bytes={offset}-{offset + size - 1}")["Body"].read()
-            assert zlib.decompress(part) == blobs[i - 1]
+            response = client.get_object(**kwargs)
+            data = response["Body"].read()
+            assert len(data) == size and data == parts[i - 1], f"{name}: corrupt encoded member {i}"
+            if offset is not None:
+                assert response["ResponseMetadata"]["HTTPStatusCode"] == 206
+                assert response["ContentRange"].startswith(f"bytes {offset}-{offset + size - 1}/")
+            assert decoders[codec](data) == blobs[i - 1], f"{name}: corrupt chapter {i}"
             durations.append((time.perf_counter() - t0) * 1000)
-        cross_member_accessible = False
-        if cross_example is not None:
-            key, (offset, size) = cross_example
-            signed = client.generate_presigned_url("get_object",
-                        Params={"Bucket": bucket, "Key": key}, ExpiresIn=60)
-            request = urllib.request.Request(
-                signed, headers={"Range": f"bytes={offset}-{offset + size - 1}"})
-            with urllib.request.urlopen(request, timeout=10) as response:
-                cross_member_accessible = response.status == 206 and len(response.read()) == size
-        assert cross_member_accessible, "unexpected presigned Range behavior"
-        report[f"pack_{group}"] = dict(objects=objects, stored_bytes=stored_bytes,
-            write_seconds=round(write_s, 3),
-            read_p50_ms=pct(durations, 50), read_p95_ms=pct(durations, 95),
-            presigned_url_can_read_other_member=cross_member_accessible)
+        return dict(objects=expected_objects, stored_bytes=stored_bytes,
+                    write_seconds=round(write_seconds, 3), codec=codec,
+                    **timings(durations))
+
+    for codec, parts in compressed.items():
+        name = f"single_{codec}"
+        pointers = {}
+        t0 = time.perf_counter()
+        for i, blob in enumerate(parts, 1):
+            key = f"{name}/{i:08d}"
+            pointers[i] = (key, None, len(blob))
+            client.put_object(Bucket=bucket, Key=key, Body=blob)
+        write_seconds = time.perf_counter() - t0
+        report[name] = verified_read(name, codec, pointers, len(parts),
+                                     write_seconds, sum(map(len, parts)))
+
+    try:
+        unsigned.get_object(Bucket=bucket, Key="single_raw/00000001")
+    except ClientError as exc:
+        anonymous_denied = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403
+    assert anonymous_denied, "private bucket is anonymously readable"
+
+    layouts = [
+        ("pack_20_zlib6", "zlib6", {"max_items": 20}),
+        ("pack_100_zlib6", "zlib6", {"max_items": 100}),
+        ("pack_20_zstd3", "zstd3", {"max_items": 20}),
+        ("pack_100_zstd3", "zstd3", {"max_items": 100}),
+    ] + [(f"pack_{mib}mib_zstd3", "zstd3", {"target_bytes": mib * 2**20})
+         for mib in (1, 4, 8, 16, 32)]
+
+    cross_example = None
+    for name, codec, grouping in layouts:
+        parts = compressed[codec]
+        pointers, stored_bytes, objects = {}, 0, 0
+        t0 = time.perf_counter()
+        for group in packed_groups(parts, **grouping):
+            objects += 1
+            key = f"{name}/{objects:07d}"
+            packed = bytearray()
+            for i in group:
+                offset = len(packed)
+                encoded = parts[i]
+                pointers[i + 1] = (key, offset, len(encoded))
+                packed.extend(encoded)
+            if name == "pack_20_zstd3" and cross_example is None and len(group) >= 2:
+                neighbor_id = group[1] + 1
+                cross_example = (key, pointers[neighbor_id], parts[neighbor_id - 1])
+            stored_bytes += len(packed)
+            client.put_object(Bucket=bucket, Key=key, Body=bytes(packed))
+        write_seconds = time.perf_counter() - t0
+        assert len(pointers) == len(blobs)
+        assert stored_bytes == sum(map(len, parts)), "pack payload bytes differ from Single"
+        report[name] = verified_read(name, codec, pointers, objects, write_seconds, stored_bytes)
+
+    cross_member_accessible = False
+    if cross_example is not None:
+        key, (_, offset, size), expected = cross_example
+        signed = client.generate_presigned_url("get_object",
+                    Params={"Bucket": bucket, "Key": key}, ExpiresIn=60)
+        request = urllib.request.Request(
+            signed, headers={"Range": f"bytes={offset}-{offset + size - 1}"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            cross_member_accessible = (response.status == 206 and response.read() == expected)
+    assert cross_member_accessible, "unexpected presigned Range behavior"
     report["security"] = {
         "anonymous_object_denied": anonymous_denied,
-        "signed_pack_url_exposes_other_member": report["pack_20"]["presigned_url_can_read_other_member"]
+        "signed_pack_url_exposes_other_member": cross_member_accessible,
     }
+    # This is a PACK payload experiment, not TOR-PACK v1: pointers are in RAM,
+    # no persisted seek table or manifest, and their storage overhead is excluded.
     return report
 
 
-def cost_projection(report, n):
+def cost_projection(report, measured_chapters, annual_chapters):
+    """Tariff-model-only projection at full yearly volume; not a provider invoice."""
+    scale = annual_chapters / measured_chapters
     out = {}
-    for name in ("single", "pack_20", "pack_100"):
-        row = report[name]
-        scale = 60_000_000 / n
+    for name, row in report.items():
+        if name in ("security", "compression"):
+            continue
         objects = round(row["objects"] * scale)
         gib = row["stored_bytes"] * scale / (1024 ** 3)
-        monthly_put = max(0, objects / 12 - 10000) / 1000 * 0.5692
+        # Assumes uniform imports across 12 months and historical modeled STANDARD
+        # prices; excludes GET, egress, manifest/index, replicas and backups.
+        monthly_put = max(0, objects / 12 - 10_000) / 1000 * 0.5692
         out[name] = {"objects": objects, "estimated_gib": round(gib, 1),
-                     "storage_rub_per_month": round(max(0, gib - 1) * 2.376, 1),
+                     "storage_rub_per_month_at_full_size": round(max(0, gib - 1) * 2.376, 1),
                      "put_rub_first_year": round(monthly_put * 12, 1)}
     return out
 
 
 def summary_md(result):
     n = result["sample"]["chapters"]
-    lines = ["# TOR-STORE / isolated benchmark", "",
-             "**Method:** synthetic Russian prose calibrated against aggregate sizes "
-             "of 976 real chapters from four private Drive files. Original texts were "
-             "not transferred to GitHub. This is not a measurement on the original texts.", "",
-             f"Generated {n:,} synthetic chapters; mean {result['sample']['mean_bytes']:,} B/chapter; "
-             f"zlib ratio {result['sample']['zlib_ratio']:.3f}.", "",
-             "| Back end | Objects/rows | Stored MiB | Write sec | Read p50 / p95 ms |",
-             "|---|---:|---:|---:|---:|"]
+    lines = ["# TOR-STORE / fair compression + layout experiment", "",
+             "**Data:** synthetic Russian-like text with chapter sizes calibrated against "
+             "976 private Drive chapters; no original text/Drive URL uploaded.", "",
+             f"Generated {n:,} chapters, {result['sample']['input_mib']:.2f} MiB raw.", "",
+             "Compression was performed **once per codec before any S3 write**. "
+             "Single and PACK use byte-identical compressed frames. "
+             "S3 write timings exclude compression; PG uses bulk COPY rather than "
+             "sequential PUT. Values are local-runner measurements, not Yandex S3.", "",
+             "| Codec | Encoded MiB | Ratio | Encode seconds |",
+             "|---|---:|---:|---:|"]
+    for codec, item in result["minio"]["compression"].items():
+        lines.append(f"| {codec} | {item['stored_bytes']/2**20:.2f} "
+                     f"| {item['ratio']:.3f} | {item['encode_seconds']:.2f} |")
+    lines += ["", "| Layout | Objects | Payload MiB | S3 write sec | Verified read p50/p95/p99 ms |",
+              "|---|---:|---:|---:|---:|"]
     for name, row in [("PostgreSQL 18", result["postgresql"])] + [
-        (f"Local MinIO {name}", result["minio"][name]) for name in ("single", "pack_20", "pack_100")]:
-        lines.append(f"| {name} | {row['objects']:,} | {row['stored_bytes']/2**20:.1f} "
-                     f"| {row['write_seconds']:.2f} | {row['read_p50_ms']:.2f} / {row['read_p95_ms']:.2f} |")
+        (f"MinIO {name}", item) for name, item in result["minio"].items()
+        if name not in ("security", "compression")]:
+        lines.append(f"| {name} | {row['objects']:,} | {row['stored_bytes']/2**20:.2f} "
+                     f"| {row['write_seconds']:.2f} | {row['read_p50_ms']:.2f} / "
+                     f"{row['read_p95_ms']:.2f} / {row.get('read_p99_ms', 0):.2f} |")
     lines += ["", f"PostgreSQL WAL bytes: **{result['postgresql']['wal_bytes']:,}**.", "",
-        "### Security",
-        f"- Anonymous access denied: **{result['minio']['security']['anonymous_object_denied']}**.",
-        "- **Packed S3 presigned URL exposes neighboring ranges**. Plain direct "
-        "signed grants must NEVER be used to mix paid/hidden and public chapters.", "",
-        "### Cost projection, 60 million chapters (Yandex STANDARD, modeled)",
-        "| Layout | Objects | Stored GiB | Storage RUB/month | PUT RUB/year 1 |",
-        "|---|---:|---:|---:|---:|"]
-    for name, row in result["forecast"].items():
-        lines.append(f"| {name} | {row['objects']:,} | {row['estimated_gib']:.1f} | "
-                     f"{row['storage_rub_per_month']:.0f} | {row['put_rub_first_year']:.0f} |")
-    lines += ["", "Caveats: local MinIO is **not** Yandex S3, CI runner bandwidth is not "
-              "production, corpus is synthetic, no real TOR authorization or backup/restore "
-              "costs measured, PUT pricing assumes equal imports each month.", ""]
+              "**Important:** each PACK stores independent compressed frames with an "
+              "in-memory offset index. PACK payload bytes equal the respective "
+              "compressed Single payload bytes. This experiment has **no persisted "
+              "manifest/seek table**; it is NOT a complete TOR-PACK format.", "",
+              "### Security", 
+              f"- Anonymous read denied: **{result['minio']['security']['anonymous_object_denied']}**.",
+              f"- Presigned PACK URL exposes other Range: "
+              f"**{result['minio']['security']['signed_pack_url_exposes_other_member']}**.", "",
+              "### Illustrative Yandex STANDARD model, not actual billing", ""]
+    for scenario, forecast in (("3.65 million chapters/year", result["forecast_3650k"]),
+                               ("60 million chapters/year", result["forecast_60m"])):
+        lines += [f"#### {scenario}", "",
+                  "| Layout | Objects | GiB at year end | RUB/month at year-end size | PUT RUB/year 1 |",
+                  "|---|---:|---:|---:|---:|"]
+        for name in ("single_raw", "single_zlib6", "single_zstd3",
+                     "pack_100_zlib6", "pack_100_zstd3", "pack_4mib_zstd3"):
+            row = forecast[name]
+            lines.append(f"| {name} | {row['objects']:,} | {row['estimated_gib']:.1f} "
+                         f"| {row['storage_rub_per_month_at_full_size']:.0f} "
+                         f"| {row['put_rub_first_year']:.0f} |")
+        lines.append("")
+    lines += ["**Limitations:** no real cloud/network charges, backups, PG index/WAL "
+              "retention or manifest overhead; synthetic content is not representative "
+              "for real compression ratios; fixed read order may warm local caches; "
+              "pg COPY vs sequential S3 PUT is not ingestion-throughput parity; "
+              "modeled tariff constants must be revalidated at decision time.", ""]
     return "\n".join(lines)
 
 
@@ -228,13 +342,17 @@ def main():
     parser.add_argument("--seed", type=int, default=34916)
     parser.add_argument("--output", default="tor-store-results.json")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    assert 30 <= args.chapters <= 10000, "bounded test only"
+    if args.self_test:
+        self_test()
+        return
+    assert 30 <= args.chapters <= 10000, "bounded benchmark: 30..10000 chapters"
     t0 = time.perf_counter()
     blobs = corpus(args.chapters, args.seed)
     sizes = list(map(len, blobs))
     result = {
-        "source": "non-reconstructable Drive-derived chapter-size statistics; generated proxy",
+        "source": "non-reconstructable Drive-derived sizes; synthetic proxy only",
         "sample": {"chapters": args.chapters, "input_mib": round(sum(sizes) / 2**20, 2),
                    "mean_bytes": round(statistics.mean(sizes)),
                    "p50_bytes": pct(sizes, 50), "p95_bytes": pct(sizes, 95),
@@ -246,7 +364,8 @@ def main():
         sample = rng.sample(range(1, len(blobs) + 1), min(150, len(blobs)))
         result["postgresql"] = pg_benchmark(blobs, sample)
         result["minio"] = s3_benchmark(blobs, sample)
-        result["forecast"] = cost_projection(result["minio"], len(blobs))
+        result["forecast_3650k"] = cost_projection(result["minio"], len(blobs), 3_650_000)
+        result["forecast_60m"] = cost_projection(result["minio"], len(blobs), 60_000_000)
     Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     if args.dry_run:
         print(json.dumps(result, ensure_ascii=False, indent=2))
