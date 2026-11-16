@@ -20,6 +20,9 @@ pub const MAX_FREE_PACK_BYTES: u64 = 16 * 1024 * 1024;
 /// Bound one compressed Zstd frame, including a conservative codec overhead.
 pub const MAX_PACK_FRAME_BYTES: u64 = MAX_FREE_MARKDOWN_BYTES + 4096;
 
+/// The smallest seekable Zstd table is one 8-byte frame entry + 17 bytes.
+pub const MIN_SEEK_TABLE_BYTES: u64 = 25;
+
 /// Physical metadata obtained from a trusted, versioned PostgreSQL manifest.
 ///
 /// Its public fields are deliberately NOT proof of a valid pack reference.
@@ -57,7 +60,10 @@ impl ValidatedPackReference {
             || metadata.manifest_sha256 == [0; 32]
             || !(1..=MAX_FREE_PACK_BYTES).contains(&metadata.pack_bytes)
             || metadata.seek_table_start == 0
-            || metadata.seek_table_start >= metadata.pack_bytes
+            || metadata
+                .pack_bytes
+                .checked_sub(metadata.seek_table_start)
+                .is_none_or(|tail| tail < MIN_SEEK_TABLE_BYTES)
             || !(1..=MAX_PACK_FRAME_BYTES).contains(&metadata.frame_bytes)
             || metadata
                 .frame_offset
@@ -288,6 +294,9 @@ mod tests {
         cases.push(m);
         let mut m = metadata();
         m.frame_offset = u64::MAX - 5;
+        cases.push(m);
+        let mut m = metadata();
+        m.seek_table_start = 15_999;
         cases.push(m);
         let mut m = metadata();
         m.seek_table_start = 16_000;
