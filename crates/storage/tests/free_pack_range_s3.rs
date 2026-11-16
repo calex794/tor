@@ -17,8 +17,8 @@ use tor_storage::{
     services::{
         crypto::sha256_bytes,
         free_chapter::FreeChapterObject,
-        free_pack_read::read_reauthorized_pack,
         free_pack_proof::PackProofTarget,
+        free_pack_read::read_reauthorized_pack,
         free_placement::{plan_after_acl, FreePhysicalPlacement},
     },
 };
