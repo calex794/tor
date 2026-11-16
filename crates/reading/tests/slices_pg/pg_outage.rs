@@ -78,8 +78,7 @@ async fn c_09_closed_pool_preserves_last_acknowledged_progress_and_recovers() {
 async fn c_09_deferred_progress_commit_rejection_keeps_last_receipt_and_recovers() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
     assert_eq!(
-        url,
-        "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
+        url, "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
         "COMMIT fault injection may never run against production"
     );
     let migrator_url = std::env::var("MIGRATOR_URL").expect("disposable migrator");
@@ -111,7 +110,10 @@ async fn c_09_deferred_progress_commit_rejection_keeps_last_receipt_and_recovers
         block_index: 1,
         char_offset: 2,
     };
-    let first = sync.save_free(user, 101, 201, acknowledged, 0).await.unwrap();
+    let first = sync
+        .save_free(user, 101, 201, acknowledged, 0)
+        .await
+        .unwrap();
     assert_eq!(first.revision, 1);
     let before = sync.free_state(user, 101).await.unwrap().unwrap();
 
@@ -199,13 +201,11 @@ async fn c_09_deferred_progress_commit_rejection_keeps_last_receipt_and_recovers
     assert_eq!(final_state.receipt.revision, 2);
     assert_eq!(final_state.place, next);
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM reader_book_positions WHERE user_id=$1"
-        )
-        .bind(user)
-        .fetch_one(&pool)
-        .await
-        .unwrap(),
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM reader_book_positions WHERE user_id=$1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
         1
     );
     sqlx::query("DELETE FROM users WHERE id=$1")
