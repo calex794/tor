@@ -147,7 +147,6 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_global_queue_skips_locked_book_then_claims_it_after_rollback() {
