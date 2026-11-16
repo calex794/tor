@@ -44,7 +44,10 @@ fn pg(url: &str, statement: &str) -> String {
 // Account-specific witnesses avoid racing unrelated auth tests running
 // concurrently in this same binary on the isolated CI database.
 fn signup_facts(url: &str, email: &str) -> (i64, i64) {
-    assert!(email.starts_with("a02-deferred-") && email.ends_with("@example.invalid"));
+    assert!(
+        (email.starts_with("a02-deferred-") || email.starts_with("a02-lost-ack-"))
+            && email.ends_with("@example.invalid")
+    );
     let query = format!(
         "SELECT (SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.email_normalized='{email}'), (SELECT count(*) FROM account_login_events e JOIN users u ON u.id=e.user_id WHERE u.email_normalized='{email}')"
     );
