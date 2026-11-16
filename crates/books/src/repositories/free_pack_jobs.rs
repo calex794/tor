@@ -3,7 +3,7 @@
 //! and verify both S3 objects before B can attach the candidate generations.
 use super::free_pack_attach::PgFreePackCatalog;
 use crate::services::authoring::AuthorError;
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use tor_contracts::drop_pack::PackPlacementReceipt;
 
 #[derive(Clone, Debug)]
