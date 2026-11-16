@@ -204,8 +204,13 @@ const server = http.createServer(async (req, reply) => {
       } else {
         saved = cursor;
         progressRevision++;
+        // Match the actual PositionResponse returned by sync_actions.rs.
+        // A receipt lacking the exact chapter/place must not be trusted by
+        // the browser after an ambiguous COMMIT acknowledgement.
         send(reply, 200, JSON.stringify({
-          revision: progressRevision, version_id: grant.version_id,
+          chapter_id: chapter, version_id: grant.version_id,
+          block_id: cursor.block_id, char_offset: cursor.char_offset,
+          revision: progressRevision,
         }), "application/json");
       }
     } else {
