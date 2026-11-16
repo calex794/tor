@@ -47,7 +47,7 @@ def build_pack(editions: list[tuple[str, bytes]], level: int = 3) -> tuple[bytes
     if not 1 <= level <= 19:
         raise PackError("unexpected compression level")
 
-    compressor = zstd.ZstdCompressor(level=level, write_checksum=True)
+    compressor = zstd.ZstdCompressor(level=level)
     ids, frames, table, manifest_entries = set(), [], bytearray(), []
     offset = 0
     for i, (edition_id, raw) in enumerate(editions):
@@ -171,7 +171,7 @@ def extract_range(reader, pack_size: int, manifest_bytes: bytes,
     """Read exact byte ranges of one edition, validating the persisted index.
 
     reader(offset, size) must fetch exactly that many bytes (S3 Range GET).
-    This makes 3 ranges per extraction in a cold prototype. In TOR, trusted
+    This makes 2 ranges per extraction in a cold prototype. In TOR, trusted
     validated seek-table entries would be cached by immutable pack SHA.
     """
     manifest = parse_manifest(manifest_bytes, trusted_manifest_sha256)
