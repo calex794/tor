@@ -127,6 +127,8 @@ def disabled() -> None:
            404, "Paid delivery must also be disabled by default")
     expect(buy_batch(Client(), {"chapters": []}, key="A" * 42 + "8"), 404,
            "S035 batch checkout must also be disabled by default")
+    expect(Client().call("GET", "/me/purchases"), 404,
+           "Checkout-off must not mount purchase recovery")
     print("D-04 default-off: PASS")
 
 
@@ -224,10 +226,16 @@ def enabled() -> None:
     # their existing authenticated library *before* attempting another POST.
     paid_href = f'/read/paid/{chapter}?purchase_id={purchase_id}'
     library_status, _, library_html = buyer.call("GET", "/me/purchases")
-    require(library_status == 200 and f'href="{paid_href}"' in library_html,
-            "Lost-ACK purchase must be discoverable in the buyer's library")
+    purchase_marker = f'data-chapter-id="{chapter}" data-purchase-id="{purchase_id}"'
+    require(library_status == 200 and purchase_marker in library_html,
+            f"Lost-ACK purchase not in buyer's library (HTTP {library_status})")
+    # This test deliberately runs checkout-only without a paid S3 reader:
+    # recovery metadata is visible, but there must be no unusable reader link.
+    require(f'href="{paid_href}"' not in library_html
+            and "Чтение временно недоступно" in library_html,
+            "Checkout-only recovery advertised a disabled paid reader")
     other_status, _, other_html = stranger.call("GET", "/me/purchases")
-    require(other_status == 200 and f'href="{paid_href}"' not in other_html,
+    require(other_status == 200 and purchase_marker not in other_html,
             "Lost-ACK purchase must never appear in an unrelated library")
     require("SECRET-PAID" not in library_html,
             "Purchased-library recovery leaked paid chapter text")

@@ -37,7 +37,7 @@ pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
 pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem, package_only_notice};
 mod reader_paid;
-pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
+pub use reader_paid::{paid_reader_shell, purchased_chapters_page, purchased_chapters_page_with_reader};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
