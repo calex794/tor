@@ -1,0 +1,48 @@
+{
+  "provenance": "Private user Google Drive Russian-language book assemblies. Only aggregate chapter statistics recorded; no title, link or source text is committed.",
+  "documents": 4,
+  "measured_chapters": 976,
+  "measured_utf8_bytes": 17506546,
+  "profiles": [
+    {
+      "id": "A",
+      "chapters": 310,
+      "p10": 11322,
+      "p50": 12350,
+      "p90": 13480,
+      "mean": 12356,
+      "utf8_per_char": 1.808,
+      "paragraphs_per_chapter": 80
+    },
+    {
+      "id": "B",
+      "chapters": 330,
+      "p10": 14065,
+      "p50": 16234,
+      "p90": 20569,
+      "mean": 16829,
+      "utf8_per_char": 1.815,
+      "paragraphs_per_chapter": 100
+    },
+    {
+      "id": "C",
+      "chapters": 324,
+      "p10": 18566,
+      "p50": 23412,
+      "p90": 29546,
+      "mean": 24180,
+      "utf8_per_char": 1.814,
+      "paragraphs_per_chapter": 220
+    },
+    {
+      "id": "D",
+      "chapters": 12,
+      "p10": 19858,
+      "p50": 20314,
+      "p90": 21547,
+      "mean": 24018,
+      "utf8_per_char": 1.813,
+      "paragraphs_per_chapter": 128
+    }
+  ]
+}
