@@ -10,7 +10,9 @@ use sqlx::{PgPool, Row};
 
 mod batch;
 mod direct_stage;
+mod direct_finalize;
 pub use direct_stage::DirectPackStageRequest;
+pub use direct_finalize::DirectPackFinalize;
 mod edit;
 mod owner;
 mod reserve_import;
