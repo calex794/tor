@@ -10,11 +10,7 @@ use axum::{
 use serde::Deserialize;
 use tor_reading::{
     domain::renderer::valid_reader_length,
-    services::{
-        progress::{is_completed_place, reader_blocks, valid_text_place, ReadingPlace},
-        sync::SyncError,
-        PublicReadingRepository,
-    },
+    services::{progress::ReadingPlace, sync::SyncError},
 };
 use tor_recommendations::repositories::RankingStoreError;
 
@@ -52,7 +48,15 @@ pub(super) async fn complete(
         Err(error) => return deny(error),
     };
     // Use the same currently published, readable free edition as /read/{id}.
-    let chapter = match state.reader.public_chapter(id).await {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
@@ -65,14 +69,19 @@ pub(super) async fn complete(
         block_index: form.block_index,
         char_offset: form.char_offset,
     };
-    let blocks = reader_blocks(&chapter.body_markdown);
-    if valid_text_place(place, &blocks).is_err() || !is_completed_place(place, &blocks) {
-        return deny(StatusCode::BAD_REQUEST);
-    }
     let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(form.version_id)) {
         (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
         _ => return deny(StatusCode::NOT_FOUND),
     };
+    match state
+        .sync
+        .free_source_position(chapter_id, version_id, place)
+        .await
+    {
+        Ok((true, true)) => (),
+        Ok(_) => return deny(StatusCode::BAD_REQUEST),
+        Err(error) => return deny(status(error)),
+    }
     match state
         .sync
         .save_free(actor, chapter_id, version_id, place, form.expected_revision)

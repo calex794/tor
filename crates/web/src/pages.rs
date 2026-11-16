@@ -4,7 +4,6 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use std::fmt::Write;
-
 mod account;
 mod layer_storefront;
 pub use layer_storefront::{
@@ -44,7 +43,6 @@ mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_observed, home, home_observed, CatalogPageQuery, PublicBookCard,
 };
-
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -59,11 +57,9 @@ pub fn escape_html(value: &str) -> String {
     }
     escaped
 }
-
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     layout_with_seo(title, description, content, seo_head::default_head())
 }
-
 /// Public homepage widget; all private page CSP rules remain unchanged.
 pub(super) fn layout_with_support_widget(
     title: &str,
@@ -76,7 +72,6 @@ pub(super) fn layout_with_support_widget(
         "<script src=\"/assets/newboo-support-widget.js\" defer></script>\n</body>",
     ))
 }
-
 fn layout_with_seo(
     title: &str,
     description: &str,
@@ -101,12 +96,10 @@ fn layout_with_seo(
     }
     Html(crate::header_nav::render(html))
 }
-
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
     book_detail_body(book, None, None, false, None, false)
 }
-
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
 pub fn book_detail_with_chapters_cover(
     book: &tor_reading::services::PublicBookPage,
@@ -115,7 +108,6 @@ pub fn book_detail_with_chapters_cover(
 ) -> Html<String> {
     book_detail_with_chapters_cover_internal(book, limit, has_cover, false)
 }
-
 fn book_detail_with_chapters_cover_internal(
     book: &tor_reading::services::PublicBookPage,
     limit: u16,
@@ -472,6 +464,14 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
 }
 
 /// Public free-reader display settings only.
+mod free_s3_assets;
+pub async fn free_s3_progress_script() -> impl IntoResponse {
+    free_s3_assets::free_s3_progress_script().await
+}
+pub async fn free_s3_reader_script() -> impl IntoResponse {
+    free_s3_assets::free_s3_reader_script().await
+}
+
 pub async fn free_reader_script() -> impl IntoResponse {
     (
         [

@@ -19,14 +19,28 @@ pub(super) async fn confirm_release(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let pending = match state
-        .authoring
-        .pending_free_chapter(actor, id, chapter_id)
-        .await
-    {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    let pending = if let Some(publisher) = state.free_author.as_ref() {
+        match publisher.owned(actor, id, chapter_id).await {
+            Ok(Some(value)) if !value.published => tor_books::services::authoring::PendingChapter {
+                number: value.chapter.number,
+                title: value.chapter.title,
+                body: value.chapter.body,
+                revision: value.chapter.revision,
+                version_id: value.version_id,
+            },
+            Ok(_) => return deny(StatusCode::NOT_FOUND),
+            Err(error) => return super::free_editor::error(error),
+        }
+    } else {
+        match state
+            .authoring
+            .pending_free_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(Some(chapter)) => chapter,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
     };
     let scheduled = match state
         .authoring

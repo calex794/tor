@@ -119,6 +119,15 @@ impl PgPublicChapterComments {
     /// Exact author + edition + command identity, transactional publication and
     /// moderation checks, no inferred paid grants or cross-edition parents.
     pub async fn create_free(&self, actor_id: i64, comment: NewChapterComment<'_>) -> CreateResult {
+        self.create_free_with_source(actor_id, comment, None).await
+    }
+
+    pub async fn create_free_with_source(
+        &self,
+        actor_id: i64,
+        comment: NewChapterComment<'_>,
+        verified_source: Option<&str>,
+    ) -> CreateResult {
         if !valid_request(actor_id, &comment) {
             return CreateResult::Invalid;
         }
@@ -126,8 +135,8 @@ impl PgPublicChapterComments {
             Ok(tx) => tx,
             Err(_) => return CreateResult::Unavailable,
         };
-        let source = sqlx::query_scalar::<_, String>(
-            "SELECT v.body_markdown FROM chapters c
+        let source = sqlx::query_as::<_,(Option<String>,Option<Vec<u8>>)>(
+            "SELECT v.body_markdown,v.content_sha256 FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN users actor ON actor.id=$3 AND actor.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
@@ -151,7 +160,13 @@ impl PgPublicChapterComments {
         .fetch_optional(&mut *tx)
         .await;
         let source = match source {
-            Ok(Some(source)) => source,
+            Ok(Some((stored, hash))) => {
+                match super::edition_source::resolve(stored, hash, verified_source) {
+                    Some(source) => source,
+                    None if comment.anchor.is_none() => String::new(),
+                    None => return CreateResult::Unavailable,
+                }
+            }
             Ok(None) => return CreateResult::NotFound,
             Err(_) => return CreateResult::Unavailable,
         };

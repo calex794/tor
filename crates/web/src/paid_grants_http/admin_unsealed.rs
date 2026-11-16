@@ -8,6 +8,7 @@ pub(super) async fn read(
     State(state): State<AdminReaderState>,
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
+    free: Option<axum::Extension<crate::author_chapter_http::FreeContent>>,
 ) -> Response {
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
@@ -52,10 +53,27 @@ pub(super) async fn read(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(status(error)),
     };
-    let body = match state.admin_unsealed.read(pinned).await {
-        Ok(Some(body)) => body,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(error) => return deny(status(error)),
+    let direct = match free {
+        Some(axum::Extension(free)) => match free
+            .0
+            .administrator_grant(chapter_id.get(), pinned.version_id.get(), &digest)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        None => None,
+    };
+    let payload = if let Some(grant) = direct {
+        grant
+    } else {
+        let body = match state.admin_unsealed.read(pinned).await {
+            Ok(Some(body)) => body,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(error) => return deny(status(error)),
+        };
+        json!({"schema":"tor.admin_unsealed.v1", "chapter_id":chapter_id.get().to_string(),
+            "version_id":pinned.version_id.get().to_string(), "body_markdown":body})
     };
     // Re-check the real live session/role and the current version after B
     // returns. A revoked administrator or a concurrent draft switch cannot
@@ -81,15 +99,7 @@ pub(super) async fn read(
     {
         return deny(status(error));
     }
-    let mut response = private_response(
-        Json(json!({
-            "schema": "tor.admin_unsealed.v1",
-            "chapter_id": chapter_id.get().to_string(),
-            "version_id": pinned.version_id.get().to_string(),
-            "body_markdown": body,
-        })),
-        &[],
-    );
+    let mut response = private_response(Json(payload), &[]);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),

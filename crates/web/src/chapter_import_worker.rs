@@ -27,6 +27,7 @@ pub enum ChapterImportWorkerResult {
 }
 
 pub struct ChapterImportWorker {
+    free_author: Option<Arc<dyn crate::author_chapter_http::FreeChapterPublisher>>,
     authoring: PgAuthoring,
     jobs: PgImportJobs,
     storage: Arc<dyn ChapterImportObjectStore>,
@@ -36,10 +37,17 @@ impl ChapterImportWorker {
     pub fn new(catalog: &PgCatalog, storage: Arc<dyn ChapterImportObjectStore>) -> Self {
         let pool = catalog.pool();
         Self {
+            free_author: None,
             authoring: PgAuthoring::new(pool.clone()),
             jobs: PgImportJobs::new(pool),
             storage,
         }
+    }
+
+    #[cfg(feature = "s3-free")]
+    pub fn with_free_s3(mut self, writer: crate::free_author_publish::S3FreeAuthor) -> Self {
+        self.free_author = Some(Arc::new(writer));
+        self
     }
 
     pub async fn run_one(&self) -> Result<ChapterImportWorkerResult, &'static str> {
@@ -119,11 +127,16 @@ impl ChapterImportWorker {
         };
 
         trace.enter(3); // PostgreSQL commit / fenced final state.
-        match self
-            .authoring
-            .complete_chapter_import_job(claim.job_id, claim.epoch, &chapters)
-            .await
-        {
+        let committed = if let Some(writer) = self.free_author.as_ref() {
+            writer.import_job(claim, &chapters).await
+        } else if cfg!(feature = "s3-free") {
+            Err(AuthorError::Unavailable)
+        } else {
+            self.authoring
+                .complete_chapter_import_job(claim.job_id, claim.epoch, &chapters)
+                .await
+        };
+        match committed {
             Ok(_) => {
                 // The succeeded state and all chapters are already committed.
                 // Cleanup failure leaves only an unreferenced private staging object.
@@ -206,6 +219,19 @@ pub fn start_chapter_import_worker_background(
     storage: Arc<dyn ChapterImportObjectStore>,
 ) -> JoinHandle<()> {
     let worker = ChapterImportWorker::new(&catalog, storage);
+    start_worker(worker)
+}
+
+#[cfg(feature = "s3-free")]
+pub fn start_chapter_import_worker_with_free(
+    catalog: PgCatalog,
+    storage: Arc<dyn ChapterImportObjectStore>,
+    writer: crate::free_author_publish::S3FreeAuthor,
+) -> JoinHandle<()> {
+    start_worker(ChapterImportWorker::new(&catalog, storage).with_free_s3(writer))
+}
+
+fn start_worker(worker: ChapterImportWorker) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(3));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);

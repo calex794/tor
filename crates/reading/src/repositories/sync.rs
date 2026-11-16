@@ -9,7 +9,7 @@ use sqlx::{postgres::PgRow, PgPool, Row};
 
 #[derive(Clone)]
 pub struct PgReadingSync {
-    pool: PgPool,
+    pub(super) pool: PgPool,
     activity_collection: bool,
     book_return_collection: bool,
     flow_collection: bool,
@@ -155,17 +155,22 @@ impl PgReadingSync {
         let book_id: i64 = edition
             .try_get("book_id")
             .map_err(|_| SyncError::Unavailable)?;
-        let body: String = edition
+        let body: Option<String> = edition
             .try_get("body_markdown")
             .map_err(|_| SyncError::Unavailable)?;
-        if !crate::domain::renderer::valid_reader_length(&body) {
+        if body
+            .as_deref()
+            .is_some_and(|s| !crate::domain::renderer::valid_reader_length(s))
+        {
             return Err(SyncError::Invalid);
         }
-        let blocks = crate::services::progress::reader_blocks(&body);
-        if crate::services::progress::valid_text_place(place, &blocks).is_err() {
+        let shape = super::content_shape::load(&mut tx, chapter_id, version_id, body.as_deref())
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        if !shape.valid_place(place.block_index, place.char_offset) {
             return Err(SyncError::Invalid);
         }
-        let finished = crate::services::progress::is_completed_place(place, &blocks);
+        let finished = shape.is_completed_place(place.block_index, place.char_offset);
         let row = sqlx::query(
             "INSERT INTO reader_book_positions AS saved \
                (user_id, book_id, chapter_id, chapter_no, chapter_revision, \

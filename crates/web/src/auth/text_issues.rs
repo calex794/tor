@@ -85,9 +85,25 @@ pub(super) async fn submit(
     if !permitted {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
+    let source = if let Some(loader) = state.free_content.as_ref() {
+        let digest = state
+            .cookies
+            .session_token(&headers)
+            .map(|token| session_token_digest(&token));
+        match loader
+            .source_for_session(chapter_id, form.version_id, digest.as_ref())
+            .await
+        {
+            Ok(Some(source)) => Some(source),
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
     let repo = PgTextIssues::new(state.accounts.pool().clone());
     match repo
-        .create_free(
+        .create_free_with_source(
             actor,
             NewTextIssue {
                 chapter_id,
@@ -99,6 +115,7 @@ pub(super) async fn submit(
                 suggestion: &form.suggested_text,
                 issue_type: &form.issue_type,
             },
+            source.as_deref(),
         )
         .await
     {

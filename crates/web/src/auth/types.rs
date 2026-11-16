@@ -18,6 +18,8 @@ pub(super) async fn session_user(
 
 #[derive(Clone)]
 pub(super) struct AuthState {
+    pub(super) free_content:
+        Option<std::sync::Arc<dyn crate::author_chapter_http::FreeChapterPublisher>>,
     pub(super) editorial: crate::editorial_http::display::DisplayRuntime,
     pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,

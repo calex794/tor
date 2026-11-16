@@ -105,6 +105,15 @@ impl PgTextIssues {
         actor: i64,
         issue: NewTextIssue<'_>,
     ) -> Result<CreatedIssue, IssueError> {
+        self.create_free_with_source(actor, issue, None).await
+    }
+
+    pub async fn create_free_with_source(
+        &self,
+        actor: i64,
+        issue: NewTextIssue<'_>,
+        verified_source: Option<&str>,
+    ) -> Result<CreatedIssue, IssueError> {
         if !Self::valid_request(actor, &issue) {
             return Err(IssueError::Invalid);
         }
@@ -113,8 +122,8 @@ impl PgTextIssues {
             .begin()
             .await
             .map_err(|_| IssueError::Unavailable)?;
-        let selected = sqlx::query_as::<_, (i64, String)>(
-            "SELECT c.book_id,v.body_markdown
+        let selected = sqlx::query_as::<_, (i64, Option<String>,Option<Vec<u8>>)>(
+            "SELECT c.book_id,v.body_markdown,v.content_sha256
              FROM chapters c JOIN books b ON b.id=c.book_id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
@@ -131,7 +140,9 @@ impl PgTextIssues {
         .await
         .map_err(|_| IssueError::Unavailable)?
         .ok_or(IssueError::NotVisible)?;
-        let (book_id, source) = selected;
+        let (book_id, stored, hash) = selected;
+        let source = super::edition_source::resolve(stored, hash, verified_source)
+            .ok_or(IssueError::Unavailable)?;
         Self::insert_verified(tx, actor, issue, book_id, &source, None).await
     }
 
@@ -432,7 +443,8 @@ impl PgTextIssues {
                       AND published.id=p.version_id
                      WHERE issue.id=$1 AND issue.book_id=$2
                        AND published.version_no>reported.version_no
-                       AND published.body_markdown<>reported.body_markdown
+                       AND COALESCE(published.content_sha256<>reported.content_sha256,
+                           published.body_markdown<>reported.body_markdown,false)
                        AND (
                          issue.purchase_id IS NULL
                          OR EXISTS (

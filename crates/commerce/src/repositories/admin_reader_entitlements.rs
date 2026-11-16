@@ -44,7 +44,10 @@ impl PgAdministratorReaderEntitlements {
              JOIN account_roles r ON r.user_id=u.id
                AND r.role='administrator' AND r.is_active
              WHERE c.id=$1 AND v.storage_object_id IS NULL
-               AND length(v.body_markdown) BETWEEN 1 AND 200000
+               AND (length(v.body_markdown) BETWEEN 1 AND 200000
+                 OR EXISTS(SELECT 1 FROM free_chapter_storage_objects f
+                   WHERE f.chapter_id=v.chapter_id AND f.version_id=v.id
+                     AND f.sha256=v.content_sha256))
              LIMIT 1",
         )
         .bind(chapter_id.get())
@@ -82,7 +85,10 @@ impl PgAdministratorReaderEntitlements {
                AND r.role='administrator' AND r.is_active
              WHERE v.chapter_id=$1 AND v.id=$2
                AND v.storage_object_id IS NULL
-               AND length(v.body_markdown) BETWEEN 1 AND 200000
+               AND (length(v.body_markdown) BETWEEN 1 AND 200000
+                 OR EXISTS(SELECT 1 FROM free_chapter_storage_objects f
+                   WHERE f.chapter_id=v.chapter_id AND f.version_id=v.id
+                     AND f.sha256=v.content_sha256))
              LIMIT 1",
         )
         .bind(chapter_id.get())
@@ -119,7 +125,10 @@ impl PgAdministratorReaderEntitlements {
              JOIN account_roles r ON r.user_id=u.id
                AND r.role='administrator' AND r.is_active
              WHERE v.chapter_id=$1 AND v.storage_object_id IS NULL
-               AND length(v.body_markdown) BETWEEN 1 AND 200000
+               AND (length(v.body_markdown) BETWEEN 1 AND 200000
+                 OR EXISTS(SELECT 1 FROM free_chapter_storage_objects f
+                   WHERE f.chapter_id=v.chapter_id AND f.version_id=v.id
+                     AND f.sha256=v.content_sha256))
              ORDER BY v.version_no DESC,v.id DESC
              LIMIT 100",
         )

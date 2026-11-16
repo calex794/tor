@@ -246,7 +246,7 @@ impl PgLibrary {
         let row = sqlx::query(
             "SELECT b.id AS book_id, b.title AS book_title, \
                     c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
-                    saved.version_id, v.version_no, v.body_markdown, \
+                    saved.version_id, v.version_no, COALESCE(v.body_markdown,'') AS body_markdown, \
                     (b.lifecycle_status='ordinary_deleted') AS ordinary_deleted, \
                     progress.block_index AS saved_block_index, \
                     progress.char_offset AS saved_char_offset \

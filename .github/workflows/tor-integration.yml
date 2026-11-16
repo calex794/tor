@@ -88,7 +88,7 @@ jobs:
       # Fall back to Rust when cover_s3 is not selected alongside PostgreSQL.
       - name: Combined S3 feature Clippy (PG selected without cover_s3)
         if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 && matrix.lane == 'tests' }}
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-free,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
         if: ${{ matrix.lane == 'release' }}
         run: cargo build --release -p tor-web
@@ -223,7 +223,7 @@ jobs:
       # When Rust and PostgreSQL both run, Rust owns the single lint invocation.
       - name: Combined S3 feature Clippy
         if: ${{ (github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust) && matrix.shard == 'foundation' }}
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-free,s3-chapter-import' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -389,6 +389,7 @@ jobs:
             cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+            cargo test -p tor-storage --features pg --test free_chapter_storage_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
@@ -430,6 +431,7 @@ jobs:
             cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
+            cargo test -p tor-books --test free_s3_lifecycle_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test chapter_release_pg -- --ignored
             cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1
@@ -1467,6 +1469,7 @@ jobs:
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --test free_chapter_s3 -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
           cargo test -p tor-imports --features s3 repositories::s3::tests::s023_private_source_put_get_conflict_and_delete -- --ignored --test-threads=1
           cargo fmt -p tor-imports -- --check
@@ -1613,7 +1616,7 @@ jobs:
       # Required CI only: run the shared lint here when both Rust and PG run.
       - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
         if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-free,s3-chapter-import' -- -D warnings
       - name: MinIO diagnostics on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
@@ -1829,6 +1832,7 @@ jobs:
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_private_media_browser.cjs
+          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4

@@ -115,9 +115,14 @@ pub(super) async fn page(
         .await;
     let mut response = private_response(html, &cookies);
     // E-12: the only new script is self-hosted and cannot run inline JS.
-    response.headers_mut().insert(
-        "content-security-policy",
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
-    );
+    let csp = match crate::public_reader_http::free_reader_csp(
+        cfg!(feature = "s3-free") && chapter.body_markdown.is_empty(),
+    ) {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", csp);
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }

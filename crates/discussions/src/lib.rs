@@ -9,6 +9,7 @@ pub mod domain {
 }
 
 pub mod repositories {
+    pub(crate) mod edition_source;
     pub mod inbox;
     pub mod mentions;
     pub mod paid_chapter_comments;

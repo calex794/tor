@@ -337,11 +337,17 @@ pub(super) async fn confirm(
             "Файл изменился после предпросмотра. Проверьте главы заново.",
         );
     }
-    match state
-        .authoring
-        .import_draft_chapter_batch(actor, id, &key, &chapters)
-        .await
-    {
+    let result = if let Some(publisher) = state.free_author.as_ref() {
+        publisher.import_batch(actor, id, &key, &chapters).await
+    } else if cfg!(feature = "s3-free") {
+        Err(AuthorError::Unavailable)
+    } else {
+        state
+            .authoring
+            .import_draft_chapter_batch(actor, id, &key, &chapters)
+            .await
+    };
+    match result {
         Ok(saved) => private_response(
             Json(ConfirmResponse {
                 saved,

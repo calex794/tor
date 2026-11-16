@@ -4,7 +4,7 @@
 
 use super::{parse_receipt, parse_stored, PgReadingSync};
 use crate::services::{
-    progress::{reader_blocks, valid_text_place, ReadingPlace},
+    progress::ReadingPlace,
     sync::{checked_place, StoredProgress, SyncError, SyncReceipt},
 };
 use sqlx::Row;
@@ -51,7 +51,7 @@ impl PgReadingSync {
                      SELECT 1 FROM user_level_grants age_grant
                      WHERE age_grant.user_id=viewer.id
                        AND age_grant.level='pro_adult' AND age_grant.is_active)))
-                 AND chapter.visibility='public' AND chapter.access_level='free'
+                 AND chapter.visibility='public'
                  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                  AND (chapter.reader_released_at IS NULL
                       OR chapter.reader_released_at<=now())"#,
@@ -77,7 +77,8 @@ impl PgReadingSync {
         parse_stored(row).map(Some)
     }
 
-    /// Advance only an explicitly pinned historical free edition. This
+    /// Advance only an explicitly pinned historical free edition. The current
+    /// chapter's paid/free flag cannot change that exact historical pin. This
     /// deliberately does not mint completion, ranking, financial or outbox facts.
     /// The existing one-row-per-Book CAS remains authoritative across devices.
     pub async fn save_archived_free(
@@ -129,7 +130,7 @@ impl PgReadingSync {
                       SELECT 1 FROM user_level_grants age_grant
                       WHERE age_grant.user_id=viewer.id
                         AND age_grant.level='pro_adult' AND age_grant.is_active)))
-                 AND chapter.visibility='public' AND chapter.access_level='free'
+                 AND chapter.visibility='public'
                  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                  AND (chapter.reader_released_at IS NULL
                       OR chapter.reader_released_at<=now())
@@ -144,13 +145,18 @@ impl PgReadingSync {
         .map_err(|_| SyncError::Unavailable)?
         .ok_or(SyncError::NotFound)?;
 
-        let body: String = edition
+        let body: Option<String> = edition
             .try_get("body_markdown")
             .map_err(|_| SyncError::Unavailable)?;
-        if !crate::domain::renderer::valid_reader_length(&body) {
-            return Err(SyncError::Invalid);
-        }
-        if valid_text_place(place, &reader_blocks(&body)).is_err() {
+        let shape = crate::repositories::content_shape::load(
+            &mut tx,
+            chapter_id,
+            version_id,
+            body.as_deref(),
+        )
+        .await
+        .map_err(|_| SyncError::Unavailable)?;
+        if !shape.valid_place(place.block_index, place.char_offset) {
             return Err(SyncError::Invalid);
         }
         let book_id: i64 = edition

@@ -1,6 +1,6 @@
 //! Browser author publishing, only for authenticated owner, no URL collectors.
 #![forbid(unsafe_code)]
-
+use crate::auth_cookies::{private_response, CookiePolicy};
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
@@ -16,23 +16,20 @@ use tor_books::{
     repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapterRequest},
 };
-
-use crate::auth_cookies::{private_response, CookiePolicy};
-
 mod chapter_import;
+mod free_editor;
 mod new_chapter_page;
 mod publisher;
 mod schedule;
-pub(crate) use publisher::PaidChapterPublisher;
-
+pub(crate) use publisher::{FreeChapterPublisher, FreeContent, PaidChapterPublisher};
 #[derive(Clone)]
 struct AuthorChapterState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
+    free_author: Option<Arc<dyn FreeChapterPublisher>>,
 }
-
 #[derive(Deserialize)]
 struct ChapterForm {
     number: i32,
@@ -46,7 +43,6 @@ struct ChapterForm {
     is_delayed_publication: Option<String>,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct EditChapterForm {
     number: i32,
@@ -56,23 +52,21 @@ struct EditChapterForm {
     command_key: String,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct ReleaseChapterForm {
     expected_revision: i64,
     version_id: i64,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct PublishForm {
     csrf_token: Option<String>,
 }
-
 pub(crate) fn router(
     accounts: PgAccounts,
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
+    free_author: Option<Arc<dyn FreeChapterPublisher>>,
 ) -> Router {
     let images = paid_author.as_ref().map(|publisher| {
         crate::author_chapter_images::router(accounts.clone(), cookies.clone(), publisher.clone())
@@ -83,6 +77,7 @@ pub(crate) fn router(
         authoring,
         cookies,
         paid_author,
+        free_author,
     };
     let app = Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
@@ -121,7 +116,6 @@ pub(crate) fn router(
         app
     }
 }
-
 async fn session_actor(
     state: &AuthorChapterState,
     headers: &HeaderMap,
@@ -135,11 +129,9 @@ async fn session_actor(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
-
 fn deny(status: StatusCode) -> Response {
     private_response(status, &[])
 }
-
 async fn new_chapter(
     State(state): State<AuthorChapterState>,
     Path(id): Path<i64>,
@@ -159,7 +151,6 @@ async fn new_chapter(
     }
     new_chapter_page::render_authenticated(state, actor, id, headers).await
 }
-
 async fn create_chapter(
     State(state): State<AuthorChapterState>,
     Path(id): Path<i64>,
@@ -271,36 +262,58 @@ async fn create_chapter(
     if delayed_publication && !is_public {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let outcome = if delayed_publication {
-        state
-            .authoring
-            .create_pending_free_chapter(actor, &request)
-            .await
-    } else if is_public {
-        state
-            .authoring
-            .create_published_free_chapter(actor, &request)
-            .await
-    } else {
-        state.authoring.create_free_chapter(actor, &request).await
-    };
-    match outcome {
-        Ok(saved) if delayed_publication => private_response(
-            Redirect::to(&format!(
-                "/me/books/{id}/chapters/{}/release",
-                saved.chapter_id
-            )),
-            &[],
-        ),
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
-        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
-        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
-        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
-        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    // New fresh-install path: no free chapter Markdown is written to PG.
+    // G must verify the actual S3 GET before B publishes an edition.
+    if let Some(publisher) = state.free_author.as_ref() {
+        let result = if delayed_publication {
+            publisher.stage_new(actor, &request).await
+        } else {
+            publisher.publish_new(actor, &request).await
+        };
+        return match result {
+            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    }
+    // A build with the S3-free feature must never fall back to text in PG.
+    #[cfg(feature = "s3-free")]
+    return deny(StatusCode::SERVICE_UNAVAILABLE);
+    #[cfg(not(feature = "s3-free"))]
+    {
+        let outcome = if delayed_publication {
+            state
+                .authoring
+                .create_pending_free_chapter(actor, &request)
+                .await
+        } else if is_public {
+            state
+                .authoring
+                .create_published_free_chapter(actor, &request)
+                .await
+        } else {
+            state.authoring.create_free_chapter(actor, &request).await
+        };
+        match outcome {
+            Ok(saved) if delayed_publication => private_response(
+                Redirect::to(&format!(
+                    "/me/books/{id}/chapters/{}/release",
+                    saved.chapter_id
+                )),
+                &[],
+            ),
+            Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
     }
 }
-
 /// Prepopulate a draft editor only after resolving the active database session.
 async fn edit_chapter(
     State(state): State<AuthorChapterState>,
@@ -312,6 +325,11 @@ async fn edit_chapter(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
+    match free_editor::page(&state, actor, id, chapter_id, &headers).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
     // Published free content must be editable without a second release
     // action. Existing owner-only drafts still use their separate B path.
     let published = match state
@@ -371,7 +389,6 @@ async fn edit_chapter(
     };
     private_response(page, &cookies)
 }
-
 /// Two tabs can open the same revision, but only one may save it.
 async fn update_chapter(
     State(state): State<AuthorChapterState>,
@@ -391,6 +408,11 @@ async fn update_chapter(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    match free_editor::update(&state, actor, id, chapter_id, &form).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
     let book = match u64::try_from(id) {
         Ok(book) if book > 0 => book,
         _ => return deny(StatusCode::NOT_FOUND),
@@ -449,6 +471,9 @@ async fn update_chapter(
             ),
         };
     }
+    if cfg!(feature = "s3-free") {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
     let input = match save_chapter(SaveChapterRequest {
         book_id: book,
         chapter_id: Some(chapter),
@@ -501,7 +526,6 @@ async fn update_chapter(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn publish_chapter(
     State(state): State<AuthorChapterState>,
     Path((id, chapter_id)): Path<(i64, i64)>,
@@ -520,6 +544,7 @@ async fn publish_chapter(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    // B releases the exact verified working edition, including bodyless S3.
     match state
         .authoring
         .release_pending_free_chapter(
@@ -545,7 +570,6 @@ async fn publish_chapter(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn publish_book(
     State(state): State<AuthorChapterState>,
     Path(id): Path<i64>,

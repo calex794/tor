@@ -33,3 +33,5 @@
 - [FLOW-07 external search snapshots](flow-search-analytics-v1.md): fixed-provider imports, durable leases, independent totals, coverage and admin reports; provider activation remains explicit.
 
 - [FLOW-05 anonymous card observations](flow-anonymous-observations-v1.md): trusted per-card proofs, browser viewability, explicit coverage and low observed exposure; no reader identity or billable impressions.
+
+- [S349 free S3 delivery](free-s3-delivery-v1.md): bodyless new free editions, verified publication, direct browser reading and immutable source positions.

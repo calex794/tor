@@ -1,6 +1,5 @@
 use super::*;
 use std::collections::HashSet;
-
 #[test]
 fn registry_is_finite_and_classifies_each_declared_method() {
     let mut unique = HashSet::new();
@@ -21,12 +20,10 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 432);
+    assert_eq!(unique.len(), 435);
 }
-
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
-
 #[test]
 fn public_private_and_write_routes_are_distinct() {
     assert_eq!(
@@ -130,7 +127,6 @@ fn public_private_and_write_routes_are_distinct() {
         CostClass::CheapRead
     );
 }
-
 #[test]
 fn unknown_and_unregistered_method_never_get_normal_labels() {
     for (route, method) in [
@@ -148,7 +144,6 @@ fn unknown_and_unregistered_method_never_get_normal_labels() {
         assert_ne!(p.risk_hint, RiskHint::Normal);
     }
 }
-
 #[test]
 fn one_hundred_thousand_ids_do_not_create_new_label_series() {
     // Axum reports this STATIC template for every /books/<id>.
@@ -166,7 +161,6 @@ fn one_hundred_thousand_ids_do_not_create_new_label_series() {
     assert_eq!(unique_families.len(), 1);
     assert_eq!(unique_families.into_iter().next().unwrap().0, "/books/");
 }
-
 #[test]
 fn bounded_latency_and_status_buckets() {
     let p = classify(Some("/api/v1/books"), "GET");
@@ -187,7 +181,6 @@ fn bounded_latency_and_status_buckets() {
         StatusBucket::ServerError
     );
 }
-
 #[test]
 fn passports_cannot_embed_query_or_user_values() {
     let p = classify(Some("/books/{id}"), "GET");
@@ -197,7 +190,6 @@ fn passports_cannot_embed_query_or_user_values() {
     assert!(!s.contains("book_slug"));
     assert_eq!(p.route_family, "/books/");
 }
-
 #[test]
 fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
     for (template, method, surface, cost) in [
@@ -597,3 +589,6 @@ fn s039_admin_post_is_exact_internal_wallet_write() {
     assert_eq!(post.cost_class, CostClass::Write);
     assert!(!classify(Some("/admin/finance/payouts/{id}/post"), "GET").route_known);
 }
+
+#[path = "tests/s349.rs"]
+mod s349;

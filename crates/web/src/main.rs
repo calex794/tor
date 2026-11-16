@@ -1,3 +1,4 @@
+mod auth_startup;
 mod book_schedule_worker;
 mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
@@ -194,6 +195,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PgCatalog,
         Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     )> = None;
+    #[cfg(feature = "s3-free")]
+    let mut pending_free_import_author: Option<tor_web::free_author_publish::S3FreeAuthor> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
@@ -372,6 +375,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             storage,
                         ));
                 }
+                #[cfg(feature = "s3-free")]
+                let free_author = auth_startup::configured_free_publisher(&catalog).await?;
+                #[cfg(feature = "s3-free")]
+                {
+                    if chapter_import_worker_enabled && free_author.is_none() {
+                        return Err(
+                            "S3-free import worker requires configured TOR_FREE_S3_BUCKET".into(),
+                        );
+                    }
+                    pending_free_import_author = free_author.clone();
+                }
+
+                #[cfg(not(feature = "s3-free"))]
+                if env::var_os("TOR_FREE_S3_BUCKET").is_some() {
+                    return Err("TOR_FREE_S3_BUCKET requires --features s3-free".into());
+                }
                 #[cfg(feature = "s3-paid")]
                 let (paid_storage, paid_author): (
                     Option<Arc<dyn PrivateObjectDeliveryPort>>,
@@ -419,58 +438,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 };
                 #[cfg(not(feature = "s3-paid"))]
                 let paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>> = None;
-                if let Some(paid) = paid_storage {
-                    // The browser receives only this server-owned allowed S3
-                    // origin. No signed host or bucket comes from a visitor.
-                    let s3_origin = env::var("TOR_PAID_S3_PUBLIC_ORIGIN")?;
+                auth_startup::AuthInputs {
+                    catalog,
+                    reader,
+                    accounts,
+                    secure,
+                    origin,
+                    covers: cover_store,
+                    cover_worker_enabled,
+                    paid_storage,
                     #[cfg(feature = "s3-paid")]
-                    let app = if let Some(author) = paid_author {
-                        tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
-                            catalog,
-                            reader,
-                            accounts,
-                            (secure, origin),
-                            (paid, s3_origin),
-                            cover_store.map(|store| (store, cover_worker_enabled)),
-                            author,
-                        )
-                    } else {
-                        tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                            catalog,
-                            reader,
-                            accounts,
-                            secure,
-                            origin,
-                            (paid, s3_origin),
-                            cover_store.map(|store| (store, cover_worker_enabled)),
-                        )
-                    };
-                    #[cfg(not(feature = "s3-paid"))]
-                    let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                        catalog,
-                        reader,
-                        accounts,
-                        secure,
-                        origin,
-                        (paid, s3_origin),
-                        cover_store.map(|store| (store, cover_worker_enabled)),
-                    );
-                    app.map_err(|reason| -> Box<dyn Error> { reason.into() })?
-                } else if let Some(store) = cover_store {
-                    if cover_worker_enabled {
-                        tor_web::router_with_postgres_reading_auth_cover_uploads(
-                            catalog, reader, accounts, secure, origin, store,
-                        )
-                    } else {
-                        tor_web::router_with_postgres_reading_auth_covers(
-                            catalog, reader, accounts, secure, origin, store,
-                        )
-                    }
-                } else {
-                    tor_web::router_with_postgres_reading_auth(
-                        catalog, reader, accounts, secure, origin,
-                    )
+                    paid_author,
+                    #[cfg(feature = "s3-free")]
+                    free_author,
                 }
+                .router()?
             } else {
                 if let Some(store) = cover_store {
                     tor_web::router_with_postgres_reading_covers(catalog, reader, store)
@@ -551,6 +533,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         println!("TOR chapter import worker enabled");
+        #[cfg(feature = "s3-free")]
+        if let Some(writer) = pending_free_import_author {
+            return tor_web::chapter_import_worker::start_chapter_import_worker_with_free(
+                catalog, storage, writer,
+            );
+        }
         tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
     });
     // C completion events remain durable if the server restarts.

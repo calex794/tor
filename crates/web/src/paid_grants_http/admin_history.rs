@@ -86,6 +86,7 @@ pub(super) async fn read(
     State(state): State<AdminReaderState>,
     Path((raw_chapter, raw_version)): Path<(String, String)>,
     headers: HeaderMap,
+    free: Option<axum::Extension<crate::author_chapter_http::FreeContent>>,
 ) -> Response {
     let (authority, actor, digest) = match authorize(&state, &headers).await {
         Ok(value) => value,
@@ -110,10 +111,27 @@ pub(super) async fn read(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(status(error)),
     };
-    let body = match state.admin_unsealed.read(current).await {
-        Ok(Some(body)) => body,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(error) => return deny(status(error)),
+    let direct = match free {
+        Some(axum::Extension(free)) => match free
+            .0
+            .administrator_grant(chapter.get(), current.version_id.get(), &digest)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        None => None,
+    };
+    let payload = if let Some(grant) = direct {
+        grant
+    } else {
+        let body = match state.admin_unsealed.read(current).await {
+            Ok(Some(body)) => body,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(error) => return deny(status(error)),
+        };
+        json!({"schema":"tor.admin_unsealed.v1", "chapter_id":chapter.get().to_string(),
+            "version_id":current.version_id.get().to_string(), "body_markdown":body})
     };
     // A second authoritative DB check blocks revocation and a changed
     // chapter-version association while B was fetching the original text.
@@ -138,12 +156,7 @@ pub(super) async fn read(
     {
         return deny(status(error));
     }
-    private_json(json!({
-        "schema": "tor.admin_unsealed.v1",
-        "chapter_id": chapter.get().to_string(),
-        "version_id": version.get().to_string(),
-        "body_markdown": body,
-    }))
+    private_json(payload)
 }
 
 fn private_json(body: serde_json::Value) -> Response {
