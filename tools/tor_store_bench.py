@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import math
 import os
 import random
 import statistics
@@ -87,7 +88,8 @@ def pg_benchmark(blobs, samples):
             return dict(objects=len(blobs), stored_bytes=total_bytes,
                         heap_bytes=heap_bytes, wal_bytes=wal_bytes,
                         write_seconds=round(write_s, 3),
-                        read_p50_ms=pct(durations, 50), read_p95_ms=pct(durations, 95))
+                        read_p50_ms=pct(durations, 50), read_p95_ms=pct(durations, 95),
+                        read_p99_ms=pct(durations, 99))
 
 
 def packed_groups(parts, max_items=None, target_bytes=None):
@@ -123,7 +125,15 @@ def self_test():
                 cursor += len(encoded[i])
             assert cursor == len(container)
     assert list(packed_groups([], max_items=2)) == []
-    print("TOR-STORE codec/grouping preflight: PASS")
+    sample = {"single_zstd3": {"objects": 3, "stored_bytes": 3 * 400},
+              "pack_4mib_zstd3": {"objects": 1, "stored_bytes": 3 * 400},
+              "pack_100_zstd3": {"objects": 1, "stored_bytes": 3 * 400}}
+    projected = cost_projection(sample, measured_chapters=3, annual_chapters=3_000_000)
+    assert projected["single_zstd3"]["objects"] == 3_000_000
+    assert projected["pack_100_zstd3"]["objects"] == 30_000
+    assert projected["pack_4mib_zstd3"]["objects"] == math.ceil(
+        (3 * 400 * 1_000_000) / (4 * 2**20))
+    print("TOR-STORE codec/grouping/cost preflight: PASS")
 
 
 def s3_benchmark(blobs, samples):
@@ -272,8 +282,19 @@ def cost_projection(report, measured_chapters, annual_chapters):
     for name, row in report.items():
         if name in ("security", "compression"):
             continue
-        objects = round(row["objects"] * scale)
-        gib = row["stored_bytes"] * scale / (1024 ** 3)
+        projected_payload_bytes = row["stored_bytes"] * scale
+        if name.startswith("single_"):
+            objects = annual_chapters
+        elif "_mib_" in name:
+            # A small sample's last partially-filled pack must not be replicated
+            # thousands of times. Calculate only the IDEAL lower bound on objects;
+            # production placement and max-size fragmentation may require more.
+            target_mib = int(name.split("_")[1].removesuffix("mib"))
+            objects = math.ceil(projected_payload_bytes / (target_mib * 2**20))
+        else:
+            per_pack = int(name.split("_")[1])
+            objects = math.ceil(annual_chapters / per_pack)
+        gib = projected_payload_bytes / (1024 ** 3)
         # Assumes uniform imports across 12 months and historical modeled STANDARD
         # prices; excludes GET, egress, manifest/index, replicas and backups.
         monthly_put = max(0, objects / 12 - 10_000) / 1000 * 0.5692
@@ -328,7 +349,12 @@ def summary_md(result):
                          f"| {row['storage_rub_per_month_at_full_size']:.0f} "
                          f"| {row['put_rub_first_year']:.0f} |")
         lines.append("")
-    lines += ["**Limitations:** no real cloud/network charges, backups, PG index/WAL "
+    lines += ["**Cost model warning:** size-bounded PACK object counts use an IDEAL " 
+              "lower bound of ceil(projected compressed payload / target size), "
+              "not measured production packing. Fixed-count groups use ceil(chapters / group). "
+              "The storage RUB/month column is the charge at YEAR-END occupancy, not an "
+              "average across the first year.", "",
+              "**Limitations:** no real cloud/network charges, backups, PG index/WAL "
               "retention or manifest overhead; synthetic content is not representative "
               "for real compression ratios; fixed read order may warm local caches; "
               "pg COPY vs sequential S3 PUT is not ingestion-throughput parity; "
