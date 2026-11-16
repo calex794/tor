@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn rejects_cumulative_decompression_budget_before_compression() {
-        let text = "a".repeat(200_000);
+        let text = "😀".repeat(50_000);
         let object = FreeChapterObject::for_markdown(18, 28, &text).unwrap();
         let sources: Vec<_> = (0..672)
             .map(|id| {
