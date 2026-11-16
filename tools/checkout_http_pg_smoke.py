@@ -208,6 +208,17 @@ def enabled() -> None:
     require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
                    f"WHERE user_id={buyer_id}") == 425,
             "Lost-ACK purchase must debit exactly the accepted price")
+    # A buyer who never saw the original HTTP receipt can recover through
+    # their existing authenticated library *before* attempting another POST.
+    paid_href = f'/read/paid/{chapter}?purchase_id={purchase_id}'
+    library_status, _, library_html = buyer.call("GET", "/me/purchases")
+    require(library_status == 200 and f'href="{paid_href}"' in library_html,
+            "Lost-ACK purchase must be discoverable in the buyer's library")
+    other_status, _, other_html = stranger.call("GET", "/me/purchases")
+    require(other_status == 200 and f'href="{paid_href}"' not in other_html,
+            "Lost-ACK purchase must never appear in an unrelated library")
+    require("SECRET-PAID" not in library_html,
+            "Purchased-library recovery leaked paid chapter text")
     status, headers, data = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and headers.get("cache-control") == "no-store",
             "Original-key recovery after lost acknowledgement failed")
