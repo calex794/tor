@@ -1,5 +1,7 @@
 //! Real HTTP owner Save in a published book must immediately expose one
 //! immutable free chapter, without a second confirmation request.
+#[path = "free_save_browser_pg/c09_lost_ack.rs"]
+mod c09_lost_ack;
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -714,18 +716,18 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         true,
     )
     .await;
-    let (status, saved) = send(
+    c09_lost_ack::committed_cursor_survives_lost_ack(
         &app,
-        "PUT",
+        &url,
+        &sync_get,
         sync_put,
-        &sync_body(1, 2),
-        Some(&reader_token),
+        &reader_token,
         &csrf,
-        ORIGIN,
+        &sync_body(1, 2),
+        reader_user,
+        chapter_id,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(saved.contains("\"revision\":2"));
     pg(
         &url,
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={reader_user}"),
