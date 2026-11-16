@@ -825,9 +825,27 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("matrix.lane == 'tests'", demo)
         self.assertIn("matrix.lane == 'release'", demo)
 
+    def test_tor_store_benchmark_is_disposable_and_never_reads_drive_secrets(self):
+        workflow = (WORKFLOWS / "tor-store-benchmark.yml").read_text()
+        bench = (ROOT / "tools/tor_store_bench.py").read_text()
+        profiles = (ROOT / "tools/tor_store_corpus_profiles.json").read_text()
+        self.assertIn("image: postgres:18", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("127.0.0.1:9000", workflow)
+        self.assertIn("tor_store_bench", workflow)
+        self.assertIn("TOR_BENCH_PG_URL", workflow)
+        self.assertIn("anonymous_object_denied", bench)
+        self.assertIn("signed_pack_url_exposes_other_member", bench)
+        self.assertIn("measured_chapters", profiles)
+        for item in (workflow, bench, profiles):
+            self.assertNotIn("https://drive.google.com", item)
+            self.assertNotIn("www.googleapis.com", item)
+        self.assertNotIn("secrets:", workflow)
+        self.assertNotIn("tor-one-click-release.yml", workflow)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
-                 | {CI_WORKFLOW, "rules.yml", "ci-selection.yml", "tor-nightly.yml"}
+                 | {CI_WORKFLOW, "rules.yml", "ci-selection.yml", "tor-nightly.yml", "tor-store-benchmark.yml"}
                  | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS | ISOLATED_GATEWAY_WORKFLOWS | ACCEPTANCE_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))
