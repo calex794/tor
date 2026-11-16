@@ -15,6 +15,8 @@ mod layer_delivery;
 mod layer_offer;
 #[path = "layers_pg/layer_paid_sales.rs"]
 mod layer_paid_sales;
+#[path = "layers_pg/layer_pg_outage.rs"]
+mod layer_pg_outage;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
 #[path = "layers_pg/layer_sales_link.rs"]
