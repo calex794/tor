@@ -503,9 +503,11 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
         manifest_bytes: sidecar.len() as u64,
         seek_table_start: seek_start as u64,
     };
+    // Persist the *preapproved* inventory fingerprint independently of G's
+    // later readback proof, just as the offline B queue must do.
+    let approved = PgFreePackCatalog::fingerprint(&target, &editions);
     let proof = verify_full_pack(&target, &editions, &pack, &sidecar).unwrap();
     let repo = PgFreePackCatalog::new(pool.clone());
-    let approved = PgFreePackCatalog::fingerprint(&target, &editions);
     let job: i64 = sqlx::query_scalar(
         "INSERT INTO free_pack_jobs
          (actor_user_id,book_id,approved_fingerprint,expected_chapter_count,
@@ -535,6 +537,36 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
     ));
     sqlx::query("UPDATE free_pack_jobs SET locked_until=now()+interval '2 minutes' WHERE id=$1")
         .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE free_pack_jobs SET status='cancelled',locked_until=NULL WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET status='running',locked_until=now()+interval '2 minutes' WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE free_pack_jobs SET approved_fingerprint=$2 WHERE id=$1")
+        .bind(job)
+        .bind([92u8; 32].as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET approved_fingerprint=$2 WHERE id=$1")
+        .bind(job)
+        .bind(approved.as_slice())
         .execute(&pool)
         .await
         .unwrap();
