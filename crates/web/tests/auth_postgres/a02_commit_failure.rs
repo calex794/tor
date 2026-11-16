@@ -44,7 +44,10 @@ fn pg(url: &str, statement: &str) -> String {
 // Account-specific witnesses avoid racing unrelated auth tests running
 // concurrently in this same binary on the isolated CI database.
 fn signup_facts(url: &str, email: &str) -> (i64, i64) {
-    assert!(email.starts_with("a02-deferred-") && email.ends_with("@example.invalid"));
+    assert!(
+        (email.starts_with("a02-deferred-") || email.starts_with("a02-lost-ack-"))
+            && email.ends_with("@example.invalid")
+    );
     let query = format!(
         "SELECT (SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.email_normalized='{email}'), (SELECT count(*) FROM account_login_events e JOIN users u ON u.id=e.user_id WHERE u.email_normalized='{email}')"
     );
@@ -201,6 +204,159 @@ async fn a_02_deferred_registration_commit_error_rolls_back_account_and_session(
             .await
             .status(),
         StatusCode::OK
+    );
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable tor_ci PostgreSQL 18"]
+async fn a_02_committed_registration_lost_http_ack_recovers_without_duplicate() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable app PostgreSQL");
+    assert_eq!(
+        url, "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
+        "network fault injection must never use production PostgreSQL"
+    );
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let email = format!("a02-lost-ack-{nonce}@example.invalid");
+    let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let csrf = csrf_token(&body_of(page).await).to_owned();
+    let form = format!(
+        "email={}&display_name=AckLostReader&password=LongSecurePassword2026&csrf_token={csrf}",
+        email.replace('@', "%40")
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let wire = format!(
+        "POST /register HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/x-www-form-urlencoded\r\nOrigin: {ORIGIN}\r\nCookie: {csrf_cookie}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{form}",
+        form.len()
+    );
+
+    // A test-only loopback proxy receives the exact HTTP request and invokes
+    // the real Axum router. It drops the response only AFTER the router has
+    // returned 303 and the registration COMMIT has completed.
+    let proxy_app = app.clone();
+    let proxy_form = form.clone();
+    let proxy_cookie = csrf_cookie.clone();
+    let proxy_wire = wire.clone();
+    let proxy = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut received = vec![0; proxy_wire.len()];
+        socket.read_exact(&mut received).await.unwrap();
+        assert_eq!(received, proxy_wire.as_bytes());
+        let committed = send(
+            &proxy_app,
+            request("POST", "/register", &proxy_form, &proxy_cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(committed.status(), StatusCode::SEE_OTHER);
+        let session = cookie(&committed, "tor-dev-session=");
+        // The client receives neither the redirect nor the newly minted cookie.
+        drop(committed);
+        socket.shutdown().await.unwrap();
+        session
+    });
+    let client = tokio::spawn(async move {
+        let mut socket = tokio::net::TcpStream::connect(addr).await.unwrap();
+        socket.write_all(wire.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        socket.read_to_end(&mut response).await.unwrap();
+        assert!(
+            response.is_empty(),
+            "proxy must close TCP before sending any HTTP acknowledgement"
+        );
+    });
+    let (client_result, proxy_result) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(client, proxy)
+    })
+    .await
+    .expect("injected response-loss request must terminate");
+    client_result.expect("TCP client");
+    let lost_session = proxy_result.expect("server committed registration");
+
+    // Independent PostgreSQL witnesses prove the request committed once.
+    let user = accounts
+        .find_user(&email)
+        .await
+        .unwrap()
+        .expect("account survived lost HTTP acknowledgement");
+    let digest = tor_accounts::services::security::session_token_digest(
+        lost_session.split_once('=').unwrap().1,
+    );
+    assert_eq!(
+        accounts.active_session_user(&digest).await.unwrap(),
+        Some(user.id)
+    );
+    assert_eq!(
+        signup_facts(&url, &email),
+        (1, 1),
+        "exactly one persisted initial session and login event"
+    );
+    assert_eq!(
+        send(&app, request("GET", "/me", "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER,
+        "client has no cookie from the lost response"
+    );
+
+    // Retrying the original POST cannot create another account or session.
+    let duplicate = send(
+        &app,
+        request("POST", "/register", &form, &csrf_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    assert_eq!(signup_facts(&url, &email), (1, 1));
+    assert_eq!(
+        accounts.find_user(&email).await.unwrap().unwrap().id,
+        user.id
+    );
+
+    // The client can recover via the normal login form instead of repeating a
+    // successfully committed registration or fabricating a session cookie.
+    let login_page = send(&app, request("GET", "/login", "", "", ORIGIN)).await;
+    assert_eq!(login_page.status(), StatusCode::OK);
+    let login_cookie = cookie(&login_page, "tor-dev-csrf=");
+    let login_csrf = csrf_token(&body_of(login_page).await).to_owned();
+    let login_form = format!(
+        "email={}&password=LongSecurePassword2026&csrf_token={login_csrf}",
+        email.replace('@', "%40")
+    );
+    let login = send(
+        &app,
+        request("POST", "/login", &login_form, &login_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::SEE_OTHER);
+    let recovered_cookie = cookie(&login, "tor-dev-session=");
+    assert_ne!(recovered_cookie, lost_session);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &recovered_cookie, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        accounts.find_user(&email).await.unwrap().unwrap().id,
+        user.id,
+        "login recovery must not create a second account"
     );
     pool.close().await;
 }
