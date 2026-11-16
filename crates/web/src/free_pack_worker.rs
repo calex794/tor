@@ -1,6 +1,6 @@
 //! DROP-R4b1: trusted, offline S3 proof -> B transaction coordinator.
-//! No route, no background startup, no upload and no active reader cutover.
-//! A separate pack builder must upload immutable objects before scheduling.
+//! No route, no background startup and no active reader cutover.
+//! The B-approved offline pack builder/writer is never exposed to HTTP actors.
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;
 use tor_storage::repositories::free_pack_proof_s3::S3PackProofStore;
@@ -46,5 +46,26 @@ pub async fn finalize_one_verified_pack(
     }
     catalog
         .finish_pack_job(claim.job_id, claim.epoch, &receipt)
+        .await
+}
+
+/// R4b2: keep the B-approved immutable descriptor fixed across the complete
+/// write/verify/commit sequence. No application PG transaction is held during
+/// remote I/O; the current lease is rechecked atomically by B at the end.
+pub async fn upload_one_approved_pack(
+    catalog: &PgFreePackCatalog,
+    writer: &tor_storage::repositories::free_pack_write_s3::S3FreePackWriter,
+    claim: &PackJobClaim,
+    prepared: &tor_storage::services::free_pack_write::PreparedFreePack,
+) -> Result<i64, AuthorError> {
+    if *prepared.receipt() != claim.receipt {
+        return Err(AuthorError::Conflict);
+    }
+    let verified = writer
+        .upload_and_verify(prepared)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+    catalog
+        .finish_pack_job(claim.job_id, claim.epoch, &verified.placement_receipt())
         .await
 }
