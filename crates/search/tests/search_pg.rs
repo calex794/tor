@@ -1,3 +1,6 @@
+#[path = "search_pg/pg_outage.rs"]
+mod pg_outage;
+
 use sqlx::{PgPool, Row};
 use tor_search::{PgSearch, SearchError};
 

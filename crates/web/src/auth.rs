@@ -26,10 +26,7 @@ use tor_reading::repositories::{
     PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
     PgReadingSync,
 };
-use tor_reading::services::{
-    progress::{ProgressError, ReadingPlace},
-    PublicReadingRepository,
-};
+use tor_reading::services::progress::{ProgressError, ReadingPlace};
 mod access_audit;
 mod account_form_http;
 mod account_home;
@@ -529,7 +526,15 @@ async fn save_place(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let chapter = match state.reader.public_chapter(id).await {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),

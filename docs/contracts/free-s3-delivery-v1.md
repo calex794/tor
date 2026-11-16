@@ -42,6 +42,12 @@ It can read that V1 after a new publication, free-to-paid change or ordinary
 deletion, subject to the existing pin, age, hold and hard-deletion rules. It
 does not grant the current edition or anybody else's pin.
 
+Administrative current/history reading keeps the existing session, role,
+Origin, CSRF, rate limit and immutable audit checks. For a free S3 edition,
+the privileged POST returns a short verified capability instead of plaintext.
+The administrative browser hashes the direct S3 response before rendering.
+Moderators and revoked administrators cannot obtain this capability.
+
 The reader HTML contains metadata/navigation and a loader. The browser fetches
 only from the explicitly configured storage origin, omits credentials/referrer,
 rejects redirects, bounds the stream and verifies SHA256 before constructing
@@ -74,6 +80,9 @@ Mandatory CI includes B lifecycle PG tests, immutable G adapter tests against
 disposable MinIO, and the native author/browser journey in
 `free_author_s3_pg`. The latter checks mobile/desktop direct S3 requests,
 absence of a source marker in TOR reader/grant responses, CSRF, replay,
-corruption, hold, unavailable storage, edit V2 and saved V1. Contract tests
+corruption, hold, unavailable storage, edit V2, saved V1, anchored comments,
+corrections and audited administrative history. Browser Network records direct
+S3 response sizes; the Axum socket boundary independently inspects and counts
+the exact reader/grant response bytes. No signed URLs are recorded. Contract tests
 exercise hostile metadata, byte limits, timeouts and safe UTF-16 formatting.
 Final acceptance requires the successful integration run on the PR's exact SHA.

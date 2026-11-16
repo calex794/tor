@@ -40,6 +40,8 @@ use tor_contracts::paid_delivery::{
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
+#[path = "paid_grants_http_pg/s005_pg_outage.rs"]
+mod s005_pg_outage;
 #[path = "paid_grants_http_pg/s034_toc_window.rs"]
 mod s034_toc_window;
 #[path = "paid_grants_http_pg/s049_paid_comment_reports.rs"]
@@ -571,6 +573,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .await
         .unwrap();
     let purchase_id = receipt.purchase_id.get();
+    s005_pg_outage::verify(&url, &path, &buyer_cookie, &csrf, purchase_id, buyer, &fake).await;
     let reader_path = format!("/read/paid/{chapter}?purchase_id={purchase_id}");
     let stranger = read_page(&browser, &reader_path, Some(&author_cookie)).await;
     assert_eq!(stranger.status(), StatusCode::FORBIDDEN);

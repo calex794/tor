@@ -544,7 +544,7 @@ async fn publish_chapter(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    // S349 does not permit body_markdown-dependent pending releases.
+    // B releases the exact verified working edition, including bodyless S3.
     match state
         .authoring
         .release_pending_free_chapter(

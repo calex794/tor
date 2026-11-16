@@ -443,7 +443,8 @@ impl PgTextIssues {
                       AND published.id=p.version_id
                      WHERE issue.id=$1 AND issue.book_id=$2
                        AND published.version_no>reported.version_no
-                       AND published.body_markdown<>reported.body_markdown
+                       AND COALESCE(published.content_sha256<>reported.content_sha256,
+                           published.body_markdown<>reported.body_markdown,false)
                        AND (
                          issue.purchase_id IS NULL
                          OR EXISTS (

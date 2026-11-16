@@ -263,7 +263,7 @@ export async function startAdministratorReader(root) {
   status.textContent = "Редакция " + versionId + " · Защищённая загрузка завершена";
   // Historical versions are a separate, audited administrator-only POST.
   // No history ID is allowed to enter buyer/Layer grants or signed S3 URLs.
-  if (unsealed) {
+  if (unsealed || freeOrigin) {
     try {
       const history = await adminHistory(chapter, csrf);
       requireValue(history.schema === "tor.admin_history.v1" &&

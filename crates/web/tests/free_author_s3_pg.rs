@@ -34,6 +34,9 @@ const MARKER: &str = "S349_NEW_BODY_ONLY_IN_S3_47b935";
 const MARKDOWN: &str =
     "S349_NEW_BODY_ONLY_IN_S3_47b935\n\nNew chapter with Unicode: \u{1f600} \u{6587}";
 
+#[path = "free_author_s3_pg/traffic.rs"]
+mod traffic;
+
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:"));
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));
@@ -146,6 +149,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         publisher,
     )
     .merge(tor_web::instrument_additional_routes(grants));
+    let (app, traffic) = traffic::instrument(app, MARKER);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
         .await
         .unwrap();
@@ -208,6 +212,29 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
+    let expired = client
+        .get_object()
+        .bucket(BUCKET)
+        .key(&object_key)
+        .presigned(
+            aws_sdk_s3::presigning::PresigningConfig::builder()
+                .start_time(std::time::SystemTime::now() - std::time::Duration::from_secs(180))
+                .expires_in(std::time::Duration::from_secs(90))
+                .build()
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        http.get(expired.uri())
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        403,
+        "an expired direct capability must not retrieve the private source"
+    );
     assert_eq!(
         http.get(format!("{ENDPOINT}/{BUCKET}/{object_key}"))
             .send()
@@ -294,6 +321,19 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "session":session,"previous":MARKDOWN,"markdown":v2}),
     );
     assert_eq!(edited["edited"], true);
+    let issue: i64 = pg(
+        &url,
+        &format!("SELECT id FROM text_issues WHERE chapter_id={chapter}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        tor_discussions::repositories::text_issues::PgTextIssues::new(pool.clone())
+            .update_status(owner, book, issue, "fixed", Some("Published S3 V2"))
+            .await
+            .unwrap(),
+        tor_discussions::repositories::text_issues::StatusMutation::Changed
+    );
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM chapter_versions WHERE chapter_id={chapter} AND body_markdown IS NOT NULL")),"0");
     let saved = browser(
         json!({"mode":"read","saved":true,"origin":ORIGIN,"storage_origin":ENDPOINT,
@@ -353,7 +393,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     // A failed private S3 PUT may leave hidden metadata, never a published body.
     let unavailable = PgFreeAuthorPublisher::new(
         PgFreeS3Publication::new(pool.clone()),
-        S3FreeChapterStore::new(client, "tor-s349-missing-ci".to_owned()).unwrap(),
+        S3FreeChapterStore::new(client.clone(), "tor-s349-missing-ci".to_owned()).unwrap(),
         "tor-s349-missing-ci".to_owned(),
     )
     .unwrap();
@@ -386,6 +426,78 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         ),
         "1"
     );
+    // Published metadata must fail closed if its exact object disappears.
+    let current: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
+    )
+    .parse()
+    .unwrap();
+    let current_key = format!("private/free-chapters/{chapter}/{current}.md");
+    client
+        .delete_object()
+        .bucket(BUCKET)
+        .key(&current_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        http.get(&grant_url).send().await.unwrap().status().as_u16(),
+        503
+    );
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&current_key)
+        .content_type("text/plain; charset=utf-8")
+        .metadata("sha256", hex::encode(Sha256::digest(v2.as_bytes())))
+        .body(ByteStream::from(v2.into_bytes()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        http.get(&grant_url).send().await.unwrap().status().as_u16(),
+        200
+    );
+    pg(
+        &url,
+        &format!("UPDATE chapters SET access_level='paid',price_amount=100 WHERE id={chapter}"),
+    );
+    assert_eq!(
+        http.get(&grant_url).send().await.unwrap().status().as_u16(),
+        404
+    );
+    assert_eq!(
+        http.get(format!("{grant_url}?mode=saved&version_id={version}"))
+            .header("cookie", format!("tor-dev-session={session}"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        200
+    );
+    pg(&url,&format!("UPDATE books SET lifecycle_status='ordinary_deleted',ordinary_deleted_at=now(),visibility='draft' WHERE id={book}"));
+    let archive = browser(
+        json!({"mode":"read","saved":true,"origin":ORIGIN,"storage_origin":ENDPOINT,
+        "chapter":chapter,"session":session,"markdown":MARKDOWN,"marker":MARKER,"version":version,"absent_marker":"V2_ONLY_MARKER"}),
+    );
+    println!("S349_NETWORK deleted_archive={archive}");
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
+    assert_eq!(
+        http.get(format!("{grant_url}?mode=saved&version_id={version}"))
+            .header("cookie", format!("tor-dev-session={session}"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        404
+    );
+    traffic.assert_clean();
     server.abort();
     let _ = server.await;
     println!("S349_E2E: author form, bodyless PG, immutable retry, CSRF, direct S3 browser, hold denial, corrupted SHA and S3 outage passed");

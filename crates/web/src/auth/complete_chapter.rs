@@ -10,7 +10,7 @@ use axum::{
 use serde::Deserialize;
 use tor_reading::{
     domain::renderer::valid_reader_length,
-    services::{progress::ReadingPlace, sync::SyncError, PublicReadingRepository},
+    services::{progress::ReadingPlace, sync::SyncError},
 };
 use tor_recommendations::repositories::RankingStoreError;
 
@@ -48,7 +48,15 @@ pub(super) async fn complete(
         Err(error) => return deny(error),
     };
     // Use the same currently published, readable free edition as /read/{id}.
-    let chapter = match state.reader.public_chapter(id).await {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
