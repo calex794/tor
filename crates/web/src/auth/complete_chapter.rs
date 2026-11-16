@@ -10,11 +10,7 @@ use axum::{
 use serde::Deserialize;
 use tor_reading::{
     domain::renderer::valid_reader_length,
-    services::{
-        progress::{is_completed_place, reader_blocks, valid_text_place, ReadingPlace},
-        sync::SyncError,
-        PublicReadingRepository,
-    },
+    services::{progress::ReadingPlace, sync::SyncError, PublicReadingRepository},
 };
 use tor_recommendations::repositories::RankingStoreError;
 
@@ -65,14 +61,19 @@ pub(super) async fn complete(
         block_index: form.block_index,
         char_offset: form.char_offset,
     };
-    let blocks = reader_blocks(&chapter.body_markdown);
-    if valid_text_place(place, &blocks).is_err() || !is_completed_place(place, &blocks) {
-        return deny(StatusCode::BAD_REQUEST);
-    }
     let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(form.version_id)) {
         (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
         _ => return deny(StatusCode::NOT_FOUND),
     };
+    match state
+        .sync
+        .free_source_position(chapter_id, version_id, place)
+        .await
+    {
+        Ok((true, true)) => (),
+        Ok(_) => return deny(StatusCode::BAD_REQUEST),
+        Err(error) => return deny(status(error)),
+    }
     match state
         .sync
         .save_free(actor, chapter_id, version_id, place, form.expected_revision)

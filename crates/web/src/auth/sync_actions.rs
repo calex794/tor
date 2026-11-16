@@ -203,8 +203,14 @@ pub(super) async fn put_free(
         block_index: command.block_id,
         char_offset: command.char_offset,
     };
-    if valid_text_place(place, &reader_blocks(&chapter.body_markdown)).is_err() {
-        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    match state
+        .sync
+        .free_source_position(chapter_id, version_id, place)
+        .await
+    {
+        Ok((true, _)) => (),
+        Ok(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+        Err(error) => return deny(status(error)),
     }
     match state
         .sync

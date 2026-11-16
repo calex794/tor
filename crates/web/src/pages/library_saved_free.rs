@@ -359,6 +359,12 @@ fn saved_free_reader_internal(
         script = "<script defer src=\"/assets/newboo-archive-progress.js\"></script>".to_owned();
     }
 
+    if cfg!(feature = "s3-free") && chapter.body_markdown.is_empty() {
+        let token = if chapter.ordinary_deleted { csrf } else { "" };
+        progress_attributes=format!("id=\"chapter-text\" data-free-s3-chapter=\"{}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-s3-saved=\"1\" data-free-s3-archive=\"{}\"",chapter.chapter_id,chapter.version_id,escape_html(token),if chapter.ordinary_deleted {"1"}else{"0"});
+        body=format!("<p role=\"status\">Загружаем сохранённую редакцию…</p><noscript><a href=\"/api/v1/chapters/{}/free-grant?mode=saved&amp;version_id={}&amp;format=source\">Открыть текст без JavaScript</a></noscript>",chapter.chapter_id,chapter.version_id);
+        script = "<script defer src=\"/assets/newboo-free-s3-reader.js\"></script>".to_owned();
+    }
     let resume = if chapter
         .saved_place
         .is_some_and(|place| anchor_saved_offset(&mut body, &normalized, place))

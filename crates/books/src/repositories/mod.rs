@@ -6,12 +6,14 @@ pub mod cover_publications;
 pub mod cover_review;
 pub mod cover_slots;
 pub mod cover_source_cleanup;
+pub mod free_s3_publish;
 pub mod personal_books;
 pub mod recommendation_policy;
 pub mod translation_team_analytics;
 pub mod translation_team_books;
 pub mod translation_team_invites;
 pub mod translation_teams;
+pub(crate) mod version_shape;
 // S030: only PgOwnerTransfer is public; sealed permit remains crate-private.
 pub mod owner_transfer;
 // B-09d canonical Book tier, locked under caller-owned transfer transaction.

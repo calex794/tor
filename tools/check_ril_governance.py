@@ -82,7 +82,7 @@ SCOPE_CALLS = {
     "save_rating", "add_comment", "delete_comment",
     "delivery_preference", "set_delivery_preference",
     "issue_proof", "confirm_opt_in", "revoke",
-    "active_role", "create_free", "create_paid",
+    "active_role", "create_free", "create_free_with_source", "create_paid",
     "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "manageable_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",

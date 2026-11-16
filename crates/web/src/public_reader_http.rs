@@ -247,12 +247,28 @@ pub(super) async fn reader_page(
         html
     };
     let mut response = auth_cookies::private_response(html, &progress_cookies);
-    // Never enable scripts for paid, hidden or denied content.
-    response.headers_mut().insert(
-        "content-security-policy",
-        axum::http::HeaderValue::from_static(
-            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
-    );
+    let csp = match free_reader_csp(cfg!(feature = "s3-free") && chapter.body_markdown.is_empty()) {
+        Ok(value) => value,
+        Err(error) => return auth_cookies::private_response(error, &[]),
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", csp);
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
+}
+
+/// Pin storage connections to the configured public origin; never reflect a request URL.
+pub(crate) fn free_reader_csp(s3: bool) -> Result<axum::http::HeaderValue, StatusCode> {
+    let connect = if s3 {
+        let origin = std::env::var("TOR_FREE_S3_PUBLIC_ORIGIN")
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        if !super::paid_grants_http::valid_reader_s3_origin(&origin) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        format!("'self' {origin}")
+    } else {
+        "'self'".to_owned()
+    };
+    axum::http::HeaderValue::from_str(&format!("default-src 'none'; script-src 'self'; connect-src {connect}; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
+        .map_err(|_|StatusCode::SERVICE_UNAVAILABLE)
 }

@@ -193,6 +193,15 @@ pub(super) async fn read(
     response
         .headers_mut()
         .insert("content-security-policy", csp.parse().expect("static CSP"));
+    if cfg!(feature = "s3-free") && saved.body_markdown.is_empty() {
+        let csp = match crate::public_reader_http::free_reader_csp(true) {
+            Ok(value) => value,
+            Err(error) => return deny(error),
+        };
+        response
+            .headers_mut()
+            .insert("content-security-policy", csp);
+    }
     crate::recommendation_http::visits::book_response(response, saved.book_id, 1)
 }
 

@@ -65,6 +65,7 @@ jobs:
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --test free_chapter_s3 -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
           cargo test -p tor-imports --features s3 repositories::s3::tests::s023_private_source_put_get_conflict_and_delete -- --ignored --test-threads=1
           cargo fmt -p tor-imports -- --check

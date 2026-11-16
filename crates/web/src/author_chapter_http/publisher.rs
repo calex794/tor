@@ -30,3 +30,39 @@ pub(crate) trait PaidChapterPublisher: Send + Sync {
         Err(AuthorError::Unavailable)
     }
 }
+
+#[async_trait]
+pub(crate) trait FreeChapterPublisher: Send + Sync {
+    /// Public-book Save is available only after a verified S3 PUT/GET.
+    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+
+    async fn stage_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+    async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+    async fn owned(
+        &self,
+        actor: i64,
+        book: i64,
+        chapter: i64,
+    ) -> Result<Option<tor_books::repositories::free_s3_publish::OwnedFreeS3Chapter>, AuthorError>;
+
+    async fn import_batch(
+        &self,
+        actor: i64,
+        book: i64,
+        key: &str,
+        chapters: &[tor_books::services::chapter_file_import::ImportedChapter],
+    ) -> Result<usize, AuthorError>;
+
+    async fn source_for_session(
+        &self,
+        chapter: i64,
+        version: i64,
+        digest: Option<&[u8; 32]>,
+    ) -> Result<Option<String>, AuthorError>;
+
+    async fn import_job(
+        &self,
+        claim: &tor_imports::domain::ChapterImportClaim,
+        chapters: &[tor_books::services::chapter_file_import::ImportedChapter],
+    ) -> Result<usize, AuthorError>;
+}

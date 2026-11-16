@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row};
 use std::collections::HashSet;
 
-fn validate_batch(
+pub(crate) fn validate_batch(
     actor: i64,
     book_id: i64,
     command_key: &str,

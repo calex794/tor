@@ -150,8 +150,15 @@ pub fn private_reader_with_options(
             version_id = chapter.version_id
         ).expect("write reader block");
     }
+    let s3 = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
+    let s3_attributes = if s3 {
+        sections="<p role=\"status\">Загружаем текст главы…</p><script defer src=\"/assets/newboo-free-s3-reader.js\"></script>".to_owned();
+        format!("id=\"chapter-text\" data-free-s3-chapter=\"{chapter_id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-private-revision=\"{expected_revision}\" data-free-private-completed=\"{completed}\"",chapter.version_id,escape_html(csrf))
+    } else {
+        String::new()
+    };
     let saved_link = match saved {
-        SavedPlaceState::Current(p) if valid_text_place(p, &blocks).is_ok() => format!(
+        SavedPlaceState::Current(p) if s3 || valid_text_place(p, &blocks).is_ok() => format!(
             r##"<a class="reader-resume__link" href="#p-{}">Перейти к сохранённому месту</a>"##,
             p.block_index
         ),
@@ -180,7 +187,7 @@ pub fn private_reader_with_options(
         r#"<nav class="chapter-navigation" aria-label="Переход между главами">{prev}{next}</nav>"#
     );
     let body = format!(
-        r#"<section class="section reader-page reader-private" aria-labelledby="reader-title">
+        r#"<section data-free-reader class="section reader-page reader-private" aria-labelledby="reader-title">
             <div class="container reader-width">
                 <nav class="breadcrumbs" aria-label="Навигационная цепочка">
                     <a href="/me/library">Моя библиотека</a>
@@ -193,7 +200,7 @@ pub fn private_reader_with_options(
                   При следующем входе книга появится в библиотеке.</p>
                 <div class="reader-resume" role="status">{saved_link}</div>
                 {navigation}
-                <article class="chapter-content reader-private__content" aria-label="Текст главы">
+                <article {s3_attributes} class="chapter-content reader-private__content reader-markdown" aria-label="Текст главы">
                     {sections}
                 </article>
                 <!--EDITORIAL_PROMOTION-->

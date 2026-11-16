@@ -123,7 +123,7 @@ jobs:
       # When Rust and PostgreSQL both run, Rust owns the single lint invocation.
       - name: Combined S3 feature Clippy
         if: ${{ (github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust) && matrix.shard == 'foundation' }}
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-free,s3-chapter-import' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -289,6 +289,7 @@ jobs:
             cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+            cargo test -p tor-storage --features pg --test free_chapter_storage_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
             cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
@@ -330,6 +331,7 @@ jobs:
             cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
+            cargo test -p tor-books --test free_s3_lifecycle_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test chapter_release_pg -- --ignored
             cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1

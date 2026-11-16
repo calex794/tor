@@ -4,7 +4,7 @@
 
 use super::{parse_receipt, parse_stored, PgReadingSync};
 use crate::services::{
-    progress::{reader_blocks, valid_text_place, ReadingPlace},
+    progress::ReadingPlace,
     sync::{checked_place, StoredProgress, SyncError, SyncReceipt},
 };
 use sqlx::Row;
@@ -144,13 +144,18 @@ impl PgReadingSync {
         .map_err(|_| SyncError::Unavailable)?
         .ok_or(SyncError::NotFound)?;
 
-        let body: String = edition
+        let body: Option<String> = edition
             .try_get("body_markdown")
             .map_err(|_| SyncError::Unavailable)?;
-        if !crate::domain::renderer::valid_reader_length(&body) {
-            return Err(SyncError::Invalid);
-        }
-        if valid_text_place(place, &reader_blocks(&body)).is_err() {
+        let shape = crate::repositories::content_shape::load(
+            &mut tx,
+            chapter_id,
+            version_id,
+            body.as_deref(),
+        )
+        .await
+        .map_err(|_| SyncError::Unavailable)?;
+        if !shape.valid_place(place.block_index, place.char_offset) {
             return Err(SyncError::Invalid);
         }
         let book_id: i64 = edition

@@ -134,7 +134,22 @@ pub fn reader_with_public_discussions(
     let thanks_link = chapter_id
         .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
         .unwrap_or_default();
-    let progress = progress_view(&chapter.body_markdown, chapter_id, chapter.version_id, csrf);
+    let s3_reader = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
+    let progress = if s3_reader {
+        ProgressView {
+            html: format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{}/free-grant?format=source\">Открыть текст без JavaScript</a></noscript>",chapter_id.unwrap_or(0)),
+            attributes: chapter_id.map_or_else(String::new, |id| {
+                format!(
+                    "data-free-s3-chapter=\"{id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\"",
+                    chapter.version_id,
+                    escape_html(csrf.unwrap_or(""))
+                )
+            }),
+            subtitle: "Текст главы загружается напрямую из защищённого хранилища.",
+        }
+    } else {
+        progress_view(&chapter.body_markdown, chapter_id, chapter.version_id, csrf)
+    };
     let issues = reader_free_issues::panel(chapter_id, chapter.version_id, csrf, issue_feedback);
     let discussion = reader_free_comments::panel(
         chapter_id,

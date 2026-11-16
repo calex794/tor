@@ -18,18 +18,29 @@ document.addEventListener("DOMContentLoaded", function () {
     const endSpan = range.endContainer.parentElement.closest("[data-md-start]");
     if (!startSpan || startSpan !== endSpan || !chapter.contains(startSpan)) return;
     const piece = startSpan.closest(".reader-piece");
-    if (!piece) return;
-    const index = /^p-(\d+)$/.exec(piece.id);
-    if (!index) return;
+    const index = piece ? /^p-(\d+)$/.exec(piece.id) : null;
     const sourceOffset = Number(startSpan.dataset.mdStart);
-    const start = sourceOffset + range.startOffset;
-    const end = sourceOffset + range.endOffset;
+    let start = sourceOffset + range.startOffset;
+    let end = sourceOffset + range.endOffset;
+    let blockIndex = index ? Number(index[1]) : null;
+    if (chapter.dataset.freeS3Chapter) {
+      const blocks = (chapter.dataset.freeProgressBlocks || "").split(",");
+      if (blocks.length > 200) return;
+      const block = blocks.findIndex(value => {
+        const match = /^(\d+):(\d+)$/.exec(value);
+        return match && start >= Number(match[1]) && end <= Number(match[1]) + Number(match[2]);
+      });
+      if (block < 0) return;
+      const base = Number(blocks[block].split(":")[0]);
+      start -= base; end -= base; blockIndex = block + 1;
+    }
+    if (!blockIndex) return;
     const selected = selection.toString();
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
         || start < 0 || end <= start || end > 100000
         || !selected || selected.length > 500 || selected.trim() !== selected) return;
     quote.value = selected;
-    block.value = index[1];
+    block.value = String(blockIndex);
     startInput.value = String(start);
     endInput.value = String(end);
   });

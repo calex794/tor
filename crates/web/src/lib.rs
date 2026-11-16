@@ -60,6 +60,12 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
+#[cfg(feature = "s3-free")]
+pub mod free_author_publish;
+#[cfg(feature = "s3-free")]
+pub mod free_reader_http;
+#[cfg(feature = "s3-free")]
+mod free_s3_router;
 #[cfg(feature = "s3-paid")]
 pub mod g09_operator;
 mod observability;
@@ -71,6 +77,8 @@ mod pages;
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
+#[cfg(feature = "s3-free")]
+pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
@@ -83,6 +91,10 @@ pub use paid_author_assets::PgPaidAuthorAssets;
 pub use paid_author_publish::PgPaidAuthorPublisher;
 #[cfg(feature = "s3-paid")]
 pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author;
+#[cfg(all(feature = "s3-paid", feature = "s3-free"))]
+pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author_free;
+#[cfg(feature = "s3-free")]
+pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_free_author;
 pub use paid_reader_router::{
     router_with_postgres_reading_auth_paid_grants,
     router_with_postgres_reading_auth_paid_grants_browser,
@@ -496,6 +508,14 @@ fn make_router_with_paid_checkout(
         .route("/apple-touch-icon.png", get(site_icons::apple_touch_icon))
         .route("/icon-192.png", get(site_icons::android_icon))
         .route("/site.webmanifest", get(site_icons::manifest))
+        .route(
+            "/assets/newboo-free-s3-reader.js",
+            get(pages::free_s3_reader_script),
+        )
+        .route(
+            "/assets/newboo-free-progress-s3.js",
+            get(pages::free_s3_progress_script),
+        )
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(

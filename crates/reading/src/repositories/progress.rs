@@ -232,18 +232,23 @@ impl PgReadingProgress {
         {
             return Err(ProgressError::StaleVersion);
         }
-        let body: String = edition
+        let body: Option<String> = edition
             .try_get("body_markdown")
             .map_err(|_| ProgressError::Unavailable)?;
-        if (self.activity_collection || self.book_return_collection)
-            && (!crate::domain::renderer::valid_reader_length(&body)
-                || crate::services::progress::valid_text_place(
-                    place,
-                    &crate::services::progress::reader_blocks(&body),
-                )
-                .is_err())
-        {
-            return Err(ProgressError::Invalid);
+        if self.activity_collection || self.book_return_collection || body.is_none() {
+            if body
+                .as_deref()
+                .is_some_and(|s| !crate::domain::renderer::valid_reader_length(s))
+            {
+                return Err(ProgressError::Invalid);
+            }
+            let shape =
+                super::content_shape::load(&mut tx, chapter_id, version_id, body.as_deref())
+                    .await
+                    .map_err(|_| ProgressError::Unavailable)?;
+            if !shape.valid_place(place.block_index, place.char_offset) {
+                return Err(ProgressError::Invalid);
+            }
         }
         let book: i64 = edition
             .try_get("book_id")

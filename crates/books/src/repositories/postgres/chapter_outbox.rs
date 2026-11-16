@@ -5,7 +5,7 @@ use sqlx::{Postgres, Transaction};
 
 /// The immutable edition already has a first-release fact in the transaction.
 /// Replayed commands cannot produce a second root event. Never store body text.
-pub(super) async fn enqueue_chapter_first_release(
+pub(crate) async fn enqueue_chapter_first_release(
     tx: &mut Transaction<'_, Postgres>,
     book_id: i64,
     chapter_id: i64,
