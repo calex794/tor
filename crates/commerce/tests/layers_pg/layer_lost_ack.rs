@@ -5,7 +5,10 @@ use super::*;
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_lost_checkout_ack_replays_across_fresh_pools_without_another_debit() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG test URL");
-    assert!(url.ends_with("/tor_ci"), "never run against a live database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never run against a live database"
+    );
     let (pool, original_node, owner, buyer, book) = setup("lost-ack").await;
     let (layer, version, offer_id) = offer(&original_node, owner, book, 250, false).await;
     let buy = cmd(buyer, layer, offer_id, version, 250, 'L');
@@ -27,7 +30,10 @@ async fn d_05_lost_checkout_ack_replays_across_fresh_pools_without_another_debit
 
     let (first_retry, second_retry) = tokio::join!(first.buy(&buy), second.buy(&buy));
     for receipt in [first_retry.unwrap(), second_retry.unwrap()] {
-        assert!(receipt.replayed, "a committed key must never purchase twice");
+        assert!(
+            receipt.replayed,
+            "a committed key must never purchase twice"
+        );
         assert_eq!(receipt.term_id, committed_term_id);
         assert_eq!(receipt.balance_after_minor, 1250);
     }
