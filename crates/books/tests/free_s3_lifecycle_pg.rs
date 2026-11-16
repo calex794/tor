@@ -588,13 +588,15 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(leaked, 0, "a bad later frame must roll back the PACK insert");
-    let status: String =
-        sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
-            .bind(overlap_job)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    assert_eq!(
+        leaked, 0,
+        "a bad later frame must roll back the PACK insert"
+    );
+    let status: String = sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+        .bind(overlap_job)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(status, "running", "no partial success after rollback");
 
     let empty: i64 = sqlx::query_scalar(
