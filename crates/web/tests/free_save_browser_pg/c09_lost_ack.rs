@@ -1,5 +1,6 @@
-//! C/S006 R1: a committed HTTP progress update cannot be lost or replayed
-//! when an intermediate TCP proxy fails before acknowledging the response.
+//! C/S006 R1: prove the real TCP/Axum/PG commit boundary when a forwarding
+//! proxy receives the successful HTTP response but delivers zero bytes to
+//! the reader. This is not a direct in-process Axum handler shortcut.
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -14,6 +15,16 @@ pub(super) async fn committed_cursor_survives_lost_ack(
 ) {
     let sync_get = format!("/api/v1/me/progress/free?chapter_id={chapter_id}");
     let sync_put = "/api/v1/me/progress/free";
+    // Use a real HTTP listener: the proxy forwards actual TCP bytes into
+    // Axum instead of calling a cloned Router directly.
+    let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backend_addr = backend_listener.local_addr().unwrap();
+    let backend_app = app.clone();
+    let backend_server = tokio::spawn(async move {
+        axum::serve(backend_listener, backend_app)
+            .await
+            .expect("real HTTP progress server");
+    });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let wire = format!(
@@ -21,36 +32,40 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         json.len()
     );
 
-    // The test-only proxy refuses to acknowledge a successful COMMIT:
-    // it accepts the exact authenticated HTTP PUT, routes it through Axum,
-    // verifies the actual 200/revision=2, and closes TCP without transmitting
-    // status, JSON receipt or any other response bytes.
-    let routed = app.clone();
-    let payload = json.to_owned();
-    let token = reader_token.to_owned();
-    let proxy_csrf = csrf.to_owned();
-    let path = sync_put.to_owned();
+    // The proxy receives the exact authenticated wire request, forwards it
+    // unchanged into a live Axum TCP server, waits for a complete HTTP 200,
+    // and deliberately discards every response byte before closing the
+    // reader-facing connection. No handler call bypasses the network stack.
     let expected_wire = wire.clone();
     let proxy = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut received = vec![0; expected_wire.len()];
         socket.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected_wire.as_bytes());
-        let (status, receipt) = send(
-            &routed,
-            "PUT",
-            &path,
-            &payload,
-            Some(&token),
-            &proxy_csrf,
-            ORIGIN,
+
+        let mut upstream = tokio::net::TcpStream::connect(backend_addr)
+            .await
+            .expect("forward to live Axum");
+        upstream
+            .write_all(&received)
+            .await
+            .expect("forward full authenticated PUT");
+        let mut reply = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            upstream.read_to_end(&mut reply),
         )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        .await
+        .expect("live HTTP reply must finish")
+        .expect("read committed HTTP reply");
         assert!(
-            receipt.contains("\"revision\":2"),
-            "the HTTP handler must commit before the proxy closes the socket"
+            reply.starts_with(b"HTTP/1.1 200 "),
+            "the live HTTP server must acknowledge the committed PUT"
         );
+        let receipt = String::from_utf8_lossy(&reply);
+        assert!(receipt.contains("\"revision\":2"));
+        assert!(receipt.contains("\"char_offset\":2"));
+        // The socket sent to the reader never receives this reply.
         socket.shutdown().await.unwrap();
     });
     let client = tokio::spawn(async move {
@@ -71,6 +86,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         .expect("progress lost-ack transport test must finish");
     client_result.expect("TCP reader");
     proxy_result.expect("committed progress proxy");
+    backend_server.abort();
 
     // Independent PostgreSQL proof and fresh HTTP GET show revision 2 was
     // committed exactly once, with the new position rather than a stale one.
