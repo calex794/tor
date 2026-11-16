@@ -145,7 +145,7 @@ fn start_test_writer(executable: &str, db: &Path, socket: &Path) -> ChildGuard {
         if result.is_ok() {
             return process;
         }
-        let error = result.err().expect("unsuccessful lookup");
+        let error = result.expect_err("unsuccessful lookup");
         if let Some(status) = process.0.try_wait().expect("inspect writer process") {
             panic!("standalone SQLite writer exited before ready: {status}, {error:?}");
         }
