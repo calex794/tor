@@ -45,3 +45,5 @@
 - [DROP-R4b1 trusted offline PACK readback](tor-store-r4b1-trusted-worker.md): immutable B job specs and epoch claims, G independent full S3 GET before B PG candidate attachment; no upload worker, reader cutover or public route.
 
 - [DROP-R4b2 immutable PACK writer](tor-store-r4b2-immutable-writer.md): bounded standard Zstd seekable builder, private conditional S3 PUT and independent full readback before B fenced attachment; no live reader activation.
+
+- [DROP-R4b3 fenced offline runner](tor-store-r4b3-fenced-runner.md): B-authoritative SINGLE lookup, bounded off-thread pack construction, heartbeat/lease theft, retry cooldown and explicit operator opt-in, no reader cutover.
