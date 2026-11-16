@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 
 use crate::{
     domain::provider::{valid_private_bucket, StorageError},
@@ -101,12 +102,47 @@ struct ManifestEntry {
 /// from an immutable S3 key before recording a verified PG generation.
 #[derive(Debug)]
 pub struct VerifiedPack {
+    target: PackProofTarget,
     frames: Vec<ValidatedPackReference>,
 }
 
 impl VerifiedPack {
+    pub fn target(&self) -> &PackProofTarget {
+        &self.target
+    }
+
     pub fn frames(&self) -> &[ValidatedPackReference] {
         &self.frames
+    }
+
+    /// In-process neutral B/G descriptor. This is not a standalone remote
+    /// attestation; the caller must be a trusted worker that obtained this
+    /// proof through an independent S3 readback, never an HTTP client.
+    pub fn placement_receipt(&self) -> PackPlacementReceipt {
+        PackPlacementReceipt {
+            target: PackPlacementTarget {
+                bucket: self.target.bucket.clone(),
+                pack_key: self.target.pack_key.clone(),
+                manifest_key: self.target.manifest_key.clone(),
+                pack_sha256: self.target.pack_sha256,
+                manifest_sha256: self.target.manifest_sha256,
+                pack_bytes: self.target.pack_bytes,
+                manifest_bytes: self.target.manifest_bytes,
+                seek_table_start: self.target.seek_table_start,
+            },
+            frames: self
+                .frames
+                .iter()
+                .map(|frame| PackPlacementFrame {
+                    chapter_id: frame.edition().chapter_id(),
+                    version_id: frame.edition().version_id(),
+                    content_sha256: *frame.edition().sha256(),
+                    size_bytes: frame.edition().size_bytes(),
+                    frame_offset: frame.metadata().frame_offset,
+                    frame_bytes: frame.metadata().frame_bytes,
+                })
+                .collect(),
+        }
     }
 }
 
@@ -243,7 +279,10 @@ pub fn verify_full_pack(
     if offset != target.seek_table_start || seen.len() != count {
         return Err(StorageError::Corrupt);
     }
-    Ok(VerifiedPack { frames })
+    Ok(VerifiedPack {
+        target: target.clone(),
+        frames,
+    })
 }
 
 #[cfg(test)]
@@ -315,6 +354,10 @@ mod tests {
         assert_eq!(valid.frames().len(), 2);
         assert_eq!(valid.frames()[0].edition(), &editions[0]);
         assert_eq!(valid.frames()[1].edition(), &editions[1]);
+        let receipt = valid.placement_receipt();
+        assert_eq!(receipt.frames.len(), 2);
+        assert_eq!(receipt.frames[1].chapter_id, editions[1].chapter_id());
+        assert_eq!(receipt.target.pack_sha256, target.pack_sha256);
         assert!(valid.frames()[1].gateway_range().starts_with("bytes="));
     }
 

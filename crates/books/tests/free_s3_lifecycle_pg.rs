@@ -423,3 +423,252 @@ async fn s349_import_commits_all_editions_or_none_and_replays_once() {
     assert_eq!(count(&pool,"SELECT count(*) FROM chapter_versions v JOIN chapters c ON c.id=v.chapter_id WHERE c.book_id=$1 AND v.body_markdown IS NOT NULL",book).await,0);
     pool.close().await;
 }
+
+/// DROP-R4a: PG18 tests B's atomic candidate-only transaction. This is a
+/// deliberately synthetic NEUTRAL receipt, NOT proof of S3 bytes. G's real
+/// full GET and seekable manifest are covered by storage's MinIO E2E; R4b
+/// must combine the two in one end-to-end orchestrator.
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL18 /tor_ci"]
+async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchanged() {
+    use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
+    use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
+
+    let (pool, actor, book, author) = fixture("drop-r4a", "public").await;
+    let texts = ["Первая глава, Unicode 😀", "Вторая глава, право V1 中文"];
+    let mut published = Vec::new();
+    let mut frames = Vec::new();
+    for (index, text) in texts.iter().enumerate() {
+        let input = request(
+            book,
+            None,
+            0,
+            (index + 1) as i32,
+            (b'q' + index as u8) as char,
+            text,
+        );
+        let ids = author.prepare_new(actor, &input).await.unwrap();
+        author
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (ids.chapter_id, ids.version_id),
+                metadata(text),
+            )
+            .await
+            .unwrap();
+        frames.push(PackPlacementFrame {
+            chapter_id: ids.chapter_id,
+            version_id: ids.version_id,
+            content_sha256: metadata(text).1,
+            size_bytes: text.len() as u64,
+            frame_offset: (index * 1_000) as u64,
+            frame_bytes: 500,
+        });
+        published.push(ids);
+    }
+    let pack_key = format!("private/free-packs/ci/drop-r4a-{book}.zst");
+    let receipt = PackPlacementReceipt {
+        target: PackPlacementTarget {
+            bucket: "tor-private-drop-r4a-ci".to_owned(),
+            pack_key: pack_key.clone(),
+            manifest_key: pack_key.replace(".zst", ".manifest.json"),
+            pack_sha256: [31; 32],
+            manifest_sha256: [41; 32],
+            pack_bytes: 16_000,
+            manifest_bytes: 512,
+            seek_table_start: 15_000,
+        },
+        frames,
+    };
+    let repo = PgFreePackCatalog::new(pool.clone());
+    let approved = PgFreePackCatalog::fingerprint(&receipt);
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_jobs
+         (actor_user_id,book_id,approved_fingerprint,expected_chapter_count,
+          status,lease_epoch,locked_until)
+         VALUES($1,$2,$3,2,'running',7,now()+interval '2 minutes') RETURNING id",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(approved.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 6, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+
+    sqlx::query("UPDATE free_pack_jobs SET locked_until=now()-interval '1 second' WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET status='cancelled',locked_until=NULL WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query(
+        "UPDATE free_pack_jobs SET status='running',locked_until=now()+interval '2 minutes'
+         WHERE id=$1",
+    )
+    .bind(job)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE free_pack_jobs SET approved_fingerprint=$2 WHERE id=$1")
+        .bind(job)
+        .bind([92u8; 32].as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET approved_fingerprint=$2 WHERE id=$1")
+        .bind(job)
+        .bind(approved.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // This independently approved but invalid candidate has frame #2
+    // overlapping frame #1. The R2 PG trigger fails *after* the pack and
+    // first generation insert; the enclosing B transaction must roll both
+    // writes back instead of leaving a partial physical catalog.
+    let mut overlap = receipt.clone();
+    overlap.target.pack_key = format!("private/free-packs/ci/drop-r4a-overlap-{book}.zst");
+    overlap.target.manifest_key = overlap.target.pack_key.replace(".zst", ".manifest.json");
+    overlap.frames[1].frame_offset = 100;
+    let overlap_fingerprint = PgFreePackCatalog::fingerprint(&overlap);
+    let overlap_job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_jobs
+         (actor_user_id,book_id,approved_fingerprint,expected_chapter_count,
+          status,lease_epoch,locked_until)
+         VALUES($1,$2,$3,2,'running',8,now()+interval '2 minutes') RETURNING id",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(overlap_fingerprint.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(overlap_job, 8, &overlap).await,
+        Err(AuthorError::Conflict)
+    ));
+    let leaked: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM free_storage_packs WHERE object_key=$1")
+            .bind(&overlap.target.pack_key)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        leaked, 0,
+        "a bad later frame must roll back the PACK insert"
+    );
+    let status: String = sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+        .bind(overlap_job)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "running", "no partial success after rollback");
+
+    let empty: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_storage_generations
+         WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))",
+    )
+    .bind(receipt.frames[0].chapter_id)
+    .bind(receipt.frames[0].version_id)
+    .bind(receipt.frames[1].chapter_id)
+    .bind(receipt.frames[1].version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(empty, 0);
+
+    // Same-job concurrent retries serialize under the PG job lock. The loser
+    // sees the committed pack and returns that same ID without new generations.
+    let (a, b) = tokio::join!(
+        repo.finish_pack_job(job, 7, &receipt),
+        repo.finish_pack_job(job, 7, &receipt),
+    );
+    let first = a.unwrap();
+    assert_eq!(first, b.unwrap());
+    assert!(first > 0);
+    assert_eq!(repo.finish_pack_job(job, 7, &receipt).await.unwrap(), first);
+    assert!(matches!(
+        repo.finish_pack_job(job, 6, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    let attached: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_storage_generations WHERE pack_id=$1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(attached, 2);
+    let active: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_active_storage
+         WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))",
+    )
+    .bind(receipt.frames[0].chapter_id)
+    .bind(receipt.frames[0].version_id)
+    .bind(receipt.frames[1].chapter_id)
+    .bind(receipt.frames[1].version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(active, 0, "R4a candidate attachment never enables PACK");
+    for ids in published {
+        let published_version: i64 =
+            sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+                .bind(ids.chapter_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(published_version, ids.version_id);
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT count(*) FROM free_chapter_storage_objects WHERE chapter_id=$1",
+                ids.chapter_id,
+            )
+            .await,
+            1
+        );
+    }
+    let status: String = sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+        .bind(job)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "succeeded");
+    pool.close().await;
+}
