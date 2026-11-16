@@ -41,6 +41,14 @@ impl PgFreePackCatalog {
         {
             return Err(AuthorError::Invalid);
         }
+        // Bound B's preapproval to G's 128 MiB decoded PACK budget.
+        // Refuse impossible jobs before writing a durable pending row.
+        let decoded = receipt.frames.iter().try_fold(0_u64, |total, frame| {
+            total.checked_add(frame.size_bytes)
+        });
+        if decoded.is_none_or(|bytes| bytes > 128 * 1024 * 1024) {
+            return Err(AuthorError::Invalid);
+        }
         let spec = serde_json::to_string(receipt).map_err(|_| AuthorError::Invalid)?;
         if spec.len() > 1_048_576 {
             return Err(AuthorError::Invalid);
