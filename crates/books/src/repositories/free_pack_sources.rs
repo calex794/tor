@@ -140,7 +140,7 @@ impl PgFreePackCatalog {
     pub async fn probe_pack_worker_schema(&self) -> Result<(), AuthorError> {
         sqlx::query(
             "SELECT j.id,s.job_id FROM free_pack_jobs j
-             JOIN free_pack_job_specs s ON s.job_id=j.id WHERE false"
+             JOIN free_pack_job_specs s ON s.job_id=j.id WHERE false",
         )
         .fetch_optional(&self.pool)
         .await
