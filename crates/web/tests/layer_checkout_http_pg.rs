@@ -422,7 +422,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     // The renewal COMMIT succeeds through actual TCP, but an intermediate
     // proxy suppresses the entire HTTP receipt. The buyer must recover by
     // repeating the same idempotency key, not by spending with a fresh one.
-    lost_ack::drop_committed_layer_receipt(
+    let committed_wire_receipt = lost_ack::drop_committed_layer_receipt(
         &app,
         &path,
         &valid,
@@ -448,6 +448,10 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     assert_eq!(renewed.status(), StatusCode::OK);
     let renewal = json_body(renewed).await;
     assert_eq!(renewal["replayed"], true);
+    assert!(
+        committed_wire_receipt.contains(&format!("\"term_id\":{}", renewal["term_id"])),
+        "the recovered reply must identify the exact first committed term"
+    );
     assert_ne!(renewal["term_id"], a["term_id"]);
     assert_eq!(renewal["balance_minor"], 120);
     assert_eq!(financial_state(&url, buyer), (120, 2, 2));
