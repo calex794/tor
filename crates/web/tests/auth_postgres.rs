@@ -32,6 +32,8 @@ mod h_author_index_cases;
 mod h_cover_cases;
 #[path = "auth_postgres/http_helpers.rs"]
 mod http_helpers;
+#[path = "auth_postgres/pg_outage.rs"]
+mod pg_outage;
 use http_helpers::json_request;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
