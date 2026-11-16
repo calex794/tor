@@ -31,7 +31,11 @@ pub(super) async fn drop_committed_layer_receipt(
         let (mut downstream, _) = listener.accept().await.unwrap();
         let mut received = vec![0_u8; expected.len()];
         downstream.read_exact(&mut received).await.unwrap();
-        assert_eq!(received, expected.as_bytes(), "authenticated HTTP request mismatch");
+        assert_eq!(
+            received,
+            expected.as_bytes(),
+            "authenticated HTTP request mismatch"
+        );
 
         let mut upstream = tokio::net::TcpStream::connect(backend)
             .await
@@ -48,11 +52,23 @@ pub(super) async fn drop_committed_layer_receipt(
         .await
         .expect("Layer checkout HTTP response timeout")
         .expect("read full live Layer response");
-        assert!(reply.starts_with(b"HTTP/1.1 200 "), "committed checkout must return HTTP 200");
+        assert!(
+            reply.starts_with(b"HTTP/1.1 200 "),
+            "committed checkout must return HTTP 200"
+        );
         let receipt = String::from_utf8_lossy(&reply);
-        assert!(receipt.contains("\"balance_minor\":120"), "renewal must debit once");
-        assert!(receipt.contains("\"replayed\":false"), "original renewal must not be replayed");
-        assert!(receipt.contains("\"term_id\""), "live receipt must identify committed entitlement");
+        assert!(
+            receipt.contains("\"balance_minor\":120"),
+            "renewal must debit once"
+        );
+        assert!(
+            receipt.contains("\"replayed\":false"),
+            "original renewal must not be replayed"
+        );
+        assert!(
+            receipt.contains("\"term_id\""),
+            "live receipt must identify committed entitlement"
+        );
         // Do not forward any response bytes to the reader.
         downstream.shutdown().await.unwrap();
         receipt.into_owned()
