@@ -12,6 +12,7 @@ use tor_storage::{
 };
 mod admin;
 mod import;
+mod pack_direct;
 
 pub type S3FreeAuthor =
     PgFreeAuthorPublisher<tor_storage::repositories::free_chapter_s3::S3FreeChapterStore>;

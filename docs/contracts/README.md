@@ -51,3 +51,5 @@
 - [DROP-R4c automatic PACK candidate admission](tor-store-r4c-auto-pack-planner.md): bounded B-approved FREE inventory, one active job per book, append-only membership and separate planner opt-in, no S349 reader cutover.
 
 - [DROP-03/06: C-authorized private PACK Range preflight](tor-store-drop03-06-authorized-range-preflight.md): exact historical FREE edition authorization before and after bounded S3 Range, no live HTTP or PACK grant. Original DROP-04 pack-direct remains next.
+
+- [DROP-04a: direct PACK staged receipt](tor-store-drop04a-pack-direct-stage.md): approved bulk source directly to verified seekable PACK and immutable leased B stage, no SINGLE or live publication.

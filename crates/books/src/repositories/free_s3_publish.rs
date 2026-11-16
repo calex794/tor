@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 
 mod batch;
+mod direct_stage;
+pub use direct_stage::DirectPackStageRequest;
 mod edit;
 mod owner;
 mod reserve_import;
