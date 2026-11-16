@@ -13,6 +13,7 @@ use tor_books::{
     repositories::{
         free_pack_attach::PgFreePackCatalog,
         free_s3_publish::PgFreeS3Publication,
+        PgCatalog,
     },
     services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
@@ -139,7 +140,7 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     let url = env::var("TEST_DATABASE_URL").unwrap();
     let client = s3();
     client.create_bucket().bucket(BUCKET).send().await.unwrap();
-    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let pool = PgCatalog::connect(&url).await.unwrap().pool().clone();
     let actor: i64 = pg(&url, "INSERT INTO users(email_normalized,display_name,password_hash)
         VALUES('drop-r4b1-owner@ci.example','DROP worker','$argon2id$test') RETURNING id")
         .parse().unwrap();
@@ -191,16 +192,15 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     assert!(pack_id > 0);
     assert_eq!(finalize_one_verified_pack(&catalog, &proof, &claim).await.unwrap(), pack_id,
         "lost PG COMMIT ACK must not duplicate generations");
-    let candidates: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM free_edition_storage_generations WHERE pack_id=$1"
-    ).bind(pack_id).fetch_one(&pool).await.unwrap();
+    let candidates: i64 = pg(&url, &format!(
+        "SELECT count(*) FROM free_edition_storage_generations WHERE pack_id={pack_id}"
+    )).parse().unwrap();
     assert_eq!(candidates, 2);
-    let active: i64 = sqlx::query_scalar(
+    let active: i64 = pg(&url, &format!(
         "SELECT count(*) FROM free_edition_active_storage
-         WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))"
-    ).bind(editions[0].0).bind(editions[0].1)
-        .bind(editions[1].0).bind(editions[1].1)
-        .fetch_one(&pool).await.unwrap();
+         WHERE (chapter_id,version_id) IN (({},{}),({},{}))",
+        editions[0].0, editions[0].1, editions[1].0, editions[1].1
+    )).parse().unwrap();
     assert_eq!(active, 0, "R4b1 never changes live reader pointers");
     assert!(!catalog.renew_pack_job(job, claim.epoch, 90).await.unwrap());
     assert!(catalog.claim_pack_job(90).await.unwrap().is_none());
@@ -218,9 +218,10 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         finalize_one_verified_pack(&catalog, &proof, &bad_claim).await,
         Err(AuthorError::Unavailable)
     ));
-    let bad_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM free_storage_packs WHERE object_key=$1"
-    ).bind(&bad.target.pack_key).fetch_one(&pool).await.unwrap();
+    let bad_count: i64 = pg(&url, &format!(
+        "SELECT count(*) FROM free_storage_packs WHERE object_key='{}'",
+        bad.target.pack_key
+    )).parse().unwrap();
     assert_eq!(bad_count, 0);
 
     // Cancellation revokes a prior claim, independently of successful S3 proof.
