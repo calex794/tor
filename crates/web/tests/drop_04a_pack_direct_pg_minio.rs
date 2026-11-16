@@ -546,15 +546,28 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     )
     .parse()
     .unwrap();
-    let invalid =
-        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-            .bind(stranger)
-            .bind(missing)
-            .execute(&pool)
-            .await;
+    let invalid = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            &url,
+            "--command",
+            &format!(
+                "INSERT INTO chapter_publications(chapter_id,version_id)
+                 VALUES({stranger},{missing})"
+            ),
+        ])
+        .output()
+        .unwrap();
     assert!(
-        invalid.is_err(),
-        "free bodyless chapter without SINGLE/PACK must be rejected"
+        !invalid.status.success()
+            && String::from_utf8_lossy(&invalid.stderr).contains("S349/DROP:"),
+        "the S349/DROP guard must reject bodyless free editions without proof"
     );
     pool.close().await;
 }
