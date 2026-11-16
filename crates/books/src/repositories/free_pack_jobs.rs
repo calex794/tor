@@ -178,13 +178,25 @@ impl PgFreePackCatalog {
             .begin()
             .await
             .map_err(|_| AuthorError::Unavailable)?;
+        // Crash at the eighth lease must not yield an unbounded ninth claim.
+        // Close expired exhausted jobs before selecting runnable work.
+        sqlx::query(
+            "UPDATE free_pack_jobs SET status='failed',locked_until=NULL,
+                 finished_at=clock_timestamp(),updated_at=clock_timestamp()
+             WHERE status='running' AND lease_epoch>=8
+               AND locked_until<=clock_timestamp()"
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
         let row = sqlx::query(
             "WITH next AS (
                SELECT j.id FROM free_pack_jobs j
                JOIN free_pack_job_specs s ON s.job_id=j.id
-               WHERE (j.status='pending' AND
+               WHERE j.lease_epoch<8 AND
+                  ((j.status='pending' AND
                      (j.locked_until IS NULL OR j.locked_until<=clock_timestamp()))
-                  OR (j.status='running' AND j.locked_until<=clock_timestamp())
+                  OR (j.status='running' AND j.locked_until<=clock_timestamp()))
                ORDER BY j.created_at,j.id
                FOR UPDATE OF j SKIP LOCKED LIMIT 1
              )
