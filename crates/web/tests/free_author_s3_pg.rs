@@ -526,3 +526,287 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     println!("S349_E2E: author form, bodyless PG, immutable retry, CSRF, direct S3 browser, hold denial, corrupted SHA and S3 outage passed");
     pool.close().await;
 }
+
+/// DROP-B06: exercise the real S349 B/G integration point, not a shadow schema.
+///
+/// An S3 PUT and full bounded GET/SHA succeed for V2, but a concurrent
+/// administrative hold is applied before B may attach the storage receipt.
+/// V1 must remain the sole reader-visible version. The same command can later
+/// safely reuse those immutable S3 bytes without a duplicate publication.
+///
+/// This is a FREE edition test. Purchased paid V1 uses a separate encrypted
+/// delivery path and must not be treated as covered by this scenario.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires isolated PG18/MinIO from TOR integration paid_e2e"]
+async fn s349_drop_v2_verified_s3_rejected_by_pg_hold_keeps_free_v1_until_retry() {
+    use tor_reading::repositories::free_s3_ref::PgFreeS3Ref;
+    use tor_storage::services::free_chapter::{
+        upload_and_verify, FreeChapterObject, FreeChapterStore,
+    };
+
+    let url = env::var("TEST_DATABASE_URL").expect("isolated PG18");
+    assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").unwrap(), ENDPOINT);
+    const TEST_BUCKET: &str = "tor-s349-drop-boundary-ci";
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(Credentials::new(
+            env::var("TOR_TEST_S3_ACCESS_KEY").unwrap(),
+            env::var("TOR_TEST_S3_SECRET_KEY").unwrap(),
+            None,
+            None,
+            "drop-s349-loopback-test",
+        ))
+        .endpoint_url(ENDPOINT)
+        .force_path_style(true)
+        .retry_config(RetryConfig::standard().with_max_attempts(1))
+        .build();
+    let client = Client::from_conf(config);
+    client
+        .create_bucket()
+        .bucket(TEST_BUCKET)
+        .send()
+        .await
+        .unwrap();
+    let store = S3FreeChapterStore::new(client.clone(), TEST_BUCKET.to_owned()).unwrap();
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool().clone();
+    let actor: i64 = pg(
+        &url,
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('s349-drop-verified-author@example.invalid',
+                'DROP S349 verified author','$argon2id$test') RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:drop:s349:verified-v2','ru','DROP verified V2','public',{actor},'basic')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let publication = PgFreeS3Publication::new(pool.clone());
+    let reader = PgFreeS3Ref::new(pool.clone());
+
+    let first_text = "DROP_V1_READER_MUST_SURVIVE\n\nРусский исходный текст 😀";
+    let v1_command = "x".repeat(43);
+    let first = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "DROP original",
+        body: first_text,
+        access: "free",
+        price_amount: 0,
+        command_key: &v1_command,
+    })
+    .unwrap();
+    let prepared_v1 = publication.prepare_new(actor, &first).await.unwrap();
+    let v1 = FreeChapterObject::for_markdown(
+        prepared_v1.chapter_id,
+        prepared_v1.version_id,
+        &first.body,
+    )
+    .unwrap();
+    upload_and_verify(&store, &v1, &first.body).await.unwrap();
+    publication
+        .attach_verified_and_publish(
+            actor,
+            book,
+            (v1.chapter_id(), v1.version_id()),
+            (TEST_BUCKET, *v1.sha256(), v1.size_bytes()),
+        )
+        .await
+        .unwrap();
+
+    let current = reader
+        .for_session(v1.chapter_id(), None)
+        .await
+        .unwrap()
+        .expect("public free edition V1 must resolve");
+    assert_eq!(current.version_id, v1.version_id());
+    assert_eq!(current.sha256, *v1.sha256());
+    assert_eq!(
+        store.get_verified(&v1).await.unwrap(),
+        first_text.as_bytes()
+    );
+
+    let second_text = "DROP_V2_MUST_NOT_LEAK_EARLY\n\nДругая версия 中文";
+    let v2_command = "y".repeat(43);
+    let edit = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: Some(v1.chapter_id() as u64),
+        number: 1,
+        expected_revision: 1,
+        title: "DROP updated",
+        body: second_text,
+        access: "free",
+        price_amount: 0,
+        command_key: &v2_command,
+    })
+    .unwrap();
+    let prepared_v2 = publication.prepare_edit(actor, &edit).await.unwrap();
+    assert_eq!(prepared_v2.previous_version_id, v1.version_id());
+    assert!(!prepared_v2.published);
+    let v2 =
+        FreeChapterObject::for_markdown(prepared_v2.chapter_id, prepared_v2.version_id, &edit.body)
+            .unwrap();
+    upload_and_verify(&store, &v2, &edit.body)
+        .await
+        .expect("actual S3 upload and byte verification must finish");
+
+    // Simulate a real race: permission changes after S3 verification but
+    // before the PostgreSQL publication transaction. B must deny attachment.
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
+    assert_eq!(
+        publication
+            .attach_edit(
+                actor,
+                &edit,
+                &prepared_v2,
+                (TEST_BUCKET, *v2.sha256(), v2.size_bytes()),
+            )
+            .await,
+        Err(AuthorError::Missing),
+    );
+    assert!(
+        reader
+            .for_session(v1.chapter_id(), None)
+            .await
+            .unwrap()
+            .is_none(),
+        "book hold must prevent even the old current edition from being granted",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT version_id FROM chapter_publications
+                 WHERE chapter_id={}",
+                v1.chapter_id()
+            ),
+        ),
+        v1.version_id().to_string(),
+        "the V2 bytes are verified but not reader-visible",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects
+                 WHERE chapter_id={} AND version_id={}",
+                v2.chapter_id(),
+                v2.version_id()
+            ),
+        ),
+        "0",
+        "there must be no attached S3 receipt for the failed publication",
+    );
+    assert_eq!(
+        store.get_verified(&v2).await.unwrap(),
+        second_text.as_bytes(),
+        "the unreferenced verified V2 object must remain private for safe retry",
+    );
+    assert_eq!(
+        store.get_verified(&v1).await.unwrap(),
+        first_text.as_bytes(),
+        "existing immutable V1 must survive the failed update",
+    );
+
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
+    assert_eq!(
+        reader
+            .for_session(v1.chapter_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .version_id,
+        v1.version_id(),
+        "lifting the hold must not implicitly publish the pending V2",
+    );
+    // The existing immutable V2 key now conflicts on PUT, but the real G
+    // service verifies the unchanged bytes and accepts the retry.
+    upload_and_verify(&store, &v2, &edit.body)
+        .await
+        .expect("idempotent retry must reverify stored V2");
+    publication
+        .attach_edit(
+            actor,
+            &edit,
+            &prepared_v2,
+            (TEST_BUCKET, *v2.sha256(), v2.size_bytes()),
+        )
+        .await
+        .unwrap();
+    publication
+        .attach_edit(
+            actor,
+            &edit,
+            &prepared_v2,
+            (TEST_BUCKET, *v2.sha256(), v2.size_bytes()),
+        )
+        .await
+        .expect("duplicate receipt attachment must not duplicate a version");
+
+    let new_current = reader
+        .for_session(v1.chapter_id(), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(new_current.version_id, v2.version_id());
+    assert_eq!(new_current.sha256, *v2.sha256());
+    assert_eq!(
+        store.get_verified(&v1).await.unwrap(),
+        first_text.as_bytes()
+    );
+    assert_eq!(
+        store.get_verified(&v2).await.unwrap(),
+        second_text.as_bytes()
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects
+                 WHERE chapter_id={}",
+                v1.chapter_id()
+            ),
+        ),
+        "2",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_versions
+                 WHERE chapter_id={} AND body_markdown IS NOT NULL",
+                v1.chapter_id()
+            ),
+        ),
+        "0",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_first_release_events
+                 WHERE chapter_id={}",
+                v1.chapter_id()
+            ),
+        ),
+        "1",
+        "editing V2 must not duplicate first-release events",
+    );
+    pool.close().await;
+}
