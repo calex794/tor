@@ -122,7 +122,13 @@ impl PgFreePackCatalog {
         .bind(receipt.frames.len() as i32)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| AuthorError::Unavailable)?;
+        .map_err(|error| {
+            if error.as_database_error().and_then(|db| db.code()).as_deref() == Some("23505") {
+                AuthorError::Conflict
+            } else {
+                AuthorError::Unavailable
+            }
+        })?;
         let id = if let Some(id) = job {
             sqlx::query("INSERT INTO free_pack_job_specs(job_id,spec_text) VALUES($1,$2)")
                 .bind(id)
@@ -130,6 +136,19 @@ impl PgFreePackCatalog {
                 .execute(&mut *tx)
                 .await
                 .map_err(|_| AuthorError::Unavailable)?;
+            // Membership is committed with the immutable spec, never later.
+            for frame in &receipt.frames {
+                sqlx::query(
+                    "INSERT INTO free_pack_job_members(job_id,chapter_id,version_id)
+                     VALUES($1,$2,$3)"
+                )
+                .bind(id)
+                .bind(frame.chapter_id)
+                .bind(frame.version_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| AuthorError::Unavailable)?;
+            }
             id
         } else {
             let existing = sqlx::query(
