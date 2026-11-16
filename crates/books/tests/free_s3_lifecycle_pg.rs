@@ -557,6 +557,14 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
         .await
         .unwrap();
 
+    // R4c serializes live PACK attempts per book. Temporarily cancel
+    // the first synthetic job to exercise a competing malformed candidate.
+    sqlx::query("UPDATE free_pack_jobs SET status='cancelled',locked_until=NULL WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // This independently approved but invalid candidate has frame #2
     // overlapping frame #1. The R2 PG trigger fails *after* the pack and
     // first generation insert; the enclosing B transaction must roll both
@@ -611,6 +619,22 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
     .await
     .unwrap();
     assert_eq!(empty, 0);
+
+    // The invalid attempt did not persist a PACK or candidate generation.
+    // Retire its still-live lease before restoring the original R4a job.
+    sqlx::query("UPDATE free_pack_jobs SET status='failed',locked_until=NULL WHERE id=$1")
+        .bind(overlap_job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE free_pack_jobs SET status='running',locked_until=now()+interval '2 minutes'
+         WHERE id=$1",
+    )
+    .bind(job)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // Same-job concurrent retries serialize under the PG job lock. The loser
     // sees the committed pack and returns that same ID without new generations.
