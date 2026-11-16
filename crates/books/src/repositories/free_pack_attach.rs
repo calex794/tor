@@ -1,20 +1,14 @@
-//! DROP-R4a: B-owned, lease-fenced PG attachment of a G-verified PACK.
-//!
-//! This is an **inert candidate catalog**. It never updates
-//! free_edition_active_storage, chapter_publications or reader permissions.
-//! No S3 network I/O happens while a PostgreSQL transaction is open.
-//! A production caller must first obtain VerifiedPack from G's independent
-//! full S3 GET and compare against a previously approved B inventory.
+//! DROP-R4a: B-owned, lease-fenced PG candidate attachment.
+//! No B->G cross-feature dependency: the only input is the neutral I contract.
+//! Trusted orchestration must obtain that descriptor from the G full S3 proof,
+//! NEVER directly from an HTTP actor or an unverified manifest.
+//! No S3 I/O occurs inside the B transaction; no active reader is switched.
 
+use crate::services::authoring::AuthorError;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::collections::HashSet;
-use tor_storage::services::{
-    free_chapter::FreeChapterObject,
-    free_pack_proof::{PackProofTarget, VerifiedPack},
-};
-
-use crate::services::authoring::AuthorError;
+use tor_contracts::drop_pack::PackPlacementReceipt;
 
 #[derive(Clone)]
 pub struct PgFreePackCatalog {
@@ -26,18 +20,16 @@ impl PgFreePackCatalog {
         Self { pool }
     }
 
-    /// A stable, v1-fenced fingerprint for a *preapproved* target and its full
-    /// ordered inventory. B should persist it before G uploads anything; the
-    /// exact same digest must be reproduced from G's opaque verification.
-    pub fn fingerprint(
-        target: &PackProofTarget,
-        editions: &[FreeChapterObject],
-    ) -> [u8; 32] {
+    /// Preapproved complete ordered physical inventory, including expected
+    /// immutable B edition IDs, hashes and all pack/sidecar contents digests.
+    /// The B scheduler computes this *before* any G upload or proof.
+    pub fn fingerprint(receipt: &PackPlacementReceipt) -> [u8; 32] {
         let mut hash = Sha256::new();
         fn part(hash: &mut Sha256, source: &[u8]) {
             hash.update((source.len() as u64).to_be_bytes());
             hash.update(source);
         }
+        let target = &receipt.target;
         part(&mut hash, b"tor-drop-r4a-approved-pack-fingerprint-v1");
         part(&mut hash, target.bucket.as_bytes());
         part(&mut hash, target.pack_key.as_bytes());
@@ -47,55 +39,62 @@ impl PgFreePackCatalog {
         for n in [target.pack_bytes, target.manifest_bytes, target.seek_table_start] {
             part(&mut hash, &n.to_be_bytes());
         }
-        part(&mut hash, &(editions.len() as u64).to_be_bytes());
-        for edition in editions {
-            part(&mut hash, &edition.chapter_id().to_be_bytes());
-            part(&mut hash, &edition.version_id().to_be_bytes());
-            part(&mut hash, edition.sha256());
-            part(&mut hash, &edition.size_bytes().to_be_bytes());
+        part(&mut hash, &(receipt.frames.len() as u64).to_be_bytes());
+        for edition in &receipt.frames {
+            part(&mut hash, &edition.chapter_id.to_be_bytes());
+            part(&mut hash, &edition.version_id.to_be_bytes());
+            part(&mut hash, &edition.content_sha256);
+            part(&mut hash, &edition.size_bytes.to_be_bytes());
+            part(&mut hash, &edition.frame_offset.to_be_bytes());
+            part(&mut hash, &edition.frame_bytes.to_be_bytes());
         }
         hash.finalize().into()
     }
 
-    /// Attach all candidate generations atomically iff the current job has
-    /// a live, exact epoch and fingerprint, and every immutable B edition plus
-    /// original S349 SINGLE receipt matches G's fully verified S3 bytes.
-    ///
-    /// A successful retry after a lost PG commit ACK returns the same pack_id.
-    /// An old epoch, expired lease, author hold, missing/paid edition, foreign
-    /// book, stale source hash or any broken frame rolls back the entire tx.
-    ///
-    /// This function does *not* promote a generation: that requires a future
-    /// independently authorized C gateway and an explicit cutover protocol.
+    /// Attach exactly one verified pack's candidate generations as one PG
+    /// transaction. The source receipt is a *trusted-in-process* descriptor;
+    /// B does not independently verify remote S3 bytes. A separate G worker
+    /// must prove them before calling this method through the application.
     pub async fn finish_pack_job(
         &self,
         job_id: i64,
         expected_epoch: i64,
-        proof: &VerifiedPack,
+        receipt: &PackPlacementReceipt,
     ) -> Result<i64, AuthorError> {
-        let target = proof.target();
-        let frames = proof.frames();
+        let target = &receipt.target;
+        let frames = &receipt.frames;
         if job_id <= 0 || expected_epoch <= 0 || frames.is_empty() || frames.len() > 4096 {
             return Err(AuthorError::Invalid);
         }
-        // A type from the G verifier is opaque, but assert all frame metadata
-        // equal the trusted whole-object proof target as an extra boundary.
-        let mut unique = HashSet::with_capacity(frames.len());
+        // Fail early on obviously forged/mismatched source descriptors even
+        // before B's authoritative PostgreSQL validation and R2 SQL guards.
+        if target.pack_sha256 == [0; 32]
+            || target.manifest_sha256 == [0; 32]
+            || !(26..=16 * 1024 * 1024).contains(&target.pack_bytes)
+            || !(1..=1024 * 1024).contains(&target.manifest_bytes)
+            || !(1..target.pack_bytes).contains(&target.seek_table_start)
+            || !target.pack_key.starts_with("private/free-packs/")
+            || !target.manifest_key.ends_with(".manifest.json")
+        {
+            return Err(AuthorError::Invalid);
+        }
+        let mut seen = HashSet::with_capacity(frames.len());
         for frame in frames {
-            let m = frame.metadata();
-            if m.bucket != target.bucket
-                || m.key != target.pack_key
-                || m.pack_bytes != target.pack_bytes
-                || m.seek_table_start != target.seek_table_start
-                || m.pack_sha256 != target.pack_sha256
-                || m.manifest_sha256 != target.manifest_sha256
-                || !unique.insert((frame.edition().chapter_id(), frame.edition().version_id()))
+            if frame.chapter_id <= 0
+                || frame.version_id <= 0
+                || frame.content_sha256 == [0; 32]
+                || !(1..=200_000).contains(&frame.size_bytes)
+                || !(1..=204_096).contains(&frame.frame_bytes)
+                || frame
+                    .frame_offset
+                    .checked_add(frame.frame_bytes)
+                    .is_none_or(|end| end > target.seek_table_start)
+                || !seen.insert((frame.chapter_id, frame.version_id))
             {
                 return Err(AuthorError::Invalid);
             }
         }
-        let editions: Vec<_> = frames.iter().map(|f| f.edition().clone()).collect();
-        let expected_fingerprint = Self::fingerprint(target, &editions);
+        let expected_fingerprint = Self::fingerprint(receipt);
         let mut tx = self.pool.begin().await.map_err(write_error)?;
         let row = sqlx::query(
             "SELECT actor_user_id,book_id,status,lease_epoch,
@@ -122,18 +121,20 @@ impl PgFreePackCatalog {
         {
             return Err(AuthorError::Conflict);
         }
-        // Lost-ACK idempotence: never create new immutable generations.
         if status == "succeeded" {
+            // Lost-commit-ACK retry; no second physical generation.
             return pack_id.ok_or(AuthorError::Conflict);
         }
         if status != "running" || !lease_valid || actor <= 0 || book <= 0 {
             return Err(AuthorError::Conflict);
         }
+
         let owner: Option<i64> = sqlx::query_scalar(
-            "SELECT owner_user_id FROM books
-             WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
-               AND visibility IN ('draft','public')
-             FOR NO KEY UPDATE",
+            "SELECT b.owner_user_id FROM books b JOIN users u ON u.id=b.owner_user_id
+             WHERE b.id=$1 AND b.owner_user_id=$2 AND u.account_state='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility IN ('draft','public')
+             FOR NO KEY UPDATE OF b, u",
         )
         .bind(book)
         .bind(actor)
@@ -143,12 +144,9 @@ impl PgFreePackCatalog {
         if owner.is_none() {
             return Err(AuthorError::Conflict);
         }
-        // Lock chapter state in canonical order, without a per-frame connection
-        // lock: the whole job and its generation writes are one B transaction.
         let mut ordered: Vec<_> = frames.iter().collect();
-        ordered.sort_unstable_by_key(|f| (f.edition().chapter_id(), f.edition().version_id()));
+        ordered.sort_unstable_by_key(|f| (f.chapter_id, f.version_id));
         for frame in &ordered {
-            let edition = frame.edition();
             let exact: Option<i64> = sqlx::query_scalar(
                 "SELECT c.id FROM chapters c
                  JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=$3
@@ -159,11 +157,11 @@ impl PgFreePackCatalog {
                    AND v.content_sha256=$4 AND s.sha256=$4 AND s.size_bytes=$5
                  FOR NO KEY UPDATE OF c",
             )
-            .bind(edition.chapter_id())
+            .bind(frame.chapter_id)
             .bind(book)
-            .bind(edition.version_id())
-            .bind(edition.sha256().as_slice())
-            .bind(edition.size_bytes() as i64)
+            .bind(frame.version_id)
+            .bind(frame.content_sha256.as_slice())
+            .bind(frame.size_bytes as i64)
             .fetch_optional(&mut *tx)
             .await
             .map_err(write_error)?;
@@ -189,16 +187,14 @@ impl PgFreePackCatalog {
         .fetch_one(&mut *tx)
         .await
         .map_err(write_error)?;
-
         for frame in ordered {
-            let edition = frame.edition();
             let next: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(MAX(generation),0)+1
                  FROM free_edition_storage_generations
                  WHERE chapter_id=$1 AND version_id=$2",
             )
-            .bind(edition.chapter_id())
-            .bind(edition.version_id())
+            .bind(frame.chapter_id)
+            .bind(frame.version_id)
             .fetch_one(&mut *tx)
             .await
             .map_err(write_error)?;
@@ -208,19 +204,18 @@ impl PgFreePackCatalog {
                      size_bytes,pack_id,frame_offset,frame_bytes)
                  VALUES($1,$2,$3,'pack',$4,$5,$6,$7,$8)",
             )
-            .bind(edition.chapter_id())
-            .bind(edition.version_id())
+            .bind(frame.chapter_id)
+            .bind(frame.version_id)
             .bind(next)
-            .bind(edition.sha256().as_slice())
-            .bind(edition.size_bytes() as i64)
+            .bind(frame.content_sha256.as_slice())
+            .bind(frame.size_bytes as i64)
             .bind(pack_id)
-            .bind(frame.metadata().frame_offset as i64)
-            .bind(frame.metadata().frame_bytes as i64)
+            .bind(frame.frame_offset as i64)
+            .bind(frame.frame_bytes as i64)
             .execute(&mut *tx)
             .await
             .map_err(write_error)?;
         }
-
         let updated = sqlx::query(
             "UPDATE free_pack_jobs SET status='succeeded',pack_id=$3,
                 locked_until=NULL,finished_at=now(),updated_at=now()
