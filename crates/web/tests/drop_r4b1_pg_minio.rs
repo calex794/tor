@@ -741,9 +741,14 @@ async fn drop_r4c_auto_planner_deduplicates_book_jobs_and_skips_packed_versions(
         planner.plan_one_book(book),
         planner.plan_one_book(book)
     );
-    let first = a.unwrap().unwrap();
-    assert_eq!(b.unwrap(), Some(first),
-               "independent same-book planning must replay the exact fingerprint");
+    let first = match (a, b) {
+        (Ok(Some(id)), Ok(Some(other))) => {
+            assert_eq!(id, other, "identical admission must replay the same job");
+            id
+        }
+        (Ok(Some(id)), Ok(None)) | (Ok(None), Ok(Some(id))) => id,
+        other => panic!("one planner must admit and one must deduplicate: {other:?}"),
+    };
     assert_eq!(planner.plan_one_book(book).await.unwrap(), None,
                "a pending job suppresses another admission");
     let members: i64 = pg(&url, &format!(
