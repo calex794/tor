@@ -459,6 +459,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/purchases",
+      "source": "crates/web/src/auth/purchased_library.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/rankings",
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::page",
