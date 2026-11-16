@@ -36,7 +36,11 @@ impl PgFreePackCatalog {
         part(&mut hash, target.manifest_key.as_bytes());
         part(&mut hash, &target.pack_sha256);
         part(&mut hash, &target.manifest_sha256);
-        for n in [target.pack_bytes, target.manifest_bytes, target.seek_table_start] {
+        for n in [
+            target.pack_bytes,
+            target.manifest_bytes,
+            target.seek_table_start,
+        ] {
             part(&mut hash, &n.to_be_bytes());
         }
         part(&mut hash, &(receipt.frames.len() as u64).to_be_bytes());
