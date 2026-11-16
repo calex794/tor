@@ -69,6 +69,7 @@ let stage = 'launch';
       let signalFirstS3;
       const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
       const s3Requests = new Map(), networkErrors = [];
+      let canceledGets = 0;
       // Capture source-byte transfers with Chromium's Network.dataReceived,
       // not Playwright Request.sizes(): sizes may throw after fast navigation
       // has disposed the previous document, even for a completed S3 GET.
@@ -104,6 +105,14 @@ let stage = 'launch';
       });
       cdp.on('Network.loadingFailed', event => {
         if (!s3Requests.delete(event.requestId)) return;
+        // Navigating between public/private or editor pages aborts an
+        // in-flight, now-obsolete GET. This is not a transfer failure of the
+        // chapter already rendered. Ignore *only* Chrome's explicit cancel;
+        // the test still requires another completed HTTP 200 GET with bytes.
+        if (event.errorText === 'net::ERR_ABORTED') {
+          canceledGets++;
+          return;
+        }
         networkErrors.push('S3 GET failed: ' + event.errorText);
         signalFirstS3();
       });
@@ -256,7 +265,8 @@ let stage = 'launch';
         clearTimeout(networkTimeout);
       }
       assert.deepEqual(networkErrors, [], 'all direct S3 GETs must finish successfully');
-      assert(directGets >= 1, 'browser must download the private chapter from the storage origin');
+      assert(directGets >= 1,
+        'browser must download the private chapter from the storage origin; canceled GETs=' + canceledGets);
       await cdp.detach();
       process.stdout.write(JSON.stringify({ storage_bytes: storageBytes,
         direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' || config.mode === 'no-js' }));
