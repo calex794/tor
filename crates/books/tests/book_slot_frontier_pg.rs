@@ -62,6 +62,18 @@ async fn owner_and_book(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) 
     (author, owner, book_id)
 }
 
+async fn assert_book_unlocked(pool: &PgPool, book: i64) {
+    // The independent NOWAIT probe exposes asynchronous rollback lock leaks.
+    let mut tx = pool.begin().await.unwrap();
+    let acquired: i64 = sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(book)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(acquired, book);
+    tx.rollback().await.unwrap();
+}
+
 async fn force_due(pool: &PgPool, book: i64) {
     sqlx::query(
         "UPDATE book_delayed_publication_settings
@@ -109,6 +121,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
     force_due(&pool, book).await;
     let token = "q".repeat(43);
     let first = author.claim_due_book_slot(&token).await.unwrap().unwrap();
+    assert_eq!(first.book_id, book, "global claim picked a different book");
     assert_eq!(
         author.bind_book_slot_frontier(&first, &token).await,
         Ok(BookSlotFrontier::Blocked {
@@ -136,6 +149,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         author.bind_book_slot_frontier(&first, &token).await,
         Err(AuthorError::Conflict)
     );
+    assert_book_unlocked(&pool, book).await;
     assert!(author
         .scheduled_free_chapter(owner, book, three.chapter_id)
         .await
@@ -166,6 +180,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(next.book_id, book, "global claim picked a different book");
     assert_eq!(next.schedule_revision, 2);
     assert_eq!(
         author.bind_book_slot_frontier(&next, &next_token).await,
@@ -179,6 +194,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         author.bind_book_slot_frontier(&next, &"t".repeat(43)).await,
         Err(AuthorError::Conflict)
     );
+    assert_book_unlocked(&pool, book).await;
     let bound: Option<i64> = sqlx::query_scalar(
         "SELECT chapter_id FROM book_delayed_publication_occurrences
          WHERE book_id=$1 AND schedule_revision=2",
@@ -217,6 +233,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         Err(AuthorError::Conflict),
         "a disabled schedule invalidates the old worker"
     );
+    assert_book_unlocked(&pool, book).await;
     pool.close().await;
 }
 

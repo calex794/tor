@@ -179,6 +179,8 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         if schedule.is_none() {
+            // A rejected revision must release the Book before SKIP LOCKED.
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
             return Err(AuthorError::Conflict);
         }
         let occurrence = sqlx::query(
@@ -200,8 +202,15 @@ impl PgAuthoring {
         .bind(claim.attempt_count)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| AuthorError::Unavailable)?
-        .ok_or(AuthorError::Conflict)?;
+        .map_err(|_| AuthorError::Unavailable)?;
+        let occurrence = match occurrence {
+            Some(row) => row,
+            None => {
+                // Expired and replaced workers cannot retain the Book lock.
+                tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
+                return Err(AuthorError::Conflict);
+            }
+        };
         let bound: Option<i64> = occurrence
             .try_get("chapter_id")
             .map_err(|_| AuthorError::Unavailable)?;
@@ -350,6 +359,7 @@ impl PgAuthoring {
         .map_err(|_| AuthorError::Unavailable)?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
             return Err(AuthorError::Conflict);
         }
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
