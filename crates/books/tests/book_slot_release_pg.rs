@@ -313,6 +313,18 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         Err(AuthorError::Conflict),
         "expired worker cannot publish after losing lease"
     );
+    // release_bound_book_slot must await the rejected TX rollback. Otherwise
+    // this NOWAIT probe can see a leaked Book row lock, and the global worker
+    // subsequently returns None because it uses FOR UPDATE SKIP LOCKED.
+    let mut lock_probe = pool.begin().await.unwrap();
+    let immediately_reclaimable: i64 =
+        sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(book)
+            .fetch_one(&mut *lock_probe)
+            .await
+            .unwrap();
+    assert_eq!(immediately_reclaimable, book);
+    lock_probe.rollback().await.unwrap();
     let new_token = "s".repeat(43);
     let retry = author
         .claim_due_book_slot(&new_token)

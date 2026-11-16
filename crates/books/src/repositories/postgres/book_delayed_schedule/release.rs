@@ -73,9 +73,12 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         if enabled.is_none() {
+            // A failed lease/revision check must not leave the Book locked
+            // while the next worker selects rows with SKIP LOCKED.
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
             return Err(AuthorError::Conflict);
         }
-        let bound: Option<i64> = sqlx::query_scalar(
+        let bound: Option<Option<i64>> = sqlx::query_scalar(
             "SELECT chapter_id FROM book_delayed_publication_occurrences
              WHERE book_id=$1 AND schedule_revision=$2
                AND local_date=$3::date AND slot_index=$4
@@ -95,9 +98,17 @@ impl PgAuthoring {
         .bind(claim.attempt_count)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| AuthorError::Unavailable)?
-        .ok_or(AuthorError::Conflict)?;
-        let chapter_id = bound.ok_or(AuthorError::Conflict)?;
+        .map_err(|_| AuthorError::Unavailable)?;
+        let chapter_id = match bound.flatten() {
+            Some(chapter_id) => chapter_id,
+            None => {
+                // SQLx drop schedules rollback asynchronously. Returning
+                // before it finishes can make a subsequent SKIP LOCKED claim
+                // incorrectly observe no due book.
+                tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
+                return Err(AuthorError::Conflict);
+            }
+        };
         let first = sqlx::query(
             "SELECT c.id,c.visibility,c.access_level,c.price_amount,
                     c.admin_hold,c.edit_revision,d.version_id AS working_version,
@@ -273,6 +284,7 @@ impl PgAuthoring {
         .map_err(|_| AuthorError::Unavailable)?
         .rows_affected();
         if created != 1 {
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
             return Err(AuthorError::Conflict);
         }
         finish_terminal(&mut tx, claim, token, Some(chapter_id), "completed", None).await?;
