@@ -8,6 +8,7 @@ from __future__ import annotations
 import http.client
 import socket
 import threading
+import urllib.error
 from collections.abc import Callable
 
 
@@ -70,6 +71,12 @@ def committed_without_ack(send: Callable[[str], object]) -> dict:
         client_error = None
         try:
             send(proxy_base)
+        except urllib.error.URLError as exc:
+            if not isinstance(exc.reason, (http.client.RemoteDisconnected,
+                                           ConnectionResetError,
+                                           http.client.BadStatusLine)):
+                raise
+            client_error = exc
         except (http.client.RemoteDisconnected, ConnectionResetError,
                 http.client.BadStatusLine) as exc:
             client_error = exc
