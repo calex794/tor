@@ -55,7 +55,22 @@ async fn html_ack_requires_the_materialized_batch_and_fences_replay_and_expired_
         health.finish(point, Some(&id), 2, 1),
         health.finish(point, Some(&id), 2, 1)
     );
-    assert!(a.unwrap() && b.unwrap());
+    // Both workers contend for the same fenced epoch row. The production
+    // 75ms lock timeout may reject one waiter under CI load; that is a
+    // recoverable refusal, not a lost or duplicated checkpoint. Retry only
+    // this transient outcome once after both concurrent attempts settle.
+    for result in [a, b] {
+        match result {
+            Ok(true) => {}
+            Err(HtmlHealthError::Unavailable) => {
+                assert!(
+                    health.finish(point, Some(&id), 2, 1).await.unwrap(),
+                    "retry after lock contention must acknowledge the same checkpoint"
+                );
+            }
+            other => panic!("unexpected concurrent checkpoint result: {other:?}"),
+        }
+    }
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT confirmed_ms FROM ril_flow_health_epochs WHERE epoch=$1"
