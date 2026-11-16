@@ -61,3 +61,50 @@ pub async fn configure(
         120,
     )?)
 }
+
+/// Planning is a separate operator opt-in. Running the R4b3 worker alone
+/// never scans, imports or preapproves the catalogue.
+pub fn planner_enabled(demo: bool, worker_enabled: bool) -> Result<bool, &'static str> {
+    let setting = match env::var("TOR_DROP_PACK_PLANNER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("Invalid DROP planner setting"),
+    };
+    match setting.as_deref() {
+        None | Some("0") => Ok(false),
+        Some("1") if !demo && worker_enabled => Ok(true),
+        Some("1") => Err("DROP planner requires the authenticated private PACK worker"),
+        Some(_) => Err("TOR_DROP_PACK_PLANNER_ENABLED must be 0 or 1"),
+    }
+}
+
+#[cfg(feature = "s3-free")]
+pub async fn configure_planner(
+    catalog: &tor_books::repositories::PgCatalog,
+) -> Result<
+    tor_web::free_pack_planner::DropPackPlanner<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+    Box<dyn Error>,
+> {
+    use tor_books::repositories::{
+        free_pack_attach::PgFreePackCatalog, free_pack_planner::PackPlannerPolicy,
+    };
+    use tor_storage::repositories::free_chapter_s3::S3FreeChapterStore;
+
+    let bucket = env::var("TOR_FREE_S3_BUCKET")?;
+    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let client = aws_sdk_s3::Client::new(&config);
+    let single = S3FreeChapterStore::new(client, bucket.clone())
+        .map_err(|_| "Invalid DROP planner FREE S3 bucket")?;
+    let b = PgFreePackCatalog::new(catalog.pool().clone());
+    b.probe_pack_planner_schema()
+        .await
+        .map_err(|_| "DROP pack planner migration not applied")?;
+    Ok(tor_web::free_pack_planner::DropPackPlanner::new(
+        b,
+        single,
+        bucket,
+        PackPlannerPolicy::default(),
+    )?)
+}

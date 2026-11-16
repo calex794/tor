@@ -9,6 +9,7 @@ use aws_sdk_s3::{
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{env, process::Command};
+use tor_books::repositories::free_pack_planner::PackPlannerPolicy;
 use tor_books::{
     repositories::{
         free_pack_attach::PgFreePackCatalog, free_s3_publish::PgFreeS3Publication, PgCatalog,
@@ -24,6 +25,7 @@ use tor_storage::{
         free_pack_write::prepare_free_pack,
     },
 };
+use tor_web::free_pack_planner::DropPackPlanner;
 use tor_web::free_pack_worker::runner::{DropPackWorker, PackWorkerResult};
 use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
@@ -326,6 +328,9 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     .parse()
     .unwrap();
     assert_eq!(bad_count, 0);
+    // R4c serializes active PACK work per book. Terminally settle the bad
+    // object's still-live lease before scheduling a different candidate.
+    assert!(catalog.settle_pack_job(&bad_claim, false).await.unwrap());
 
     // Cancellation revokes a prior claim, independently of successful S3 proof.
     let (cancelled, pack, manifest) = build_pack(book, &editions, "cancelled");
@@ -334,7 +339,7 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         .schedule_pack_job(actor, book, &cancelled)
         .await
         .unwrap();
-    // Earlier corrupt job has a still-live lease, so claim selects this pending one.
+    // The corrupt job was terminally failed; this is the only active book job.
     let cancel_claim = catalog.claim_pack_job(90).await.unwrap().unwrap();
     assert_eq!(cancel_claim.job_id, cancel_job);
     pg(
@@ -674,5 +679,169 @@ async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry(
         ),
         "failed"
     );
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable PostgreSQL18 + private MinIO; no active reader"]
+async fn drop_r4c_auto_planner_deduplicates_book_jobs_and_skips_packed_versions() {
+    let url = env::var("TEST_DATABASE_URL").unwrap();
+    let client = s3();
+    let _ = client.create_bucket().bucket(BUCKET).send().await;
+    let pool = PgCatalog::connect(&url).await.unwrap().pool().clone();
+    let actor: i64 = pg(
+        &url,
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('drop-r4c-owner@ci.example','DROP planner','$argon2id$test')
+         RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:drop:r4c','ru','DROP planning','public',{actor}) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let publisher = PgFreeS3Publication::new(pool.clone());
+    let single = S3FreeChapterStore::new(client.clone(), BUCKET.to_owned()).unwrap();
+    let mut editions = Vec::new();
+    for i in 0..4_u8 {
+        let body = format!("R4c immutable free chapter {} 中文😀", i);
+        let command_key = ((b'm' + i) as char).to_string().repeat(43);
+        let req = save_chapter(SaveChapterRequest {
+            book_id: book as u64,
+            chapter_id: None,
+            expected_revision: 0,
+            number: i as i32 + 1,
+            title: "DROP R4c",
+            body: &body,
+            access: "free",
+            price_amount: 0,
+            command_key: &command_key,
+        })
+        .unwrap();
+        let pending = publisher.prepare_new(actor, &req).await.unwrap();
+        let edition =
+            FreeChapterObject::for_markdown(pending.chapter_id, pending.version_id, &body).unwrap();
+        upload_and_verify(&single, &edition, &body).await.unwrap();
+        publisher
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (pending.chapter_id, pending.version_id),
+                (BUCKET, *edition.sha256(), edition.size_bytes()),
+            )
+            .await
+            .unwrap();
+        editions.push((edition, body));
+    }
+    let catalog = PgFreePackCatalog::new(pool.clone());
+    catalog.probe_pack_planner_schema().await.unwrap();
+    let policy = PackPlannerPolicy {
+        minimum_members: 2,
+        maximum_members: 3,
+        maximum_decoded_bytes: 1_000_000,
+    };
+    let planner =
+        DropPackPlanner::new(catalog.clone(), single.clone(), BUCKET.to_owned(), policy).unwrap();
+    let (a, b) = tokio::join!(planner.plan_one_book(book), planner.plan_one_book(book));
+    let first = match (a, b) {
+        (Ok(Some(id)), Ok(Some(other))) => {
+            assert_eq!(id, other, "identical admission must replay the same job");
+            id
+        }
+        (Ok(Some(id)), Ok(None)) | (Ok(None), Ok(Some(id))) => id,
+        other => panic!("one planner must admit and one must deduplicate: {other:?}"),
+    };
+    assert_eq!(
+        planner.plan_one_book(book).await.unwrap(),
+        None,
+        "a pending job suppresses another admission"
+    );
+    let members: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM free_pack_job_members WHERE job_id={first}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(members, 3);
+    let jobs: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_pack_jobs WHERE book_id={book}
+           AND status IN ('pending','running')"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(jobs, 1);
+    let other_key = format!("private/free-packs/ci/drop-r4c-competing-{book}.zst");
+    let altered = prepare_free_pack(
+        BUCKET,
+        &other_key,
+        &editions[0..2]
+            .iter()
+            .map(|(e, t)| (e.clone(), t.as_bytes().to_vec()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            catalog
+                .schedule_pack_job(actor, book, altered.receipt())
+                .await,
+            Err(AuthorError::Conflict)
+        ),
+        "two distinct active batches for one book must be rejected at PG uniqueness"
+    );
+    let worker = DropPackWorker::new(
+        catalog.clone(),
+        single.clone(),
+        S3FreePackWriter::new(client.clone()),
+        BUCKET.to_owned(),
+        120,
+    )
+    .unwrap();
+    let packed = match worker.run_one().await.unwrap() {
+        PackWorkerResult::Completed(id) => id,
+        other => panic!("expected first approved pack to commit: {other:?}"),
+    };
+    assert!(packed > 0);
+    assert_eq!(
+        planner.plan_one_book(book).await.unwrap(),
+        None,
+        "one remaining un-packed chapter is below the minimum batch size"
+    );
+    let registered: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM free_edition_storage_generations WHERE pack_id={packed}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(registered, 3);
+    let single_count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_chapter_storage_objects
+          WHERE chapter_id IN (SELECT id FROM chapters WHERE book_id={book})"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(single_count, 4);
+    let active: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_edition_active_storage
+         WHERE chapter_id IN (SELECT id FROM chapters WHERE book_id={book})"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(active, 0);
     pool.close().await;
 }

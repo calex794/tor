@@ -63,6 +63,8 @@ pub mod cover_worker;
 #[cfg(feature = "s3-free")]
 pub mod free_author_publish;
 #[cfg(feature = "s3-free")]
+pub mod free_pack_planner;
+#[cfg(feature = "s3-free")]
 pub mod free_pack_worker;
 #[cfg(feature = "s3-free")]
 pub mod free_reader_http;
@@ -353,7 +355,6 @@ async fn reader_page(
     )
     .await
 }
-
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
     auth_cookies::private_response(StatusCode::NOT_FOUND, &[])
 }
@@ -363,29 +364,24 @@ async fn login() -> impl axum::response::IntoResponse {
 async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
-
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
 }
-
 /// Bounded process-local diagnostic traces, without user IDs or raw SQL.
 /// This is an internal Rust API, not an unauthenticated HTTP endpoint.
 pub fn trace_snapshots_for_diagnostics() -> Vec<tor_observability::services::trace::RequestTrace> {
     observability::snapshot_traces()
 }
-
 /// Activates numeric-only SQLx route metrics; must run once before opening PG.
 /// If the process already uses another subscriber, RIL SQL metrics stay OFF.
 pub fn activate_ril_sqlx_observation() -> bool {
     ril::activate_sqlx_observation()
 }
-
 pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),
     ));
 }
-
 /// Instrument late-bound S023 routes without adding another fallback or
 /// duplicating observations from the already-instrumented base router.
 pub fn instrument_additional_routes(router: Router) -> Router {
