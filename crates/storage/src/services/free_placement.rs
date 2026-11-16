@@ -50,10 +50,7 @@ pub struct ValidatedPackReference {
 }
 
 impl ValidatedPackReference {
-    pub fn new(
-        edition: FreeChapterObject,
-        metadata: PackMetadata,
-    ) -> Result<Self, StorageError> {
+    pub fn new(edition: FreeChapterObject, metadata: PackMetadata) -> Result<Self, StorageError> {
         if !valid_private_bucket(&metadata.bucket)
             || !valid_pack_key(&metadata.key)
             || metadata.pack_sha256 == [0; 32]
@@ -185,18 +182,23 @@ mod tests {
     #[test]
     fn canonical_single_can_be_selected_only_for_the_same_edition() {
         let v1 = edition(12, 21, "Текст V1 😀");
-        let plan =
-            plan_after_acl(&v1, FreePhysicalPlacement::Single(v1.clone())).unwrap();
+        let plan = plan_after_acl(&v1, FreePhysicalPlacement::Single(v1.clone())).unwrap();
         assert_eq!(plan.direct_single_object(), Ok(&v1));
         assert!(plan.pack_frame().is_none());
         assert_eq!(
-            plan_after_acl(&v1, FreePhysicalPlacement::Single(edition(12, 22, "Текст V2")))
-                .err(),
+            plan_after_acl(
+                &v1,
+                FreePhysicalPlacement::Single(edition(12, 22, "Текст V2"))
+            )
+            .err(),
             Some(StorageError::Corrupt)
         );
         assert_eq!(
-            plan_after_acl(&v1, FreePhysicalPlacement::Single(edition(12, 21, "Подмена")))
-                .err(),
+            plan_after_acl(
+                &v1,
+                FreePhysicalPlacement::Single(edition(12, 21, "Подмена"))
+            )
+            .err(),
             Some(StorageError::Corrupt)
         );
     }
