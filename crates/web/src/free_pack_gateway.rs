@@ -89,4 +89,3 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
     };
     read_reauthorized_pack(resolve, s3).await
 }
-
