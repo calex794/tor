@@ -196,8 +196,8 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:drop:r4b1','ru','DROP R4b1','public',{actor}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:drop:r4b1','ru','DROP R4b1','public',{actor},'basic') RETURNING id"
         ),
     )
     .parse()
