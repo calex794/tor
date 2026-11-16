@@ -43,3 +43,5 @@
 - [DROP-R4a lease-fenced PACK attachment](tor-store-r4a-fenced-attachment.md): B-owned all-or-nothing PG candidate generations after G verified proof, current lease and approved fingerprint; no active reader cutover.
 
 - [DROP-R4b1 trusted offline PACK readback](tor-store-r4b1-trusted-worker.md): immutable B job specs and epoch claims, G independent full S3 GET before B PG candidate attachment; no upload worker, reader cutover or public route.
+
+- [DROP-R4b2 immutable PACK writer](tor-store-r4b2-immutable-writer.md): bounded standard Zstd seekable builder, private conditional S3 PUT and independent full readback before B fenced attachment; no live reader activation.
