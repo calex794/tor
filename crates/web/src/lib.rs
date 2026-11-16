@@ -189,13 +189,11 @@ struct TocItem {
     title: String,
     access_level: &'static str,
 }
-
 #[derive(Serialize)]
 struct TocResponse {
     items: Vec<TocItem>,
     next_cursor: Option<String>,
 }
-
 fn reading_status(error: ReadingError) -> StatusCode {
     match error {
         ReadingError::InvalidPage => StatusCode::BAD_REQUEST,
