@@ -17,10 +17,14 @@ use tor_books::{
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 use tor_storage::{
+    repositories::free_pack_write_s3::S3FreePackWriter,
     repositories::{free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore},
-    services::free_chapter::{upload_and_verify, FreeChapterObject},
+    services::{
+        free_chapter::{upload_and_verify, FreeChapterObject},
+        free_pack_write::prepare_free_pack,
+    },
 };
-use tor_web::free_pack_worker::finalize_one_verified_pack;
+use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
 const BUCKET: &str = "tor-drop-r4b1-private-ci";
 
@@ -228,7 +232,22 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     }
 
     let catalog = PgFreePackCatalog::new(pool.clone());
-    let (receipt, pack, manifest) = build_pack(book, &editions, "approved");
+    let sources: Vec<_> = editions
+        .iter()
+        .map(|(chapter, version, body)| {
+            (
+                FreeChapterObject::for_markdown(*chapter, *version, body).unwrap(),
+                body.as_bytes().to_vec(),
+            )
+        })
+        .collect();
+    let prepared = prepare_free_pack(
+        BUCKET,
+        &format!("private/free-packs/ci/drop-r4b2-approved-{book}.zst"),
+        &sources,
+    )
+    .unwrap();
+    let receipt = prepared.receipt().clone();
     let job = catalog
         .schedule_pack_job(actor, book, &receipt)
         .await
@@ -240,13 +259,13 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
             .unwrap(),
         job
     );
-    upload(&client, &receipt, pack, manifest).await;
     let claim = catalog.claim_pack_job(120).await.unwrap().unwrap();
     assert_eq!(claim.job_id, job);
     assert_eq!(claim.epoch, 1);
     assert!(catalog.renew_pack_job(job, claim.epoch, 120).await.unwrap());
     let proof = S3PackProofStore::new(client.clone());
-    let pack_id = finalize_one_verified_pack(&catalog, &proof, &claim)
+    let writer = S3FreePackWriter::new(client.clone());
+    let pack_id = upload_one_approved_pack(&catalog, &writer, &claim, &prepared)
         .await
         .unwrap();
     assert!(pack_id > 0);
@@ -328,4 +347,82 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         Err(AuthorError::Conflict)
     ));
     pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires isolated MinIO S3 on loopback"]
+async fn drop_r4b2_real_s3_lost_ack_retry_and_wrong_existing_object_fail_closed() {
+    let client = s3();
+    // Shared test bucket may already exist from the R4b1 PG+MinIO test.
+    let _ = client.create_bucket().bucket(BUCKET).send().await;
+    let writer = S3FreePackWriter::new(client.clone());
+    let original = "Repack source exact bytes, 中文😀";
+    let edition = FreeChapterObject::for_markdown(921_000, 922_000, original).unwrap();
+    let sources = vec![(edition, original.as_bytes().to_vec())];
+    let prepared = prepare_free_pack(
+        BUCKET,
+        "private/free-packs/ci/drop-r4b2-lost-ack.zst",
+        &sources,
+    )
+    .unwrap();
+
+    // Simulate a committed initial PACK PUT for which the client lost its ACK.
+    // The writer's next PUT gets a 412, but a full verified GET recovers safely.
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&prepared.target().pack_key)
+        .if_none_match("*")
+        .body(ByteStream::from(prepared.pack_bytes().to_vec()))
+        .send()
+        .await
+        .unwrap();
+    let proved = writer.upload_and_verify(&prepared).await.unwrap();
+    assert_eq!(proved.placement_receipt(), *prepared.receipt());
+    assert_eq!(
+        writer
+            .upload_and_verify(&prepared)
+            .await
+            .unwrap()
+            .placement_receipt(),
+        *prepared.receipt(),
+        "second retry must verify exact existing bytes"
+    );
+
+    let other = prepare_free_pack(
+        BUCKET,
+        "private/free-packs/ci/drop-r4b2-wrong-object.zst",
+        &sources,
+    )
+    .unwrap();
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&other.target().pack_key)
+        .if_none_match("*")
+        .body(ByteStream::from(b"forged existing private PACK".to_vec()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        writer.upload_and_verify(&other).await.err(),
+        Some(tor_storage::domain::provider::StorageError::Corrupt)
+    );
+    let untouched = client
+        .get_object()
+        .bucket(BUCKET)
+        .key(&other.target().pack_key)
+        .send()
+        .await
+        .unwrap()
+        .body
+        .collect()
+        .await
+        .unwrap()
+        .into_bytes();
+    assert_eq!(
+        untouched.as_ref(),
+        b"forged existing private PACK",
+        "writer may never overwrite an object occupying an approved key"
+    );
 }
