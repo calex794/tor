@@ -65,7 +65,8 @@ async fn d_05_deferred_commit_rejection_preserves_balance_without_paid_rights() 
     .await
     .unwrap();
     assert_eq!(
-        failed, (1500, 0, 0, 0),
+        failed,
+        (1500, 0, 0, 0),
         "failure at COMMIT must atomically restore wallet, command, term and ledger"
     );
     assert!(
