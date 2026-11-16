@@ -24,7 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
     let drop_pack_worker_enabled = drop_pack_bootstrap::enabled(demo)?;
-    let drop_pack_planner_enabled = drop_pack_bootstrap::planner_enabled(demo,drop_pack_worker_enabled)?;
+    let drop_pack_planner_enabled =
+        drop_pack_bootstrap::planner_enabled(demo, drop_pack_worker_enabled)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {

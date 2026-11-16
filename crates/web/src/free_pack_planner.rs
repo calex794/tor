@@ -4,11 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use sha2::{Digest, Sha256};
-use tokio::{
-    sync::Semaphore,
-    task::JoinHandle,
-    time::MissedTickBehavior,
-};
+use tokio::{sync::Semaphore, task::JoinHandle, time::MissedTickBehavior};
 use tor_books::{
     repositories::{
         free_pack_attach::PgFreePackCatalog,
@@ -66,7 +62,10 @@ impl<S: FreeChapterStore> DropPackPlanner<S> {
     /// after the previous page. Backpressure is bounded by B's one-live-book
     /// uniqueness index, plus the worker's independent fenced lease.
     pub async fn run_one(&mut self) -> Result<PlannerResult, AuthorError> {
-        let ids = self.catalog.planner_next_books(self.last_book_id, 32).await?;
+        let ids = self
+            .catalog
+            .planner_next_books(self.last_book_id, 32)
+            .await?;
         if ids.is_empty() {
             self.last_book_id = 0;
             return Ok(PlannerResult::Idle);
@@ -87,7 +86,8 @@ impl<S: FreeChapterStore> DropPackPlanner<S> {
     /// at most one active job per book, and identical descriptors replay
     /// idempotently via the existing R4b1 fingerprint.
     pub async fn plan_one_book(&self, book: i64) -> Result<Option<i64>, AuthorError> {
-        let Some(batch) = self.catalog
+        let Some(batch) = self
+            .catalog
             .planner_book_batch(book, &self.private_bucket, self.policy)
             .await?
         else {
@@ -97,15 +97,27 @@ impl<S: FreeChapterStore> DropPackPlanner<S> {
         let mut bytes = Vec::with_capacity(batch.sources.len());
         for src in &batch.sources {
             let edition = FreeChapterObject::from_metadata(
-                src.chapter_id, src.version_id, src.content_sha256, src.size_bytes
-            ).map_err(map_storage)?;
-            let source = self.single.get_verified(&edition).await.map_err(map_storage)?;
+                src.chapter_id,
+                src.version_id,
+                src.content_sha256,
+                src.size_bytes,
+            )
+            .map_err(map_storage)?;
+            let source = self
+                .single
+                .get_verified(&edition)
+                .await
+                .map_err(map_storage)?;
             bytes.push((edition, source));
         }
         let bucket = self.private_bucket.clone();
         // Timeout or cancellation must not bypass CPU backpressure. The slot
         // is kept inside the blocking task until compression really finishes.
-        let slot = self.cpu_slot.clone().acquire_owned().await
+        let slot = self
+            .cpu_slot
+            .clone()
+            .acquire_owned()
+            .await
             .map_err(|_| AuthorError::Unavailable)?;
         let prepared = tokio::task::spawn_blocking(move || {
             let _cpu_slot = slot;
@@ -116,9 +128,10 @@ impl<S: FreeChapterStore> DropPackPlanner<S> {
         .map_err(map_storage)?;
         // Immutable B inventory can change while private SINGLEs are read;
         // B's final admission revalidates each exact source and ownership.
-        let job = self.catalog.schedule_pack_job(
-            batch.actor_user_id, batch.book_id, prepared.receipt()
-        ).await?;
+        let job = self
+            .catalog
+            .schedule_pack_job(batch.actor_user_id, batch.book_id, prepared.receipt())
+            .await?;
         Ok(Some(job))
     }
 }
@@ -126,7 +139,9 @@ impl<S: FreeChapterStore> DropPackPlanner<S> {
 fn map_storage(error: StorageError) -> AuthorError {
     match error {
         StorageError::Unavailable => AuthorError::Unavailable,
-        StorageError::Invalid | StorageError::Conflict | StorageError::Corrupt => AuthorError::Conflict,
+        StorageError::Invalid | StorageError::Conflict | StorageError::Corrupt => {
+            AuthorError::Conflict
+        }
     }
 }
 
@@ -145,7 +160,10 @@ fn deterministic_pack_key(batch: &PackPlannerBatch) -> String {
     }
     let digest = hash.finalize();
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("private/free-packs/auto/{}/{fingerprint}.zst", batch.book_id)
+    format!(
+        "private/free-packs/auto/{}/{fingerprint}.zst",
+        batch.book_id
+    )
 }
 
 /// Deliberately disabled at startup unless a second, explicit operator flag

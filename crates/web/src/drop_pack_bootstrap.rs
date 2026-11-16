@@ -88,8 +88,7 @@ pub async fn configure_planner(
     Box<dyn Error>,
 > {
     use tor_books::repositories::{
-        free_pack_attach::PgFreePackCatalog,
-        free_pack_planner::PackPlannerPolicy,
+        free_pack_attach::PgFreePackCatalog, free_pack_planner::PackPlannerPolicy,
     };
     use tor_storage::repositories::free_chapter_s3::S3FreeChapterStore;
 
@@ -103,6 +102,9 @@ pub async fn configure_planner(
         .await
         .map_err(|_| "DROP pack planner migration not applied")?;
     Ok(tor_web::free_pack_planner::DropPackPlanner::new(
-        b, single, bucket, PackPlannerPolicy::default(),
+        b,
+        single,
+        bucket,
+        PackPlannerPolicy::default(),
     )?)
 }

@@ -123,7 +123,12 @@ impl PgFreePackCatalog {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|error| {
-            if error.as_database_error().and_then(|db| db.code()).as_deref() == Some("23505") {
+            if error
+                .as_database_error()
+                .and_then(|db| db.code())
+                .as_deref()
+                == Some("23505")
+            {
                 AuthorError::Conflict
             } else {
                 AuthorError::Unavailable
@@ -140,7 +145,7 @@ impl PgFreePackCatalog {
             for frame in &receipt.frames {
                 sqlx::query(
                     "INSERT INTO free_pack_job_members(job_id,chapter_id,version_id)
-                     VALUES($1,$2,$3)"
+                     VALUES($1,$2,$3)",
                 )
                 .bind(id)
                 .bind(frame.chapter_id)

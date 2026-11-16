@@ -31,8 +31,7 @@ impl PackPlannerPolicy {
         if !(2..=MAX_PLANNER_MEMBERS).contains(&self.minimum_members)
             || self.maximum_members < self.minimum_members
             || self.maximum_members > MAX_PLANNER_MEMBERS
-            || !(1_000_000..=MAX_PLANNER_DECODED_BYTES)
-                .contains(&self.maximum_decoded_bytes)
+            || !(1_000_000..=MAX_PLANNER_DECODED_BYTES).contains(&self.maximum_decoded_bytes)
         {
             return Err(AuthorError::Invalid);
         }
@@ -139,7 +138,9 @@ impl PgFreePackCatalog {
         let mut total = 0_u64;
         let mut sources = Vec::new();
         for row in rows {
-            let size_i64: i64 = row.try_get("size_bytes").map_err(|_| AuthorError::Unavailable)?;
+            let size_i64: i64 = row
+                .try_get("size_bytes")
+                .map_err(|_| AuthorError::Unavailable)?;
             if !(1..=200_000).contains(&size_i64) {
                 return Err(AuthorError::Conflict);
             }
@@ -148,21 +149,33 @@ impl PgFreePackCatalog {
             if next > policy.maximum_decoded_bytes {
                 break;
             }
-            let digest: Vec<u8> = row.try_get("sha256").map_err(|_| AuthorError::Unavailable)?;
+            let digest: Vec<u8> = row
+                .try_get("sha256")
+                .map_err(|_| AuthorError::Unavailable)?;
             let digest: [u8; 32] = digest.try_into().map_err(|_| AuthorError::Conflict)?;
             sources.push(ApprovedPackSource {
-                chapter_id: row.try_get("chapter_id").map_err(|_| AuthorError::Unavailable)?,
-                version_id: row.try_get("version_id").map_err(|_| AuthorError::Unavailable)?,
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 content_sha256: digest,
                 size_bytes,
-                bucket: row.try_get("bucket").map_err(|_| AuthorError::Unavailable)?,
+                bucket: row
+                    .try_get("bucket")
+                    .map_err(|_| AuthorError::Unavailable)?,
             });
             total = next;
         }
         if sources.len() < policy.minimum_members {
             return Ok(None);
         }
-        Ok(Some(PackPlannerBatch { book_id, actor_user_id, sources }))
+        Ok(Some(PackPlannerBatch {
+            book_id,
+            actor_user_id,
+            sources,
+        }))
     }
 
     pub async fn probe_pack_planner_schema(&self) -> Result<(), AuthorError> {
