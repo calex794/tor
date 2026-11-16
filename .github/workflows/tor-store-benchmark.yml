@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/tor-store-benchmark.yml'
       - 'tools/tor_store_bench.py'
+      - 'tools/tor_store_seekable.py'
       - 'tools/tor_store_corpus_profiles.json'
   workflow_dispatch:
     inputs:
@@ -83,7 +84,8 @@ jobs:
           fi
       - name: Test deterministic generator without private source material
         run: |
-          python -m py_compile tools/tor_store_bench.py
+          python -m py_compile tools/tor_store_bench.py tools/tor_store_seekable.py
+          python tools/tor_store_seekable.py --self-test
           python tools/tor_store_bench.py --self-test
           python tools/tor_store_bench.py --chapters 32 --dry-run \
             --output "$RUNNER_TEMP/tor-store-generator-check.json"
