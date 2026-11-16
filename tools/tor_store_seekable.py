@@ -166,13 +166,28 @@ def parse_manifest(manifest_bytes: bytes, expected_digest: str) -> dict:
     return manifest
 
 
+def _decode_entry(reader, offset: int, compressed_size: int,
+                  raw_size: int, expected_sha256: str) -> bytes:
+    if compressed_size <= 0 or not 0 < raw_size <= MAX_RAW_MEMBER:
+        raise PackError("untrusted edition lengths")
+    encoded = reader(offset, compressed_size)
+    if len(encoded) != compressed_size:
+        raise PackError("short read of compressed edition")
+    try:
+        raw = zstd.ZstdDecompressor().decompress(
+            encoded, max_output_size=raw_size)
+    except zstd.ZstdError as exc:
+        raise PackError("compressed frame checksum/stream failure") from exc
+    if len(raw) != raw_size or sha256(raw) != expected_sha256:
+        raise PackError("edition content hash/length mismatch")
+    return raw
+
+
 def extract_range(reader, pack_size: int, manifest_bytes: bytes,
                   trusted_manifest_sha256: str, edition_id: str) -> bytes:
-    """Read exact byte ranges of one edition, validating the persisted index.
+    """Cold mode: validate seek table on this read; two S3 range requests.
 
     reader(offset, size) must fetch exactly that many bytes (S3 Range GET).
-    This makes 2 ranges per extraction in a cold prototype. In TOR, trusted
-    validated seek-table entries would be cached by immutable pack SHA.
     """
     manifest = parse_manifest(manifest_bytes, trusted_manifest_sha256)
     if pack_size != manifest["pack_encoded_bytes"]:
@@ -181,7 +196,6 @@ def extract_range(reader, pack_size: int, manifest_bytes: bytes,
     entry = by_id.get(edition_id)
     if entry is None:
         raise PackError("requested edition absent from verified manifest")
-
     tail_size = manifest["seek_table_bytes"]
     tail = reader(pack_size - tail_size, tail_size)
     if len(tail) != tail_size:
@@ -192,18 +206,30 @@ def extract_range(reader, pack_size: int, manifest_bytes: bytes,
             or compressed_size != entry["encoded_bytes"]
             or raw_size != entry["raw_bytes"]):
         raise PackError("manifest disagrees with seek table")
+    return _decode_entry(reader, offset, compressed_size, raw_size, entry["sha256"])
 
-    encoded = reader(offset, compressed_size)
-    if len(encoded) != compressed_size:
-        raise PackError("short read of compressed edition")
-    try:
-        raw = zstd.ZstdDecompressor().decompress(
-            encoded, max_output_size=raw_size)
-    except zstd.ZstdError as exc:
-        raise PackError("compressed frame checksum/stream failure") from exc
-    if len(raw) != raw_size or sha256(raw) != entry["sha256"]:
-        raise PackError("edition content hash/length mismatch")
-    return raw
+
+def extract_cached_range(reader, pack_size: int, manifest_bytes: bytes,
+                         trusted_manifest_sha256: str, edition_id: str) -> bytes:
+    """Warm mode: one Range, only AFTER full pack/seek-table was verified at ingest.
+
+    The manifest SHA must come from trusted PG or a separately protected backup.
+    Caller must also guarantee the immutable object matches the verified pack
+    SHA stored with that catalog entry; S3 object replacement invalidates this
+    shortcut. This is NOT a public presigned PACK URL or an authority decision.
+    """
+    manifest = parse_manifest(manifest_bytes, trusted_manifest_sha256)
+    if pack_size != manifest["pack_encoded_bytes"]:
+        raise PackError("remote object changed length")
+    by_id = {e["edition_id"]: e for e in manifest["entries"]}
+    entry = by_id.get(edition_id)
+    if entry is None:
+        raise PackError("requested edition absent from verified manifest")
+    offset, compressed_size = entry["offset"], entry["encoded_bytes"]
+    if offset < 0 or offset + compressed_size > manifest["seek_table_offset"]:
+        raise PackError("cached range exceeds verified data region")
+    return _decode_entry(reader, offset, compressed_size,
+                         entry["raw_bytes"], entry["sha256"])
 
 
 def self_test():
@@ -225,6 +251,7 @@ def self_test():
 
     for edition_id, raw in originals:
         assert extract_range(reader(pack), len(pack), mbytes, trusted, edition_id) == raw
+        assert extract_cached_range(reader(pack), len(pack), mbytes, trusted, edition_id) == raw
 
     def must_reject(cb):
         try:
@@ -254,6 +281,10 @@ def self_test():
     modified = canonical_json(forged)
     must_reject(lambda: extract_range(reader(pack), len(pack), modified,
                                      trusted, "v1-immutable"))
+    must_reject(lambda: extract_cached_range(reader(pack), len(pack), modified,
+                                            trusted, "v1-immutable"))
+    must_reject(lambda: extract_cached_range(reader(damaged), len(damaged), mbytes,
+                                            trusted, "v2-immutable"))
     assert len(pack) > metadata["seek_table_offset"]
     print("TOR-STORE Seekable v0.1.0 + trusted manifest + tamper preflight: PASS")
     print(f"seekable_payload_bytes={metadata['seek_table_offset']} "
