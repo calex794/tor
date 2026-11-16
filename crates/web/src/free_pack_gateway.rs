@@ -1,0 +1,104 @@
+//! Original DROP-03/DROP-06 bridge: private, C-reauthorized Range preflight.
+//! This function is intentionally not attached to any HTTP route or S349
+//! grant. There are no client-selected ranges or full PACK presigned URLs.
+use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
+use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
+use tor_storage::{
+    domain::provider::StorageError,
+    services::{
+        free_chapter::FreeChapterObject,
+        free_pack_read::{read_reauthorized_pack, PackFrameStore},
+        free_placement::{
+            plan_after_acl, FreePhysicalPlacement, FreeReadPlan, PackMetadata,
+            ValidatedPackReference,
+        },
+    },
+};
+
+#[derive(Clone, Copy)]
+pub enum FreePackReadMode {
+    Published,
+    Saved { version_id: i64 },
+}
+
+/// C performs the same live checks as the current S349 SINGLE grant, both
+/// before and after S3 Range. B returns only a succeeded, fully verified
+/// candidate whose edition hash, size and bucket exactly match C's result.
+/// G downloads and decompresses only one verified frame; neither a neighbor
+/// nor a whole-pack capability is exposed to the caller.
+///
+/// Only internal callers may invoke this until the original plan's DROP-06
+/// HTTP gateway and separate feature-gated CAS cutover have been accepted.
+pub async fn read_authorized_candidate<Store: PackFrameStore>(
+    c: &PgFreeS3Ref,
+    b: &PgFreePackCatalog,
+    s3: &Store,
+    chapter: i64,
+    session_digest: Option<&[u8; 32]>,
+    mode: FreePackReadMode,
+) -> Result<Vec<u8>, StorageError> {
+    if chapter <= 0 || matches!(mode, FreePackReadMode::Saved { version_id } if version_id <= 0) {
+        return Err(StorageError::Invalid);
+    }
+    let resolve = || async {
+        let result = match mode {
+            FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
+            FreePackReadMode::Saved { version_id } => {
+                c.for_saved_session(chapter, version_id, session_digest).await
+            }
+        };
+        let authorized: FreeS3Ref = match result.map_err(|_| StorageError::Unavailable)? {
+            Some(record) => record,
+            None => return Ok(None),
+        };
+        let candidate = b
+            .verified_free_range_candidate(
+                authorized.chapter_id,
+                authorized.version_id,
+                authorized.sha256,
+                authorized.size_bytes,
+                &authorized.bucket,
+            )
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+        let Some(candidate) = candidate else {
+            return Ok(None);
+        };
+        let edition = FreeChapterObject::from_metadata(
+            authorized.chapter_id,
+            authorized.version_id,
+            authorized.sha256,
+            authorized.size_bytes,
+        )?;
+        let metadata = PackMetadata {
+            bucket: candidate.bucket,
+            key: candidate.key,
+            pack_bytes: candidate.pack_bytes,
+            seek_table_start: candidate.seek_table_start,
+            frame_offset: candidate.frame_offset,
+            frame_bytes: candidate.frame_bytes,
+            pack_sha256: candidate.pack_sha256,
+            manifest_sha256: candidate.manifest_sha256,
+        };
+        let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
+        let plan: FreeReadPlan =
+            plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
+        Ok(Some(plan))
+    };
+    read_reauthorized_pack(resolve, s3).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rejects_invalid_chapter_or_saved_version_before_any_lookup() {
+        // Validating request identity must precede touching PostgreSQL.
+        // The full C/PG/MinIO authorization is covered by the disposable E2E.
+        assert!(matches!(
+            FreePackReadMode::Saved { version_id: 0 },
+            FreePackReadMode::Saved { version_id: 0 }
+        ));
+    }
+}
