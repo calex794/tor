@@ -69,7 +69,8 @@ let stage = 'launch';
       let signalFirstS3;
       const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
       const s3Requests = new Map(), networkErrors = [];
-      let canceledGets = 0, cdReceived = 0, cdFinished = 0, pwFinished = 0, pwUninspectable = 0;
+      let canceledGets = 0, abortedFullGets = 0, abortedPartialGets = 0;
+      let cdReceived = 0, cdFinished = 0, pwFinished = 0, pwUninspectable = 0;
       const provedUrls = new Set();
       const matchesChapterGet = (href, method) => {
         if (method !== 'GET') return false;
@@ -83,6 +84,18 @@ let stage = 'launch';
         directGets++;
         storageBytes += bytes;
         signalFirstS3();
+      };
+      // Chromium may emit all body bytes and only then cancel the request
+      // because the reader navigated. A precise Content-Length witness makes
+      // that full transfer provable without a loadingFinished event. A partial
+      // transfer never qualifies, even when ERR_ABORTED is expected.
+      const proveKnownFullBody = record => {
+        if (record.status === 200 && record.contentLength !== null &&
+            record.bodyBytes === record.contentLength) {
+          acceptCompletedGet(record.url, record.bodyBytes);
+          return true;
+        }
+        return false;
       };
       // Instrument two independent byte-counted Network witnesses. Chromium
       // CDP dataReceived is preferred; Playwright request.sizes() is the
@@ -105,18 +118,26 @@ let stage = 'launch';
       cdp.on('Network.requestWillBeSent', event => {
         if (!matchesChapterGet(event.request.url, event.request.method)) return;
         s3Requests.set(event.requestId, {
-          url: event.request.url, status: null, bodyBytes: 0,
+          url: event.request.url, status: null, bodyBytes: 0, contentLength: null,
         });
       });
       cdp.on('Network.responseReceived', event => {
         const record = s3Requests.get(event.requestId);
-        if (record) record.status = event.response.status;
+        if (!record) return;
+        record.status = event.response.status;
+        for (const [name, value] of Object.entries(event.response.headers || {})) {
+          if (name.toLowerCase() !== 'content-length') continue;
+          const bytes = Number(value);
+          if (Number.isSafeInteger(bytes) && bytes > 0) record.contentLength = bytes;
+        }
+        proveKnownFullBody(record);
       });
       cdp.on('Network.dataReceived', event => {
         const record = s3Requests.get(event.requestId);
         if (record) {
           record.bodyBytes += event.dataLength;
           cdReceived++;
+          proveKnownFullBody(record);
         }
       });
       cdp.on('Network.loadingFinished', event => {
@@ -125,22 +146,31 @@ let stage = 'launch';
         cdFinished++;
         s3Requests.delete(event.requestId);
         if (record.status === 200) {
-          // Require actual byte data, using independent Playwright sizes if
-          // Chromium did not provide dataReceived for this short response.
-          acceptCompletedGet(record.url, record.bodyBytes);
+          if (record.contentLength === null) {
+            // loadingFinished plus positive CDP bytes is sufficient if S3
+            // does not expose Content-Length for this transport.
+            acceptCompletedGet(record.url, record.bodyBytes);
+          } else if (!proveKnownFullBody(record)) {
+            networkErrors.push('S3 GET truncated: expected=' +
+              record.contentLength + ' received=' + record.bodyBytes);
+            signalFirstS3();
+          }
         } else {
           networkErrors.push('S3 GET status=' + record.status);
           signalFirstS3();
         }
       });
       cdp.on('Network.loadingFailed', event => {
-        if (!s3Requests.delete(event.requestId)) return;
-        // Navigating between public/private or editor pages aborts an
-        // in-flight, now-obsolete GET. This is not a transfer failure of the
-        // chapter already rendered. Ignore *only* Chrome's explicit cancel;
-        // the test still requires another completed HTTP 200 GET with bytes.
+        const record = s3Requests.get(event.requestId);
+        if (!record) return;
+        s3Requests.delete(event.requestId);
+        // Navigation may abort AFTER the full plain-text S3 response already
+        // arrived. Count it only when the body byte count exactly equals
+        // the HTTP Content-Length; a partial abort is never positive proof.
         if (event.errorText === 'net::ERR_ABORTED') {
           canceledGets++;
+          if (proveKnownFullBody(record)) abortedFullGets++;
+          else abortedPartialGets++;
           return;
         }
         networkErrors.push('S3 GET failed: ' + event.errorText);
@@ -291,7 +321,9 @@ let stage = 'launch';
               'real S3 GET never finished for ' + stage +
               ' [cdp_finished=' + cdFinished + ' cdp_data=' + cdReceived +
               ' pw_finished=' + pwFinished + ' pw_uninspectable=' + pwUninspectable +
-              ' pending=' + s3Requests.size + ' aborted=' + canceledGets + ']')), 15000);
+              ' pending=' + s3Requests.size + ' aborted=' + canceledGets +
+              ' fully_received_aborts=' + abortedFullGets +
+              ' partial_aborts=' + abortedPartialGets + ']')), 15000);
           }),
         ]);
       } finally {
