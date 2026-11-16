@@ -39,7 +39,9 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
     if chapter <= 0 || matches!(mode, FreePackReadMode::Saved { version_id } if version_id <= 0) {
         return Err(StorageError::Invalid);
     }
-    let resolve = || async {
+    let resolve = || {
+        let mode = mode;
+        async move {
         let result = match mode {
             FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
             FreePackReadMode::Saved { version_id } => {
@@ -83,6 +85,7 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
         let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
         let plan: FreeReadPlan = plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
         Ok(Some(plan))
+        }
     };
     read_reauthorized_pack(resolve, s3).await
 }
