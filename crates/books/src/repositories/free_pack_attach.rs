@@ -157,7 +157,6 @@ impl PgFreePackCatalog {
                  WHERE c.id=$1 AND c.book_id=$2 AND c.access_level='free'
                    AND c.price_amount=0 AND NOT c.is_deleted AND NOT c.admin_hold
                    AND v.content_sha256=$4 AND s.sha256=$4 AND s.size_bytes=$5
-                   AND s.bucket=$6
                  FOR NO KEY UPDATE OF c",
             )
             .bind(edition.chapter_id())
@@ -165,7 +164,6 @@ impl PgFreePackCatalog {
             .bind(edition.version_id())
             .bind(edition.sha256().as_slice())
             .bind(edition.size_bytes() as i64)
-            .bind(&target.bucket)
             .fetch_optional(&mut *tx)
             .await
             .map_err(write_error)?;
