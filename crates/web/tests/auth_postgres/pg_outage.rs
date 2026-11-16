@@ -79,8 +79,14 @@ async fn a_02_registration_pg_pool_outage_never_mints_session_then_recovers() {
         .unwrap()
         .expect("registered user")
         .id;
-    assert_eq!(witness.active_session_user(&digest).await.unwrap(), Some(user_id));
-    let sessions = witness.list_active_sessions(user_id, &digest).await.unwrap();
+    assert_eq!(
+        witness.active_session_user(&digest).await.unwrap(),
+        Some(user_id)
+    );
+    let sessions = witness
+        .list_active_sessions(user_id, &digest)
+        .await
+        .unwrap();
     assert_eq!(sessions.len(), 1);
     assert!(sessions[0].current);
 
