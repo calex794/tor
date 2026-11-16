@@ -145,7 +145,7 @@ pub fn reader_with_public_discussions(
                     escape_html(csrf.unwrap_or(""))
                 )
             }),
-            subtitle: "Текст главы загружается напрямую из защищённого хранилища.",
+            subtitle: "Бесплатная глава. Можно читать без регистрации.",
         }
     } else {
         progress_view(&chapter.body_markdown, chapter_id, chapter.version_id, csrf)
