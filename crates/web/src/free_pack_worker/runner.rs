@@ -1,8 +1,8 @@
 //! DROP-R4b3: opt-in, lease-fenced offline PACK candidate worker.
 //! No HTTP route or live reader cutover. Errors never delete source SINGLEs.
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use tokio::{task::JoinHandle, time::{Instant, MissedTickBehavior}};
+use tokio::{sync::Semaphore, task::JoinHandle, time::{Instant, MissedTickBehavior}};
 use tor_books::{
     repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim},
     services::authoring::AuthorError,
@@ -54,6 +54,7 @@ pub struct DropPackWorker<S> {
     writer: S3FreePackWriter,
     bucket: String,
     lease_seconds: i32,
+    cpu_slot: Arc<Semaphore>,
 }
 
 impl<S: FreeChapterStore> DropPackWorker<S> {
@@ -75,6 +76,7 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
             writer,
             bucket: configured_bucket,
             lease_seconds,
+            cpu_slot: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -144,7 +146,13 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
         let key = claim.receipt.target.pack_key.clone();
         // Pack construction may consume the full 128 MiB decoded budget.
         // A dropped waiter may leave CPU work finishing but never S3/PG effects.
+        // A cancelled waiter does not stop spawn_blocking. Hold the CPU slot
+        // in the blocking closure itself, so a timeout cannot launch a second
+        // 128 MiB pack build before the orphaned task has finished.
+        let cpu_slot = self.cpu_slot.clone().acquire_owned().await
+            .map_err(|_| WorkerFault::Retryable)?;
         let prepared = tokio::task::spawn_blocking(move || {
+            let _cpu_slot = cpu_slot;
             prepare_free_pack(&bucket, &key, &source_bytes)
         }).await.map_err(|_| WorkerFault::Retryable)?
           .map_err(WorkerFault::from_storage)?;
