@@ -108,6 +108,7 @@ async fn account(accounts: &PgAccounts, email: &str) -> (i64, String) {
 #[derive(Default)]
 struct FakeG {
     signed: AtomicUsize,
+    fail_next: AtomicUsize,
     // Test-only barrier allows a refund to commit after G begins signing.
     pause_next: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
@@ -120,6 +121,9 @@ impl PrivateObjectDeliveryPort for FakeG {
     ) -> Result<GrantedContent, DeliveryError> {
         assert_eq!(ttl, Duration::from_secs(90));
         self.signed.fetch_add(1, Ordering::SeqCst);
+        if self.fail_next.swap(0, Ordering::SeqCst) > 0 {
+            return Err(DeliveryError::Unavailable);
+        }
         let barrier = { self.pause_next.lock().unwrap().take() };
         if let Some((entered, release)) = barrier {
             let _ = entered.send(());
