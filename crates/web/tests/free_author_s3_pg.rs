@@ -40,6 +40,8 @@ mod traffic;
 // Run the DROP full PACK proof+PG acceptance in the existing MinIO CI lane.
 #[path = "drop_r4b1_pg_minio.rs"]
 mod drop_r4b1_pg_minio;
+#[path = "drop_04a_pack_direct_pg_minio.rs"]
+mod drop_04a_pack_direct_pg_minio;
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:"));
