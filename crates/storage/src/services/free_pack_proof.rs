@@ -37,7 +37,7 @@ pub struct PackProofTarget {
 }
 
 impl PackProofTarget {
-    fn validate(&self) -> Result<(), StorageError> {
+    pub(crate) fn validate(&self) -> Result<(), StorageError> {
         let Some(stem) = self.pack_key.strip_suffix(".zst") else {
             return Err(StorageError::Invalid);
         };
