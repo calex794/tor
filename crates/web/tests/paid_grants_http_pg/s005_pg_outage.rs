@@ -13,7 +13,7 @@ pub(super) async fn verify(
     // S005/R1: a buyer with a valid cookie and paid entitlement must not
     // receive a signed URL, DEK, or first-exposure fact during PG outage.
     // Only this test-local router pool is disconnected, not the shared CI PG.
-    let unavailable_catalog = PgCatalog::connect(&url).await.unwrap();
+    let unavailable_catalog = PgCatalog::connect(url).await.unwrap();
     let unavailable_pool = unavailable_catalog.pool();
     let unavailable_app = tor_web::router_with_postgres_reading_auth_paid_grants(
         unavailable_catalog,
@@ -27,9 +27,9 @@ pub(super) async fn verify(
     unavailable_pool.close().await;
     let outage_response = send(
         &unavailable_app,
-        &path,
-        Some(&buyer_cookie),
-        Some(&csrf),
+        path,
+        Some(buyer_cookie),
+        Some(csrf),
         Some(ORIGIN),
         &json!({"purchase_id": purchase_id.to_string()}).to_string(),
     )
@@ -48,7 +48,7 @@ pub(super) async fn verify(
     assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
     assert_eq!(
         scalar(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM chapter_purchase_first_exposures
                  WHERE purchase_id={purchase_id} AND user_id={buyer}"
