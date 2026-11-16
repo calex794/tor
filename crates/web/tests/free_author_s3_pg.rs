@@ -258,6 +258,10 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     );
     assert_eq!(desktop["read"], true);
     println!("S349_NETWORK desktop={desktop}");
+    let no_js = browser(json!({"mode":"no-js","private":true,"origin":ORIGIN,
+        "storage_origin":ENDPOINT,"chapter":chapter,"session":session,"marker":MARKER}));
+    assert_eq!(no_js["read"], true);
+    println!("S349_NETWORK no_javascript={no_js}");
 
     assert!(read["direct_s3_gets"].as_u64().unwrap() >= 1);
     let grant_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant");
@@ -313,6 +317,23 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .unwrap();
     tor_reading::repositories::PgLibrary::new(pool.clone())
         .add_book(owner, book)
+        .await
+        .unwrap();
+    // A second reader pins V1 before V2 but has not yet finished it. The owner
+    // already completed V1; moving that cursor backwards must remain a conflict.
+    let archive_session = generate_session_token();
+    let archive_actor = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            "s349-archive-reader@tor-ci.example",
+            "S349 archive reader",
+            &hash_password("isolated-archive-password").unwrap(),
+            &session_token_digest(&archive_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    tor_reading::repositories::PgLibrary::new(pool.clone())
+        .add_book(archive_actor, book)
         .await
         .unwrap();
     let v2 = format!("{MARKDOWN}\n\nV2_ONLY_MARKER");
@@ -480,9 +501,11 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     pg(&url,&format!("UPDATE books SET lifecycle_status='ordinary_deleted',ordinary_deleted_at=now(),visibility='draft' WHERE id={book}"));
     let archive = browser(
         json!({"mode":"read","saved":true,"origin":ORIGIN,"storage_origin":ENDPOINT,
-        "chapter":chapter,"session":session,"markdown":MARKDOWN,"marker":MARKER,"version":version,"archived":true,"absent_marker":"V2_ONLY_MARKER"}),
+        "chapter":chapter,"session":archive_session,"markdown":MARKDOWN,"marker":MARKER,"version":version,"archived":true,"absent_marker":"V2_ONLY_MARKER"}),
     );
     println!("S349_NETWORK deleted_archive={archive}");
+    assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={archive_actor} AND chapter_id={chapter}")),"0",
+        "archival progress does not mint a completion or a purchased right");
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),

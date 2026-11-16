@@ -61,7 +61,7 @@ let stage = 'launch';
       process.stdout.write(JSON.stringify({ edited: true, replay: true }));
       await context.close();
     } else {
-      const context = await browser.newContext({ viewport: { width: config.width || 390, height: 844 } });
+      const context = await browser.newContext({ viewport: { width: config.width || 390, height: 844 }, javaScriptEnabled: config.mode !== 'no-js' });
       if (config.session) await context.addCookies([{ name: 'tor-dev-session', value: config.session, url: config.origin }]);
       const page = await context.newPage();
       const checks = [];
@@ -78,7 +78,8 @@ let stage = 'launch';
         }).catch(error => error));
       });
       const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
-        ? `${config.origin}/me/library/saved/${config.chapter}` : `${config.origin}/reader/${config.chapter}`);
+        ? `${config.origin}/me/library/saved/${config.chapter}` : config.private
+          ? `${config.origin}/read/${config.chapter}` : `${config.origin}/reader/${config.chapter}`);
       assert.equal(html.status(), 200);
       assert(!(await html.text()).includes(config.marker));
       if (config.admin) {
@@ -99,6 +100,13 @@ let stage = 'launch';
         });
         assert.equal(denied.status(), 403);
         assert.match(csrf, /^[A-Za-z0-9_-]{43}$/);
+      } else if (config.mode === 'no-js') {
+        stage = 'no-JavaScript direct source';
+        await Promise.all([
+          page.waitForURL(url => url.origin === config.storage_origin),
+          page.getByRole('link', { name: 'Открыть текст без JavaScript', exact: true }).click(),
+        ]);
+        assert((await page.locator('body').innerText()).includes(config.marker));
       } else if (config.mode === 'read') {
         await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
         const text = await page.locator('#chapter-text').innerText();
@@ -207,7 +215,7 @@ let stage = 'launch';
       assert(!outcomes.some(Boolean), 'browser Network sizes must be available');
       assert(directGets >= 1, 'browser must download directly from the storage origin');
       process.stdout.write(JSON.stringify({ storage_bytes: storageBytes,
-        direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' }));
+        direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' || config.mode === 'no-js' }));
       await context.close();
     }
   } finally {
