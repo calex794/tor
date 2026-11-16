@@ -210,7 +210,7 @@ pub fn verify_full_pack(
             return Err(StorageError::Corrupt);
         }
         let frame = ValidatedPackReference::new(
-            (*authoritative_edition).clone(),
+            (**authoritative_edition).clone(),
             PackMetadata {
                 bucket: target.bucket.clone(),
                 key: target.pack_key.clone(),
@@ -303,7 +303,7 @@ mod tests {
         assert_eq!(valid.frames().len(), 2);
         assert_eq!(valid.frames()[0].edition(), &editions[0]);
         assert_eq!(valid.frames()[1].edition(), &editions[1]);
-        assert_eq!(valid.frames()[1].gateway_range().starts_with("bytes="), true);
+        assert!(valid.frames()[1].gateway_range().starts_with("bytes="));
     }
 
     #[test]
