@@ -39,3 +39,4 @@
 - [DROP Free S3 Single/Pack placement v1](tor-store-free-placement-v1.md): non-activating exact-edition read planner; private Range Gateway required for PACK, no signed whole-pack URLs or live migration.
 - [DROP-R2 PostgreSQL placement generations](tor-store-free-placement-r2-pg.md): additive inactive free PACK catalog, immutable generations, exact edition CAS and disposable PG18 checks; no production activation.
 - [DROP-R3a private PACK Range reader](tor-store-r3a-private-pack-range.md): inert bounded Zstd frame decoder, internal S3 Range adapter, two authorization checks, real private MinIO tests; no HTTP activation.
+- [DROP-R3b full PACK proof](tor-store-r3b-full-pack-proof.md): immutable full-object and manifest GET/sha256, exact seekable table, all editions decoded and matched against B identities; no active reader route.

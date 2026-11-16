@@ -10,14 +10,16 @@ use aws_sdk_s3::{
 use std::{future::ready, process::Command};
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::free_pack_range_s3::{response_metadata_matches, S3PackFrameStore},
+    repositories::{
+        free_pack_proof_s3::S3PackProofStore,
+        free_pack_range_s3::{response_metadata_matches, S3PackFrameStore},
+    },
     services::{
         crypto::sha256_bytes,
         free_chapter::FreeChapterObject,
+        free_pack_proof::PackProofTarget,
         free_pack_read::read_reauthorized_pack,
-        free_placement::{
-            plan_after_acl, FreePhysicalPlacement, PackMetadata, ValidatedPackReference,
-        },
+        free_placement::{plan_after_acl, FreePhysicalPlacement},
     },
 };
 
@@ -103,21 +105,75 @@ async fn drop_r3a_real_private_minio_range_reads_only_selected_zstd_frame() {
     assert!(curl.status.success());
     assert_eq!(String::from_utf8(curl.stdout).unwrap(), "403");
 
+    let neighbor = FreeChapterObject::for_markdown(8161, 9161, earlier).unwrap();
     let edition = FreeChapterObject::for_markdown(8162, 9162, entitled).unwrap();
-    let frame = ValidatedPackReference::new(
-        edition.clone(),
-        PackMetadata {
-            bucket: BUCKET.to_owned(),
-            key: object_key.to_owned(),
-            pack_bytes: pack.len() as u64,
-            seek_table_start: seek_start as u64,
-            frame_offset: first.len() as u64,
-            frame_bytes: second.len() as u64,
-            pack_sha256: digest,
-            manifest_sha256: [11; 32],
-        },
-    )
-    .unwrap();
+    let manifest = serde_json::json!({
+        "format": "tor-store-public-seekable-zstd",
+        "manifest_version": 1,
+        "zstd_seekable_version": "0.1.0",
+        "pack_sha256": hex::encode(digest),
+        "pack_encoded_bytes": pack.len(),
+        "seek_table_offset": seek_start,
+        "seek_table_bytes": table.len(),
+        "frames": 2,
+        "entries": [
+            {
+                "edition_id": "8161:9161",
+                "frame": 0,
+                "offset": 0,
+                "encoded_bytes": first.len(),
+                "raw_bytes": earlier.len(),
+                "sha256": hex::encode(neighbor.sha256()),
+            },
+            {
+                "edition_id": "8162:9162",
+                "frame": 1,
+                "offset": first.len(),
+                "encoded_bytes": second.len(),
+                "raw_bytes": entitled.len(),
+                "sha256": hex::encode(edition.sha256()),
+            }
+        ],
+    });
+    let sidecar = serde_json::to_vec(&manifest).unwrap();
+    let manifest_key = object_key.replace(".zst", ".manifest.json");
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&manifest_key)
+        .content_type("application/json")
+        .if_none_match("*")
+        .body(ByteStream::from(sidecar.clone()))
+        .send()
+        .await
+        .unwrap();
+    let target = PackProofTarget {
+        bucket: BUCKET.to_owned(),
+        pack_key: object_key.to_owned(),
+        manifest_key,
+        pack_sha256: digest,
+        manifest_sha256: sha256_bytes(&sidecar),
+        pack_bytes: pack.len() as u64,
+        manifest_bytes: sidecar.len() as u64,
+        seek_table_start: seek_start as u64,
+    };
+    let verifier = S3PackProofStore::new(client.clone());
+    let proven = verifier
+        .verify_independent_full_get(&target, &[neighbor.clone(), edition.clone()])
+        .await
+        .unwrap();
+    assert_eq!(proven.frames().len(), 2);
+    assert_eq!(proven.frames()[0].edition(), &neighbor);
+    assert_eq!(proven.frames()[1].edition(), &edition);
+    let frame = proven.frames()[1].clone();
+    assert_eq!(
+        verifier
+            .verify_independent_full_get(&target, std::slice::from_ref(&edition))
+            .await
+            .err(),
+        Some(StorageError::Corrupt),
+        "incomplete B inventory cannot certify a multi-edition PACK"
+    );
     assert_eq!(
         frame.gateway_range(),
         format!("bytes={}-{}", first.len(), seek_start - 1)
@@ -170,5 +226,13 @@ async fn drop_r3a_real_private_minio_range_reads_only_selected_zstd_frame() {
             .await
             .is_err(),
         "tampered storage bytes must never become a valid edition"
+    );
+    assert_eq!(
+        verifier
+            .verify_independent_full_get(&target, &[neighbor, edition])
+            .await
+            .err(),
+        Some(StorageError::Corrupt),
+        "full object readback must detect corruption before any PG receipt"
     );
 }
