@@ -140,7 +140,10 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(stored, first, "reading card must not forge a saved position");
+    assert_eq!(
+        stored, first,
+        "reading card must not forge a saved position"
+    );
 
     // Never skip a draft, paid, scheduled, held or deleted second chapter.
     sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
@@ -148,31 +151,50 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, first);
-    sqlx::query("UPDATE chapters SET visibility='public',access_level='paid',price_amount=100 WHERE id=$1")
-        .bind(second)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, first);
-    sqlx::query("UPDATE chapters SET access_level='free',price_amount=0,admin_hold=true WHERE id=$1")
-        .bind(second)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, first);
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        first
+    );
+    sqlx::query(
+        "UPDATE chapters SET visibility='public',access_level='paid',price_amount=100 WHERE id=$1",
+    )
+    .bind(second)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        first
+    );
+    sqlx::query(
+        "UPDATE chapters SET access_level='free',price_amount=0,admin_hold=true WHERE id=$1",
+    )
+    .bind(second)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        first
+    );
     sqlx::query("UPDATE chapters SET admin_hold=false,reader_released_at=now()+interval '1 hour' WHERE id=$1")
         .bind(second)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, first);
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        first
+    );
     sqlx::query("UPDATE chapters SET reader_released_at=NULL WHERE id=$1")
         .bind(second)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, second);
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        second
+    );
 
     // A new edition of chapter 1 invalidates the old anchor and must not
     // silently skip a rewritten chapter just because V1 was completed.
@@ -245,7 +267,10 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
     )
     .await
     .unwrap();
-    assert_eq!(progress.continue_reading(reader).await.unwrap()[0].chapter_id, second);
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap()[0].chapter_id,
+        second
+    );
 
     sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
         .bind(third)
