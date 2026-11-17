@@ -175,6 +175,32 @@ impl PgAuthoring {
             .execute(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
+            // Capture the free *published edition* while the owner still holds
+            // the Book FOR UPDATE lock. Free V2 authors also take this lock,
+            // so a concurrent edit cannot rewrite this archive snapshot.
+            // Draft-only Books have no publicly acquired free archive.
+            // This is a Book publication fact, not a per-Layer-user pin.
+            sqlx::query(
+                "INSERT INTO book_layer_free_archive_versions
+                    (book_id,request_revision,chapter_id,version_id)
+                 SELECT $1,$2,c.id,p.version_id
+                 FROM chapters c
+                 JOIN chapter_publications p ON p.chapter_id=c.id
+                 JOIN chapter_versions v
+                   ON v.id=p.version_id AND v.chapter_id=c.id
+                 WHERE c.book_id=$1 AND $3='public'
+                   AND c.visibility='public' AND c.access_level='free'
+                   AND c.price_amount=0
+                   AND NOT c.admin_hold AND NOT c.is_deleted
+                   AND (c.reader_released_at IS NULL OR
+                        c.reader_released_at<=clock_timestamp())",
+            )
+            .bind(book_id)
+            .bind(next_revision)
+            .bind(&previous_visibility)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         }
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(next_revision)
