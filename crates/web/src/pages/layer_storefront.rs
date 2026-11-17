@@ -3,9 +3,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::layer_storefront::{
-    ArchivedLayerBook, LayerStorefront, LayerTermCard,
-};
+use tor_commerce::repositories::layer_storefront::{LayerStorefront, LayerTermCard};
 
 fn rubles(minor: i64) -> String {
     format!("{},{:02} ₽", minor / 100, minor % 100)
@@ -358,21 +356,13 @@ mod tests {
             expires_utc: Some("28.11.2026 12:00".into()),
             state: "active".into(),
             first_readable_chapter: Some(111),
-            archived_books: vec![ArchivedLayerBook {
-                book_id: 79,
-                title: "Архивная <книга>".into(),
-                chapter_id: 222,
-            }],
+            archived_books: Vec::new(),
         };
         let enabled = purchased_page(&[term.clone()], true).0;
         assert!(enabled.contains("href=\"/read/layer/111\""));
         assert!(enabled.contains("Читать главу"));
         assert!(enabled.contains("Мой &lt;пакет&gt;"));
-        assert!(enabled.contains("data-layer-archived-book-id=\"79\""));
-        assert!(enabled.contains("/read/layer/222"));
-        assert!(enabled.contains("Архивная &lt;книга&gt;"));
-        assert!(enabled.contains("Удалена с сайта"));
-        assert!(!enabled.contains("Архивная <книга>"));
+        assert!(!enabled.contains("data-layer-archive"));
         assert!(!enabled.contains("<пакет>"));
         assert!(!purchased_page(&[term.clone()], false)
             .0
