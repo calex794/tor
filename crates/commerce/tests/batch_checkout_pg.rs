@@ -723,7 +723,11 @@ async fn d_s035_unknown_book_age_tier_cannot_charge_and_recovers_after_attestati
         .await
         .unwrap();
     assert_eq!(
-        store.selectable_batch_offers(f.buyer, f.book).await.unwrap().len(),
+        store
+            .selectable_batch_offers(f.buyer, f.book)
+            .await
+            .unwrap()
+            .len(),
         3
     );
     let receipt = store.checkout_batch_once(&quote).await.unwrap();
