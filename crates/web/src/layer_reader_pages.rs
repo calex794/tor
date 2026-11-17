@@ -9,6 +9,11 @@ pub fn layer_reader_shell(anchor: &LayerTocAnchor, csrf: &str, s3_origin: &str) 
     let chapter_no = anchor.chapter_no;
     let title = escape_html(&anchor.chapter_title);
     let book = escape_html(&anchor.book_title);
+    let archive_notice = if anchor.ordinary_deleted {
+        "<p class=\"reader-page__meta\" data-layer-archive=\"1\">Удалена с сайта · доступна вам в архиве Layer</p>"
+    } else {
+        "<p class=\"reader-page__meta\">Текущая опубликованная редакция Layer</p>"
+    };
     let chapter_label = format!("Глава {chapter_no}. {title}");
     let toc = format!(
         r#"<details class="reader-topbar__toc" data-layer-toc>
@@ -61,7 +66,7 @@ pub fn layer_reader_shell(anchor: &LayerTocAnchor, csrf: &str, s3_origin: &str) 
              </header>
              <div class="container reader-width">
                <div class="reader-page__header">
-                 <p class="reader-page__meta">Текущая опубликованная редакция Layer</p>
+                 {archive_notice}
                  <h1 class="reader-page__title" id="reader-title">{chapter_label}</h1>
                  <p class="reader-page__subtitle" data-layer-status role="status">
                    Проверяем подписку…
@@ -101,6 +106,7 @@ mod tests {
             chapter_no: 28,
             chapter_title: "Заголовок <script>alert(1)</script>".into(),
             book_title: "Книга <img src=x>".into(),
+            ordinary_deleted: false,
         };
         let html = layer_reader_shell(&anchor, "csrf_test", "https://private.example.test").0;
         assert!(html.contains("data-layer-chapter-reader"));
@@ -118,4 +124,22 @@ mod tests {
         assert!(!html.contains("dek_b64u"));
         assert!(!html.contains("/api/v1/me/progress/purchased"));
     }
+
+    #[test]
+    fn archived_layer_reader_shows_private_deleted_marker() {
+        let anchor = LayerTocAnchor {
+            book_id: 7,
+            chapter_id: 42,
+            chapter_no: 1,
+            chapter_title: "Глава".into(),
+            book_title: "Удалённая книга".into(),
+            ordinary_deleted: true,
+        };
+        let html = layer_reader_shell(&anchor, "test", "https://private.example.test").0;
+        assert!(html.contains("data-layer-archive=\"1\""));
+        assert!(html.contains("Удалена с сайта · доступна вам в архиве Layer"));
+        assert!(!html.contains("Текущая опубликованная редакция Layer"));
+        assert!(!html.contains("dek_b64u"));
+    }
+
 }
