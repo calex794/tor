@@ -82,6 +82,7 @@ pub(super) async fn assert_purchase_list_bound_to_buyer(
     purchase_id: i64,
     buyer_cookie: &str,
     stranger_cookie: &str,
+    csrf: &str,
 ) {
     let stranger_list = private_get(app, "/me/purchases", Some(stranger_cookie)).await;
     assert_eq!(stranger_list.status(), StatusCode::OK);
@@ -99,4 +100,23 @@ pub(super) async fn assert_purchase_list_bound_to_buyer(
     assert!(html_body(owned_list)
         .await
         .contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
+    let ordinary_library = private_get(app, "/me/library", Some(buyer_cookie)).await;
+    assert_eq!(ordinary_library.status(), StatusCode::OK);
+    assert!(html_body(ordinary_library)
+        .await
+        .contains("href=\"/me/purchases\""));
+    assert_eq!(
+        post_grant(
+            app,
+            chapter,
+            Some(stranger_cookie),
+            Some(csrf),
+            ORIGIN,
+            &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "another actor cannot reuse the buyer's purchase ID"
+    );
 }
