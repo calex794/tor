@@ -183,6 +183,36 @@ pub(super) async fn before_deletion(
     }
 }
 
+/// The owner request immediately hides the public Book. That privacy
+/// transition must not suspend paid Layer reading while moderation is pending.
+pub(super) async fn while_pending(
+    app: &Router,
+    chapter: i64,
+    active: &ActiveLayerProbe,
+) {
+    let grant = post_grant(
+        app,
+        chapter,
+        Some(&active.cookie),
+        Some(&active.csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(
+        grant.status(),
+        StatusCode::OK,
+        "an active historical Layer term must survive pending deletion"
+    );
+    let private_shell =
+        private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie)).await;
+    assert_eq!(
+        private_shell.status(),
+        StatusCode::OK,
+        "pending Book is hidden from catalog but still readable privately"
+    );
+}
+
 pub(super) async fn after_deletion(
     app: &Router,
     url: &str,
