@@ -140,6 +140,11 @@ pub(super) async fn read_pack(
         Ok(permit) => permit,
         Err(_) => return deny(StatusCode::TOO_MANY_REQUESTS),
     };
+    let initial = match authorized_pack_plan(actor, &state, chapter).await {
+        Ok(Some(plan)) => plan,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let bytes = match read_reauthorized_pack(
         || authorized_pack_plan(actor, &state, chapter),
         &state.frame_store,
@@ -160,6 +165,9 @@ pub(super) async fn read_pack(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if final_plan != initial {
+        return deny(StatusCode::CONFLICT);
+    }
     let Some(frame) = final_plan.pack_frame() else {
         return deny(StatusCode::CONFLICT);
     };
@@ -174,7 +182,11 @@ pub(super) async fn read_pack(
     );
     for (name, value) in [
         ("x-tor-free-version-id", edition.version_id().to_string()),
-        ("x-tor-free-sha256", hex::encode(edition.sha256())),
+        ("x-tor-free-sha256", edition
+            .sha256()
+            .iter()
+            .map(|octet| format!("{octet:02x}"))
+            .collect::<String>()),
         ("x-tor-free-size", edition.size_bytes().to_string()),
     ] {
         let Ok(value) = HeaderValue::from_str(&value) else {
