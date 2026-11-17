@@ -455,7 +455,7 @@ jobs:
             cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
             cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
             cargo test -p tor-reading --test progress_postgres -- --ignored
-  cargo test -p tor-reading --test ret00_resume_next_free_pg -- --ignored --test-threads=1
+            cargo test -p tor-reading --test ret00_resume_next_free_pg -- --ignored --test-threads=1
             cargo test -p tor-reading --test age_tier_progress_pg -- --ignored --test-threads=1
             cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
             cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
