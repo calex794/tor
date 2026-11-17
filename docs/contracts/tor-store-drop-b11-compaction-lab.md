@@ -14,6 +14,17 @@ that would exceed the allocation. It performs no bucket calls, reference
 changes or deletion. The disposable fixture covers pinned V1, an expired
 member, uncertainty, corrupt input and a restrictive rewrite budget.
 
+Price a proposal against leaving the source in place over the same time
+horizon. In each store, include reads of both source objects, any backup
+or copy operations, writes of the replacement and read-back verification.
+Charge time when both layouts coexist. If an archive must retain the old
+copy for the whole horizon, charge overlap for the whole horizon and set
+its time after retirement to zero. Use tariffs in a single currency, with
+separate rates and request counts for each store. A nonpositive estimate
+gives no economic reason to proceed. The estimate covers bytes and the
+recorded read/write charges; separately account for cross-provider
+transfer, minimum object billing and compute where they apply.
+
 Before wiring the operator path, derive the complete retention inventory
 from a fenced PostgreSQL snapshot and verified backup evidence. Revalidate
 it when advancing placements and before any source retirement. Retain old
