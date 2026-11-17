@@ -262,9 +262,16 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     assert_eq!(replay_batch.status(), StatusCode::OK);
     assert_eq!(json_body(replay_batch).await["replayed"], true);
     assert_eq!(
-        post(&app, &token, &csrf, 'C', "/api/v1/purchases", pro_one.clone())
-            .await
-            .status(),
+        post(
+            &app,
+            &token,
+            &csrf,
+            'C',
+            "/api/v1/purchases",
+            pro_one.clone()
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(finance(&pool, buyer).await, (700, 3, 3, 3));
@@ -277,7 +284,15 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     .execute(&pool)
     .await
     .unwrap();
-    let granted = post(&app, &token, &csrf, 'C', "/api/v1/purchases", pro_one.clone()).await;
+    let granted = post(
+        &app,
+        &token,
+        &csrf,
+        'C',
+        "/api/v1/purchases",
+        pro_one.clone(),
+    )
+    .await;
     assert_eq!(granted.status(), StatusCode::OK);
     assert_eq!(json_body(granted).await["replayed"], false);
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
