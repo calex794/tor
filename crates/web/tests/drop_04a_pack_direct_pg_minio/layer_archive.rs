@@ -8,7 +8,7 @@ use axum::{
     http::{header, Method, Request, StatusCode},
 };
 use sha2::{Digest, Sha256};
-use std::{num::NonZeroU32, sync::Arc};
+use std::num::NonZeroU32;
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -96,8 +96,8 @@ pub(super) async fn verify(
     let frame = &receipt.frames[1];
     let expected = chapters[1].body.as_bytes();
     assert_eq!(
-        Sha256::digest(expected).as_slice(),
-        frame.content_sha256.as_slice()
+        <[u8; 32]>::from(Sha256::digest(expected)),
+        frame.content_sha256
     );
     pg(
         url,
