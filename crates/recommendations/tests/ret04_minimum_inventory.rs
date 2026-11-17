@@ -3,9 +3,7 @@
 //! These are pure allocator checks. SQL owner/team identity and discoverability
 //! remain covered by the existing PostgreSQL/HTTP recommendation tests.
 use std::collections::BTreeSet;
-use tor_recommendations::services::reader_end_shelf::{
-    select_shelf, ShelfCandidate, ShelfSource,
-};
+use tor_recommendations::services::reader_end_shelf::{select_shelf, ShelfCandidate, ShelfSource};
 
 const SOURCE_BOOK: i64 = 1;
 
@@ -24,9 +22,15 @@ fn tally_over_100_rotations(pools: [Vec<ShelfCandidate>; 3]) -> [usize; 3] {
     for rotation in 0..100 {
         let cards = select_shelf(SOURCE_BOOK, pools.clone(), 5, rotation);
         assert_eq!(cards.len(), 5, "rotation={rotation}");
-        let ids = cards.iter().map(|card| card.book_id).collect::<BTreeSet<_>>();
+        let ids = cards
+            .iter()
+            .map(|card| card.book_id)
+            .collect::<BTreeSet<_>>();
         assert_eq!(ids.len(), 5, "duplicate Book at rotation={rotation}");
-        assert!(!ids.contains(&SOURCE_BOOK), "source Book is not a candidate");
+        assert!(
+            !ids.contains(&SOURCE_BOOK),
+            "source Book is not a candidate"
+        );
         for card in cards {
             match card.source {
                 ShelfSource::Author => totals[0] += 1,
@@ -43,22 +47,12 @@ fn any_recommendation_needs_at_least_one_other_eligible_book() {
     assert!(select_shelf(SOURCE_BOOK, [vec![], vec![], vec![]], 5, 0).is_empty());
 
     // One owner, source Book plus another Book by the same owner.
-    let owner_only = select_shelf(
-        SOURCE_BOOK,
-        [candidates(10, 1), vec![], vec![]],
-        5,
-        0,
-    );
+    let owner_only = select_shelf(SOURCE_BOOK, [candidates(10, 1), vec![], vec![]], 5, 0);
     assert_eq!(owner_only.len(), 1);
     assert_eq!(owner_only[0].source, ShelfSource::Author);
 
     // Two owners, source owner's only Book plus one Book by another owner.
-    let other_only = select_shelf(
-        SOURCE_BOOK,
-        [vec![], vec![], candidates(1000, 1)],
-        5,
-        0,
-    );
+    let other_only = select_shelf(SOURCE_BOOK, [vec![], vec![], candidates(1000, 1)], 5, 0);
     assert_eq!(other_only.len(), 1);
     assert_eq!(other_only[0].source, ShelfSource::OtherAuthors);
 }
@@ -67,12 +61,7 @@ fn any_recommendation_needs_at_least_one_other_eligible_book() {
 fn five_distinct_cards_require_five_eligible_books_but_not_three_sources() {
     // Source Book plus five other Books by the same owner: a full shelf,
     // although the nominal three-source distribution is impossible.
-    let cards = select_shelf(
-        SOURCE_BOOK,
-        [candidates(10, 5), vec![], vec![]],
-        5,
-        37,
-    );
+    let cards = select_shelf(SOURCE_BOOK, [candidates(10, 5), vec![], vec![]], 5, 37);
     assert_eq!(cards.len(), 5);
     assert!(cards.iter().all(|card| card.source == ShelfSource::Author));
 
@@ -84,8 +73,20 @@ fn five_distinct_cards_require_five_eligible_books_but_not_three_sources() {
         37,
     );
     assert_eq!(mixed.len(), 5);
-    assert_eq!(mixed.iter().filter(|c| c.source == ShelfSource::Author).count(), 1);
-    assert_eq!(mixed.iter().filter(|c| c.source == ShelfSource::OtherAuthors).count(), 4);
+    assert_eq!(
+        mixed
+            .iter()
+            .filter(|c| c.source == ShelfSource::Author)
+            .count(),
+        1
+    );
+    assert_eq!(
+        mixed
+            .iter()
+            .filter(|c| c.source == ShelfSource::OtherAuthors)
+            .count(),
+        4
+    );
 
     assert_eq!(
         select_shelf(SOURCE_BOOK, [candidates(10, 4), vec![], vec![]], 5, 0).len(),
@@ -117,22 +118,14 @@ fn default_with_team_50_40_10_requires_four_owner_two_team_one_outside_candidate
     // Therefore at least 3 owners, 8 Books total for this exact 5-slot
     // 100-rotation allocator benchmark, not a platform-wide author target.
     assert_eq!(
-        tally_over_100_rotations([
-            candidates(10, 4),
-            candidates(100, 2),
-            candidates(1000, 1),
-        ]),
+        tally_over_100_rotations([candidates(10, 4), candidates(100, 2), candidates(1000, 1),]),
         [250, 200, 50]
     );
 
     // Removing one owner candidate still fills five slots but changes the
     // aggregate ratios due to per-shelf depletion and reallocation.
     assert_eq!(
-        tally_over_100_rotations([
-            candidates(10, 3),
-            candidates(100, 2),
-            candidates(1000, 1),
-        ]),
+        tally_over_100_rotations([candidates(10, 3), candidates(100, 2), candidates(1000, 1),]),
         [250, 190, 60]
     );
 }
