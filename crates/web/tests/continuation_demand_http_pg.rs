@@ -16,6 +16,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -384,6 +385,61 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     assert!(follower_updates.contains("Отметить прочитанной"));
+
+    // E-08 must project exactly one first-release bell for A and none for B.
+    // This uses the actual bounded worker, not a fabricated per-user SQL row.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='ChapterPublished' AND aggregate_id={released}
+                   AND payload->>'first_release'='true'"
+            )
+        ),
+        "1",
+        "the real author Save produces one immutable release envelope"
+    );
+    let notices = PgNotifications::new(pool.clone());
+    for _ in 0..8 {
+        if notices.fanout_chapter_releases(32).await.unwrap() == 0 {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        if notices.deliver_pending(64).await.unwrap() == 0 {
+            break;
+        }
+    }
+    let a_bells = notices.list_section(reader, None, 30, "releases").await.unwrap();
+    assert_eq!(
+        a_bells
+            .iter()
+            .filter(|notice| notice.kind == "chapter_created")
+            .count(),
+        1,
+        "A receives exactly one private bell for the real release"
+    );
+    let b_bells = notices
+        .list_section(observer, None, 30, "releases")
+        .await
+        .unwrap();
+    assert!(
+        b_bells.is_empty(),
+        "B has no Follow or Library subscription and must not get an E-08 bell"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='reader.chapter.released' AND aggregate_id={released}
+                   AND payload->>'recipient_user_id'='{observer}'"
+            )
+        ),
+        "0",
+        "fanout cannot create a private notification for the unfollowed observer"
+    );
     // RET-02: another active reader may open the public book without Follow,
     // but does not inherit A's private release notification or read receipt.
     assert_eq!(
