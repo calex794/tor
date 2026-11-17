@@ -857,6 +857,24 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "B's actual reading must not forge A's Follow receipt"
     );
 
+
+    // Completed-book label must not promise the next release or solicit demand.
+    pg(&url, &format!("UPDATE books SET lifecycle_status='completed' WHERE id={book}"));
+    let finished_page = html(
+        call(
+            &app,
+            "GET",
+            &format!("/read/{released}"),
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(finished_page.contains("Книга завершена"));
+    assert!(!finished_page.contains("Хочу продолжение"));
+    pg(&url, &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={book}"));
     // The age gate is evaluated at *read and completion time*. Past progress
     // and Follow cannot act as a durable CanRead grant when the book changes
     // from basic to adult. Restore the fixture afterwards for paid regression.

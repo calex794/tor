@@ -186,6 +186,11 @@ pub fn private_reader_with_options(
     let navigation = format!(
         r#"<nav class="chapter-navigation" aria-label="Переход между главами">{prev}{next}</nav>"#
     );
+    let book_finished_notice = if chapter.book_completed && chapter.next_chapter_id.is_none() {
+        "<p class=\"reader-next-state\">Книга завершена. Новых глав не ожидается.</p>"
+    } else {
+        ""
+    };
     let body = format!(
         r#"<section data-free-reader class="section reader-page reader-private" aria-labelledby="reader-title">
             <div class="container reader-width">
@@ -227,6 +232,7 @@ pub fn private_reader_with_options(
                   <script defer src="/assets/newboo-text-issues.js"></script>
                 </section>
                 {complete_form}
+                {book_finished_notice}
                 {demand_panel}
                 <p class="reader-page__thanks"><a class="text-link" href="/reader/{chapter_id}/thanks">Сказать «Спасибо» за главу</a></p>
                 {navigation}
