@@ -282,7 +282,7 @@ impl PgNotifications {
                         "chapter_updated",
                         "Глава обновлена",
                         format!("{name} обновил главу"),
-                        format!("/reader/{object_id}"),
+                        format!("/read/{object_id}"),
                     ),
                     "social.mail.created" => (
                         "mail",
