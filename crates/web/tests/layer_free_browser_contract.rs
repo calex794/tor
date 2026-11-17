@@ -17,3 +17,14 @@ fn layer_free_s3_archive_rejects_untrusted_url_version_hash_and_html() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+fn layer_toc_routes_archived_free_only_to_private_reader() {
+    let source = include_str!("../assets/newboo-layer-reader.mjs");
+    assert!(source.contains("archived_free"));
+    assert!(source.contains("/read/layer/free/"));
+    assert!(source.contains("/read/layer/"));
+    // Only genuinely PUBLIC free editions keep the public reader path.
+    assert!(source.contains("/reader/"));
+    assert!(source.contains("Архив Layer"));
+}
