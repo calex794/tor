@@ -549,7 +549,7 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
             PositiveId::new(f.buyer).unwrap(),
             first.chapter_id,
             first.version_id,
-            Some(first_purchase),
+            Some(PositiveId::new(first_purchase.get()).unwrap()),
             DirectGrantKind::Chapter,
         )
         .await
@@ -561,7 +561,7 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
             PositiveId::new(f.buyer).unwrap(),
             first.chapter_id,
             first.version_id,
-            Some(first_purchase),
+            Some(PositiveId::new(first_purchase.get()).unwrap()),
             DirectGrantKind::Asset,
         )
         .await
@@ -611,7 +611,7 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
                 PositiveId::new(buyer).unwrap(),
                 second.chapter_id,
                 second.version_id,
-                Some(second_purchase),
+                Some(PositiveId::new(second_purchase.get()).unwrap()),
                 DirectGrantKind::Chapter,
             )
             .await
