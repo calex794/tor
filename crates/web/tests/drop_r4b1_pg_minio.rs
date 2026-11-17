@@ -428,7 +428,7 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
     assert!(matches!(
-        activate_one_verified_pack(&catalog, &proof, &claim).await,
+        activate_one_verified_pack(&catalog, &proof, &single, &claim).await,
         Err(AuthorError::Conflict)
     ));
     let no_active: i64 = pg(
@@ -451,8 +451,8 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     );
 
     let (one, two) = tokio::join!(
-        activate_one_verified_pack(&catalog, &proof, &claim),
-        activate_one_verified_pack(&catalog, &proof, &claim),
+        activate_one_verified_pack(&catalog, &proof, &single, &claim),
+        activate_one_verified_pack(&catalog, &proof, &single, &claim),
     );
     assert!(matches!(
         (one.unwrap(), two.unwrap()),
@@ -460,7 +460,7 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
             | (PackActivation::AlreadyActive, PackActivation::Activated)
     ));
     assert_eq!(
-        activate_one_verified_pack(&catalog, &proof, &claim)
+        activate_one_verified_pack(&catalog, &proof, &single, &claim)
             .await
             .unwrap(),
         PackActivation::AlreadyActive,
