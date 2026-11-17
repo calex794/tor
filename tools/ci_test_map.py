@@ -130,6 +130,8 @@ TEST_SUITES = {
     "tools/author_cover_pg_visual_smoke.cjs": {"cover_browser"},
     "tools/paid_reader_browser_smoke.cjs": {"reader_browser"},
     "tools/paid_reader_minio_chromium_e2e.cjs": {"paid_e2e"},
+    "tools/drop_06b_pack_chromium.cjs": {"paid_e2e"},
+    "crates/web/tests/drop_04a_pack_direct_pg_minio.rs": {"rust", "paid_e2e"},
     "tools/paid_grant_webcrypto_e2e.mjs": {"paid_e2e", "purchased_recovery"},
     "tools/checkout_http_pg_smoke.py": {"postgres"},
     "tools/tor_pg_restart_smoke.sh": {"postgres"},
