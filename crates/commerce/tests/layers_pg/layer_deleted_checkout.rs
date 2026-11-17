@@ -123,6 +123,45 @@ async fn d_05_new_layer_sale_waits_for_clean_offer_after_ordinary_deletion() {
     .await
     .unwrap();
     assert_eq!(snapshots, vec![sibling]);
+
+    // The same old buyer may purchase another 30-day period BEFORE the
+    // current one expires. Their next term inherits the original origin and
+    // therefore pays for/retains the archived Book while a new buyer never
+    // acquires it. Rejecting every historical Book in origin..base would
+    // silently destroy this intentional cumulative-rights contract.
+    let continued = layers
+        .buy(&cmd(buyer, layer, offer_id, clean, 200, 'D'))
+        .await
+        .unwrap();
+    assert!(!continued.replayed);
+    let inherited: bool = sqlx::query_scalar(
+        "SELECT renewal.access_origin_version_id=original.access_origin_version_id
+         FROM commerce_layer_terms renewal
+         JOIN commerce_layer_terms original ON original.id=$2
+         WHERE renewal.id=$1",
+    )
+    .bind(continued.term_id)
+    .bind(original.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(inherited, "continuous prepaid renewal retains the original Layer origin");
+    let mut old_renewed_books: Vec<i64> = sqlx::query_scalar(
+        "SELECT book_id FROM commerce_layer_term_share_snapshots
+         WHERE term_id=$1 ORDER BY book_id",
+    )
+    .bind(continued.term_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    old_renewed_books.sort();
+    let mut inherited_expected = vec![book, sibling];
+    inherited_expected.sort();
+    assert_eq!(
+        old_renewed_books, inherited_expected,
+        "renewing an old term must retain archived Book economics"
+    );
+
     let original_members: Vec<i64> = sqlx::query_scalar(
         "SELECT book_id FROM commerce_layer_term_share_snapshots
          WHERE term_id=$1 ORDER BY book_id",
