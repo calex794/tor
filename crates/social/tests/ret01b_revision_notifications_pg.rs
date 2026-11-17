@@ -149,7 +149,7 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
     .unwrap();
     assert_eq!(
         private_bell,
-        ("chapter_updated".into(), format!("/reader/{chapter}"))
+        ("chapter_updated".into(), format!("/read/{chapter}"))
     );
     let too_late: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM user_notifications
