@@ -360,9 +360,16 @@ fn saved_free_reader_internal(
     }
 
     let s3 = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
+    let pack_attr = if s3
+        && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1")
+    {
+        " data-free-pack-reader=\"1\""
+    } else {
+        ""
+    };
     if s3 {
         let token = if chapter.ordinary_deleted { csrf } else { "" };
-        progress_attributes=format!("id=\"chapter-text\" data-free-s3-chapter=\"{}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-s3-saved=\"1\" data-free-s3-archive=\"{}\"",chapter.chapter_id,chapter.version_id,escape_html(token),if chapter.ordinary_deleted {"1"}else{"0"});
+        progress_attributes=format!("id=\"chapter-text\" data-free-s3-chapter=\"{}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-s3-saved=\"1\" data-free-s3-archive=\"{}\"{pack_attr}",chapter.chapter_id,chapter.version_id,escape_html(token),if chapter.ordinary_deleted {"1"}else{"0"});
         if let Some(place) = chapter.saved_place {
             write!(
                 progress_attributes,
