@@ -402,6 +402,8 @@ jobs:
           if [[ "$CI_PG_SHARD" == "commerce" ]]; then
             cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
+            # S020 P0: real authenticated single/batch HTTP checkout age parity.
+            TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --test s020_age_checkout_http_pg s020_age_checkout_http_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
             cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1

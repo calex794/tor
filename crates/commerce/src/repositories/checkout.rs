@@ -1,5 +1,6 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
+mod age;
 mod batch;
 mod offers;
 pub use offers::PublishedChapterOffer;
@@ -146,6 +147,7 @@ impl CheckoutRepository for PgCheckout {
         // moderation state while the money transaction is in progress.
         let offer = sqlx::query(
             "SELECT p.version_id, c.price_amount, b.id AS book_id,
+                    b.access_level AS book_age_tier,
                     st.current_revision AS share_revision
              FROM chapters c
              JOIN books b ON b.id=c.book_id
@@ -175,6 +177,12 @@ impl CheckoutRepository for PgCheckout {
         {
             return Err(CheckoutError::StaleOffer);
         }
+
+        // Keep the Book age tier from the locked offer. The A-owned user/grant
+        // rows are locked AFTER the wallet to preserve D-06/S038 lock order:
+        // wallet UPDATE -> users SHARE -> active pro grant SHARE -> debit.
+        // A successful historic idempotency replay has already returned above.
+        let age_tier: String = offer.try_get("book_age_tier").map_err(unavailable)?;
 
         // B-10 economics is authoritative ONLY through immutable revisions.
         // The FOR SHARE Book lock above fences B-owned schedule CAS until
@@ -209,6 +217,11 @@ impl CheckoutRepository for PgCheckout {
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
+
+        // Existing swaps lock the wallet before the S038 reservation trigger
+        // locks users. Taking users first caused a PostgreSQL deadlock against
+        // D-06's swap-vs-checkout race. Keep the age fence through COMMIT.
+        age::require_purchase_tier(&mut tx, actor, &age_tier).await?;
 
         let owned = sqlx::query(
             "SELECT l.purchase_id,

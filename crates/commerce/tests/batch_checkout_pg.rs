@@ -11,6 +11,9 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
+#[path = "batch_checkout_pg/d_s035_age_lock_order.rs"]
+mod d_s035_age_lock_order;
+
 struct Fixture {
     pool: PgPool,
     buyer: i64,
@@ -737,5 +740,217 @@ async fn d_s035_unknown_book_age_tier_cannot_charge_and_recovers_after_attestati
     assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
     assert_eq!(count(&f.pool, f.buyer, "rights").await, 2);
     assert_eq!(count(&f.pool, f.buyer, "journal").await, 2);
+    f.pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_s035_age_filtered_batch_offers_and_no_debit_for_ineligible_buyer() {
+    let f = fixture("batch-adult-eligibility", 1_000).await;
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let store = PgCheckout::new(f.pool.clone());
+    let quote = command(f.buyer, &f.offers[..2], 'R');
+
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store.checkout_batch_once(&quote).await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
+    );
+    no_partial(&f, 1_000).await;
+
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(f.buyer)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .selectable_batch_offers(f.buyer, f.book)
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+    let bought = store.checkout_batch_once(&quote).await.unwrap();
+    assert!(!bought.replayed);
+    assert_eq!(bought.purchases.len(), 2);
+
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(f.buyer)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(store.checkout_batch_once(&quote).await.unwrap().replayed);
+    assert_eq!(balance(&f.pool, f.buyer).await, 700);
+    assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "rights").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "journal").await, 2);
+    f.pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_s035_pro_grant_and_suspended_buyer_cannot_buy_without_current_authority() {
+    let f = fixture("batch-pro-eligibility", 1_000).await;
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let store = PgCheckout::new(f.pool.clone());
+    let quote = command(f.buyer, &f.offers[..2], 'S');
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store.checkout_batch_once(&quote).await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
+    );
+    no_partial(&f, 1_000).await;
+
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(f.book)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(owner)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',FALSE)",
+    )
+    .bind(f.buyer)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store.checkout_batch_once(&quote).await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
+    );
+    no_partial(&f, 1_000).await;
+
+    sqlx::query("UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1")
+        .bind(f.buyer)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .selectable_batch_offers(f.buyer, f.book)
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // Even a verified pro grant cannot bypass account suspension.
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(f.buyer)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store.checkout_batch_once(&quote).await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
+    );
+    no_partial(&f, 1_000).await;
+
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(f.buyer)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let bought = store.checkout_batch_once(&quote).await.unwrap();
+    assert_eq!(bought.purchases.len(), 2);
+    assert_eq!(balance(&f.pool, f.buyer).await, 700);
+    f.pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_s035_pro_grant_revocation_wins_waiting_batch_checkout() {
+    use std::time::Duration;
+    let f = fixture("batch-pro-revoke-race", 1_000).await;
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(f.buyer)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let mut revoking = f.pool.begin().await.unwrap();
+    let locked: i64 = sqlx::query_scalar(
+        "SELECT user_id FROM user_level_grants
+         WHERE user_id=$1 AND level='pro_adult' AND is_active FOR UPDATE",
+    )
+    .bind(f.buyer)
+    .fetch_one(&mut *revoking)
+    .await
+    .unwrap();
+    assert_eq!(locked, f.buyer);
+
+    let quote = command(f.buyer, &f.offers[..2], 'T');
+    let checkout = PgCheckout::new(f.pool.clone());
+    let mut task = tokio::spawn(async move { checkout.checkout_batch_once(&quote).await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), &mut task)
+            .await
+            .is_err(),
+        "batch checkout must wait for the pro grant row lock"
+    );
+    sqlx::query(
+        "UPDATE user_level_grants SET is_active=FALSE
+         WHERE user_id=$1 AND level='pro_adult'",
+    )
+    .bind(f.buyer)
+    .execute(&mut *revoking)
+    .await
+    .unwrap();
+    revoking.commit().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(15), task)
+            .await
+            .expect("batch age lock must release")
+            .expect("batch task must join"),
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
+    );
+    no_partial(&f, 1_000).await;
     f.pool.close().await;
 }

@@ -31,10 +31,19 @@ impl PgCheckout {
             "SELECT c.id,c.chapter_no,c.title,c.price_amount,p.version_id
              FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
-               AND b.access_level IS NOT NULL
+               AND (
+                   b.access_level='basic'
+                   OR (b.access_level='adult' AND viewer.adult_enabled)
+                   OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants grant_state
+                       WHERE grant_state.user_id=viewer.id
+                         AND grant_state.level='pro_adult' AND grant_state.is_active
+                   ))
+               )
                AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
@@ -200,9 +209,11 @@ impl PgCheckout {
         // prevents an unrelated Book's terms being sold accidentally.
         let mut books_and_revisions = Vec::with_capacity(command.offers().len());
         let mut one_book = None;
+        let mut first_age_tier: Option<String> = None;
         for offer in command.offers() {
             let row = sqlx::query(
                 "SELECT p.version_id,c.price_amount,b.id AS book_id,
+                        b.access_level AS book_age_tier,
                         st.current_revision AS share_revision
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
@@ -233,6 +244,12 @@ impl PgCheckout {
             let revision: i64 = row.try_get("share_revision").map_err(unavailable)?;
             if one_book.is_some_and(|first| first != book) {
                 return Err(BatchCheckoutError::MixedBooks);
+            }
+            if one_book.is_none() {
+                // All items share the same locked Book. Defer buyer/grant
+                // locking until after the wallet so D-06/S038 uses the same
+                // wallet -> user order during competing swaps.
+                first_age_tier = Some(row.try_get("book_age_tier").map_err(unavailable)?);
             }
             one_book = Some(book);
             let sum: i64 = sqlx::query_scalar(
@@ -269,6 +286,14 @@ impl PgCheckout {
         .await
         .map_err(unavailable)?
         .unwrap_or(0);
+
+        // The wallet lock must precede the A-owned buyer and pro-grant locks,
+        // but all of them remain held until COMMIT or rollback. No debit can
+        // occur after an age revocation that committed before this fence.
+        let age_tier = first_age_tier.ok_or(BatchCheckoutError::InvalidBatch)?;
+        super::age::require_purchase_tier(&mut tx, actor, &age_tier)
+            .await
+            .map_err(BatchCheckoutError::from)?;
         for offer in command.offers() {
             let already_owned = sqlx::query(
                 "SELECT l.purchase_id,
