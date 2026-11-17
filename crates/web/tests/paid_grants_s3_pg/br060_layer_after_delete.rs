@@ -1,7 +1,6 @@
-//! BR-060/D-05: active paid Layer CURRENT access is not a direct purchase pin.
-//! An ordinary-deleted Book is hidden from *new* Layer grants even when the
-//! original paid term remains active; the financial obligation is recorded,
-//! not silently converted to a purchased immutable ChapterVersion V1.
+//! BR-060/D-05: preserve historical paid Layer Book rights across ordinary
+//! deletion while denying a new buyer that same deleted Book. The old paid
+//! term is not a direct pinned V1 or a new purchase of the deleted Book.
 use super::*;
 use tor_commerce::{
     domain::{
@@ -18,6 +17,10 @@ pub(super) struct ActiveLayerProbe {
     cookie: String,
     csrf: String,
     term_id: i64,
+    layer_id: i64,
+    offer_id: i64,
+    layer_version: i64,
+    published_version: i64,
     wallet_after_minor: i64,
     surviving_chapter: i64,
     surviving_version: i64,
@@ -170,6 +173,10 @@ pub(super) async fn before_deletion(
         cookie,
         csrf,
         term_id: receipt.term_id,
+        layer_id: layer,
+        offer_id: offer,
+        layer_version,
+        published_version: current_version,
         wallet_after_minor: receipt.balance_after_minor,
         surviving_chapter: sibling_chapter,
         surviving_version: sibling_version,
@@ -230,7 +237,10 @@ pub(super) async fn after_deletion(
         "a still-active Layer term cannot silently become a permanent V1 pin"
     );
 
-    let denied = post_grant(
+    // This is the archive contract: the same paid term obtained the Book
+    // before ordinary deletion. D may still deliver CURRENT's last published
+    // ciphertext, without inventing an individual direct chapter purchase.
+    let retained = post_grant(
         app,
         chapter,
         Some(&active.cookie),
@@ -239,15 +249,17 @@ pub(super) async fn after_deletion(
         r#"{"source":"layer"}"#,
     )
     .await;
-    assert_eq!(denied.status(), StatusCode::NOT_FOUND);
-    assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(
-        to_bytes(denied.into_body(), 8192).await.unwrap().is_empty(),
-        "a hidden Book must not produce new Layer bearer URL or scoped DEK"
-    );
+    assert_eq!(retained.status(), StatusCode::OK);
+    let grant = decode(retained).await;
+    assert_eq!(grant["version_id"], active.published_version.to_string());
+    assert!(!grant.to_string().contains(MARKDOWN));
+    assert!(grant["content"]["ciphertext_url"]
+        .as_str()
+        .unwrap()
+        .starts_with(ENDPOINT));
     let shell = private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie)).await;
-    assert_eq!(shell.status(), StatusCode::NOT_FOUND);
-    assert!(to_bytes(shell.into_body(), 8192).await.unwrap().is_empty());
+    assert_eq!(shell.status(), StatusCode::OK);
+    assert!(html_body(shell).await.contains("data-layer-archive=\"1\""));
     assert_eq!(
         private_get(
             app,
@@ -256,8 +268,110 @@ pub(super) async fn after_deletion(
         )
         .await
         .status(),
-        StatusCode::NOT_FOUND,
-        "a paid Layer term must not leak deleted Book TOC metadata"
+        StatusCode::OK,
+        "old Layer reader keeps a private paged archive TOC"
+    );
+    let old_library = html_body(
+        private_get(app, "/me/library/layers", Some(&active.cookie)).await,
+    )
+    .await;
+    assert!(old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
+    assert!(old_library.contains("Удалена с сайта"));
+
+    // This subscriber arrives AFTER Book deletion. The current package may
+    // still carry an immutable historical Book ID, but their term may not
+    // inherit content that disappeared before they purchased.
+    let (late_buyer, late_cookie) =
+        user(&active.accounts, "br060-layer-late-buyer@tor-ci.example").await;
+    pg(
+        url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
+             VALUES({late_buyer},300,'RUB')"
+        ),
+    );
+    let layer_repo = PgLayers::new(active.accounts.pool().clone());
+    let new_term = layer_repo
+        .buy(&LayerCheckoutCommand {
+            actor: PositiveId::new(late_buyer).unwrap(),
+            wallet: WalletId::new(late_buyer).unwrap(),
+            layer: PositiveId::new(active.layer_id).unwrap(),
+            offer: PositiveId::new(active.offer_id).unwrap(),
+            version: PositiveId::new(active.layer_version).unwrap(),
+            expected_price: MoneyMinor::new(90).unwrap(),
+            key: IdempotencyKey::parse(&format!("{}8", "E".repeat(42))).unwrap(),
+        })
+        .await
+        .unwrap();
+    assert!(!new_term.replayed);
+    assert_eq!(new_term.balance_after_minor, 210);
+    let late_grant = post_grant(
+        app,
+        chapter,
+        Some(&late_cookie),
+        Some(&active.csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(late_grant.status(), StatusCode::NOT_FOUND);
+    assert!(to_bytes(late_grant.into_body(), 8192).await.unwrap().is_empty());
+    assert_eq!(
+        private_get(app, &format!("/read/layer/{chapter}"), Some(&late_cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let late_library = html_body(
+        private_get(app, "/me/library/layers", Some(&late_cookie)).await,
+    )
+    .await;
+    assert!(!late_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
+    assert_surviving_book_entitlement(
+        &active.accounts,
+        late_buyer,
+        active.surviving_chapter,
+        active.surviving_version,
+    )
+    .await;
+
+    // A site/legal block is stronger than both historical rights and age
+    // eligibility. Lifting that block restores the same original term.
+    pg(url, &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"));
+    assert_eq!(
+        post_grant(
+            app,
+            chapter,
+            Some(&active.cookie),
+            Some(&active.csrf),
+            ORIGIN,
+            r#"{"source":"layer"}"#,
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(url, &format!("UPDATE books SET visibility_status='active' WHERE id={book}"));
+    assert_eq!(
+        private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    // Ending the prepaid term also ends its archived Book access.
+    pg(
+        url,
+        &format!(
+            "UPDATE commerce_layer_terms SET expires_at=now()-interval '1 minute' \
+             WHERE id={}",
+            active.term_id
+        ),
+    );
+    assert_eq!(
+        private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
     );
     assert_surviving_book_entitlement(
         &active.accounts,
