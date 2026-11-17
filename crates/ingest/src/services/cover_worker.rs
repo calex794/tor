@@ -66,7 +66,8 @@ impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker
     }
 
     async fn process_claim(&self, claim: &CoverClaim) -> Result<bool, CoverError> {
-        if !matches!(claim.recipe_version.as_str(), RECIPE_VERSION | LEGACY_RECIPE_VERSION)
+        if (claim.recipe_version != RECIPE_VERSION
+            && claim.recipe_version != LEGACY_RECIPE_VERSION)
             || !(1..=MAX_SOURCE_BYTES as i64).contains(&claim.source_size)
         {
             return Err(CoverError::Invalid);
