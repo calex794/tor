@@ -144,6 +144,41 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
     assert_eq!(status, ("completed".to_owned(), 2, 3));
     assert!(!repo.renew(&lease, 60).await.unwrap());
 
+    assert!(sqlx::query(
+        "UPDATE free_storage_inventory_cycles SET completed_at=clock_timestamp() WHERE id=$1"
+    )
+    .bind(lease.id)
+    .execute(&pool)
+    .await
+    .is_err());
+
+    let mut second = repo
+        .claim(
+            &bucket,
+            InventoryDirection::ExpectedToS3,
+            InventoryNamespace::Single,
+            120,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(repo
+        .acknowledge_page(&mut second, None, InventoryPageCounts::default())
+        .await
+        .unwrap());
+    let reports = repo
+        .completed_reports(
+            &bucket,
+            InventoryDirection::ExpectedToS3,
+            InventoryNamespace::Single,
+        )
+        .await
+        .unwrap();
+    assert_eq!(reports.len(), 2);
+    assert_eq!((reports[0].id, reports[1].id), (second.id, lease.id));
+    assert_eq!((reports[1].page_index, reports[1].inspected_count), (2, 3));
+    assert_eq!(reports[1].unverifiable_count, 1);
+
     let mut retry = repo
         .claim(
             &bucket,
@@ -224,7 +259,7 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(no_delete, 2);
+    assert_eq!(no_delete, 3);
     println!("DROP07C_PG_CHECKPOINT_PASS atomic cursor, one active, lost ACK, stale epoch, resume, complete, no delete");
     pool.close().await;
 }
