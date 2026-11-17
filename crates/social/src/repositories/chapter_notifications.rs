@@ -5,7 +5,8 @@ use crate::domain::MailError;
 use sqlx::{PgPool, Postgres, Transaction};
 
 const RECIPIENTS_PER_BATCH: usize = 250;
-const CONSUMER: &str = "chapter_release_fanout_v1";
+const RELEASE_CONSUMER: &str = "chapter_release_fanout_v1";
+const REVISION_CONSUMER: &str = "chapter_revision_fanout_v1";
 
 /// Generate per-reader child events, not notifications, under the source
 /// event lock. A crash rolls back the batch and its cursor together.
@@ -16,14 +17,20 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
     let mut processed = 0;
     for _ in 0..limit {
         let mut tx = pool.begin().await.map_err(unavailable)?;
-        let source: Option<(String, i64, i64, i64)> = sqlx::query_as(
+        let source: Option<(String, i64, i64, i64, bool)> = sqlx::query_as(
             "SELECT e.id::text,e.aggregate_id,
                     (e.payload->>'book_id')::bigint,
-                    (e.payload->>'version_id')::bigint
+                    (e.payload->>'version_id')::bigint,
+                    (e.payload->>'first_release')::boolean
              FROM outbox_events e
              WHERE e.event_type='ChapterPublished'
                AND e.delivered_at IS NULL AND e.dead_at IS NULL
-               AND e.required_consumers @> ARRAY['chapter_release_fanout_v1']::text[]
+               AND (
+                 (e.payload->>'first_release'='true'
+                  AND e.required_consumers @> ARRAY['chapter_release_fanout_v1']::text[])
+                 OR (e.payload->>'first_release'='false'
+                  AND e.required_consumers @> ARRAY['chapter_revision_fanout_v1']::text[])
+               )
                AND e.next_attempt_at<=clock_timestamp()
                -- Respect G-07 fenced leases even while specialized S058 workers
                -- still use row locking for their atomic cursor transactions.
@@ -31,14 +38,17 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                AND NOT EXISTS (
                    SELECT 1 FROM event_deliveries d
                    WHERE d.event_id=e.id
-                     AND d.consumer='chapter_release_fanout_v1')
+                     AND d.consumer=CASE
+                       WHEN e.payload->>'first_release'='true'
+                       THEN 'chapter_release_fanout_v1'
+                       ELSE 'chapter_revision_fanout_v1' END)
              ORDER BY e.created_at,e.id
              FOR UPDATE SKIP LOCKED LIMIT 1",
         )
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
-        let Some((event_id, chapter_id, book_id, version_id)) = source else {
+        let Some((event_id, chapter_id, book_id, version_id, first_release)) = source else {
             tx.commit().await.map_err(unavailable)?;
             break;
         };
@@ -51,8 +61,13 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
              JOIN chapters c ON c.book_id=b.id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_first_release_events first
-               ON first.chapter_id=c.id AND first.version_id=$3
+               ON first.chapter_id=c.id
              WHERE b.id=$1 AND c.id=$2
+               AND (
+                 ($4::boolean AND first.version_id=$3)
+                 OR (NOT $4::boolean AND p.version_id=$3
+                     AND c.access_level='free' AND c.price_amount=0)
+               )
                AND b.visibility='public' AND b.visibility_status='active'
                AND b.lifecycle_status<>'pending_deletion'
                AND NOT b.admin_hold AND NOT b.is_deleted
@@ -73,6 +88,7 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
         .bind(book_id)
         .bind(chapter_id)
         .bind(version_id)
+        .bind(first_release)
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
@@ -122,14 +138,20 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                        event_type,schema_version,aggregate_kind,aggregate_id,
                        dedupe_key,payload,required_consumers
                      )
-                     SELECT 'reader.chapter.released',1,'chapter',$1,
-                       'chapter-released-recipient:' || $1::text || ':' || r.user_id::text,
+                     SELECT CASE WHEN $6::boolean THEN 'reader.chapter.released'
+                                 ELSE 'reader.chapter.updated' END,
+                            1,'chapter',$1,
+                       CASE WHEN $6::boolean
+                            THEN 'chapter-released-recipient:' || $1::text || ':' || r.user_id::text
+                            ELSE 'chapter-updated-recipient:' || $1::text || ':' || $4::text
+                                 || ':' || r.user_id::text END,
                        jsonb_build_object(
                            'actor_user_id',$2,
                            'recipient_user_id',r.user_id,
                            'object_id',$1,
                            'book_id',$3,
-                           'version_id',$4
+                           'version_id',$4,
+                           'source_event_id',$7::uuid
                        ),
                        ARRAY['user_notifications']::text[]
                      FROM unnest($5::bigint[]) AS r(user_id)
@@ -140,6 +162,8 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                 .bind(book_id)
                 .bind(version_id)
                 .bind(&recipients)
+                .bind(first_release)
+                .bind(&event_id)
                 .execute(&mut *tx)
                 .await
                 .map_err(unavailable)?;
@@ -166,7 +190,11 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                 "INSERT INTO event_deliveries(consumer,event_id)
                  VALUES($1,$2::uuid) ON CONFLICT DO NOTHING",
             )
-            .bind(CONSUMER)
+            .bind(if first_release {
+                RELEASE_CONSUMER
+            } else {
+                REVISION_CONSUMER
+            })
             .bind(&event_id)
             .execute(&mut *tx)
             .await
@@ -209,12 +237,27 @@ pub(super) async fn eligible_recipient(
             JOIN chapter_first_release_events first
               ON first.chapter_id=c.id
             JOIN outbox_events e ON e.id=$4::uuid
-              AND e.event_type='reader.chapter.released'
+              AND e.event_type IN ('reader.chapter.released','reader.chapter.updated')
               AND e.aggregate_id=c.id
             WHERE c.id=$1 AND b.owner_user_id=$2
               AND e.payload->>'recipient_user_id'=$3::text
               AND e.payload->>'book_id'=b.id::text
-              AND e.payload->>'version_id'=first.version_id::text
+              AND e.payload->>'actor_user_id'=$2::text
+              AND (
+                 (e.event_type='reader.chapter.released'
+                  AND e.payload->>'version_id'=first.version_id::text)
+                 OR (e.event_type='reader.chapter.updated'
+                  AND c.access_level='free' AND c.price_amount=0
+                  AND e.payload->>'version_id'=p.version_id::text
+                  AND EXISTS (
+                     SELECT 1 FROM outbox_events root
+                     WHERE root.id::text=e.payload->>'source_event_id'
+                       AND root.event_type='ChapterPublished'
+                       AND root.aggregate_id=c.id
+                       AND root.payload->>'first_release'='false'
+                       AND root.payload->>'version_id'=p.version_id::text
+                  ))
+              )
               AND b.visibility='public' AND b.visibility_status='active'
               AND b.lifecycle_status<>'pending_deletion'
               AND NOT b.admin_hold AND NOT b.is_deleted
@@ -233,11 +276,21 @@ pub(super) async fn eligible_recipient(
                  EXISTS(
                    SELECT 1 FROM reader_book_follows follow
                    WHERE follow.book_id=b.id AND follow.user_id=$3
-                     AND follow.created_at<=first.created_at
+                     AND follow.created_at<=
+                         CASE WHEN e.event_type='reader.chapter.released'
+                              THEN first.created_at
+                              ELSE (SELECT root.created_at FROM outbox_events root
+                                    WHERE root.id::text=e.payload->>'source_event_id')
+                         END
                  ) OR EXISTS(
                    SELECT 1 FROM reader_library_items library
                    WHERE library.book_id=b.id AND library.user_id=$3
-                     AND library.created_at<=first.created_at
+                     AND library.created_at<=
+                         CASE WHEN e.event_type='reader.chapter.released'
+                              THEN first.created_at
+                              ELSE (SELECT root.created_at FROM outbox_events root
+                                    WHERE root.id::text=e.payload->>'source_event_id')
+                         END
                  )
               )
               AND (
