@@ -15,6 +15,8 @@ mod layer_create;
 mod layer_deleted_checkout;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
+#[path = "layers_pg/layer_free_archive.rs"]
+mod layer_free_archive;
 #[path = "layers_pg/layer_lost_ack.rs"]
 mod layer_lost_ack;
 #[path = "layers_pg/layer_offer.rs"]
