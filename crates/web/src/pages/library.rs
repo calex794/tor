@@ -233,7 +233,7 @@ fn my_library_inner(
         )
         .expect("write library nav");
     }
-    let main = if no_content {
+    let main = if no_content && selected != "updates" {
         "<div class=\"library-onboarding\"><div class=\"library-onboarding__art\" aria-hidden=\"true\"><span></span><span></span><span></span></div><h2>Ваша книжная полка пока пуста</h2><p>Начните с интересной книги. Здесь будут сохранённые истории, новые главы и место, на котором вы остановились.</p><a class=\"button\" href=\"/catalog\">Найти книгу</a></div>".to_owned()
     } else {
         match selected {
@@ -370,7 +370,65 @@ fn update_cards(
          <h2 id=\"new-chapters-heading\">Новые главы подписок</h2>\
          <p>Здесь показываются бесплатные и платные главы после подписки на книгу или автора.\
          Подписка не даёт доступа к платному тексту.</p>\
-         <div class=\"library-update-list\">{body}</div>{next}</section>"
+         <div class=\"library-update-list\">{body}</div>{next}</section><!--RET_REVISION_CARDS-->"
+    )
+}
+
+/// Only the reader's E-08 V2 notification ID is acknowledged here. The
+/// legacy chapter-first-release receipt must never be mutated by a V2 click.
+pub fn library_revision_cards(
+    rows: &[tor_social::repositories::notifications::UserNotification],
+    csrf: &str,
+) -> String {
+    let mut cards = String::new();
+    for row in rows.iter().filter(|row| row.kind == "chapter_updated") {
+        let Some(chapter_id) = row
+            .url
+            .strip_prefix("/read/")
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|id| *id > 0)
+        else {
+            continue;
+        };
+        let status = if row.is_read {
+            "Просмотрено"
+        } else {
+            "Обновилось"
+        };
+        let label = if row.is_read {
+            "Открыть редакцию"
+        } else {
+            "Открыть и отметить просмотренным"
+        };
+        write!(
+            cards,
+            "<article class=\"library-update-card\" data-revision-notice-id=\"{}\">\
+             <div class=\"library-update-card__copy\">\
+             <span class=\"library-status\">Глава обновлена · {status}</span>\
+             <h3>{}</h3><p>{}</p></div>\
+             <div class=\"library-card__actions\">\
+             <form method=\"post\" action=\"/notifications/{}/read\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <input type=\"hidden\" name=\"next\" value=\"/read/{chapter_id}\">\
+             <button class=\"button button--small\" type=\"submit\">{label}</button>\
+             </form></div></article>",
+            row.id,
+            escape_html(&row.title),
+            escape_html(&row.body),
+            row.id,
+            escape_html(csrf),
+        )
+        .expect("write actor-scoped revision card");
+    }
+    if cards.is_empty() {
+        cards.push_str("<p class=\"library-placeholder\">Обновлённых глав пока нет.</p>");
+    }
+    format!(
+        "<section class=\"section\" id=\"updated-chapters\" aria-label=\"Обновлённые главы\">\
+         <h2>Обновились</h2><p>Новые редакции уже опубликованных бесплатных глав.\
+         Открытие отмечает только эту редакцию, не новый выпуск и не прочтение текста.</p>\
+         <div class=\"library-update-list\">{cards}</div>\
+         <p><a href=\"/notifications?tab=revisions\">Все обновлённые главы</a></p></section>"
     )
 }
 

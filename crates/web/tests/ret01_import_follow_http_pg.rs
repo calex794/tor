@@ -19,11 +19,12 @@ use tor_accounts::{
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
     services::{
-        authoring::{new_book, AuthorError},
+        authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
         chapter_file_import::parse_text,
     },
 };
 use tor_reading::repositories::{PgFollowUpdates, PgReader};
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -397,6 +398,150 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     let home = http(&app, "GET", "/me", &reader_cookie, "", ORIGIN).await;
     assert!(home.1.contains("Новые главы подписок: 1"));
 
+    // RET-01b: after following, editing the existing published FREE chapter
+    // is a revision, not a second chapter first release. Its per-event receipt
+    // is independent of reader_follow_notification_reads.
+    let v2_input = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: Some(fresh as u64),
+        number: 3,
+        expected_revision: 1,
+        title: "RET01 New chapter",
+        body: "RET01 revision body V2",
+        access: "free",
+        price_amount: 0,
+        command_key: &generate_session_token(),
+    })
+    .unwrap();
+    let v2 = author
+        .edit_published_free_chapter(owner, &v2_input)
+        .await
+        .unwrap();
+    assert_eq!(v2.revision, 2);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_first_release_events
+                 WHERE chapter_id={fresh}"
+            )
+        ),
+        "1",
+        "V2 never overwrites the first-release fact"
+    );
+    let bells = PgNotifications::new(pool.clone());
+    // Poll the same bounded actual consumer used by the live app. The test
+    // database may also have pending historical releases from this fixture.
+    for _ in 0..8 {
+        if bells.fanout_chapter_releases(16).await.unwrap() == 0 {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        if bells.deliver_pending(50).await.unwrap() == 0 {
+            break;
+        }
+    }
+    let notices = bells
+        .list_section(reader, None, 30, "revisions")
+        .await
+        .unwrap();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, "chapter_updated");
+    assert!(!notices[0].is_read);
+    let notice_id = notices[0].id;
+    assert_eq!(
+        bells.unread_chapter_revisions_capped(reader).await.unwrap(),
+        1
+    );
+    assert_eq!(updates.unread_count_capped(reader).await.unwrap(), 1);
+    let revised_page = http(
+        &app,
+        "GET",
+        "/me/library?view=updates",
+        &reader_cookie,
+        "",
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(revised_page.0, StatusCode::OK);
+    assert!(revised_page.1.contains("<h2>Обновились</h2>"));
+    assert!(revised_page
+        .1
+        .contains(&format!("action=\"/notifications/{notice_id}/read\"")));
+    assert!(revised_page.1.contains(&format!("value=\"/read/{fresh}\"")));
+    assert!(!revised_page.1.contains("RET01 revision body V2"));
+    let summary = http(&app, "GET", "/me", &reader_cookie, "", ORIGIN).await;
+    assert!(summary.1.contains("Обновились главы: 1"));
+    let private_tab = http(
+        &app,
+        "GET",
+        "/notifications?tab=revisions",
+        &reader_cookie,
+        "",
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(private_tab.0, StatusCode::OK);
+    assert!(private_tab.1.contains("Глава обновлена"));
+    // Prove the actual desktop/mobile DOM and POST/redirect in Chromium,
+    // rather than only checking an HTML string and manually posting a form.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
+        .await
+        .expect("isolated localhost Chromium server");
+    let browser_app = app.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            browser_app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let browser_result = tokio::task::spawn_blocking(move || {
+        Command::new("timeout")
+            .args(["--signal=TERM", "--kill-after=5s", "120s", "node"])
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/ret01b_revision_chromium.cjs"
+            ))
+            .env("RET01_BROWSER_ORIGIN", ORIGIN)
+            .env("RET01_BROWSER_SESSION", reader_token)
+            .env("RET01_BROWSER_CSRF", csrf)
+            .env("RET01_BROWSER_CHAPTER", fresh.to_string())
+            .env("RET01_BROWSER_NOTICE", notice_id.to_string())
+            .output()
+            .expect("Node, Playwright and Chromium installed in PG CI")
+    })
+    .await
+    .unwrap();
+    server.abort();
+    let _ = server.await;
+    assert!(
+        browser_result.status.success(),
+        "RET-01b Chromium failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&browser_result.stdout),
+        String::from_utf8_lossy(&browser_result.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&browser_result.stdout)
+            .contains("RET-01b real Chromium PASS: 1440/390"),
+        "expected real two-viewport browser witness"
+    );
+    let acknowledged = bells
+        .list_section(reader, None, 30, "revisions")
+        .await
+        .unwrap();
+    assert_eq!(acknowledged.len(), 1);
+    assert!(acknowledged[0].is_read);
+    assert_eq!(
+        bells.unread_chapter_revisions_capped(reader).await.unwrap(),
+        0
+    );
+    assert_eq!(updates.unread_count_capped(reader).await.unwrap(), 1);
+    let updated_home = http(&app, "GET", "/me", &reader_cookie, "", ORIGIN).await;
+    assert!(!updated_home.1.contains("Обновились главы: 1"));
+
     // The history stays historical on re-follow as well: only fresh release
     // is present. A completed unfollow clears all private update visibility.
     assert_eq!(
@@ -428,5 +573,10 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     );
     assert!(updates.latest(reader, None).await.unwrap().items.is_empty());
     assert_eq!(updates.unread_count_capped(reader).await.unwrap(), 0);
+    assert!(bells
+        .list_section(reader, None, 30, "revisions")
+        .await
+        .unwrap()
+        .is_empty());
     pool.close().await;
 }

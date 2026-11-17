@@ -105,7 +105,18 @@ pub(super) async fn my_library(
             None
         }
     });
-    let page = pages::my_library_with_updates_and_layers_and_purchased_only_selected(
+    let revisions = if view == Some("updates") {
+        let repo = tor_social::repositories::notifications::PgNotifications::new(
+            state.accounts.pool().clone(),
+        );
+        match repo.list_section(user_id, None, 30, "revisions").await {
+            Ok(rows) => rows,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        Vec::new()
+    };
+    let mut page = pages::my_library_with_updates_and_layers_and_purchased_only_selected(
         &books,
         &saved,
         &csrf,
@@ -113,6 +124,12 @@ pub(super) async fn my_library(
         state.paid_checkout_enabled,
         (&updates, &owned),
         (&purchase_books, view, Some(&confirmed_covers)),
+    );
+    // Per-version read receipts are held by E-08 and never overwrite
+    // C-16's (user,chapter) first-release acknowledgement.
+    page.0 = page.0.replace(
+        "<!--RET_REVISION_CARDS-->",
+        &pages::library_revision_cards(&revisions, &csrf),
     );
     private_response(page, &cookies)
 }

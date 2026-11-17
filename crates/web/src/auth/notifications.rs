@@ -135,6 +135,7 @@ pub(super) async fn page(
         .to_ascii_lowercase();
     let tab = match requested_tab.as_str() {
         "releases" => "releases",
+        "revisions" => "revisions",
         "system" => "system",
         "discussions" => "discussions",
         "digest" => "digest",
@@ -169,6 +170,7 @@ pub(super) async fn page(
         ("notifications", "Все", "/notifications"),
         ("discussions", "Обсуждения", "/me/inbox"),
         ("releases", "Релизы", "/notifications?tab=releases"),
+        ("revisions", "Обновились", "/notifications?tab=revisions"),
         ("digest", "Сводка за вчера", "/notifications?tab=digest"),
         ("system", "Система", "/notifications?tab=system"),
     ] {
@@ -213,7 +215,9 @@ pub(super) async fn page(
         cards.push_str("</article>");
     }
     if rows.is_empty() {
-        let empty = if tab == "releases" {
+        let empty = if tab == "revisions" {
+            "Пока нет уведомлений об обновлённых главах."
+        } else if tab == "releases" {
             "Пока нет уведомлений о релизах."
         } else if tab == "system" {
             "Системных уведомлений пока нет."
