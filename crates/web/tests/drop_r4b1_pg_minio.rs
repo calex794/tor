@@ -423,7 +423,10 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     ));
     // DROP-05a: no startup activation. Explicit trusted G proof must precede
     // the all-or-none B promotion, and legal hold always wins.
-    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     assert!(matches!(
         activate_one_verified_pack(&catalog, &proof, &claim).await,
         Err(AuthorError::Conflict)
@@ -438,8 +441,14 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     )
     .parse()
     .unwrap();
-    assert_eq!(no_active, 0, "moderation hold cannot partially activate PACK");
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    assert_eq!(
+        no_active, 0,
+        "moderation hold cannot partially activate PACK"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
 
     let (one, two) = tokio::join!(
         activate_one_verified_pack(&catalog, &proof, &claim),
@@ -469,7 +478,10 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     )
     .parse()
     .unwrap();
-    assert_eq!(active_pack, 2, "both editions activate in one PG transaction");
+    assert_eq!(
+        active_pack, 2,
+        "both editions activate in one PG transaction"
+    );
     for (chapter, version, _) in &editions {
         let original_single: i64 = pg(
             &url,
