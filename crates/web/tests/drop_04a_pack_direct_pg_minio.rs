@@ -30,10 +30,10 @@ use tor_storage::{
 };
 use tor_web::free_author_publish::PgFreeAuthorPublisher;
 
-#[path = "drop_04a_pack_direct_pg_minio/pack_editor.rs"]
-mod pack_editor;
 #[path = "drop_04a_pack_direct_pg_minio/layer_archive.rs"]
 mod layer_archive;
+#[path = "drop_04a_pack_direct_pg_minio/pack_editor.rs"]
+mod pack_editor;
 #[path = "drop_04a_pack_direct_pg_minio/v1_v2_transport.rs"]
 mod v1_v2_transport;
 
