@@ -948,7 +948,12 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let held = app
         .clone()
-        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri(&active_pack_uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(held.status(), StatusCode::NOT_FOUND);
@@ -958,7 +963,12 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let adult = app
         .clone()
-        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri(&active_pack_uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -972,7 +982,12 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let hidden = app
         .clone()
-        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri(&active_pack_uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
