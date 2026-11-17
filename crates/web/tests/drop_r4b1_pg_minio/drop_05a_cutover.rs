@@ -11,10 +11,9 @@ pub(super) async fn verify(
     proof: &S3PackProofStore,
     single: &S3FreeChapterStore,
     claim: &PackJobClaim,
-    book: i64,
-    pack_id: i64,
-    editions: &[(i64, i64, String)],
+    subject: (i64, i64, &[(i64, i64, String)]),
 ) {
+    let (book, pack_id, editions) = subject;
     // DROP-05a: no startup activation. Explicit trusted G proof must precede
     // the all-or-none B promotion, and legal hold always wins.
     pg(
