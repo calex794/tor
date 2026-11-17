@@ -40,7 +40,9 @@ this slice does not claim an actual severed PostgreSQL TCP COMMIT response.
 
 The existing 100000-chapter exercise remains 200 bounded jobs of 500. Linux
 `/proc/self/status` now reports baseline client RSS, process peak RSS and peak
-growth. These include runtime/client overhead; they do not measure PostgreSQL,
+growth, worker-batch p95/p99 wall time and client-process CPU time (proc ticks
+with the actual `getconf CLK_TCK` rate). Batch timings exclude source enqueue
+and include claim through worker completion. These include runtime/client overhead; they do not measure PostgreSQL,
 MinIO, a cloud bill, real-book compression or total VPS memory. Input/frame caps
 remain the accepted S023 and G limits; no workload limit is weakened.
 
