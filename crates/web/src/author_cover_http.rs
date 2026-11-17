@@ -233,7 +233,6 @@ mod tests {
         assert_eq!(cover_recipe_for_flag(Some("1")), RECIPE_VERSION);
     }
 
-
     #[test]
     fn uploads_are_bounded_and_use_only_server_generated_staging_keys() {
         assert_eq!(MAX_SOURCE_BYTES, 8 * 1024 * 1024);
