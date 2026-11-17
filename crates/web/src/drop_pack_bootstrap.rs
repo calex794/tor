@@ -302,23 +302,25 @@ pub async fn configure_services(
     })
 }
 
+/// Keep handles alive without a complex nested tuple or Clippy exception.
 #[cfg(feature = "s3-free")]
-pub fn start_services(
-    services: PreparedDropServices,
-) -> (
-    Option<tokio::task::JoinHandle<()>>,
-    Option<tokio::task::JoinHandle<()>>,
-    Option<tokio::task::JoinHandle<()>>,
-) {
-    (
-        services
+pub struct ActiveDropServices {
+    _worker: Option<tokio::task::JoinHandle<()>>,
+    _planner: Option<tokio::task::JoinHandle<()>>,
+    _cutover: Option<tokio::task::JoinHandle<()>>,
+}
+
+#[cfg(feature = "s3-free")]
+pub fn start_services(services: PreparedDropServices) -> ActiveDropServices {
+    ActiveDropServices {
+        _worker: services
             .worker
             .map(tor_web::free_pack_worker::runner::start_background),
-        services
+        _planner: services
             .planner
             .map(tor_web::free_pack_planner::start_background),
-        services
+        _cutover: services
             .cutover
             .map(tor_web::free_pack_worker::activation::start_background),
-    )
+    }
 }
