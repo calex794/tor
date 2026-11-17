@@ -2,6 +2,7 @@
 //! No route, no background startup and no active reader cutover.
 //! The B-approved offline pack builder/writer is never exposed to HTTP actors.
 
+pub mod activation;
 pub mod runner;
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;
@@ -95,7 +96,10 @@ async fn reprove_pack_for_cutover(
         original_single
             .get_verified(&exact)
             .await
-            .map_err(|_| AuthorError::Unavailable)?;
+            .map_err(|error| match error {
+                tor_storage::domain::provider::StorageError::Unavailable => AuthorError::Unavailable,
+                _ => AuthorError::Conflict,
+            })?;
     }
     // A succeeded R4a job is an idempotent readback, not permission to reuse
     // an old proof: fetch full PACK and manifest and validate each frame now.
