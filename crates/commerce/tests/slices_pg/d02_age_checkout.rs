@@ -273,3 +273,85 @@ async fn d_02_pro_grant_revocation_committed_before_grant_lock_prevents_charge()
     money_unchanged(&pool, buyer, 900).await;
     pool.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_02_wallet_row_must_precede_age_row_for_swap_lock_order() {
+    let (pool, buyer, book, chapter, version) =
+        fixture("adult_wallet_user_order", 900, 100).await;
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Hold the wallet, as an in-flight D-06 swap does. The new checkout
+    // must reach this lock BEFORE taking users FOR SHARE, otherwise S038's
+    // wallet -> users trigger can deadlock with the direct checkout path.
+    let mut wallet_guard = pool.begin().await.unwrap();
+    let existing: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts
+         WHERE user_id=$1 FOR UPDATE",
+    )
+    .bind(buyer)
+    .fetch_one(&mut *wallet_guard)
+    .await
+    .unwrap();
+    assert_eq!(existing, 900);
+
+    let checkout = PgCheckout::new(pool.clone());
+    let buy = command(buyer, chapter, version, 100, 'L');
+    let task = tokio::spawn(async move { checkout.checkout_once(&buy).await });
+
+    // Establish that the checkout has actually arrived at the blocked
+    // wallet acquisition. Without this barrier a fast lock-order probe
+    // could pass before the competing transaction reached its age read.
+    let mut waiting = false;
+    for _ in 0..80 {
+        let blocked: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity
+             WHERE usename=current_user AND wait_event_type='Lock'
+               AND query LIKE '%reader_wallet_accounts%'
+               AND pid<>pg_backend_pid()",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if blocked > 0 {
+            waiting = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(waiting, "checkout did not reach the wallet lock");
+
+    // An update-compatible user lock must remain immediately available
+    // while the checkout is waiting for the wallet. If the checkout had
+    // locked users SHARE first, NOWAIT would fail deterministically.
+    let mut age_probe = pool.begin().await.unwrap();
+    let user: i64 = sqlx::query_scalar(
+        "SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT",
+    )
+    .bind(buyer)
+    .fetch_one(&mut *age_probe)
+    .await
+    .expect("buyer age lock must not precede the wallet");
+    assert_eq!(user, buyer);
+    age_probe.rollback().await.unwrap();
+
+    wallet_guard.commit().await.unwrap();
+    let receipt = tokio::time::timeout(Duration::from_secs(15), task)
+        .await
+        .expect("wallet release must unblock checkout")
+        .expect("checkout task must join")
+        .expect("eligible buyer must be able to purchase");
+    assert!(!receipt.replayed);
+    assert_eq!(count(&pool, "facts", buyer).await, 1);
+    assert_eq!(count(&pool, "ledger", buyer).await, 1);
+    pool.close().await;
+}
