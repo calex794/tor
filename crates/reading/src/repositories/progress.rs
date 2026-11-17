@@ -104,10 +104,13 @@ impl PgReadingProgress {
         // Book may resume only an actor-owned immutable saved-free edition;
         // public Books continue to use the currently published version.
         let rows = sqlx::query(
-            r#"SELECT b.id AS book_id, b.title AS book_title, c.id AS chapter_id,
-                      c.chapter_no, c.title AS chapter_title,
+            r#"SELECT b.id AS book_id, b.title AS book_title,
+                      COALESCE(next_free.id, c.id) AS chapter_id,
+                      COALESCE(next_free.chapter_no, c.chapter_no) AS chapter_no,
+                      COALESCE(next_free.title, c.title) AS chapter_title,
                       (b.lifecycle_status='ordinary_deleted') AS archived_saved,
                       CASE
+                        WHEN next_free.id IS NOT NULL THEN 0
                         WHEN b.lifecycle_status='ordinary_deleted' THEN progress.block_index
                         WHEN progress.version_id=publication.version_id THEN progress.block_index
                         ELSE 0
@@ -122,6 +125,25 @@ impl PgReadingProgress {
                     AND pin.version_id=progress.version_id
                JOIN chapter_versions AS edition
                  ON edition.id=progress.version_id AND edition.chapter_id=c.id
+               LEFT JOIN reader_chapter_completions AS finished
+                 ON finished.user_id=progress.user_id
+                    AND finished.book_id=b.id AND finished.chapter_id=c.id
+               LEFT JOIN LATERAL (
+                 SELECT upcoming.id, upcoming.chapter_no, upcoming.title
+                 FROM chapters AS upcoming
+                 JOIN chapter_publications AS published
+                   ON published.chapter_id=upcoming.id
+                 WHERE upcoming.book_id=b.id
+                   AND upcoming.chapter_no=c.chapter_no+1
+                   AND upcoming.visibility='public' AND upcoming.access_level='free'
+                   AND NOT upcoming.admin_hold AND NOT upcoming.is_deleted
+                   AND (upcoming.reader_released_at IS NULL
+                        OR upcoming.reader_released_at<=now())
+                 LIMIT 1
+               ) AS next_free
+                 ON finished.chapter_id IS NOT NULL
+                    AND b.lifecycle_status<>'ordinary_deleted'
+                    AND progress.version_id=publication.version_id
                WHERE progress.user_id=$1
                  AND (
                    (b.visibility='public' AND b.lifecycle_status<>'ordinary_deleted'
