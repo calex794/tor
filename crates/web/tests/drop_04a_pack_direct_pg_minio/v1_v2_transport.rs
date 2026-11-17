@@ -21,12 +21,11 @@ pub(super) async fn assert_cross_transport_v1_v2(
     client: &Client,
     app: &Router,
     c: &PgFreeS3Ref,
-    chapter_id: i64,
-    version_id: i64,
-    old_body: &str,
-    session: &str,
-    session_digest: &[u8; 32],
+    edition: (i64, i64, &str),
+    reader: (&str, &[u8; 32]),
 ) {
+    let (chapter_id, version_id, old_body) = edition;
+    let (session, session_digest) = reader;
     // DROP-06b: V1 is pinned inside the immutable PACK. A legitimate
     // independently verified SINGLE V2 becomes the publication pointer.
     // The default reader must select V2; the saved reader must still select
