@@ -537,16 +537,14 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     let second = f.offers[1].edition;
     let exposure = PgDirectFirstExposure::new(f.pool.clone());
 
-    let count_exposures = || async {
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE user_id=$1",
-        )
-        .bind(f.buyer)
-        .fetch_one(&f.pool)
-        .await
-        .unwrap()
-    };
-    assert_eq!(count_exposures().await, 0, "checkout is not a first grant");
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "checkout is not a first grant");
 
     exposure
         .record(
@@ -570,7 +568,14 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
         )
         .await
         .unwrap();
-    assert_eq!(count_exposures().await, 1);
+    let after_first: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(after_first, 1);
     let first_kind: String = sqlx::query_scalar(
         "SELECT object_kind FROM chapter_purchase_first_exposures WHERE purchase_id=$1",
     )
@@ -639,7 +644,14 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
             .expect("join blocked first-grant task"),
         Err(DeliveryError::Denied),
     );
-    assert_eq!(count_exposures().await, 1);
+    let after_revoke: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(after_revoke, 1);
     let second_opened: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM chapter_purchase_first_exposures WHERE purchase_id=$1)",
     )
