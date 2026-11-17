@@ -16,6 +16,7 @@ use tor_commerce::{
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort};
 
 pub(super) struct ActiveLayerProbe {
+    accounts: PgAccounts,
     subscriber: i64,
     cookie: String,
     csrf: String,
@@ -169,6 +170,7 @@ pub(super) async fn before_deletion(
         StatusCode::OK
     );
     ActiveLayerProbe {
+        accounts: accounts.clone(),
         subscriber,
         cookie,
         csrf,
@@ -182,7 +184,6 @@ pub(super) async fn before_deletion(
 pub(super) async fn after_deletion(
     app: &Router,
     url: &str,
-    accounts: &PgAccounts,
     book: i64,
     chapter: i64,
     active: ActiveLayerProbe,
@@ -264,7 +265,7 @@ pub(super) async fn after_deletion(
         "a paid Layer term must not leak deleted Book TOC metadata"
     );
     assert_surviving_book_entitlement(
-        accounts,
+        &active.accounts,
         active.subscriber,
         active.surviving_chapter,
         active.surviving_version,
