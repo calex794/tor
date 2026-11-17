@@ -20,7 +20,9 @@ use tor_ingest::{
     repositories::cover_jobs::PgCoverJobs,
     services::{
         cover_jobs::CoverObjectStore,
-        image_pipeline::{validate_cover_source, MAX_SOURCE_BYTES, RECIPE_VERSION},
+        image_pipeline::{
+            validate_cover_source, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES, RECIPE_VERSION,
+        },
     },
 };
 
@@ -29,6 +31,16 @@ use crate::auth_cookies::{private_response, CookiePolicy};
 mod package_cover;
 
 const MAX_MULTIPART_BYTES: usize = MAX_SOURCE_BYTES + 64 * 1024;
+
+/// The operator must opt in explicitly; previously queued jobs are stamped
+/// with their recipe and remain reproducible across flag changes.
+fn cover_recipe_for_flag(value: Option<&str>) -> &'static str {
+    if value == Some("1") {
+        RECIPE_VERSION
+    } else {
+        LEGACY_RECIPE_VERSION
+    }
+}
 
 #[derive(Clone)]
 struct CoverUploadState {
@@ -189,7 +201,15 @@ async fn upload_cover(
     };
     match state
         .jobs
-        .enqueue(source_id, id, actor, expected_revision, RECIPE_VERSION)
+        .enqueue(
+            source_id,
+            id,
+            actor,
+            expected_revision,
+            cover_recipe_for_flag(
+                std::env::var("TOR_COVER_LOSSY_WEBP_ENABLED").ok().as_deref(),
+            ),
+        )
         .await
     {
         Ok(_) => private_response(
@@ -204,6 +224,15 @@ async fn upload_cover(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lossy_cover_recipe_requires_explicit_opt_in() {
+        assert_eq!(cover_recipe_for_flag(None), LEGACY_RECIPE_VERSION);
+        assert_eq!(cover_recipe_for_flag(Some("0")), LEGACY_RECIPE_VERSION);
+        assert_eq!(cover_recipe_for_flag(Some("yes")), LEGACY_RECIPE_VERSION);
+        assert_eq!(cover_recipe_for_flag(Some("1")), RECIPE_VERSION);
+    }
+
 
     #[test]
     fn uploads_are_bounded_and_use_only_server_generated_staging_keys() {
