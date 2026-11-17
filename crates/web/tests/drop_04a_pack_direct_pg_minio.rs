@@ -429,7 +429,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             "running"
         );
     };
-
     // An old, already superseded lease must not materialize any of the
     // reserved editions even when the staged S3 PACK is byte-for-byte valid.
     let mut stale = claim.clone();
@@ -441,7 +440,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         Err(AuthorError::Conflict)
     ));
     assert_no_publication();
-
     // A moderation hold must abort the whole transaction. The source and
     // its staged proof remain available for a later authorized retry.
     pg(
@@ -459,7 +457,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
-
     assert_eq!(
         author
             .finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
@@ -516,7 +513,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         ),
         "1"
     );
-
     // A lost acknowledgement from the successful PG COMMIT replays without
     // duplicating a pack, generation, chapter or import batch.
     assert_eq!(
@@ -540,7 +536,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         ),
         "1"
     );
-
     let mut altered_receipt = receipt.clone();
     altered_receipt.frames[0].content_sha256[0] ^= 1;
     assert!(
@@ -550,7 +545,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             .is_err(),
         "even after success a forged receipt is never an ACK"
     );
-
     // The entire book remains private. No free SINGLE grant can reveal PACK.
     let c = tor_reading::repositories::free_s3_ref::PgFreeS3Ref::new(pool.clone());
     assert!(c
@@ -558,7 +552,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap()
         .is_none());
-
     // The strengthened S349 trigger still rejects an unrelated bodyless
     // free publication with NO verified placement at all.
     let stranger: i64 = pg(&url, &format!(
@@ -597,7 +590,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             && String::from_utf8_lossy(&invalid.stderr).contains("S349/DROP:"),
         "the S349/DROP guard must reject bodyless free editions without proof"
     );
-
     // DROP-06a: only the independently mounted HTTP router is under test.
     // A PACK-direct edition has no SINGLE grant; C authorizes the exact
     // active generation after the book is explicitly made public/basic.
@@ -636,7 +628,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         BUCKET.into(),
     )
     .unwrap();
-
     for (index, frame) in receipt.frames.iter().enumerate() {
         // DROP-06b: the browser receives a verified plan, not a whole-PACK URL.
         let plan = app
@@ -703,7 +694,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         let bytes = to_bytes(plain.into_body(), 200_001).await.unwrap();
         assert_eq!(bytes.as_ref(), chapters[index].body.as_bytes());
     }
-
     let uri = format!(
         "/api/v1/chapters/{}/free-pack-source",
         receipt.frames[0].chapter_id
@@ -754,7 +744,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap();
     assert_eq!(denied_plain.status(), StatusCode::NOT_FOUND);
-
     // A real pinned free edition (not merely a browser-supplied version ID)
     // can read the active, immutable PACK without materializing a SINGLE.
     let session = tor_accounts::services::security::generate_session_token();
