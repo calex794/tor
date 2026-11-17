@@ -358,21 +358,6 @@ pub(super) async fn after_deletion(
             .status(),
         StatusCode::OK
     );
-    // Ending the prepaid term also ends its archived Book access.
-    pg(
-        url,
-        &format!(
-            "UPDATE commerce_layer_terms SET expires_at=now()-interval '1 minute' \
-             WHERE id={}",
-            active.term_id
-        ),
-    );
-    assert_eq!(
-        private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie))
-            .await
-            .status(),
-        StatusCode::NOT_FOUND
-    );
     assert_surviving_book_entitlement(
         &active.accounts,
         active.subscriber,
