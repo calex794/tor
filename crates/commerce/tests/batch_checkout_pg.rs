@@ -511,3 +511,156 @@ async fn h_ui_21_batch_mixed_registration_cannot_partially_debit() {
     assert_eq!(balance(&f.pool, f.buyer).await, 900);
     f.pool.close().await;
 }
+/// P0 S035/D-06/C-06: a batch creates two paid rights, not two first opens.
+/// A concurrent revocation must remain authoritative even if a first-grant
+/// SELECT began before the revocation committed and waited for a row lock.
+/// This is a database fence test, not proof of S3 delivery or administrator
+/// support refund approval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
+    use std::time::Duration;
+    use tor_commerce::repositories::direct_exposure::{
+        DirectGrantKind, PgDirectFirstExposure,
+    };
+    use tor_contracts::paid_delivery::DeliveryError;
+
+    let f = fixture("first-grant-fence", 1_000).await;
+    let quote = command(f.buyer, &f.offers[..2], 'K');
+    let bought = PgCheckout::new(f.pool.clone())
+        .checkout_batch_once(&quote)
+        .await
+        .unwrap();
+    let first_purchase = bought.purchases[0].purchase_id;
+    let second_purchase = bought.purchases[1].purchase_id;
+    let first = f.offers[0].edition;
+    let second = f.offers[1].edition;
+    let exposure = PgDirectFirstExposure::new(f.pool.clone());
+
+    let count_exposures = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE user_id=$1",
+        )
+        .bind(f.buyer)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(count_exposures().await, 0, "checkout is not a first grant");
+
+    exposure
+        .record(
+            PositiveId::new(f.buyer).unwrap(),
+            first.chapter_id,
+            first.version_id,
+            Some(first_purchase),
+            DirectGrantKind::Chapter,
+        )
+        .await
+        .unwrap();
+    // Reopening the same purchased V1, even through an asset grant, must
+    // not create a second evidence row or overwrite the first event kind.
+    exposure
+        .record(
+            PositiveId::new(f.buyer).unwrap(),
+            first.chapter_id,
+            first.version_id,
+            Some(first_purchase),
+            DirectGrantKind::Asset,
+        )
+        .await
+        .unwrap();
+    assert_eq!(count_exposures().await, 1);
+    let first_kind: String = sqlx::query_scalar(
+        "SELECT object_kind FROM chapter_purchase_first_exposures WHERE purchase_id=$1",
+    )
+    .bind(first_purchase.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(first_kind, "chapter");
+    let second_exposures: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE purchase_id=$1",
+    )
+    .bind(second_purchase.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(second_exposures, 0, "chapter B must remain unopened");
+
+    // Lock purchase B before the first-issue recorder begins. Revocation is
+    // committed while holding this lock; the blocked recorder must recheck
+    // the canonical paid entitlement in a fresh READ COMMITTED statement.
+    let mut reversing = f.pool.begin().await.unwrap();
+    let locked: i64 = sqlx::query_scalar(
+        "SELECT id FROM chapter_purchase_facts WHERE id=$1 FOR UPDATE",
+    )
+    .bind(second_purchase.get())
+    .fetch_one(&mut *reversing)
+    .await
+    .unwrap();
+    assert_eq!(locked, second_purchase.get());
+
+    let buyer = f.buyer;
+    let pool = f.pool.clone();
+    let mut blocked_grant = tokio::spawn(async move {
+        PgDirectFirstExposure::new(pool)
+            .record(
+                PositiveId::new(buyer).unwrap(),
+                second.chapter_id,
+                second.version_id,
+                Some(second_purchase),
+                DirectGrantKind::Chapter,
+            )
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), &mut blocked_grant)
+            .await
+            .is_err(),
+        "the first-grant recorder must wait for the purchase row lock"
+    );
+
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations
+           (purchase_id,reversal_reference,reason) VALUES($1,$2,'refund')",
+    )
+    .bind(second_purchase.get())
+    .bind(format!("ci:s035:grant-fence:{}", second_purchase.get()))
+    .execute(&mut *reversing)
+    .await
+    .unwrap();
+    reversing.commit().await.unwrap();
+
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(10), blocked_grant)
+            .await
+            .expect("grant/revocation lock must not deadlock")
+            .expect("join blocked first-grant task"),
+        Err(DeliveryError::Denied),
+    );
+    assert_eq!(count_exposures().await, 1);
+    let second_opened: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM chapter_purchase_first_exposures WHERE purchase_id=$1)",
+    )
+    .bind(second_purchase.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(!second_opened, "a revoked batch item cannot gain first-use evidence");
+    let second_readable: bool = sqlx::query_scalar(
+        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
+    )
+    .bind(f.buyer)
+    .bind(second_purchase.get())
+    .bind(second.chapter_id.get())
+    .bind(second.version_id.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(!second_readable);
+    assert_eq!(balance(&f.pool, f.buyer).await, 700);
+    assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "rights").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "journal").await, 2);
+}
