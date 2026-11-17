@@ -20,7 +20,7 @@ pub struct S3FreeExpectedObjectVerifier {
     client: Client,
 }
 
-fn valid_key(value: &str) -> bool {
+pub(super) fn valid_key(value: &str) -> bool {
     let free_single = value.starts_with("private/free-chapters/") && value.ends_with(".md");
     let free_pack = value.starts_with("private/free-packs/")
         && (value.ends_with(".zst") || value.ends_with(".manifest.json"));

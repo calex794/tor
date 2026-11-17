@@ -1,6 +1,9 @@
 //! DROP-07h: durable, exact-key quarantine. No object-store mutation here.
 use sqlx::PgPool;
 
+mod retirement;
+pub use retirement::QuarantineRelease;
+
 use crate::services::authoring::AuthorError;
 
 use super::{
