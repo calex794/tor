@@ -4,7 +4,9 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tor_books::{
     repositories::{
-        free_expected_inventory::{FreeObjectKind, PgFreeExpectedInventory},
+        free_expected_inventory::{
+            FreeInventoryError, FreeObjectKind, InventoryNamespace, PgFreeExpectedInventory,
+        },
         free_observed_reconcile::{FreeReferenceState, PgFreeObservedClassifier},
         free_pack_attach::PgFreePackCatalog,
         free_s3_publish::PgFreeS3Publication,
@@ -131,6 +133,35 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
         "private/free-chapters/{}/{}.md",
         edition.chapter_id, edition.version_id
     );
+    let only_single = inventory
+        .expected_page_in_namespace(&bucket, InventoryNamespace::Single, None, 3)
+        .await
+        .unwrap();
+    assert_eq!(only_single.expected.len(), 1);
+    assert_eq!(only_single.expected[0].object_key, source_key);
+    assert!(only_single.next_after_key.is_none());
+    let only_pack = inventory
+        .expected_page_in_namespace(&bucket, InventoryNamespace::Pack, None, 1)
+        .await
+        .unwrap();
+    let only_pack_tail = inventory
+        .expected_page_in_namespace(
+            &bucket,
+            InventoryNamespace::Pack,
+            only_pack.next_after_key.as_deref(),
+            3,
+        )
+        .await
+        .unwrap();
+    assert_eq!(only_pack.expected[0].object_key, manifest_key);
+    assert_eq!(only_pack_tail.expected.len(), 1);
+    assert_eq!(only_pack_tail.expected[0].object_key, pack_key);
+    assert!(matches!(
+        inventory
+            .expected_page_in_namespace(&bucket, InventoryNamespace::Pack, Some(&source_key), 1)
+            .await,
+        Err(FreeInventoryError::Invalid)
+    ));
     let unknown_key = format!("private/free-packs/ci/drop07-{book}-unregistered.zst");
     let observed = [
         source_key.clone(),

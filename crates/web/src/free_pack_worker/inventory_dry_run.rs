@@ -4,7 +4,9 @@
 //! not private object names, hashes or chapter text.
 use aws_sdk_s3::Client;
 use tor_books::repositories::{
-    free_expected_inventory::{FreeInventoryError, PgFreeExpectedInventory},
+    free_expected_inventory::{
+        FreeInventoryError, FreeInventoryPage, InventoryNamespace, PgFreeExpectedInventory,
+    },
     free_observed_reconcile::{
         FreeReferenceEvidence, FreeReferenceState, PgFreeObservedClassifier,
     },
@@ -115,6 +117,23 @@ impl FreeInventoryDryRun {
             .expected
             .expected_page(&self.bucket, after_key, limit)
             .await?;
+        Ok(self.verify_expected(page).await)
+    }
+
+    pub async fn expected_page_in_namespace(
+        &self,
+        namespace: InventoryNamespace,
+        after_key: Option<&str>,
+        limit: u32,
+    ) -> Result<ExpectedDryRunPage, FreeDryRunError> {
+        let page = self
+            .expected
+            .expected_page_in_namespace(&self.bucket, namespace, after_key, limit)
+            .await?;
+        Ok(self.verify_expected(page).await)
+    }
+
+    async fn verify_expected(&self, page: FreeInventoryPage) -> ExpectedDryRunPage {
         let mut counts = ExpectedCounters::default();
         for entry in page.expected {
             match self
@@ -133,10 +152,10 @@ impl FreeInventoryDryRun {
                 Err(_) => counts.unverifiable += 1,
             }
         }
-        Ok(ExpectedDryRunPage {
+        ExpectedDryRunPage {
             counts,
             next_after_key: page.next_after_key,
-        })
+        }
     }
 
     /// G->B: enumerate one bounded private namespace page, then classify

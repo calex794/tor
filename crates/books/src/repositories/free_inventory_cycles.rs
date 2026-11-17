@@ -4,6 +4,7 @@
 //! cross-system snapshot, orphan proof, backup proof or GC authorization.
 use sqlx::{PgPool, Row};
 
+pub use super::free_expected_inventory::InventoryNamespace;
 use super::free_expected_inventory::{valid_bucket, valid_cursor};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,21 +18,6 @@ impl InventoryDirection {
         match self {
             Self::ExpectedToS3 => "pg_to_s3",
             Self::ObservedToPg => "s3_to_pg",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InventoryNamespace {
-    Single,
-    Pack,
-}
-
-impl InventoryNamespace {
-    fn as_db(self) -> &'static str {
-        match self {
-            Self::Single => "single",
-            Self::Pack => "pack",
         }
     }
 }
@@ -95,11 +81,7 @@ fn valid_token(
         return false;
     }
     if direction == InventoryDirection::ExpectedToS3 {
-        valid_cursor(token)
-            && token.starts_with(match namespace {
-                InventoryNamespace::Single => "private/free-chapters/",
-                InventoryNamespace::Pack => "private/free-packs/",
-            })
+        valid_cursor(token) && token.starts_with(namespace.prefix())
     } else {
         // S3's continuation token is opaque. It is persisted *only* inside
         // this bucket+namespace+direction cycle, never a public input.
