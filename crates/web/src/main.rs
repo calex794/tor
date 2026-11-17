@@ -26,21 +26,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let drop_pack_worker_enabled = drop_pack_bootstrap::enabled(demo)?;
     let drop_pack_planner_enabled =
         drop_pack_bootstrap::planner_enabled(demo, drop_pack_worker_enabled)?;
-    // DROP-06b is an operator-owned, default-OFF reader experiment.
-    let drop_pack_reader_enabled = match env::var("TOR_FREE_PACK_READER_ENABLED") {
-        Ok(v) if v == "1" => true,
-        Ok(v) if v == "0" => false,
-        Err(env::VarError::NotPresent) => false,
-        _ => return Err("TOR_FREE_PACK_READER_ENABLED must be 0 or 1".into()),
-    };
-    if drop_pack_reader_enabled
-        && (demo
-            || env::var_os("DATABASE_URL").is_none()
-            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
-            || !cfg!(feature = "s3-free"))
-    {
-        return Err("DROP-06b reader requires authenticated PostgreSQL and s3-free".into());
-    }
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -223,7 +208,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(not(feature = "s3-free"))]
     let _ = (drop_pack_worker_enabled, drop_pack_planner_enabled);
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
-    let mut pending_drop_pack_reader_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
@@ -420,18 +404,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             "S3-free import worker requires configured TOR_FREE_S3_BUCKET".into(),
                         );
                     }
-                    if drop_pack_reader_enabled {
-                        let publisher = free_author.as_ref()
-                            .ok_or("DROP-06b reader needs configured FREE S3 publisher")?;
-                        let (_, bucket) = publisher.reader_store();
-                        // No additional PostgreSQL pool. The S3 client stays private to G.
-                        let config =
-                            aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-                        let client = aws_sdk_s3::Client::new(&config);
-                        pending_drop_pack_reader_routes = Some(tor_web::free_pack_http::router(
-                            accounts.clone(), secure, origin.clone(), client, bucket,
-                        )?);
-                    }
                     pending_free_import_author = free_author.clone();
                 }
 
@@ -500,7 +472,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     #[cfg(feature = "s3-free")]
                     free_author,
                 }
-                .router()?
+                .router().await?
             } else {
                 if let Some(store) = cover_store {
                     tor_web::router_with_postgres_reading_covers(catalog, reader, store)
@@ -520,7 +492,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let app = [pending_g09_routes, pending_chapter_import_routes, pending_drop_pack_reader_routes]
+    let app = [pending_g09_routes, pending_chapter_import_routes]
         .into_iter()
         .flatten()
         .fold(app, |app, routes| {
