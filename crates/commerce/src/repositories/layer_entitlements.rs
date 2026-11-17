@@ -83,6 +83,13 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                           ON vb.layer_version_id=v.id
                         WHERE t.user_id=$1 AND vb.book_id=c.book_id
                           AND (b.lifecycle_status<>'ordinary_deleted'
+                               OR v.created_at < COALESCE((
+                                   SELECT req.requested_at
+                                   FROM book_ordinary_deletion_requests req
+                                   WHERE req.book_id=b.id
+                                     AND req.request_revision=b.lifecycle_revision-1
+                               ),b.ordinary_deleted_at))
+                          AND (b.lifecycle_status<>'ordinary_deleted'
                                OR (b.ordinary_deleted_at IS NOT NULL
                                    AND t.purchased_at < COALESCE((
                                        SELECT req.requested_at
