@@ -48,6 +48,7 @@ const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
     ("comment_reply", "Ответы на комментарии", "Прямые ответы на ваши комментарии."),
     ("comment_mention", "Упоминания в комментариях", "Когда вас упоминают по handle."),
     ("chapter_created", "Новые главы", "Главы в книгах из вашей библиотеки."),
+    ("chapter_updated", "Обновлённые главы", "Новые редакции уже опубликованных бесплатных глав."),
     ("book_invite", "Книги", "Добавление в книгу и роли в проекте."),
     ("book_share", "Рекомендации книг", "Книги, которыми с вами делятся друзья."),
     ("friendship", "Друзья", "Заявки, принятие и удаление из друзей."),
@@ -138,7 +139,7 @@ impl PgNotifications {
                       'social.friendship.accepted','social.friendship.removed',
                       'social.group_mail.created',
                       'social.group_creator_transfer.proposed',
-                      'reader.chapter.released')
+                      'reader.chapter.released','reader.chapter.updated')
                    AND NOT EXISTS (
                      SELECT 1 FROM event_deliveries d
                      WHERE d.event_id=e.id AND d.consumer='user_notifications')
@@ -207,7 +208,7 @@ impl PgNotifications {
                 .await
                 .map_err(unavailable)?;
                 status.as_deref() == Some("active")
-            } else if kind == "reader.chapter.released" {
+            } else if kind == "reader.chapter.released" || kind == "reader.chapter.updated" {
                 super::chapter_notifications::eligible_recipient(
                     &mut tx, object_id, actor, recipient, &event_id,
                 )
@@ -276,6 +277,12 @@ impl PgNotifications {
                         "Новая глава",
                         format!("{name} опубликовал новую главу"),
                         format!("/reader/{object_id}"),
+                    ),
+                    "reader.chapter.updated" => (
+                        "chapter_updated",
+                        "Глава обновлена",
+                        format!("{name} обновил главу"),
+                        format!("/read/{object_id}"),
                     ),
                     "social.mail.created" => (
                         "mail",
@@ -400,10 +407,10 @@ impl PgNotifications {
                  AND (
                    $4::text='notifications'
                    OR ($4='releases' AND n.kind IN (
-                     'chapter_created','project_news','author_new_book',
+                     'chapter_created','chapter_updated','project_news','author_new_book',
                      'author_new_layer','author_new_collection'))
                    OR ($4='system' AND n.kind NOT IN (
-                     'chapter_created','project_news','author_new_book',
+                     'chapter_created','chapter_updated','project_news','author_new_book',
                      'author_new_layer','author_new_collection',
                      'comment','comment_reply','comment_mention'))
                  )

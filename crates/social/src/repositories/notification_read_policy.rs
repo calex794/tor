@@ -2,14 +2,28 @@
 //! Notification ownership is necessary, but a stored delivery is not an access grant.
 //! The outer query uses alias `n`; all SQL here is static, never user input.
 pub(super) const VISIBLE: &str = r#"
-(n.kind <> 'chapter_created' OR EXISTS (
+(n.kind NOT IN ('chapter_created','chapter_updated') OR EXISTS (
     SELECT 1 FROM outbox_events e
     JOIN chapters c ON c.id=e.aggregate_id
     JOIN books b ON b.id=c.book_id
     JOIN users recipient ON recipient.id=n.recipient_user_id
       AND recipient.account_state='active'
     JOIN chapter_publications publication ON publication.chapter_id=c.id
-    WHERE e.id=n.source_event_id AND e.event_type='reader.chapter.released'
+    WHERE e.id=n.source_event_id
+      AND (
+          (n.kind='chapter_created' AND e.event_type='reader.chapter.released')
+          OR (n.kind='chapter_updated' AND e.event_type='reader.chapter.updated'
+              AND c.access_level='free' AND c.price_amount=0
+              AND e.payload->>'version_id'=publication.version_id::text
+              AND EXISTS (
+                  SELECT 1 FROM outbox_events root
+                  WHERE root.id::text=e.payload->>'source_event_id'
+                    AND root.event_type='ChapterPublished'
+                    AND root.aggregate_id=c.id
+                    AND root.payload->>'first_release'='false'
+                    AND root.payload->>'version_id'=publication.version_id::text
+              ))
+      )
       AND e.payload->>'recipient_user_id'=n.recipient_user_id::text
       AND e.payload->>'actor_user_id'=n.actor_user_id::text
       AND e.payload->>'object_id'=c.id::text
@@ -32,6 +46,27 @@ pub(super) const VISIBLE: &str = r#"
                  AND block.blocked_id=n.recipient_user_id)
              OR (block.blocker_id=n.recipient_user_id
                  AND block.blocked_id=n.actor_user_id)
+      )
+      AND (
+          n.kind='chapter_created'
+          OR EXISTS (
+              SELECT 1 FROM outbox_events root
+              WHERE root.id::text=e.payload->>'source_event_id'
+                AND (
+                    EXISTS (SELECT 1 FROM reader_book_follows f
+                            WHERE f.user_id=n.recipient_user_id AND f.book_id=b.id
+                              AND f.created_at<=root.created_at)
+                    OR EXISTS (SELECT 1 FROM reader_library_items l
+                               WHERE l.user_id=n.recipient_user_id AND l.book_id=b.id
+                                 AND l.created_at<=root.created_at)
+                )
+                AND (
+                    EXISTS (SELECT 1 FROM reader_book_follows f
+                            WHERE f.user_id=n.recipient_user_id AND f.book_id=b.id)
+                    OR EXISTS (SELECT 1 FROM reader_library_items l
+                               WHERE l.user_id=n.recipient_user_id AND l.book_id=b.id)
+                )
+          )
       )
       AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
       AND (c.reader_released_at IS NULL

@@ -892,3 +892,6 @@ async fn g08_count_children(pool: &PgPool, chapter: i64) -> i64 {
     .await
     .unwrap()
 }
+
+#[path = "ret01b_revision_notifications_pg.rs"]
+mod ret01b_revision_notifications_pg;
