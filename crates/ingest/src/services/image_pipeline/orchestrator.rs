@@ -24,13 +24,14 @@ pub struct ImageVariant {
     pub bytes: Vec<u8>,
 }
 
-/// Decode, center-crop and generate two deterministic WebP cover sizes using v2.
-/// Caller is responsible for trusted storage, authorization and job fencing.
+/// Legacy-compatible entry point for direct callers (including package covers).
+/// Book-cover worker jobs use process_cover_with_recipe and a stored recipe.
+/// Caller remains responsible for storage, authorization and job fencing.
 pub fn process_cover(
     source: &[u8],
     declared_content_type: &str,
 ) -> Result<Vec<ImageVariant>, ImagePipelineError> {
-    process_cover_with_recipe(source, declared_content_type, RECIPE_VERSION)
+    process_cover_with_recipe(source, declared_content_type, LEGACY_RECIPE_VERSION)
 }
 
 /// Preserve old queued jobs: their recorded v1 recipe must never silently
