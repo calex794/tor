@@ -3,7 +3,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::layer_storefront::{LayerStorefront, LayerTermCard};
+use tor_commerce::repositories::layer_storefront::{ArchivedLayerBook, LayerStorefront, LayerTermCard};
 
 fn rubles(minor: i64) -> String {
     format!("{},{:02} ₽", minor / 100, minor % 100)
@@ -356,7 +356,7 @@ mod tests {
             expires_utc: Some("28.11.2026 12:00".into()),
             state: "active".into(),
             first_readable_chapter: Some(111),
-            archived_books: vec![tor_commerce::repositories::layer_storefront::ArchivedLayerBook {
+            archived_books: vec![ArchivedLayerBook {
                 book_id: 79,
                 title: "Архивная <книга>".into(),
                 chapter_id: 222,
