@@ -328,6 +328,7 @@ for (const [name, overrides] of [
   ["plan denied", { planStatus: 404 }],
   ["wrong planned version", { plan: { version_id: "202" } }],
   ["wrong planned hash", { plan: { sha256: "f".repeat(64) } }],
+  ["malformed planned hash", { plan: { sha256: "bad" } }],
   ["unapproved transport", { plan: { transport: "whole-pack-url" } }],
   ["PACK unavailable", { packStatus: 503 }],
   ["PACK version mismatch", { packVersion: "202" }],
@@ -337,8 +338,8 @@ for (const [name, overrides] of [
 ]) {
   test(`DROP-06b: ${name} fails closed without SINGLE fallback`, async () => {
     const result = await runCase({ dataset: { freePackReader: "1" }, ...overrides });
-    assertDenied(result, name === "plan denied" || name.includes("planned") ||
-      name === "unapproved transport" ? 1 : 2);
+    assertDenied(result, ["plan denied", "wrong planned version", "malformed planned hash",
+      "unapproved transport"].includes(name) ? 1 : 2);
     assert.ok(result.requests.every(request => !request.url.includes("/free-grant")));
     assert.ok(result.requests.every(request => !request.url.startsWith("https://")));
   });
