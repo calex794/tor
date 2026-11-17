@@ -1,5 +1,7 @@
-//! D-05 / S034: resolve an active paid Layer to the current published
-//! chapter edition. Book-level Layer membership is never an S3 grant.
+//! D-05 / BR-060: resolve an active paid Layer to the published edition.
+//! Ordinary-deleted Books stay privately readable for previously acquired
+//! terms, but may not join the rights of buyers arriving after deletion.
+//! Book-level Layer membership is never an S3 grant.
 //! The publisher (B) and private object signer (G) independently verify
 //! the exact returned version before any encrypted bytes are released.
 pub mod toc;
@@ -42,13 +44,18 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         // public, paid, released and published before it may be delivered.
         // A hidden/blocked Layer *storefront* does not revoke historical terms.
         // A site-moderation Book block or revoked 18+/21+ viewer gate does.
+        // An ordinary Book deletion is different: historical Layer terms
+        // remain valid until expiry, while new buyers never gain that Book.
         // No direct purchase fact is inferred from Layer membership.
         let record: Option<(Option<i64>, bool, bool)> = sqlx::query_as(
             "SELECT cp.version_id,
-                    (b.visibility='public' AND c.visibility='public'
+                    ((b.visibility='public' OR
+                       (b.lifecycle_status='ordinary_deleted'
+                        AND b.ordinary_deleted_at IS NOT NULL))
+                     AND c.visibility='public'
                      AND c.access_level='paid' AND c.price_amount>0
                      AND viewer.account_state='active'
-                     AND b.visibility_status<>'blocked'
+                     AND b.visibility_status='active'
                      AND COALESCE((
                          b.access_level='basic'
                          OR (b.access_level='adult' AND viewer.adult_enabled)
@@ -75,6 +82,9 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                         JOIN commerce_layer_version_books vb
                           ON vb.layer_version_id=v.id
                         WHERE t.user_id=$1 AND vb.book_id=c.book_id
+                          AND (b.lifecycle_status<>'ordinary_deleted'
+                               OR (b.ordinary_deleted_at IS NOT NULL
+                                   AND t.purchased_at < b.ordinary_deleted_at))
                           AND t.started_at<=now()
                           AND (t.expires_at IS NULL OR t.expires_at>now())
                           AND NOT EXISTS (
