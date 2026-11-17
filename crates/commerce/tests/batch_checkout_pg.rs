@@ -524,6 +524,14 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     use tor_contracts::paid_delivery::DeliveryError;
 
     let f = fixture("first-grant-fence", 1_000).await;
+    // A legacy Book without an attested S020 age tier is intentionally not
+    // readable. The old checkout-only fixture leaves access_level NULL;
+    // this reader-grant case needs an explicitly public-basic Book.
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     let quote = command(f.buyer, &f.offers[..2], 'K');
     let bought = PgCheckout::new(f.pool.clone())
         .checkout_batch_once(&quote)
@@ -543,6 +551,16 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     .await
     .unwrap();
     assert_eq!(before, 0, "checkout is not a first grant");
+    let first_readable: bool =
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(f.buyer)
+            .bind(first_purchase.get())
+            .bind(first.chapter_id.get())
+            .bind(first.version_id.get())
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert!(first_readable, "the paid grant fixture must pass live S020 ACL");
 
     exposure
         .record(
