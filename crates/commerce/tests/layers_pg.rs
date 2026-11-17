@@ -11,6 +11,8 @@ mod layer_cover_choice;
 mod layer_covers;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
+#[path = "layers_pg/layer_deleted_checkout.rs"]
+mod layer_deleted_checkout;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
 #[path = "layers_pg/layer_lost_ack.rs"]

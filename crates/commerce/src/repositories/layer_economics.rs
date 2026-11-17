@@ -36,9 +36,28 @@ pub(crate) async fn preflight_term_economics(
         .map_err(|_| LayerError::Unavailable)?;
         previous.unwrap_or(base_version)
     };
-    // All historical Book rows are already SHARE-locked by the checkout
-    // transaction. Never debit a Layer buyer while any included or inherited
-    // Book is administratively held or deleted.
+    // A new quote must not charge readers for a Book the owner has removed.
+    // Inspect ONLY the new public composition here. An uninterrupted prepaid
+    // renewal may still legitimately pay for archived Books acquired in an
+    // earlier immutable version of the same Layer.
+    let retired_in_current: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM commerce_layer_version_books vb
+             JOIN books b ON b.id=vb.book_id
+             WHERE vb.layer_version_id=$1
+               AND b.lifecycle_status IN ('pending_deletion','ordinary_deleted')
+         )",
+    )
+    .bind(base_version)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| LayerError::Unavailable)?;
+    if retired_in_current {
+        return Err(LayerError::Inaccessible);
+    }
+    // All inherited Books are already SHARE-locked. A moderation or legal
+    // block still forbids a new financial commitment, but ordinary creator
+    // deletion does not erase archival rights from an active term.
     let unavailable: bool = sqlx::query_scalar(
         "SELECT EXISTS(
              SELECT 1 FROM commerce_layer_versions origin
