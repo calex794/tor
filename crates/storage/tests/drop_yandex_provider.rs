@@ -215,12 +215,10 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
         .await
         .expect("first delete probe fixture upload");
     let Some((version, etag)) = old.version_id().zip(old.e_tag()) else {
-        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
-        return;
+        panic!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
     };
     if version.is_empty() || version == "null" || etag.is_empty() {
-        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
-        return;
+        panic!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
     }
     let new = client
         .put_object()
@@ -280,4 +278,5 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
          old_version_preserved={old_preserved} exact_old_version_removed={old_removed} \
          current_newer_version_preserved={newer_preserved}"
     );
+    assert!(accepted, "real provider exact-version deletion acceptance failed");
 }
