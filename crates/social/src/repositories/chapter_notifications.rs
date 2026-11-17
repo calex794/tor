@@ -14,6 +14,8 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
     if !(1..=100).contains(&limit) {
         return Err(MailError::Invalid);
     }
+    // The historical ChapterPublished V1 envelope predates first_release.
+    // Its absent flag means true; explicit false is reserved for a V2 revision.
     let mut processed = 0;
     for _ in 0..limit {
         let mut tx = pool.begin().await.map_err(unavailable)?;
@@ -21,14 +23,14 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
             "SELECT e.id::text,e.aggregate_id,
                     (e.payload->>'book_id')::bigint,
                     (e.payload->>'version_id')::bigint,
-                    (e.payload->>'first_release')::boolean
+                    COALESCE((e.payload->>'first_release')::boolean,true)
              FROM outbox_events e
              WHERE e.event_type='ChapterPublished'
                AND e.delivered_at IS NULL AND e.dead_at IS NULL
                AND (
-                 (e.payload->>'first_release'='true'
+                 (COALESCE((e.payload->>'first_release')::boolean,true)
                   AND e.required_consumers @> ARRAY['chapter_release_fanout_v1']::text[])
-                 OR (e.payload->>'first_release'='false'
+                 OR (NOT COALESCE((e.payload->>'first_release')::boolean,true)
                   AND e.required_consumers @> ARRAY['chapter_revision_fanout_v1']::text[])
                )
                AND e.next_attempt_at<=clock_timestamp()
@@ -39,7 +41,7 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                    SELECT 1 FROM event_deliveries d
                    WHERE d.event_id=e.id
                      AND d.consumer=CASE
-                       WHEN e.payload->>'first_release'='true'
+                       WHEN COALESCE((e.payload->>'first_release')::boolean,true)
                        THEN 'chapter_release_fanout_v1'
                        ELSE 'chapter_revision_fanout_v1' END)
              ORDER BY e.created_at,e.id
