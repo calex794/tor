@@ -185,11 +185,7 @@ pub(super) async fn before_deletion(
 
 /// The owner request immediately hides the public Book. That privacy
 /// transition must not suspend paid Layer reading while moderation is pending.
-pub(super) async fn while_pending(
-    app: &Router,
-    chapter: i64,
-    active: &ActiveLayerProbe,
-) {
+pub(super) async fn while_pending(app: &Router, chapter: i64, active: &ActiveLayerProbe) {
     let grant = post_grant(
         app,
         chapter,
