@@ -126,7 +126,7 @@ pub(super) async fn read_pack(
     if headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let viewer = match actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
@@ -140,13 +140,13 @@ pub(super) async fn read_pack(
         Ok(permit) => permit,
         Err(_) => return deny(StatusCode::TOO_MANY_REQUESTS),
     };
-    let initial = match authorized_pack_plan(viewer, &state, chapter).await {
+    let initial = match authorized_pack_plan(actor, &state, chapter).await {
         Ok(Some(plan)) => plan,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let bytes = match read_reauthorized_pack(
-        || authorized_pack_plan(viewer, &state, chapter),
+        || authorized_pack_plan(actor, &state, chapter),
         &state.frame_store,
     )
     .await
@@ -160,7 +160,7 @@ pub(super) async fn read_pack(
     };
     // Third D/B check prevents publication or revocation after the read's
     // second check from authorizing a stale response.
-    let final_plan = match authorized_pack_plan(viewer, &state, chapter).await {
+    let final_plan = match authorized_pack_plan(actor, &state, chapter).await {
         Ok(Some(plan)) => plan,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -168,13 +168,20 @@ pub(super) async fn read_pack(
     if final_plan != initial {
         return deny(StatusCode::CONFLICT);
     }
-    // A term can remain valid after a browser session is revoked during S3
-    // I/O. Revalidate the original signed-in session itself, not just D's
-    // actor ID and the immutable Layer origin, before returning plaintext.
-    match actor(&state, &headers).await {
-        Ok(current) if current == viewer => {}
-        Ok(_) | Err(StatusCode::UNAUTHORIZED) => return deny(StatusCode::NOT_FOUND),
-        Err(status) => return deny(status),
+    // The original browser session may be revoked while a still-valid
+    // Layer term is being read from remote storage. Repeat the LIVE A
+    // session lookup before any plaintext leaves this handler.
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    match state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+    {
+        Ok(Some(current)) if current == actor.get() => {}
+        Ok(_) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let Some(frame) = final_plan.pack_frame() else {
         return deny(StatusCode::CONFLICT);
