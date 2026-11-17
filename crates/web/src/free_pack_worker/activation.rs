@@ -85,12 +85,20 @@ impl<S: FreeChapterStore> DropPackActivationWorker<S> {
             tokio::select! {
                 done = &mut work => break done,
                 _ = heartbeat.tick() => {
-                    match self.catalog
-                        .renew_pack_activation(&claim, self.lease_seconds).await
-                    {
-                        Ok(true) => (),
-                        Ok(false) => return Ok(ActivationWorkerResult::Stale),
-                        Err(_) => return Err(AuthorError::Unavailable),
+                    // B takes the same activation lock during its atomic
+                    // CAS. A blocking heartbeat in this select branch would
+                    // stop polling the B future, deadlocking this task.
+                    // Bound the renew attempt and resume the cutover future.
+                    let renew = tokio::time::timeout(
+                        Duration::from_secs(2),
+                        self.catalog.renew_pack_activation(&claim, self.lease_seconds),
+                    )
+                    .await;
+                    match renew {
+                        Ok(Ok(true)) => (),
+                        Ok(Ok(false)) => return Ok(ActivationWorkerResult::Stale),
+                        Ok(Err(_)) => return Err(AuthorError::Unavailable),
+                        Err(_) => tracing::debug!("DROP activation heartbeat blocked by B CAS"),
                     }
                 },
             }
