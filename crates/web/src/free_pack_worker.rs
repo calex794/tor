@@ -76,16 +76,14 @@ pub async fn upload_one_approved_pack(
 /// already succeeded candidate. Never called by HTTP or a startup loop.
 /// The full G proof and B all-member CAS are deliberately separate; failure
 /// at either boundary leaves every original S349 SINGLE intact.
-pub async fn activate_one_verified_pack(
+async fn reprove_pack_for_cutover(
     catalog: &PgFreePackCatalog,
     proof: &S3PackProofStore,
     original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &PackJobClaim,
-) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
-    // A preserved SINGLE is not a usable rollback unless its physical bytes
-    // still exist and match the immutable edition. Recheck every exact source
-    // via bounded private S3 GET before activating any candidate. Do not
-    // retain bodies in memory across frames.
+) -> Result<(), AuthorError> {
+    // The original SINGLE is the recoverable reserve. Every source is
+    // checked with bounded private GET, not assumed from immutable B metadata.
     for frame in &claim.receipt.frames {
         let exact = FreeChapterObject::from_metadata(
             frame.chapter_id,
@@ -99,14 +97,35 @@ pub async fn activate_one_verified_pack(
             .await
             .map_err(|_| AuthorError::Unavailable)?;
     }
-    // Reuse the exact R4b1 proof path, including full PACK + manifest readback,
-    // manifest/frame matching and the immutable approved receipt comparison.
-    // For a succeeded R4a job finish_pack_job is an idempotent readback;
-    // it must not create a second physical generation.
+    // A succeeded R4a job is an idempotent readback, not permission to reuse
+    // an old proof: fetch full PACK and manifest and validate each frame now.
     finalize_one_verified_pack(catalog, proof, claim).await?;
+    Ok(())
+}
+
+/// DROP-05a manual trusted call; does not consume an activation queue lease.
+pub async fn activate_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
+    claim: &PackJobClaim,
+) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    reprove_pack_for_cutover(catalog, proof, original_single, claim).await?;
     catalog
         .activate_verified_pack(claim.job_id, claim.epoch, &claim.receipt)
         .await
+}
+
+/// DROP-05b: trusted queued worker must use the *separate* activation epoch
+/// in the same B transaction as the all-member PACK pointer CAS.
+pub async fn activate_one_queued_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
+    claim: &tor_books::repositories::free_pack_activation::PackActivationClaim,
+) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    reprove_pack_for_cutover(catalog, proof, original_single, &claim.pack).await?;
+    catalog.activate_queued_verified_pack(claim).await
 }
 
 /// DROP-05c: explicit operator-only physical recovery. A corrupt or missing
