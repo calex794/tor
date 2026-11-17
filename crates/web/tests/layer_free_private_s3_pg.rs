@@ -11,6 +11,7 @@ use axum::{
     response::Response,
     Router,
 };
+use sha2::{Digest, Sha256};
 use std::{env, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
@@ -145,22 +146,18 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    let digest: [u8; 32] = Sha256::digest(TEXT.as_bytes()).into();
     let version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,$2) RETURNING id",
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,1,$2,$3) RETURNING id",
     )
     .bind(chapter)
     .bind(TEXT)
+    .bind(digest.as_slice())
     .fetch_one(&pool)
     .await
     .unwrap();
     let object = FreeChapterObject::for_markdown(chapter, version, TEXT).unwrap();
-    sqlx::query("UPDATE chapter_versions SET content_sha256=$2 WHERE id=$1")
-        .bind(version)
-        .bind(object.sha256().as_slice())
-        .execute(&pool)
-        .await
-        .unwrap();
     upload_and_verify(&store, &object, TEXT).await.unwrap();
     sqlx::query(
         "INSERT INTO free_chapter_storage_objects
