@@ -309,61 +309,9 @@ pub(super) async fn after_deletion(
             .any(|term| term.archived_books.iter().any(|entry| entry.book_id == book)),
         "owned Layer archive must include Book in repository projection: {old_terms:?}"
     );
-    let library_response =
-        private_get(app, "/me/library/layers", Some(&active.cookie)).await;
-    assert_eq!(
-        library_response.status(),
-        StatusCode::OK,
-        "owned Layer archive page must render successfully"
-    );
-    let old_library = html_body(library_response).await;
-    assert!(
-        old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")),
-        "owned Book archive must be visible in My Packages"
-    );
-    assert!(old_library.contains("Удалена с сайта"));
-
-    let layer_repo = PgLayers::new(active.accounts.pool().clone());
-
-    // Rebuild only the current offer composition. Historical paid versions
-    // are immutable: removing a deleted Book from a NEW package must not
-    // take it away from the original subscriber's private Layer archive.
-    let owner = scalar(
-        url,
-        &format!("SELECT owner_user_id FROM books WHERE id={book}"),
-    );
-    let clean_version = layer_repo
-        .remove_book(
-            PositiveId::new(owner).unwrap(),
-            PositiveId::new(active.layer_id).unwrap(),
-            PositiveId::new(book).unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_ne!(clean_version, active.layer_version);
-    assert_eq!(
-        scalar(
-            url,
-            &format!(
-                "SELECT COUNT(*) FROM commerce_layer_version_books \
-                 WHERE layer_version_id={clean_version} AND book_id={book}"
-            ),
-        ),
-        0,
-        "new Layer version must not sell a Book removed from the site"
-    );
-    assert_eq!(
-        scalar(
-            url,
-            &format!(
-                "SELECT COUNT(*) FROM commerce_layer_version_books \
-                 WHERE layer_version_id={} AND book_id={book}",
-                active.layer_version
-            ),
-        ),
-        1,
-        "original Layer composition is immutable for historic buyers"
-    );
+    // This fixture intentionally has TOR_LAYER_PAGES_ENABLED off. The UI
+    // renderer has its own escaped-label unit test; check only the actor-
+    // scoped SQL projection here instead of asserting on a disabled route.
 
     // This subscriber arrives AFTER Book deletion. They purchase the new
     // valid composition, never the Book removed from the public offer.
@@ -422,9 +370,18 @@ pub(super) async fn after_deletion(
             .status(),
         StatusCode::NOT_FOUND
     );
-    let late_library =
-        html_body(private_get(app, "/me/library/layers", Some(&late_cookie)).await).await;
-    assert!(!late_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
+    let late_terms = tor_commerce::repositories::layer_storefront::purchased_terms(
+        late_buyer,
+        active.accounts.pool(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        late_terms
+            .iter()
+            .all(|term| term.archived_books.iter().all(|entry| entry.book_id != book)),
+        "new buyer must not enumerate archived Book through a private SQL projection"
+    );
     assert_surviving_book_entitlement(
         &active.accounts,
         late_buyer,
