@@ -85,6 +85,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let owner_session = generate_session_token();
     let reader_session = generate_session_token();
+    let observer_session = generate_session_token();
     let csrf = generate_session_token();
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -107,6 +108,16 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
             "Reader",
             &password_hash,
             &session_token_digest(&reader_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let observer = accounts
+        .register_with_session(
+            &format!("c15-observer-{nonce}@tor-ci.example"),
+            "Observer",
+            &password_hash,
+            &session_token_digest(&observer_session),
             std::num::NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -155,6 +166,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     let owner_cookie = format!("tor-dev-session={owner_session}; tor-dev-csrf={csrf}");
     let reader_cookie = format!("tor-dev-session={reader_session}; tor-dev-csrf={csrf}");
+    let observer_cookie = format!("tor-dev-session={observer_session}; tor-dev-csrf={csrf}");
     let read_path = format!("/read/{chapter}");
     let want_path = format!("/read/{chapter}/want-continuation");
     let owner_path = format!("/me/books/{book}");
@@ -372,6 +384,74 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     assert!(follower_updates.contains("Отметить прочитанной"));
+    // RET-02: another active reader may open the public book without Follow,
+    // but does not inherit A's private release notification or read receipt.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_book_follows
+                 WHERE user_id={observer} AND book_id={book}"
+            )
+        ),
+        "0"
+    );
+    let observer_updates = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &observer_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        !observer_updates.contains("Demand fulfilled"),
+        "reader B without Follow cannot see reader A's private update"
+    );
+    let observer_read = call(
+        &app,
+        "GET",
+        &format!("/read/{released}"),
+        &observer_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(
+        observer_read.status(),
+        StatusCode::OK,
+        "a public FREE chapter does not require Follow"
+    );
+    assert!(html(observer_read).await.contains("C15 reader return"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "opening without Follow is not a verified chapter completion"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/me/updates/{released}/read-state"),
+            &observer_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&state=read")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "reader B cannot acknowledge A's private release notice"
+    );
     // RET-00b/c: the same canonical first release must also advance the
     // library's single Continue Reading destination, without fabricating
     // a new saved position or treating the update as read.
