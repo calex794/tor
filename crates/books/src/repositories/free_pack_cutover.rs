@@ -183,6 +183,8 @@ impl PgFreePackCatalog {
                    AND c.access_level='free' AND c.price_amount=0
                    AND NOT c.is_deleted AND NOT c.admin_hold
                    AND v.content_sha256=$4 AND s.sha256=$4 AND s.size_bytes=$5
+                   AND s.bucket=$6
+                   AND s.object_key=('private/free-chapters/' || c.id || '/' || v.id || '.md')
                  FOR NO KEY UPDATE OF c",
             )
             .bind(frame.chapter_id)
@@ -190,6 +192,7 @@ impl PgFreePackCatalog {
             .bind(frame.version_id)
             .bind(frame.content_sha256.as_slice())
             .bind(frame.size_bytes as i64)
+            .bind(&verified.target.bucket)
             .fetch_optional(&mut *tx)
             .await
             .map_err(db_error)?;
