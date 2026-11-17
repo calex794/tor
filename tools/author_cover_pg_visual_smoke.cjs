@@ -511,6 +511,10 @@ async function readyCover(page, bookId, viewport, scheme) {
           assert(bytes.subarray(0, 4).toString() === 'RIFF' &&
             bytes.subarray(8, 12).toString() === 'WEBP',
           kind + ': invalid WebP bytes');
+          if (process.env.TOR_COVER_EXPECT_LOSSY_WEBP === '1') {
+            assert(bytes.subarray(12, 16).toString() === 'VP8 ',
+              kind + ': opt-in WebP must be lossy VP8, not VP8L lossless');
+          }
         }
         await page.goto(base + '/catalog?q=' + encodeURIComponent(title));
         assert(await page.locator('img[src="/covers/' + bookId + '/card.webp"]').count() >= 1,
