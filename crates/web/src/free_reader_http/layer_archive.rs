@@ -8,7 +8,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
     Json,
 };
-use sqlx::query_as;
 use tor_contracts::paid_delivery::PositiveId;
 use tor_reading::repositories::free_s3_ref::FreeS3Ref;
 
@@ -59,38 +58,23 @@ async fn authorized_free_source(
     else {
         return Ok(None);
     };
-    let row: Option<(i64, i64, Vec<u8>, i64, String)> = query_as(
-        "SELECT f.chapter_id,f.version_id,f.sha256,f.size_bytes,f.bucket
-         FROM free_chapter_storage_objects f
-         JOIN chapter_versions v ON v.id=f.version_id
-           AND v.chapter_id=f.chapter_id
-           AND v.content_sha256=f.sha256
-         WHERE f.chapter_id=$1 AND f.version_id=$2",
-    )
-    .bind(chapter.get())
-    .bind(version.get())
-    .fetch_optional(state.accounts.pool())
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let Some((chapter_id, version_id, sha, size, bucket)) = row else {
-        // A verified active PACK edition needs its own bounded range gateway.
-        // Never invent a SINGLE receipt or sign a whole PACK as a fallback.
+    let record = state
+        .references
+        .archived_free_single_metadata_only(chapter.get(), version.get())
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let Some(record) = record else {
+        // A verified active PACK edition requires an actor-scoped range
+        // gateway; never sign a stale SINGLE or a full PACK instead.
         return Ok(None);
     };
-    let sha256: [u8; 32] = sha
-        .try_into()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let size_bytes = u64::try_from(size).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if size_bytes == 0 || size_bytes > 200_000 || bucket != state.bucket {
+    if record.size_bytes == 0
+        || record.size_bytes > 200_000
+        || record.bucket != state.bucket
+    {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
-    Ok(Some(FreeS3Ref {
-        chapter_id,
-        version_id,
-        sha256,
-        size_bytes,
-        bucket,
-    }))
+    Ok(Some(record))
 }
 
 fn shell(chapter: i64, csrf: &str, origin: &str) -> Html<String> {
