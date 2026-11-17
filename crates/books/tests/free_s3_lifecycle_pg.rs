@@ -694,6 +694,30 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
         .await
         .unwrap();
     assert_eq!(status, "succeeded");
+
+    // DROP-05b: the candidate commit and activation admission are atomic.
+    // Even when no activation worker is running, the job stays durable.
+    let pending: String =
+        sqlx::query_scalar("SELECT status FROM free_pack_activation_jobs WHERE pack_job_id=$1")
+            .bind(job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, "pending");
+
+    // Claim whichever succeeded candidate is first in this disposable PG
+    // database; previous tests may have their own immutable queued jobs.
+    use tor_books::repositories::free_pack_activation::ActivationDisposition;
+    let activation = repo.claim_pack_activation(120).await.unwrap().unwrap();
+    assert!(activation.pack.job_id > 0);
+    assert!(activation.activation_epoch > 0);
+    assert_eq!(activation.attempts, 1);
+    assert!(repo.renew_pack_activation(&activation, 120).await.unwrap());
+    assert!(repo
+        .settle_pack_activation(&activation, ActivationDisposition::Retryable)
+        .await
+        .unwrap());
+    assert!(!repo.renew_pack_activation(&activation, 120).await.unwrap());
     pool.close().await;
 }
 

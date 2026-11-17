@@ -2,17 +2,20 @@
 //! No route, no background startup and no active reader cutover.
 //! The B-approved offline pack builder/writer is never exposed to HTTP actors.
 
+pub mod activation;
 pub mod runner;
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;
 use tor_storage::repositories::free_pack_proof_s3::S3PackProofStore;
 use tor_storage::services::{free_chapter::FreeChapterObject, free_pack_proof::PackProofTarget};
 
-pub async fn finalize_one_verified_pack(
-    catalog: &PgFreePackCatalog,
+async fn reverify_pack_receipt(
     proof: &S3PackProofStore,
     claim: &PackJobClaim,
-) -> Result<i64, AuthorError> {
+) -> Result<
+    tor_contracts::drop_pack::PackPlacementReceipt,
+    tor_storage::domain::provider::StorageError,
+> {
     let approved = &claim.receipt;
     let source = approved
         .frames
@@ -25,8 +28,7 @@ pub async fn finalize_one_verified_pack(
                 frame.size_bytes,
             )
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| AuthorError::Invalid)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let target = PackProofTarget {
         bucket: approved.target.bucket.clone(),
         pack_key: approved.target.pack_key.clone(),
@@ -37,13 +39,19 @@ pub async fn finalize_one_verified_pack(
         manifest_bytes: approved.target.manifest_bytes,
         seek_table_start: approved.target.seek_table_start,
     };
-    // The only path into the B finalizer is an independent real S3 readback.
-    let verified = proof
-        .verify_independent_full_get(&target, &source)
+    let verified = proof.verify_independent_full_get(&target, &source).await?;
+    Ok(verified.placement_receipt())
+}
+
+pub async fn finalize_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    claim: &PackJobClaim,
+) -> Result<i64, AuthorError> {
+    let receipt = reverify_pack_receipt(proof, claim)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-    let receipt = verified.placement_receipt();
-    if receipt != *approved {
+    if receipt != claim.receipt {
         return Err(AuthorError::Conflict);
     }
     catalog
@@ -76,16 +84,14 @@ pub async fn upload_one_approved_pack(
 /// already succeeded candidate. Never called by HTTP or a startup loop.
 /// The full G proof and B all-member CAS are deliberately separate; failure
 /// at either boundary leaves every original S349 SINGLE intact.
-pub async fn activate_one_verified_pack(
+async fn reprove_pack_for_cutover(
     catalog: &PgFreePackCatalog,
     proof: &S3PackProofStore,
     original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &PackJobClaim,
-) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
-    // A preserved SINGLE is not a usable rollback unless its physical bytes
-    // still exist and match the immutable edition. Recheck every exact source
-    // via bounded private S3 GET before activating any candidate. Do not
-    // retain bodies in memory across frames.
+) -> Result<(), AuthorError> {
+    // The original SINGLE is the recoverable reserve. Every source is
+    // checked with bounded private GET, not assumed from immutable B metadata.
     for frame in &claim.receipt.frames {
         let exact = FreeChapterObject::from_metadata(
             frame.chapter_id,
@@ -97,16 +103,54 @@ pub async fn activate_one_verified_pack(
         original_single
             .get_verified(&exact)
             .await
-            .map_err(|_| AuthorError::Unavailable)?;
+            .map_err(|error| match error {
+                tor_storage::domain::provider::StorageError::Unavailable => {
+                    AuthorError::Unavailable
+                }
+                _ => AuthorError::Conflict,
+            })?;
     }
-    // Reuse the exact R4b1 proof path, including full PACK + manifest readback,
-    // manifest/frame matching and the immutable approved receipt comparison.
-    // For a succeeded R4a job finish_pack_job is an idempotent readback;
-    // it must not create a second physical generation.
-    finalize_one_verified_pack(catalog, proof, claim).await?;
+    // A succeeded R4a job is an idempotent readback, not permission to reuse
+    // an old proof: fetch full PACK and manifest and validate each frame now.
+    // A corrupt immutable PACK is terminal; a transient S3 outage is retryable.
+    let receipt = reverify_pack_receipt(proof, claim)
+        .await
+        .map_err(|error| match error {
+            tor_storage::domain::provider::StorageError::Unavailable => AuthorError::Unavailable,
+            _ => AuthorError::Conflict,
+        })?;
+    if receipt != claim.receipt {
+        return Err(AuthorError::Conflict);
+    }
+    catalog
+        .finish_pack_job(claim.job_id, claim.epoch, &receipt)
+        .await?;
+    Ok(())
+}
+
+/// DROP-05a manual trusted call; does not consume an activation queue lease.
+pub async fn activate_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
+    claim: &PackJobClaim,
+) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    reprove_pack_for_cutover(catalog, proof, original_single, claim).await?;
     catalog
         .activate_verified_pack(claim.job_id, claim.epoch, &claim.receipt)
         .await
+}
+
+/// DROP-05b: trusted queued worker must use the *separate* activation epoch
+/// in the same B transaction as the all-member PACK pointer CAS.
+pub async fn activate_one_queued_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
+    claim: &tor_books::repositories::free_pack_activation::PackActivationClaim,
+) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    reprove_pack_for_cutover(catalog, proof, original_single, &claim.pack).await?;
+    catalog.activate_queued_verified_pack(claim).await
 }
 
 /// DROP-05c: explicit operator-only physical recovery. A corrupt or missing
