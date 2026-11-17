@@ -254,3 +254,66 @@ pub async fn configure_cutover(
         120,
     )?)
 }
+
+
+/// Configure all optional DROP background services at the same authenticated
+/// PG readiness boundary. The independent cutover flag remains default OFF.
+#[cfg(feature = "s3-free")]
+pub struct PreparedDropServices {
+    worker: Option<
+        tor_web::free_pack_worker::runner::DropPackWorker<
+            tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+        >,
+    >,
+    planner: Option<
+        tor_web::free_pack_planner::DropPackPlanner<
+            tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+        >,
+    >,
+    cutover: Option<
+        tor_web::free_pack_worker::activation::DropPackActivationWorker<
+            tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+        >,
+    >,
+}
+
+#[cfg(feature = "s3-free")]
+pub async fn configure_services(
+    catalog: &tor_books::repositories::PgCatalog,
+    worker_enabled: bool,
+    planner_enabled: bool,
+    cutover_enabled: bool,
+) -> Result<PreparedDropServices, Box<dyn Error>> {
+    Ok(PreparedDropServices {
+        worker: if worker_enabled {
+            Some(configure(catalog).await?)
+        } else {
+            None
+        },
+        planner: if planner_enabled {
+            Some(configure_planner(catalog).await?)
+        } else {
+            None
+        },
+        cutover: if cutover_enabled {
+            Some(configure_cutover(catalog).await?)
+        } else {
+            None
+        },
+    })
+}
+
+#[cfg(feature = "s3-free")]
+pub fn start_services(
+    services: PreparedDropServices,
+) -> (
+    Option<tokio::task::JoinHandle<()>>,
+    Option<tokio::task::JoinHandle<()>>,
+    Option<tokio::task::JoinHandle<()>>,
+) {
+    (
+        services.worker.map(tor_web::free_pack_worker::runner::start_background),
+        services.planner.map(tor_web::free_pack_planner::start_background),
+        services.cutover.map(tor_web::free_pack_worker::activation::start_background),
+    )
+}
