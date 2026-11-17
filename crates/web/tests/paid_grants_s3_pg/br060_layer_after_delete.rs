@@ -8,8 +8,12 @@ use tor_commerce::{
         layers::LayerCheckoutCommand,
         money::{IdempotencyKey, MoneyMinor, WalletId},
     },
-    repositories::layers::PgLayers,
+    repositories::{
+        layer_entitlements::PgLayerChapterEntitlements,
+        layers::PgLayers,
+    },
 };
+use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort};
 
 pub(super) struct ActiveLayerProbe {
     subscriber: i64,
@@ -17,6 +21,8 @@ pub(super) struct ActiveLayerProbe {
     csrf: String,
     term_id: i64,
     wallet_after_minor: i64,
+    surviving_chapter: i64,
+    surviving_version: i64,
 }
 
 pub(super) async fn before_deletion(
@@ -57,6 +63,46 @@ pub(super) async fn before_deletion(
         )
         .await
         .unwrap();
+    // A package may include more than one Book. Deleting a single Book must
+    // never revoke access to a still-live sibling Book or reverse the entire
+    // purchase. The sibling needs a real published CURRENT version for D.
+    let sibling_book = scalar(
+        url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) \
+             VALUES('ci:br060-layer-surviving-book','ru','BR060 surviving Book','public',{owner},'basic') \
+             RETURNING id"
+        ),
+    );
+    let sibling_chapter = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
+             VALUES({sibling_book},1,'Surviving Layer chapter','public','paid',50) RETURNING id"
+        ),
+    );
+    let sibling_version = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({sibling_chapter},1,'Surviving CURRENT edition') RETURNING id"
+        ),
+    );
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({sibling_chapter},{sibling_version})"
+        ),
+    );
+    let layer_version = repo
+        .add_book(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(sibling_book).unwrap(),
+        )
+        .await
+        .unwrap();
     let offer = repo
         .publish_offer(
             PositiveId::new(owner).unwrap(),
@@ -80,6 +126,13 @@ pub(super) async fn before_deletion(
         .unwrap();
     assert!(!receipt.replayed);
     assert_eq!(receipt.balance_after_minor, 210);
+    assert_surviving_book_entitlement(
+        accounts,
+        subscriber,
+        sibling_chapter,
+        sibling_version,
+    )
+    .await;
 
     assert_eq!(
         scalar(
@@ -121,12 +174,15 @@ pub(super) async fn before_deletion(
         csrf,
         term_id: receipt.term_id,
         wallet_after_minor: receipt.balance_after_minor,
+        surviving_chapter: sibling_chapter,
+        surviving_version: sibling_version,
     }
 }
 
 pub(super) async fn after_deletion(
     app: &Router,
     url: &str,
+    accounts: &PgAccounts,
     book: i64,
     chapter: i64,
     active: ActiveLayerProbe,
@@ -206,5 +262,42 @@ pub(super) async fn after_deletion(
         .status(),
         StatusCode::NOT_FOUND,
         "a paid Layer term must not leak deleted Book TOC metadata"
+    );
+    assert_surviving_book_entitlement(
+        accounts,
+        active.subscriber,
+        active.surviving_chapter,
+        active.surviving_version,
+    )
+    .await;
+}
+
+async fn assert_surviving_book_entitlement(
+    accounts: &PgAccounts,
+    subscriber: i64,
+    chapter: i64,
+    version: i64,
+) {
+    // Query D's actual entitlement resolver: no S3 object or extra signed
+    // grant is needed for this surviving-Book isolation regression.
+    let result = PgLayerChapterEntitlements::new(accounts.pool().clone())
+        .resolve_entitlement(
+            Actor {
+                user_id: PositiveId::new(subscriber).unwrap(),
+            },
+            PositiveId::new(chapter).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        EntitlementDecision::Allowed {
+            pinned: ChapterVersionRef {
+                chapter_id: PositiveId::new(chapter).unwrap(),
+                version_id: PositiveId::new(version).unwrap(),
+            }
+        },
+        "ordinary deletion of another Book must not confiscate valid Layer CURRENT rights"
     );
 }
