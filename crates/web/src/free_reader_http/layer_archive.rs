@@ -1,7 +1,9 @@
 //! D-05 / BR-060: actor-owned historical Layer FREE SINGLE edition.
 //! Never use the public /reader or /free-grant routes to bypass Book deindexing.
 //! The immutable archive identity and history originate in D + B PostgreSQL.
-use super::{private_response, session_token_digest, sign, verified_grant, FreeGrant, FreeGrantState};
+use super::{
+    private_response, session_token_digest, sign, verified_grant, FreeGrant, FreeGrantState,
+};
 use axum::{
     extract::{Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -16,8 +18,7 @@ fn deny(code: StatusCode) -> Response {
 }
 
 fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
-    headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-        == Some(cookies.origin.as_str())
+    headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) == Some(cookies.origin.as_str())
         && cookies.same_origin(headers)
         && headers
             .get("x-csrf-token")
@@ -25,10 +26,7 @@ fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
             .is_some_and(|token| cookies.valid_csrf(headers, token))
 }
 
-async fn actor(
-    state: &FreeGrantState,
-    headers: &HeaderMap,
-) -> Result<PositiveId, StatusCode> {
+async fn actor(state: &FreeGrantState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
     let session = state
         .cookies
         .session_token(headers)
@@ -68,10 +66,7 @@ async fn authorized_free_source(
         // gateway; never sign a stale SINGLE or a full PACK instead.
         return Ok(None);
     };
-    if record.size_bytes == 0
-        || record.size_bytes > 200_000
-        || record.bucket != state.bucket
-    {
+    if record.size_bytes == 0 || record.size_bytes > 200_000 || record.bucket != state.bucket {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     Ok(Some(record))
@@ -143,7 +138,9 @@ pub(super) async fn page(
     let Ok(value) = HeaderValue::from_str(&csp) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
-    response.headers_mut().insert("content-security-policy", value);
+    response
+        .headers_mut()
+        .insert("content-security-policy", value);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -210,7 +207,10 @@ pub(super) async fn grant(
 pub(super) async fn script() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         include_str!("../../assets/newboo-layer-free-reader.mjs"),
@@ -250,7 +250,10 @@ mod tests {
         );
         assert!(csrf_valid(&cookies, &headers));
 
-        headers.insert(header::ORIGIN, "https://foreign.example.test".parse().unwrap());
+        headers.insert(
+            header::ORIGIN,
+            "https://foreign.example.test".parse().unwrap(),
+        );
         assert!(!csrf_valid(&cookies, &headers));
         headers.insert(header::ORIGIN, "https://tor.example.test".parse().unwrap());
         headers.insert("x-csrf-token", "B".repeat(43).parse().unwrap());
