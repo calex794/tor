@@ -2,7 +2,6 @@
 //! Never contacts a real provider or changes storage placement.
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 use tor_books::{
     repositories::{
         free_expected_inventory::{FreeObjectKind, PgFreeExpectedInventory},
@@ -12,6 +11,7 @@ use tor_books::{
     },
     services::authoring::{save_chapter, SaveChapterRequest},
 };
+use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 
 #[tokio::test]
 #[ignore = "requires isolated disposable PostgreSQL18 /tor_ci"]
@@ -122,7 +122,10 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
         }],
     };
     let job_catalog = PgFreePackCatalog::new(pool.clone());
-    job_catalog.schedule_pack_job(actor, book, &planned).await.unwrap();
+    job_catalog
+        .schedule_pack_job(actor, book, &planned)
+        .await
+        .unwrap();
 
     let source_key = format!(
         "private/free-chapters/{}/{}.md",
