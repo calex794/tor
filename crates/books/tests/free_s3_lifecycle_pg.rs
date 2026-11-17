@@ -697,7 +697,6 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL18 /tor_ci; no production activation"]
 async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay() {
@@ -778,7 +777,8 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .await
         .unwrap();
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt).await,
+        repo.activate_verified_pack(job, claim.epoch, &receipt)
+            .await,
         Err(AuthorError::Conflict)
     ));
     let empty: i64 = sqlx::query_scalar(
@@ -789,7 +789,10 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(empty, 0, "late member failure cannot partially activate a PACK");
+    assert_eq!(
+        empty, 0,
+        "late member failure cannot partially activate a PACK"
+    );
     sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
         .bind(receipt.frames[1].chapter_id)
         .execute(&pool)
@@ -797,7 +800,8 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
 
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch - 1, &receipt).await,
+        repo.activate_verified_pack(job, claim.epoch - 1, &receipt)
+            .await,
         Err(AuthorError::Conflict)
     ));
     let mut fake = receipt.clone();
@@ -866,16 +870,16 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
     .execute(&pool)
     .await
     .unwrap();
-    let switched: bool =
-        sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,1,2)")
-            .bind(first.chapter_id)
-            .bind(first.version_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let switched: bool = sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,1,2)")
+        .bind(first.chapter_id)
+        .bind(first.version_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(switched);
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt).await,
+        repo.activate_verified_pack(job, claim.epoch, &receipt)
+            .await,
         Err(AuthorError::Conflict)
     ));
     let second_generation: i64 = sqlx::query_scalar(
@@ -887,7 +891,10 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(second_generation, 1, "mixed state cannot trigger a new cutover");
+    assert_eq!(
+        second_generation, 1,
+        "mixed state cannot trigger a new cutover"
+    );
     println!("DROP05A_ATOMIC_PG_PASS: implicit SINGLE, all-member hold, epoch, replay, race, retained source, no pointer rewind");
     pool.close().await;
 }
