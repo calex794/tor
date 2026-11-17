@@ -56,6 +56,16 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
     .unwrap();
     let author = PgFreeS3Publication::new(pool.clone());
     let edition = author.prepare_new(actor, &request).await.unwrap();
+    let pending_author_key = format!(
+        "private/free-chapters/{}/{}.md",
+        edition.chapter_id, edition.version_id
+    );
+    let classifier = PgFreeObservedClassifier::new(pool.clone());
+    let prepared = classifier
+        .classify_page(&bucket, &[pending_author_key])
+        .await
+        .unwrap();
+    assert_eq!(prepared[0].state, FreeReferenceState::ProtectedPending);
     let digest: [u8; 32] = Sha256::digest(content.as_bytes()).into();
     author
         .attach_verified_and_publish(
@@ -158,6 +168,61 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
         assert_eq!(state(name), Some(FreeReferenceState::ProtectedPending));
     }
     assert_eq!(state(&unknown_key), Some(FreeReferenceState::Unknown));
+
+    // An approved immutable transport can exist before any PACK stage or
+    // object receipt. The whole canonical book prefix is conservative evidence.
+    let source_fingerprint = [23_u8; 32];
+    let import_key = "q".repeat(43);
+    let direct_job: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_import_jobs
+           (book_id,actor_user_id,command_key,source_key,source_filename,source_sha256,
+            source_bytes,approved_fingerprint,expected_chapter_count,status,locked_until,lease_epoch)
+         VALUES ($1,$2,$3,$4,'drop07.txt',$5,100,$5,1,'running',
+                 clock_timestamp()+interval '5 minutes',1) RETURNING id",
+    )
+    .bind(book)
+    .bind(actor)
+    .bind(&import_key)
+    .bind(format!("staging/chapters/{actor}/{book}/{import_key}"))
+    .bind(source_fingerprint.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO free_chapter_import_transports
+            (job_id,actor_user_id,book_id,command_key,approved_fingerprint,chapter_count,transport)
+         VALUES ($1,$2,$3,$4,$5,1,'pack')",
+    )
+    .bind(direct_job)
+    .bind(actor)
+    .bind(book)
+    .bind(&import_key)
+    .bind(source_fingerprint.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let direct_stem = "a".repeat(64);
+    let direct_key = format!("private/free-packs/import/{book}/{direct_stem}.zst");
+    let direct_manifest = direct_key.replace(".zst", ".manifest.json");
+    let similar = format!("private/free-packs/ci/{book}/{direct_stem}.zst");
+    let evidence = classifier
+        .classify_page(&bucket, &[direct_key, direct_manifest, similar])
+        .await
+        .unwrap();
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|item| item.state == FreeReferenceState::ProtectedPending)
+            .count(),
+        2
+    );
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|item| item.state == FreeReferenceState::Unknown)
+            .count(),
+        1
+    );
 
     assert_eq!(seen.len(), 3);
     assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Single));

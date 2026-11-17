@@ -24,6 +24,58 @@ pub struct PgFreeObservedClassifier {
     pool: PgPool,
 }
 
+#[derive(Default)]
+struct PendingLocator {
+    chapter: i64,
+    version: i64,
+    direct_book: i64,
+}
+
+fn canonical_id(text: &str) -> Option<i64> {
+    let value: i64 = text.parse().ok()?;
+    (value > 0 && !text.starts_with('0') && text.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(value)
+}
+
+fn pending_locator(key: &str) -> PendingLocator {
+    if let Some((chapter, file)) = key
+        .strip_prefix("private/free-chapters/")
+        .and_then(|suffix| suffix.split_once('/'))
+    {
+        if let (Some(chapter), Some(version)) = (
+            canonical_id(chapter),
+            file.strip_suffix(".md").and_then(canonical_id),
+        ) {
+            return PendingLocator {
+                chapter,
+                version,
+                ..Default::default()
+            };
+        }
+    } else if let Some((book, file)) = key
+        .strip_prefix("private/free-packs/import/")
+        .and_then(|suffix| suffix.split_once('/'))
+    {
+        let file = file
+            .strip_suffix(".zst")
+            .or_else(|| file.strip_suffix(".manifest.json"));
+        if file.is_some_and(|stem| {
+            stem.len() == 64
+                && stem
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }) {
+            if let Some(direct_book) = canonical_id(book) {
+                return PendingLocator {
+                    direct_book,
+                    ..Default::default()
+                };
+            }
+        }
+    }
+    PendingLocator::default()
+}
+
 impl PgFreeObservedClassifier {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -35,8 +87,9 @@ impl PgFreeObservedClassifier {
     /// no active generation references that object today: preserved V1 and
     /// rollback source bytes remain protected.
     ///
-    /// ProtectedPending includes pack-direct immutable stages and R4a
-    /// preapproved jobs (including before S3 PUT and after lost commit ACK).
+    /// ProtectedPending includes immutable stages, prepared SINGLE IDs and
+    /// R4a targets. For a running or queued direct PACK import we protect its
+    /// entire canonical book prefix, including before a stage receipt exists.
     /// Unrecognized objects are UNKNOWN, never proposed for deletion.
     pub async fn classify_page(
         &self,
@@ -55,9 +108,14 @@ impl PgFreeObservedClassifier {
             return Err(FreeInventoryError::Invalid);
         }
 
+        let locators: Vec<_> = keys.iter().map(|key| pending_locator(key)).collect();
+        let chapters: Vec<_> = locators.iter().map(|item| item.chapter).collect();
+        let versions: Vec<_> = locators.iter().map(|item| item.version).collect();
+        let direct_books: Vec<_> = locators.iter().map(|item| item.direct_book).collect();
         let rows = sqlx::query(
-            "WITH listed(object_key) AS (
-                SELECT unnest($2::text[])
+            "WITH listed AS (
+                SELECT * FROM unnest($2::text[],$3::bigint[],$4::bigint[],$5::bigint[])
+                    AS locators(object_key,chapter_id,version_id,direct_book_id)
              )
              SELECT listed.object_key,
                  CASE
@@ -88,13 +146,31 @@ impl PgFreeObservedClassifier {
                          OR spec.spec_text::jsonb #>> '{target,manifest_key}'=
                              listed.object_key
                        )
+                   ) OR (
+                     listed.version_id > 0 AND (
+                       EXISTS (
+                         SELECT 1 FROM chapter_save_commands c
+                         WHERE c.version_id=listed.version_id AND c.chapter_id=listed.chapter_id
+                       ) OR EXISTS (
+                         SELECT 1 FROM free_chapter_import_reservations r
+                         WHERE r.version_id=listed.version_id AND r.chapter_id=listed.chapter_id
+                       )
+                     )
+                   ) OR EXISTS (
+                     SELECT 1 FROM chapter_import_jobs j
+                     JOIN free_chapter_import_transports t ON t.job_id=j.id
+                     WHERE listed.direct_book_id > 0 AND j.book_id=listed.direct_book_id
+                       AND j.status IN ('queued','running') AND t.transport='pack'
                    ) THEN 'protected_pending'
                    ELSE 'unknown'
                  END AS reference_state
              FROM listed ORDER BY listed.object_key",
         )
         .bind(bucket)
-        .bind(keys.to_vec())
+        .bind(keys)
+        .bind(chapters)
+        .bind(versions)
+        .bind(direct_books)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| FreeInventoryError::Unavailable)?;
