@@ -9,11 +9,10 @@ use tor_books::services::authoring::AuthorError;
 use tor_storage::repositories::free_pack_proof_s3::S3PackProofStore;
 use tor_storage::services::{free_chapter::FreeChapterObject, free_pack_proof::PackProofTarget};
 
-pub async fn finalize_one_verified_pack(
-    catalog: &PgFreePackCatalog,
+async fn reverify_pack_receipt(
     proof: &S3PackProofStore,
     claim: &PackJobClaim,
-) -> Result<i64, AuthorError> {
+) -> Result<tor_contracts::drop_pack::PackPlacementReceipt, tor_storage::domain::provider::StorageError> {
     let approved = &claim.receipt;
     let source = approved
         .frames
@@ -26,8 +25,7 @@ pub async fn finalize_one_verified_pack(
                 frame.size_bytes,
             )
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| AuthorError::Invalid)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let target = PackProofTarget {
         bucket: approved.target.bucket.clone(),
         pack_key: approved.target.pack_key.clone(),
@@ -38,19 +36,26 @@ pub async fn finalize_one_verified_pack(
         manifest_bytes: approved.target.manifest_bytes,
         seek_table_start: approved.target.seek_table_start,
     };
-    // The only path into the B finalizer is an independent real S3 readback.
-    let verified = proof
-        .verify_independent_full_get(&target, &source)
+    let verified = proof.verify_independent_full_get(&target, &source).await?;
+    Ok(verified.placement_receipt())
+}
+
+pub async fn finalize_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    claim: &PackJobClaim,
+) -> Result<i64, AuthorError> {
+    let receipt = reverify_pack_receipt(proof, claim)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-    let receipt = verified.placement_receipt();
-    if receipt != *approved {
+    if receipt != claim.receipt {
         return Err(AuthorError::Conflict);
     }
     catalog
         .finish_pack_job(claim.job_id, claim.epoch, &receipt)
         .await
 }
+
 
 /// R4b2: keep the B-approved immutable descriptor fixed across the complete
 /// write/verify/commit sequence. No application PG transaction is held during
@@ -103,7 +108,19 @@ async fn reprove_pack_for_cutover(
     }
     // A succeeded R4a job is an idempotent readback, not permission to reuse
     // an old proof: fetch full PACK and manifest and validate each frame now.
-    finalize_one_verified_pack(catalog, proof, claim).await?;
+    // A corrupt immutable PACK is terminal; a transient S3 outage is retryable.
+    let receipt = reverify_pack_receipt(proof, claim)
+        .await
+        .map_err(|error| match error {
+            tor_storage::domain::provider::StorageError::Unavailable => AuthorError::Unavailable,
+            _ => AuthorError::Conflict,
+        })?;
+    if receipt != claim.receipt {
+        return Err(AuthorError::Conflict);
+    }
+    catalog
+        .finish_pack_job(claim.job_id, claim.epoch, &receipt)
+        .await?;
     Ok(())
 }
 
