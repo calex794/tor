@@ -994,6 +994,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         &url,
         &format!("UPDATE books SET visibility='public' WHERE id={book}"),
     );
-    pack_editor::verify(&url, &client, actor, book, &first, &chapters).await;
+    pack_editor::verify(&url, &client, actor, book, &receipt, &chapters).await;
     pool.close().await;
 }
