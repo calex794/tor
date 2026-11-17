@@ -94,7 +94,7 @@ impl S3FreeInventoryLister {
                 return Err(StorageError::Corrupt);
             }
             let size = object.size().ok_or(StorageError::Corrupt)?;
-            if size < 0 || size > 16_777_216 {
+            if !(0..=16_777_216).contains(&size) {
                 return Err(StorageError::Corrupt);
             }
             listed.push(ListedFreeObject {
