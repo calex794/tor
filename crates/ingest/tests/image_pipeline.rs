@@ -29,7 +29,8 @@ fn colored_landscape() -> DynamicImage {
 #[test]
 fn legacy_recipe_generates_both_decodable_lossless_webp_variants() {
     let original = encode(&colored_landscape(), ImageFormat::Png);
-    let variants = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
+    let variants =
+        process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
     assert_eq!(variants.len(), 2);
     assert_eq!(LEGACY_RECIPE_VERSION, "newboo-cover-lossless-webp-v1");
     assert_eq!(RECIPE_VERSION, "tor-cover-webp-lossy-q85-v2");
@@ -73,7 +74,10 @@ fn opaque_book_art_uses_lossy_v2_while_existing_jobs_keep_lossless_v1() {
         let decoded = image::load_from_memory_with_format(&new.bytes, ImageFormat::WebP)
             .expect("decode libwebp lossy output");
         assert_eq!((decoded.width(), decoded.height()), (new.width, new.height));
-        assert!(new.bytes.len() < old.bytes.len(), "lossy should beat v1 on photographic noise");
+        assert!(
+            new.bytes.len() < old.bytes.len(),
+            "lossy should beat v1 on photographic noise"
+        );
     }
     // This also verifies the old recipe has not silently changed on upgrade.
     let replay = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
