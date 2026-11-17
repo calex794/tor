@@ -114,8 +114,8 @@ impl PgFreeInventoryCheckpoints {
 
     /// Operator-only lease claim. A single running cycle per bucket/namespace/
     /// direction is protected by a unique partial index. Expired leases can
-    /// resume the *persisted* token at a greater epoch. Eight thefts/expiries
-    /// exhaust the cycle: a fresh audit is required, not an unbounded retry.
+    /// resume the *persisted* token at a greater epoch. Eight claims without
+    /// acknowledging a page exhaust the cycle.
     pub async fn claim(
         &self,
         bucket: &str,
@@ -132,7 +132,7 @@ impl PgFreeInventoryCheckpoints {
             .await
             .map_err(|_| InventoryCheckpointError::Unavailable)?;
         let row = sqlx::query(
-            "SELECT id,lease_epoch,page_index,continuation,
+            "SELECT id,lease_epoch,attempts_since_progress,
                     (locked_until<=clock_timestamp()) AS expired
              FROM free_storage_inventory_cycles
              WHERE bucket=$1 AND direction=$2 AND namespace=$3
@@ -152,12 +152,15 @@ impl PgFreeInventoryCheckpoints {
             let epoch: i64 = row
                 .try_get("lease_epoch")
                 .map_err(|_| InventoryCheckpointError::Unavailable)?;
+            let attempts: i32 = row
+                .try_get("attempts_since_progress")
+                .map_err(|_| InventoryCheckpointError::Unavailable)?;
             let expired: bool = row
                 .try_get("expired")
                 .map_err(|_| InventoryCheckpointError::Unavailable)?;
             if !expired {
                 None
-            } else if epoch >= 8 {
+            } else if attempts >= 8 {
                 sqlx::query(
                     "UPDATE free_storage_inventory_cycles
                      SET status='failed',locked_until=NULL,
@@ -175,6 +178,7 @@ impl PgFreeInventoryCheckpoints {
                 let updated = sqlx::query(
                     "UPDATE free_storage_inventory_cycles
                      SET lease_epoch=lease_epoch+1,
+                         attempts_since_progress=attempts_since_progress+1,
                          locked_until=clock_timestamp()+($2::int*interval '1 second'),
                          updated_at=clock_timestamp()
                      WHERE id=$1 AND lease_epoch=$3 AND status='running'
@@ -267,6 +271,7 @@ impl PgFreeInventoryCheckpoints {
     /// A lost COMMIT ACK cannot increment counters twice: page index + old
     /// cursor + distinct lease epoch fence the exact committed transition.
     /// The caller must independently attest that the G/B page is complete.
+    /// A successful page releases the lease and resets the retry budget.
     pub async fn acknowledge_page(
         &self,
         lease: &mut InventoryCycleLease,
@@ -298,7 +303,8 @@ impl PgFreeInventoryCheckpoints {
                  mismatch_count=mismatch_count+$9,
                  unverifiable_count=unverifiable_count+$10,
                  status=CASE WHEN $4::text IS NULL THEN 'completed' ELSE 'running' END,
-                 locked_until=CASE WHEN $4::text IS NULL THEN NULL ELSE locked_until END,
+                 locked_until=CASE WHEN $4::text IS NULL THEN NULL ELSE clock_timestamp() END,
+                 attempts_since_progress=0,
                  completed_at=CASE WHEN $4::text IS NULL THEN clock_timestamp() ELSE NULL END,
                  updated_at=clock_timestamp()
              WHERE id=$1 AND lease_epoch=$2 AND page_index=$3

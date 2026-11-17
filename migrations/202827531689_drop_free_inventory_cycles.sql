@@ -11,7 +11,8 @@ CREATE TABLE free_storage_inventory_cycles (
     namespace TEXT NOT NULL CHECK (namespace IN ('single','pack')),
     status TEXT NOT NULL DEFAULT 'running'
         CHECK (status IN ('running','completed','failed')),
-    lease_epoch BIGINT NOT NULL DEFAULT 1 CHECK (lease_epoch BETWEEN 1 AND 8),
+    lease_epoch BIGINT NOT NULL DEFAULT 1 CHECK (lease_epoch > 0),
+    attempts_since_progress INT NOT NULL DEFAULT 1 CHECK (attempts_since_progress BETWEEN 0 AND 8),
     locked_until TIMESTAMPTZ,
     page_index BIGINT NOT NULL DEFAULT 0 CHECK (page_index BETWEEN 0 AND 1000000),
     continuation TEXT CHECK (

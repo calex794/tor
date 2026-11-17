@@ -106,6 +106,21 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
     .unwrap();
     assert_eq!(total, (1, 2, 1), "lost ACK replay cannot double count");
 
+    let previous = lease;
+    let mut lease = repo
+        .claim(
+            &bucket,
+            InventoryDirection::ExpectedToS3,
+            InventoryNamespace::Single,
+            120,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.id, previous.id);
+    assert_eq!(lease.epoch, previous.epoch + 1);
+    assert!(!repo.renew(&previous, 60).await.unwrap());
+
     assert!(repo
         .acknowledge_page(
             &mut lease,
@@ -188,6 +203,16 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
         .unwrap());
     assert_eq!(retry.page_index, 1);
     assert_eq!(retry.continuation.as_deref(), Some("opaque-token"));
+    let mut retry = repo
+        .claim(
+            &bucket,
+            InventoryDirection::ObservedToPg,
+            InventoryNamespace::Pack,
+            120,
+        )
+        .await
+        .unwrap()
+        .unwrap();
     assert!(repo
         .acknowledge_page(&mut retry, None, InventoryPageCounts::default())
         .await
@@ -202,4 +227,73 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
     assert_eq!(no_delete, 2);
     println!("DROP07C_PG_CHECKPOINT_PASS atomic cursor, one active, lost ACK, stale epoch, resume, complete, no delete");
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated disposable PostgreSQL18 tor_ci"]
+async fn drop_07c_checkpoints_allow_more_than_eight_pages_without_waiting() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.contains("@127.0.0.1:") && url.ends_with("/tor_ci"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let bucket = format!("tor-private-audit-{unique}");
+    let repo = PgFreeInventoryCheckpoints::new(pool.clone());
+    let claim = || {
+        repo.claim(
+            &bucket,
+            InventoryDirection::ObservedToPg,
+            InventoryNamespace::Single,
+            120,
+        )
+    };
+    let mut lease = claim().await.unwrap().unwrap();
+    let id = lease.id;
+    for page in 1_i64..=10 {
+        let token = format!("opaque-token-{page}");
+        assert!(repo
+            .acknowledge_page(
+                &mut lease,
+                Some(&token),
+                InventoryPageCounts {
+                    inspected: 1,
+                    matched: 1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap());
+        let next = claim().await.unwrap().unwrap();
+        assert_eq!((next.id, next.page_index, next.epoch), (id, page, page + 1));
+        assert_eq!(next.continuation.as_deref(), Some(token.as_str()));
+        assert!(!repo.fail(&lease).await.unwrap());
+        lease = next;
+    }
+
+    // An interrupted caller without progress can still exhaust its budget.
+    for _ in 0..8 {
+        sqlx::query(
+            "UPDATE free_storage_inventory_cycles
+             SET locked_until=clock_timestamp()-interval '1 second' WHERE id=$1",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        match claim().await.unwrap() {
+            Some(next) => assert_eq!((next.id, next.page_index), (id, 10)),
+            None => break,
+        }
+    }
+    let persisted: (String, i32, i64, i64) = sqlx::query_as(
+        "SELECT status,attempts_since_progress,page_index,inspected_count
+         FROM free_storage_inventory_cycles WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted, ("failed".to_owned(), 8, 10, 10));
 }
