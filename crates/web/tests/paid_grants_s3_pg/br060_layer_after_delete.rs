@@ -34,8 +34,7 @@ pub(super) async fn before_deletion(
         url,
         &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
     );
-    let (subscriber, cookie) =
-        user(accounts, "br060-active-layer@tor-ci.example").await;
+    let (subscriber, cookie) = user(accounts, "br060-active-layer@tor-ci.example").await;
     let csrf = generate_session_token();
     pg(
         url,
@@ -105,12 +104,10 @@ pub(super) async fn before_deletion(
     assert_eq!(before.status(), StatusCode::OK);
     let issued = decode(before).await;
     assert_eq!(issued["version_id"], current_version.to_string());
-    assert!(
-        issued["content"]["ciphertext_url"]
-            .as_str()
-            .unwrap()
-            .starts_with(ENDPOINT)
-    );
+    assert!(issued["content"]["ciphertext_url"]
+        .as_str()
+        .unwrap()
+        .starts_with(ENDPOINT));
     assert!(!issued.to_string().contains(MARKDOWN));
     assert_eq!(
         private_get(app, &format!("/read/layer/{chapter}"), Some(&cookie))
@@ -196,16 +193,9 @@ pub(super) async fn after_deletion(
         to_bytes(denied.into_body(), 8192).await.unwrap().is_empty(),
         "a hidden Book must not produce new Layer bearer URL or scoped DEK"
     );
-    let shell = private_get(
-        app,
-        &format!("/read/layer/{chapter}"),
-        Some(&active.cookie),
-    )
-    .await;
+    let shell = private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie)).await;
     assert_eq!(shell.status(), StatusCode::NOT_FOUND);
-    assert!(
-        to_bytes(shell.into_body(), 8192).await.unwrap().is_empty()
-    );
+    assert!(to_bytes(shell.into_body(), 8192).await.unwrap().is_empty());
     assert_eq!(
         private_get(
             app,
