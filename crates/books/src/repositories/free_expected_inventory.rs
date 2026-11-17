@@ -40,7 +40,7 @@ fn valid_bucket(value: &str) -> bool {
     let b = value.as_bytes();
     (3..=63).contains(&b.len())
         && b[0].is_ascii_lowercase()
-        && b[b.len() - 1].is_ascii_lowercase().then_some(()).is_some_or(|| b[b.len() - 1].is_ascii_digit())
+        && (b[b.len() - 1].is_ascii_lowercase() || b[b.len() - 1].is_ascii_digit())
         && !value.starts_with("public")
         && b.iter()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
