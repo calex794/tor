@@ -615,7 +615,10 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(format!("/api/v1/chapters/{}/free-source-plan", frame.chapter_id))
+                    .uri(format!(
+                        "/api/v1/chapters/{}/free-source-plan",
+                        frame.chapter_id
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -692,7 +695,6 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap();
     assert_eq!(denied_plan.status(), StatusCode::NOT_FOUND);
-
 
     let arbitrary_range = app
         .clone()
