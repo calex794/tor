@@ -70,11 +70,17 @@ pub(super) async fn list_owned_archived_books(
     .map_err(|_| LayerError::Unavailable)?;
     let mut result: HashMap<i64, Vec<ArchivedLayerBook>> = HashMap::new();
     for row in rows {
-        let term: i64 = row.try_get("term_id").map_err(|_| LayerError::Unavailable)?;
+        let term: i64 = row
+            .try_get("term_id")
+            .map_err(|_| LayerError::Unavailable)?;
         result.entry(term).or_default().push(ArchivedLayerBook {
-            book_id: row.try_get("book_id").map_err(|_| LayerError::Unavailable)?,
+            book_id: row
+                .try_get("book_id")
+                .map_err(|_| LayerError::Unavailable)?,
             title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
-            chapter_id: row.try_get("chapter_id").map_err(|_| LayerError::Unavailable)?,
+            chapter_id: row
+                .try_get("chapter_id")
+                .map_err(|_| LayerError::Unavailable)?,
         });
     }
     Ok(result)
