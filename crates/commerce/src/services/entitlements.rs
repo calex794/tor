@@ -9,6 +9,8 @@ pub struct DirectPurchaseRecord {
     pub purchased_version_id: i64,
     pub revoked: bool,
     pub admin_hold: bool,
+    /// Known legal/site Book block: do not classify as an unknown storage error.
+    pub legal_blocked: bool,
     pub hard_deleted: bool,
     pub canonical_readable: bool,
 }
@@ -29,7 +31,7 @@ pub fn decide_direct_purchase(
             reason: DenialReason::Locked,
         };
     }
-    if record.hard_deleted {
+    if record.legal_blocked || record.hard_deleted {
         return EntitlementDecision::Denied {
             reason: DenialReason::Hidden,
         };
@@ -66,6 +68,7 @@ mod tests {
             purchased_version_id: 7,
             revoked: false,
             admin_hold: false,
+            legal_blocked: false,
             hard_deleted: false,
             canonical_readable: true,
         }
@@ -136,6 +139,14 @@ mod tests {
             (
                 DirectPurchaseRecord {
                     hard_deleted: true,
+                    ..record()
+                },
+                DenialReason::Hidden,
+            ),
+            (
+                DirectPurchaseRecord {
+                    legal_blocked: true,
+                    canonical_readable: false,
                     ..record()
                 },
                 DenialReason::Hidden,

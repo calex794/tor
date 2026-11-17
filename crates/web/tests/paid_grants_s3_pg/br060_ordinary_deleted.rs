@@ -480,6 +480,18 @@ pub(super) async fn verify(
         url,
         &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
     );
+    // BR-060: ordinary deletion keeps V1 ownership but live legal/moderation
+    // holds must suspend both private archive routes, without deleting pins.
+    super::br060_legal_gates::verify(
+        app,
+        url,
+        book,
+        chapter,
+        purchase_id,
+        free_chapter,
+        &fresh.session,
+    )
+    .await;
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
     assert_eq!(archived_reader.status(), StatusCode::OK);
     let archived_html = html_body(archived_reader).await;
