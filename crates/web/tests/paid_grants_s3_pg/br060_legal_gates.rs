@@ -111,7 +111,11 @@ pub(super) async fn verify(
         StatusCode::NOT_FOUND,
     )
     .await;
-    assert_eq!(pg(url, &snapshot_sql), original, "legal hold is not deletion");
+    assert_eq!(
+        pg(url, &snapshot_sql),
+        original,
+        "legal hold is not deletion"
+    );
     pg(
         url,
         &format!("UPDATE books SET visibility_status='active' WHERE id={book}"),
@@ -131,7 +135,11 @@ pub(super) async fn verify(
         StatusCode::FORBIDDEN,
     )
     .await;
-    assert_eq!(pg(url, &snapshot_sql), original, "admin hold is not deletion");
+    assert_eq!(
+        pg(url, &snapshot_sql),
+        original,
+        "admin hold is not deletion"
+    );
     pg(
         url,
         &format!("UPDATE books SET admin_hold=FALSE WHERE id={book}"),
