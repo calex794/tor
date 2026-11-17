@@ -318,5 +318,6 @@ pub(super) async fn verify(
         StatusCode::NOT_FOUND,
         "revoked paid Layer term cannot read any archived PACK frame"
     );
+    super::retained_layer_pack::verify(url, client, book, receipt).await;
     pool.close().await;
 }
