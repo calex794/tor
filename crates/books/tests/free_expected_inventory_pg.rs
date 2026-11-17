@@ -97,20 +97,27 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
     assert_eq!(seen.len(), 3);
     assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Single));
     assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Pack));
-    assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Manifest));
-    let done = inventory.expected_page(&bucket, cursor.as_deref(), 1).await.unwrap();
+    assert!(seen
+        .iter()
+        .any(|(kind, _)| *kind == FreeObjectKind::Manifest));
+    let done = inventory
+        .expected_page(&bucket, cursor.as_deref(), 1)
+        .await
+        .unwrap();
     assert!(done.expected.is_empty());
     assert!(done.next_after_key.is_none());
-    assert!(inventory.expected_page("public-data", None, 1).await.is_err());
+    assert!(inventory
+        .expected_page("public-data", None, 1)
+        .await
+        .is_err());
     assert!(inventory.expected_page(&bucket, None, 129).await.is_err());
     // Both canonical registries remain intact: this is NEVER a GC job.
-    let preserved: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM free_chapter_storage_objects WHERE bucket=$1",
-    )
-    .bind(&bucket)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let preserved: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM free_chapter_storage_objects WHERE bucket=$1")
+            .bind(&bucket)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(preserved, 1);
     println!("DROP07A_PG_READONLY_PASS: SINGLE + PACK + manifest, strict cursor, no mutation");
     pool.close().await;
