@@ -9,9 +9,7 @@ use aws_sdk_s3::{
 use sha2::{Digest, Sha256};
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::free_expected_inventory_s3::{
-        FreeObjectEvidence, S3FreeExpectedObjectVerifier,
-    },
+    repositories::free_expected_inventory_s3::{FreeObjectEvidence, S3FreeExpectedObjectVerifier},
 };
 
 #[tokio::test]
@@ -53,7 +51,9 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
         .unwrap();
     let verifier = S3FreeExpectedObjectVerifier::new(client.clone());
     assert_eq!(
-        verifier.verify_exact(BUCKET, KEY, sha, actual.len() as u64).await,
+        verifier
+            .verify_exact(BUCKET, KEY, sha, actual.len() as u64)
+            .await,
         Ok(FreeObjectEvidence::Verified)
     );
     let mut changed = actual.clone();
@@ -67,7 +67,9 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
         .await
         .unwrap();
     assert_eq!(
-        verifier.verify_exact(BUCKET, KEY, sha, actual.len() as u64).await,
+        verifier
+            .verify_exact(BUCKET, KEY, sha, actual.len() as u64)
+            .await,
         Ok(FreeObjectEvidence::HashMismatch)
     );
     client
@@ -79,7 +81,9 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
         .await
         .unwrap();
     assert_eq!(
-        verifier.verify_exact(BUCKET, KEY, sha, actual.len() as u64).await,
+        verifier
+            .verify_exact(BUCKET, KEY, sha, actual.len() as u64)
+            .await,
         Ok(FreeObjectEvidence::SizeMismatch)
     );
     assert_eq!(
@@ -95,7 +99,9 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
         "ambiguous GET error must never become a missing/orphan claim"
     );
     assert_eq!(
-        verifier.verify_exact("public-media", KEY, sha, actual.len() as u64).await,
+        verifier
+            .verify_exact("public-media", KEY, sha, actual.len() as u64)
+            .await,
         Err(StorageError::Invalid)
     );
     println!("DROP07A_MINIO_GET_SHA_PASS: intact, corrupt, short, unavailable and invalid all fail closed");
