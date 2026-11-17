@@ -4,7 +4,7 @@
 //! HTTP. Its caller must re-prove the entire immutable PACK and manifest using
 //! G immediately before passing the exact receipt. It is not wired to startup.
 //! No historic catalogue backfill exists for greenfield TOR.
-use super::free_pack_attach::PgFreePackCatalog;
+use super::{free_pack_activation::PackActivationClaim, free_pack_attach::PgFreePackCatalog};
 use crate::services::authoring::AuthorError;
 use sqlx::{postgres::PgRow, Row};
 use std::collections::HashSet;
@@ -47,6 +47,36 @@ impl PgFreePackCatalog {
         &self,
         job_id: i64,
         expected_epoch: i64,
+        verified: &PackPlacementReceipt,
+    ) -> Result<PackActivation, AuthorError> {
+        self.activate_with_optional_lease(job_id, expected_epoch, None, verified)
+            .await
+    }
+
+    /// DROP-05b: an activation worker is fenced by its independent lease,
+    /// not merely the immutable epoch of the succeeded R4a build job.
+    /// Consuming the lease and changing *all* active editions commit together.
+    pub async fn activate_queued_verified_pack(
+        &self,
+        claim: &PackActivationClaim,
+    ) -> Result<PackActivation, AuthorError> {
+        if claim.activation_epoch <= 0 {
+            return Err(AuthorError::Invalid);
+        }
+        self.activate_with_optional_lease(
+            claim.pack.job_id,
+            claim.pack.epoch,
+            Some(claim.activation_epoch),
+            &claim.pack.receipt,
+        )
+        .await
+    }
+
+    async fn activate_with_optional_lease(
+        &self,
+        job_id: i64,
+        expected_epoch: i64,
+        activation_epoch: Option<i64>,
         verified: &PackPlacementReceipt,
     ) -> Result<PackActivation, AuthorError> {
         if job_id <= 0
@@ -96,6 +126,26 @@ impl PgFreePackCatalog {
             || count as usize != verified.frames.len()
         {
             return Err(AuthorError::Conflict);
+        }
+
+        if let Some(epoch) = activation_epoch {
+            // Parent R4a job is already locked. Lock activation second, same
+            // ordering as claim_pack_activation. Lease expiry/theft revokes
+            // promotion even after remote GET succeeded.
+            let admitted: Option<i64> = sqlx::query_scalar(
+                "SELECT pack_job_id FROM free_pack_activation_jobs
+                 WHERE pack_job_id=$1 AND status='running'
+                   AND lease_epoch=$2 AND locked_until>clock_timestamp()
+                 FOR UPDATE",
+            )
+            .bind(job_id)
+            .bind(epoch)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db_error)?;
+            if admitted.is_none() {
+                return Err(AuthorError::Conflict);
+            }
         }
 
         // The committed immutable physical descriptor must match the entire
@@ -265,31 +315,50 @@ impl PgFreePackCatalog {
         if already != 0 && !swaps.is_empty() {
             return Err(AuthorError::Conflict);
         }
-        if already == verified.frames.len() {
-            tx.commit().await.map_err(db_error)?;
-            return Ok(PackActivation::AlreadyActive);
-        }
-        if swaps.len() != verified.frames.len() {
-            return Err(AuthorError::Conflict);
-        }
-
-        for (chapter, version, old, next) in swaps {
-            // The R2 SQL helper performs first-insert or fenced monotone
-            // UPDATE under the edition lock; a lost race aborts all rows.
-            let changed: bool =
-                sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,$3,$4)")
-                    .bind(chapter)
-                    .bind(version)
-                    .bind(old)
-                    .bind(next)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db_error)?;
-            if !changed {
+        let outcome = if already == verified.frames.len() {
+            PackActivation::AlreadyActive
+        } else {
+            if swaps.len() != verified.frames.len() {
+                return Err(AuthorError::Conflict);
+            }
+            for (chapter, version, old, next) in swaps {
+                // The R2 SQL helper performs first-insert or fenced monotone
+                // UPDATE under the edition lock; a lost race aborts all rows.
+                let changed: bool =
+                    sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,$3,$4)")
+                        .bind(chapter)
+                        .bind(version)
+                        .bind(old)
+                        .bind(next)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(db_error)?;
+                if !changed {
+                    return Err(AuthorError::Conflict);
+                }
+            }
+            PackActivation::Activated
+        };
+        if let Some(epoch) = activation_epoch {
+            // The activation completion marker commits WITH all active CAS
+            // writes. A lost PG ACK is therefore safely detectable on replay.
+            let done = sqlx::query(
+                "UPDATE free_pack_activation_jobs SET status='succeeded',
+                     locked_until=NULL,completed_at=clock_timestamp(),
+                     updated_at=clock_timestamp(),failure_code=NULL
+                 WHERE pack_job_id=$1 AND lease_epoch=$2 AND status='running'
+                   AND locked_until>clock_timestamp()",
+            )
+            .bind(job_id)
+            .bind(epoch)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_error)?;
+            if done.rows_affected() != 1 {
                 return Err(AuthorError::Conflict);
             }
         }
         tx.commit().await.map_err(db_error)?;
-        Ok(PackActivation::Activated)
+        Ok(outcome)
     }
 }
