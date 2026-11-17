@@ -139,7 +139,7 @@ pub fn reader_with_public_discussions(
         s3_reader && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1");
     let progress = if s3_reader {
         ProgressView {
-            html: format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{}/free-grant?format=source\">Открыть текст без JavaScript</a></noscript>",chapter_id.unwrap_or(0)),
+            html: format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{}/{}\">Открыть текст без JavaScript</a></noscript>", chapter_id.unwrap_or(0), if pack_reader { "free-source" } else { "free-grant?format=source" }),
             attributes: chapter_id.map_or_else(String::new, |id| {
                 format!(
                     "data-free-s3-chapter=\"{id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\"{}",
