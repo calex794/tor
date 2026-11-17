@@ -110,6 +110,30 @@ pub(super) async fn verify(
         activate_one_queued_verified_pack(catalog, proof, single, &stale).await,
         Err(AuthorError::Conflict)
     ));
+    // A real S3 proof cannot authorize a cutover after this worker's lease
+    // has expired, even if the immutable bytes are perfectly valid.
+    pg(
+        url,
+        &format!(
+            "UPDATE free_pack_activation_jobs
+             SET locked_until=clock_timestamp()-interval '1 second'
+             WHERE pack_job_id={}",
+            claim.job_id
+        ),
+    );
+    assert!(matches!(
+        activate_one_queued_verified_pack(catalog, proof, single, &queued).await,
+        Err(AuthorError::Conflict)
+    ));
+    pg(
+        url,
+        &format!(
+            "UPDATE free_pack_activation_jobs
+             SET locked_until=clock_timestamp()+interval '2 minutes'
+             WHERE pack_job_id={}",
+            claim.job_id
+        ),
+    );
     let (one, two) = tokio::join!(
         activate_one_queued_verified_pack(catalog, proof, single, &queued),
         activate_one_verified_pack(catalog, proof, single, claim),
