@@ -752,13 +752,11 @@ async fn d_s035_age_filtered_batch_offers_and_no_debit_for_ineligible_buyer() {
     let store = PgCheckout::new(f.pool.clone());
     let quote = command(f.buyer, &f.offers[..2], 'R');
 
-    assert!(
-        store
-            .selectable_batch_offers(f.buyer, f.book)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         store.checkout_batch_once(&quote).await,
         Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
@@ -787,7 +785,11 @@ async fn d_s035_age_filtered_batch_offers_and_no_debit_for_ineligible_buyer() {
         .execute(&f.pool)
         .await
         .unwrap();
-    assert!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().is_empty());
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
     assert!(store.checkout_batch_once(&quote).await.unwrap().replayed);
     assert_eq!(balance(&f.pool, f.buyer).await, 700);
     assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
@@ -807,7 +809,11 @@ async fn d_s035_pro_grant_and_suspended_buyer_cannot_buy_without_current_authori
         .unwrap();
     let store = PgCheckout::new(f.pool.clone());
     let quote = command(f.buyer, &f.offers[..2], 'S');
-    assert!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().is_empty());
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         store.checkout_batch_once(&quote).await,
         Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
@@ -835,7 +841,11 @@ async fn d_s035_pro_grant_and_suspended_buyer_cannot_buy_without_current_authori
     .execute(&f.pool)
     .await
     .unwrap();
-    assert!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().is_empty());
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         store.checkout_batch_once(&quote).await,
         Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
@@ -862,7 +872,11 @@ async fn d_s035_pro_grant_and_suspended_buyer_cannot_buy_without_current_authori
         .execute(&f.pool)
         .await
         .unwrap();
-    assert!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().is_empty());
+    assert!(store
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         store.checkout_batch_once(&quote).await,
         Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible))
