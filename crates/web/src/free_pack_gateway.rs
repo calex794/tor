@@ -88,7 +88,6 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
     read_reauthorized_pack(resolve, s3).await
 }
 
-
 /// DROP-06a: exact ACTIVE free-PACK source, not an R4a candidate. The C
 /// authorization has its own active-PACK SQL path because PACK-direct books
 /// have no SINGLE receipt. It preserves the S349 public/saved/age/hold ACL.

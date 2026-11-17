@@ -132,7 +132,6 @@ impl PgFreeS3Ref {
     }
 }
 
-
 /// DROP-06a: the *same C authorization* as S349, but for a bodyless FREE
 /// edition whose active physical generation is an immutable verified PACK.
 /// This path must never require a fictional SINGLE receipt, nor authorize a

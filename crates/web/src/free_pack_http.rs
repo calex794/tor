@@ -72,26 +72,23 @@ async fn source(
     Query(query): Query<Lookup>,
     headers: HeaderMap,
 ) -> Response {
-    if chapter <= 0
-        || headers.contains_key(header::RANGE)
-        || headers.contains_key("if-range")
-    {
+    if chapter <= 0 || headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
     // No cross-origin content grants; the session cookie is SameSite=Strict.
     // Anonymous public/basic access still returns no CORS permission.
     if headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
-        || headers.get(header::ORIGIN).is_some_and(|s| {
-            s.to_str().ok() != Some(state.cookies.origin.as_str())
-        })
+        || headers
+            .get(header::ORIGIN)
+            .is_some_and(|s| s.to_str().ok() != Some(state.cookies.origin.as_str()))
     {
         return deny(StatusCode::FORBIDDEN);
     }
     let mode = match (query.mode.as_deref(), query.version_id) {
         (None, None) => FreePackReadMode::Published,
-        (Some("saved"), Some(version)) if version > 0 => {
-            FreePackReadMode::Saved { version_id: version }
-        }
+        (Some("saved"), Some(version)) if version > 0 => FreePackReadMode::Saved {
+            version_id: version,
+        },
         _ => return deny(StatusCode::BAD_REQUEST),
     };
     let digest = state

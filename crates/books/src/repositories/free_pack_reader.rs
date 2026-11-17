@@ -89,7 +89,6 @@ impl PgFreePackCatalog {
     }
 }
 
-
 impl PgFreePackCatalog {
     /// DROP-06a: the physical target must be the exact ACTIVE edition,
     /// never an inert candidate, a client-selected frame or a bare manifest.
@@ -105,7 +104,8 @@ impl PgFreePackCatalog {
         size_bytes: u64,
         expected_bucket: &str,
     ) -> Result<Option<VerifiedFreePackCandidate>, AuthorError> {
-        if chapter <= 0 || version <= 0
+        if chapter <= 0
+            || version <= 0
             || sha256 == [0; 32]
             || !(1..=200_000).contains(&size_bytes)
             || expected_bucket.is_empty()
@@ -176,8 +176,12 @@ impl PgFreePackCatalog {
             value.try_into().map_err(|_| AuthorError::Conflict)
         };
         Ok(Some(VerifiedFreePackCandidate {
-            bucket: row.try_get("bucket").map_err(|_| AuthorError::Unavailable)?,
-            key: row.try_get("object_key").map_err(|_| AuthorError::Unavailable)?,
+            bucket: row
+                .try_get("bucket")
+                .map_err(|_| AuthorError::Unavailable)?,
+            key: row
+                .try_get("object_key")
+                .map_err(|_| AuthorError::Unavailable)?,
             pack_bytes: signed("pack_bytes")?,
             seek_table_start: signed("seek_table_start")?,
             frame_offset: signed("frame_offset")?,
