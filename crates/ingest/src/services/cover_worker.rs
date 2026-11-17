@@ -3,7 +3,9 @@
 use crate::domain::cover::{CoverClaim, CoverError, CoverVariant};
 use crate::services::{
     cover_jobs::{BookCoverAttach, CoverJobs, CoverObjectStore},
-    image_pipeline::{process_cover, MAX_SOURCE_BYTES, RECIPE_VERSION},
+    image_pipeline::{
+        process_cover_with_recipe, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES, RECIPE_VERSION,
+    },
 };
 use sha2::{Digest, Sha256};
 
@@ -64,7 +66,7 @@ impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker
     }
 
     async fn process_claim(&self, claim: &CoverClaim) -> Result<bool, CoverError> {
-        if claim.recipe_version != RECIPE_VERSION
+        if !matches!(claim.recipe_version.as_str(), RECIPE_VERSION | LEGACY_RECIPE_VERSION)
             || !(1..=MAX_SOURCE_BYTES as i64).contains(&claim.source_size)
         {
             return Err(CoverError::Invalid);
@@ -79,8 +81,12 @@ impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker
                 return Err(CoverError::Invalid);
             }
             let mime = claim.source_mime.clone();
+            let recipe = claim.recipe_version.clone();
             // Decode/crop/WebP is CPU-intensive; never run it on Tokio's executor.
-            let images = tokio::task::spawn_blocking(move || process_cover(&source, &mime))
+            // Use the job's recorded recipe: old queued jobs must stay lossless.
+            let images = tokio::task::spawn_blocking(move || {
+                process_cover_with_recipe(&source, &mime, &recipe)
+            })
                 .await
                 .map_err(|_| CoverError::Unavailable)?
                 .map_err(|_| CoverError::Invalid)?;
