@@ -31,12 +31,24 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
         .await
         .unwrap();
     let resolver = PgLayerChapterEntitlements::new(pool.clone());
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        None
+    );
     let paid = layers
         .buy(&cmd(buyer, layer, offer_id, version, 200, 'F'))
         .await
         .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        None
+    );
 
     // An ordinary deletion without a matching immutable owner request is
     // never enough to create a private archival right.
@@ -76,11 +88,17 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
     tx.commit().await.unwrap();
 
     assert_eq!(
-        resolver.archived_free_version(id(buyer), id(free)).await.unwrap(),
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
         Some(id(v1))
     );
     assert_eq!(
-        resolver.archived_free_version(id(owner), id(free)).await.unwrap(),
+        resolver
+            .archived_free_version(id(owner), id(free))
+            .await
+            .unwrap(),
         None,
         "Book ownership is not proof of payment"
     );
@@ -99,7 +117,10 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
         .await
         .unwrap();
     assert_eq!(
-        resolver.archived_free_version(id(buyer), id(free)).await.unwrap(),
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
         Some(id(v1)),
         "the public CURRENT V2 must not rewrite frozen V1"
     );
@@ -112,26 +133,50 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), Some(id(v1)));
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        Some(id(v1))
+    );
 
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        None
+    );
     sqlx::query("UPDATE books SET visibility_status='active',access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        None
+    );
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(buyer)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), Some(id(v1)));
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        Some(id(v1))
+    );
 
     sqlx::query(
         "INSERT INTO commerce_layer_term_revocations
@@ -143,5 +188,11 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
+    assert_eq!(
+        resolver
+            .archived_free_version(id(buyer), id(free))
+            .await
+            .unwrap(),
+        None
+    );
 }
