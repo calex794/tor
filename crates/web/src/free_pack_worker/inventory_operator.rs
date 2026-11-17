@@ -1,14 +1,14 @@
 //! DROP-07d: manual operator-only, ONE S3->PG audit page per invocation.
- //!
- //! Does not run from HTTP/startup, does not schedule a background job, does
- //! not inspect paid objects, and cannot initiate PUT/DELETE/repair/GC.
+//!
+//! Does not run from HTTP/startup, does not schedule a background job, does
+//! not inspect paid objects, and cannot initiate PUT/DELETE/repair/GC.
 use std::time::Duration;
 
 use aws_sdk_s3::Client;
 use tor_books::repositories::{
     free_inventory_cycles::{
-        InventoryCheckpointError, InventoryDirection, InventoryNamespace,
-        InventoryPageCounts, PgFreeInventoryCheckpoints,
+        InventoryCheckpointError, InventoryDirection, InventoryNamespace, InventoryPageCounts,
+        PgFreeInventoryCheckpoints,
     },
     PgCatalog,
 };
@@ -93,8 +93,7 @@ fn page_counts(
         return Err(OperatorScanError::Invalid);
     }
     let inspected = u32::try_from(inspected).map_err(|_| OperatorScanError::Invalid)?;
-    let registered =
-        u32::try_from(observed.registered).map_err(|_| OperatorScanError::Invalid)?;
+    let registered = u32::try_from(observed.registered).map_err(|_| OperatorScanError::Invalid)?;
     let protected_pending =
         u32::try_from(observed.protected_pending).map_err(|_| OperatorScanError::Invalid)?;
     let unknown = u32::try_from(unknown).map_err(|_| OperatorScanError::Invalid)?;
