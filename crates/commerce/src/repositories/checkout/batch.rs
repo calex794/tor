@@ -31,10 +31,19 @@ impl PgCheckout {
             "SELECT c.id,c.chapter_no,c.title,c.price_amount,p.version_id
              FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
-               AND b.access_level IS NOT NULL
+               AND (
+                   b.access_level='basic'
+                   OR (b.access_level='adult' AND viewer.adult_enabled)
+                   OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants grant_state
+                       WHERE grant_state.user_id=viewer.id
+                         AND grant_state.level='pro_adult' AND grant_state.is_active
+                   ))
+               )
                AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
@@ -203,6 +212,7 @@ impl PgCheckout {
         for offer in command.offers() {
             let row = sqlx::query(
                 "SELECT p.version_id,c.price_amount,b.id AS book_id,
+                        b.access_level AS book_age_tier,
                         st.current_revision AS share_revision
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
@@ -233,6 +243,15 @@ impl PgCheckout {
             let revision: i64 = row.try_get("share_revision").map_err(unavailable)?;
             if one_book.is_some_and(|first| first != book) {
                 return Err(BatchCheckoutError::MixedBooks);
+            }
+            if one_book.is_none() {
+                // All items share this Book, and its SHARE lock remains held
+                // through COMMIT. Lock the buyer/age grant only once, before
+                // the wallet; an age revocation cannot overtake the debit.
+                let tier: String = row.try_get("book_age_tier").map_err(unavailable)?;
+                super::age::require_purchase_tier(&mut tx, actor, &tier)
+                    .await
+                    .map_err(BatchCheckoutError::from)?;
             }
             one_book = Some(book);
             let sum: i64 = sqlx::query_scalar(
