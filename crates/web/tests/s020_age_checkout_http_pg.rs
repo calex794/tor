@@ -46,8 +46,16 @@ fn pg(url: &str, query: &str) -> String {
     );
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", query,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
         ])
         .output()
         .expect("isolated PostgreSQL client required");
@@ -60,12 +68,16 @@ fn pg(url: &str, query: &str) -> String {
 }
 
 fn scalar(url: &str, query: &str) -> i64 {
-    pg(url, query).parse().expect("one integer PostgreSQL result")
+    pg(url, query)
+        .parse()
+        .expect("one integer PostgreSQL result")
 }
 
 fn book(url: &str, owner: i64, name: &str, tier: &str) -> i64 {
     assert!(matches!(tier, "basic" | "adult" | "pro_adult"));
-    assert!(name.bytes().all(|b| b.is_ascii_alphanumeric() || b":-_".contains(&b)));
+    assert!(name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b":-_".contains(&b)));
     scalar(
         url,
         &format!(
@@ -172,12 +184,7 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
         ),
     );
 
-    let adult = book(
-        &url,
-        owner,
-        &format!("ci:s020:http:adult:{buyer}"),
-        "adult",
-    );
+    let adult = book(&url, owner, &format!("ci:s020:http:adult:{buyer}"), "adult");
     let a = chapter(&url, adult, 1);
     let b = chapter(&url, adult, 2);
     let c = chapter(&url, adult, 3);
@@ -230,7 +237,10 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     );
     assert_eq!(finance(&url, buyer), (1000, 0, 0, 0));
 
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer}"),
+    );
     let single = post(&app, &token, &csrf, 'A', "/api/v1/purchases", one.clone()).await;
     assert_eq!(single.status(), StatusCode::OK);
     assert_eq!(json_body(single).await["replayed"], false);
@@ -253,7 +263,10 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     );
     assert_eq!(finance(&url, buyer), (700, 3, 3, 3));
 
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer}"),
+    );
     let replay = post(&app, &token, &csrf, 'A', "/api/v1/purchases", one).await;
     assert_eq!(replay.status(), StatusCode::OK);
     assert_eq!(json_body(replay).await["replayed"], true);
