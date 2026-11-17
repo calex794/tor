@@ -153,7 +153,8 @@ test("PACK fallback reads only protected same-origin exact frame and never HTML"
   assert.match(output.status.textContent, /Архивная редакция/);
   assert.equal(output.article.children[0].pieces[1].textContent,
     "<script>alert('unsafe')</script>");
-  assert.equal(output.calls.filter(call => call.uri.includes("/reader/")).length, 1);
+  assert.ok(output.calls.every(call =>
+    !call.uri.startsWith("/reader/") && !call.uri.startsWith("/api/v1/chapters/")));
 });
 
 test("PACK hash, length and denial cannot release HTML or trigger public fallback", async () => {
@@ -167,6 +168,7 @@ test("PACK hash, length and denial cannot release HTML or trigger public fallbac
     assert.equal(result.article.children.length, 0);
     assert.match(result.status.textContent, /недоступно/);
     assert.ok(result.calls.length <= 2);
-    assert.ok(result.calls.every(call => !call.uri.includes("/reader/")));
+    assert.ok(result.calls.every(call =>
+      !call.uri.startsWith("/reader/") && !call.uri.startsWith("/api/v1/chapters/")));
   }
 });
