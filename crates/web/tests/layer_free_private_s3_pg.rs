@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use sha2::{Digest, Sha256};
-use std::{env, num::NonZeroU32};
+use std::{env, num::NonZeroU32, process::Command};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -40,6 +40,23 @@ const TEXT: &str = "Layer historical FREE V1 \u{0433}\u{043b}\u{0430}\u{0432}\u{
 fn id(value: i64) -> PositiveId {
     PositiveId::new(value).unwrap()
 }
+
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:"));
+    assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
+    let output = Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url,
+            "--command", sql])
+        .output()
+        .expect("disposable PostgreSQL fixture");
+    assert!(
+        output.status.success(),
+        "D-05 fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 
 async fn user(accounts: &PgAccounts, role: &str) -> (i64, String, String) {
     let token = generate_session_token();
@@ -122,76 +139,68 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     let (buyer, buyer_session, _) = user(&accounts, "buyer").await;
     let (_, unrelated_session, _) = user(&accounts, "unrelated").await;
     let (moderator, moderator_session, _) = user(&accounts, "moderator").await;
-    sqlx::query(
-        "INSERT INTO account_roles(user_id,role,is_active) VALUES($1,'moderator',true)",
+    pg(
+        &url,
+        &format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({moderator},'moderator',true)"),
+    );
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:d05:archive-free:{owner}','ru','D05 archival FREE S3','public',{owner},'basic') RETURNING id"
+        ),
     )
-    .bind(moderator)
-    .execute(&pool)
-    .await
+    .parse()
     .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
-         VALUES($1,'ru','D05 archival FREE S3','public',$2,'basic') RETURNING id",
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Archived FREE V1','public','free',0) RETURNING id"
+        ),
     )
-    .bind(format!("ci:d05:archive-free:{owner}"))
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,1,'Archived FREE V1','public','free',0) RETURNING id",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     let digest: [u8; 32] = Sha256::digest(TEXT.as_bytes()).into();
-    let version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
-         VALUES($1,1,$2,$3) RETURNING id",
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+             VALUES({chapter},1,'Layer historical FREE V1 глава',decode('{}','hex')) RETURNING id",
+            hex::encode(digest),
+        ),
     )
-    .bind(chapter)
-    .bind(TEXT)
-    .bind(digest.as_slice())
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     let object = FreeChapterObject::for_markdown(chapter, version, TEXT).unwrap();
     upload_and_verify(&store, &object, TEXT).await.unwrap();
-    sqlx::query(
-        "INSERT INTO free_chapter_storage_objects
-         (chapter_id,version_id,bucket,object_key,sha256,size_bytes)
-         VALUES($1,$2,$3,$4,$5,$6)",
-    )
-    .bind(chapter)
-    .bind(version)
-    .bind(BUCKET)
-    .bind(object.key())
-    .bind(object.sha256().as_slice())
-    .bind(object.size_bytes() as i64)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO free_chapter_storage_objects
+             (chapter_id,version_id,bucket,object_key,sha256,size_bytes)
+             VALUES({chapter},{version},'{BUCKET}','{}',decode('{}','hex'),{})",
+            object.key(),
+            hex::encode(object.sha256()),
+            object.size_bytes(),
+        ),
+    );
+    pg(
+        &url,
+        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+    );
 
     let layers = PgLayers::new(pool.clone());
     let layer = layers.create_layer(id(owner), "Archived FREE test").await.unwrap();
     let term_version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
     let offer = layers.publish_offer(id(owner), id(layer), 90, true).await.unwrap();
-    sqlx::query(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
-         VALUES($1,300,'RUB')",
-    )
-    .bind(buyer)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({buyer},300,'RUB')"
+        ),
+    );
     let purchased = layers
         .buy(&LayerCheckoutCommand {
             actor: id(buyer),
@@ -281,15 +290,14 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     assert_eq!(opened.status().as_u16(), 200);
     assert_eq!(opened.bytes().await.unwrap().as_ref(), TEXT.as_bytes());
 
-    sqlx::query(
-        "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
-         VALUES($1,'legal_block',$2)",
-    )
-    .bind(purchased.term_id)
-    .bind(format!("ci:d05-archive-free-revoke:{}", purchased.term_id))
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
+             VALUES({},'legal_block','ci:d05-archive-free-revoke:{}')",
+            purchased.term_id, purchased.term_id,
+        ),
+    );
     assert_eq!(
         call(&app, Method::POST, &grant_path, Some(&buyer_session), Some(&csrf), Some(ORIGIN))
             .await.status(),
