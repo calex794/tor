@@ -457,22 +457,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(second_html.contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
     assert!(!second_html.contains("<script>опасно</script>"));
 
-    let stranger_list = private_get(&app, "/me/purchases", Some(&stranger_cookie)).await;
-    assert_eq!(stranger_list.status(), StatusCode::OK);
-    assert!(
-        !html_body(stranger_list)
-            .await
-            .contains(&format!("purchase_id={purchase_id}")),
-        "another account cannot enumerate purchases"
-    );
-    let owned_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
-    assert_eq!(owned_list.status(), StatusCode::OK);
-    assert_eq!(owned_list.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(owned_list.headers()[header::REFERRER_POLICY], "no-referrer");
-    assert_eq!(owned_list.headers()["x-robots-tag"], "noindex");
-    assert!(html_body(owned_list)
-        .await
-        .contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
+    d06_lost_ack::assert_purchase_list_bound_to_buyer(
+        &app, chapter, purchase_id, &buyer_cookie, &stranger_cookie,
+    )
+    .await;
     let ordinary_library = private_get(&app, "/me/library", Some(&buyer_cookie)).await;
     assert_eq!(ordinary_library.status(), StatusCode::OK);
     assert!(html_body(ordinary_library)
