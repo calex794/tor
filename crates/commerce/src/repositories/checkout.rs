@@ -1,5 +1,6 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
+mod age;
 mod batch;
 mod offers;
 pub use offers::PublishedChapterOffer;
@@ -146,6 +147,7 @@ impl CheckoutRepository for PgCheckout {
         // moderation state while the money transaction is in progress.
         let offer = sqlx::query(
             "SELECT p.version_id, c.price_amount, b.id AS book_id,
+                    b.access_level AS book_age_tier,
                     st.current_revision AS share_revision
              FROM chapters c
              JOIN books b ON b.id=c.book_id
@@ -175,6 +177,12 @@ impl CheckoutRepository for PgCheckout {
         {
             return Err(CheckoutError::StaleOffer);
         }
+
+        // Recheck the current A-owned age authority under row locks before
+        // freezing economics or debiting a wallet. A previously successful
+        // idempotency replay above still returns its historic receipt.
+        let age_tier: String = offer.try_get("book_age_tier").map_err(unavailable)?;
+        age::require_purchase_tier(&mut tx, actor, &age_tier).await?;
 
         // B-10 economics is authoritative ONLY through immutable revisions.
         // The FOR SHARE Book lock above fences B-owned schedule CAS until
