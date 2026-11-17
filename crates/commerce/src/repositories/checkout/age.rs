@@ -3,10 +3,11 @@
 use crate::domain::money::CheckoutError;
 use sqlx::{Postgres, Transaction};
 
-/// Call after locking the exact public Book and BEFORE locking/debiting the
-/// wallet. Lock order: Book SHARE -> buyer SHARE -> active pro grant SHARE ->
-/// wallet UPDATE. A competing age revocation must either precede this read
-/// (deny with no debit) or wait until the purchase has committed.
+/// Call after locking the exact published Book AND the buyer wallet, but
+/// BEFORE any debit. Lock order: Book SHARE -> wallet UPDATE -> buyer SHARE ->
+/// active pro grant SHARE. S038 and D-06 already acquire wallet before user;
+/// reversing that order deadlocks a concurrent swap. Revocation either commits
+/// before the held age check (deny without debit) or waits for purchase COMMIT.
 pub(super) async fn require_purchase_tier(
     tx: &mut Transaction<'_, Postgres>,
     buyer: i64,
