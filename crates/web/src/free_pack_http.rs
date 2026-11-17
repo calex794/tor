@@ -69,7 +69,6 @@ fn deny(status: StatusCode) -> Response {
     private_response(status, &[])
 }
 
-
 #[derive(Serialize)]
 struct SourcePlan {
     schema: &'static str,
@@ -93,7 +92,8 @@ async fn plan(
         return deny(StatusCode::BAD_REQUEST);
     }
     if headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
-        || headers.get(header::ORIGIN)
+        || headers
+            .get(header::ORIGIN)
             .is_some_and(|s| s.to_str().ok() != Some(state.cookies.origin.as_str()))
     {
         return deny(StatusCode::FORBIDDEN);
@@ -105,22 +105,39 @@ async fn plan(
         },
         _ => return deny(StatusCode::BAD_REQUEST),
     };
-    let digest = state.cookies.session_token(&headers)
+    let digest = state
+        .cookies
+        .session_token(&headers)
         .map(|token| session_token_digest(&token));
     let active = match mode {
-        FreePackReadMode::Published => state.reference.for_active_pack_session(chapter, digest.as_ref()).await,
-        FreePackReadMode::Saved { version_id } =>
-            state.reference.for_saved_active_pack_session(chapter, version_id, digest.as_ref()).await,
+        FreePackReadMode::Published => {
+            state
+                .reference
+                .for_active_pack_session(chapter, digest.as_ref())
+                .await
+        }
+        FreePackReadMode::Saved { version_id } => {
+            state
+                .reference
+                .for_saved_active_pack_session(chapter, version_id, digest.as_ref())
+                .await
+        }
     };
     let active = match active {
         Ok(record) => record,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (edition, transport) = if let Some(record) = active {
-        let proven = state.placement.active_verified_free_range(
-            record.chapter_id, record.version_id, record.sha256,
-            record.size_bytes, &record.bucket,
-        ).await;
+        let proven = state
+            .placement
+            .active_verified_free_range(
+                record.chapter_id,
+                record.version_id,
+                record.sha256,
+                record.size_bytes,
+                &record.bucket,
+            )
+            .await;
         match proven {
             Ok(Some(_)) => (record, "gateway"),
             Ok(None) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -128,9 +145,15 @@ async fn plan(
         }
     } else {
         let single = match mode {
-            FreePackReadMode::Published => state.reference.for_session(chapter, digest.as_ref()).await,
-            FreePackReadMode::Saved { version_id } =>
-                state.reference.for_saved_session(chapter, version_id, digest.as_ref()).await,
+            FreePackReadMode::Published => {
+                state.reference.for_session(chapter, digest.as_ref()).await
+            }
+            FreePackReadMode::Saved { version_id } => {
+                state
+                    .reference
+                    .for_saved_session(chapter, version_id, digest.as_ref())
+                    .await
+            }
         };
         match single {
             Ok(Some(record)) => (record, "signed-single"),
@@ -141,17 +164,30 @@ async fn plan(
     if edition.bucket != state.bucket {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     }
-    let sha = edition.sha256.iter().map(|b| format!("{b:02x}")).collect::<String>();
-    let mut response = private_response(Json(SourcePlan {
-        schema: "tor.free-source-plan.v1",
-        chapter_id: edition.chapter_id.to_string(),
-        version_id: edition.version_id.to_string(),
-        transport,
-        sha256: sha,
-        size_bytes: edition.size_bytes,
-    }), &[]);
-    response.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
-    response.headers_mut().insert("x-robots-tag", HeaderValue::from_static("noindex, nofollow"));
+    let sha = edition
+        .sha256
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let mut response = private_response(
+        Json(SourcePlan {
+            schema: "tor.free-source-plan.v1",
+            chapter_id: edition.chapter_id.to_string(),
+            version_id: edition.version_id.to_string(),
+            transport,
+            sha256: sha,
+            size_bytes: edition.size_bytes,
+        }),
+        &[],
+    );
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
     response
 }
 
