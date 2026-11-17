@@ -3056,6 +3056,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/chapters/{id}/free-pack-source",
+      "source": "crates/web/src/free_pack_http.rs",
+      "handler": "source",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/newboo-free-progress-s3.js",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::free_s3_progress_script",
