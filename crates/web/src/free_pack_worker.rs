@@ -12,7 +12,10 @@ use tor_storage::services::{free_chapter::FreeChapterObject, free_pack_proof::Pa
 async fn reverify_pack_receipt(
     proof: &S3PackProofStore,
     claim: &PackJobClaim,
-) -> Result<tor_contracts::drop_pack::PackPlacementReceipt, tor_storage::domain::provider::StorageError> {
+) -> Result<
+    tor_contracts::drop_pack::PackPlacementReceipt,
+    tor_storage::domain::provider::StorageError,
+> {
     let approved = &claim.receipt;
     let source = approved
         .frames
@@ -55,7 +58,6 @@ pub async fn finalize_one_verified_pack(
         .finish_pack_job(claim.job_id, claim.epoch, &receipt)
         .await
 }
-
 
 /// R4b2: keep the B-approved immutable descriptor fixed across the complete
 /// write/verify/commit sequence. No application PG transaction is held during
@@ -102,7 +104,9 @@ async fn reprove_pack_for_cutover(
             .get_verified(&exact)
             .await
             .map_err(|error| match error {
-                tor_storage::domain::provider::StorageError::Unavailable => AuthorError::Unavailable,
+                tor_storage::domain::provider::StorageError::Unavailable => {
+                    AuthorError::Unavailable
+                }
                 _ => AuthorError::Conflict,
             })?;
     }
