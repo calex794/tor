@@ -475,6 +475,7 @@ jobs:
             cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+            cargo test -p tor-web --test ret01_import_follow_http_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1 --show-output
             ci_pg_phase_done "reading_library"
           fi
@@ -1609,6 +1610,16 @@ jobs:
         run: |
           cargo test -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- --ignored --test-threads=1
           cargo clippy -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- -D warnings
+      - name: Read-only cover-size inventory against disposable PG
+        env:
+          PGUSER: tor_app
+          PGPASSWORD: tor-obs09-app
+          PGDATABASE: tor_ci
+        run: |
+          set -euo pipefail
+          report=$(psql -X -v ON_ERROR_STOP=1 -f tools/cover_lossy_inventory.sql)
+          printf '%s\n' "$report" | grep -Fq 'tor-cover-webp-lossy-q85-v2'
+          printf '%s\n' "$report" | grep -Fq 'ROLLBACK'
       - name: Deny anonymous S3 access to actual PG-attached WebP cover
         run: |
           set -euo pipefail

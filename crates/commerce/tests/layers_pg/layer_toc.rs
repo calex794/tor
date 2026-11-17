@@ -110,6 +110,7 @@ async fn d_05_layer_toc_205_pages_canonical_entitlement_and_revocation() {
             chapter_no: 1,
             chapter_title: "Глава 1".into(),
             book_title: "D05 own book".into(),
+            ordinary_deleted: false,
         }
     );
     assert_eq!(

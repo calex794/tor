@@ -10,14 +10,14 @@ This slice links the accepted DROP-07b read-only S3 LIST/PG classifier to DROP-0
 1. Claim a `s3_to_pg` checkpoint for that same bucket and `single` or `pack` namespace, with a 120-second lease. If another worker holds it, return `Busy`, not a competing scan.
 2. Read **up to 64 S3 LIST entries** in the fixed namespace, then classify them in B against registered SINGLE/PACK/manifest and protected pending import/repack references. Cap the complete provider+PG step at 60 seconds, half the lease duration.
 3. Convert to integer-checked aggregate `matched/protected/unknown` counters. Old or timestamp-uncertain unknowns remain `unknown`; there is no orphan/delete candidate field.
-4. Atomically acknowledge the exact page and next opaque S3 continuation in the same fenced PG transaction. A lost COMMIT ACK cannot double count; if the epoch or old cursor changed, return `StaleLease`. If no next token, record `Completed` as audit progress only.
+4. Atomically acknowledge the exact page and next opaque S3 continuation in the same fenced PG transaction. A lost COMMIT ACK cannot double count; if the epoch or old cursor changed, return `StaleLease`. Release the lease in that commit so the next invocation can proceed immediately. If there is no next token, record `Completed` as audit progress only.
 
 An unavailable provider or timed-out page **does not write an acknowledged cursor**. The old lease expires and a new worker can recover it with a higher epoch. The code deliberately has no background loop and no actor-facing route.
 
 ## Test coverage
 
 - Unit: checked sum of registered/pending/unknown, rejection of over-64 page and integer overflow.
-- Disposable PostgreSQL 18 + loopback MinIO: two actual S3 objects, one internal scan page, audit cycle marked completed, unknown count stored atomically, original S3 object still present.
+- Disposable PostgreSQL 18 + loopback MinIO: 65 actual S3 objects across two internal scan pages, immediate resumption by a fresh coordinator, one completed audit cycle with all unknown counts stored, and the original S3 object still present.
 - CI wires exactly the same command in required and manual private PostgreSQL/MinIO workflows; exact-head success and subsequent post-merge success are acceptance gates.
 
 ## Remaining gaps

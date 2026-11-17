@@ -10,20 +10,20 @@ A full S3 LIST or PostgreSQL receipt scan may take many pages. Restarting the pr
 
 Migration `202827531689_drop_free_inventory_cycles.sql` creates `free_storage_inventory_cycles`. It stores one running cycle per **private bucket + direction + namespace**, with:
 - strict namespaces `single` / `pack` and directions `pg_to_s3` / `s3_to_pg`;
-- monotonically increasing lease epoch, bounded 15–900-second renewals and eight reclaims maximum;
+- monotonically increasing lease epoch, bounded 15–900-second renewals and at most eight claims without a committed page;
 - persisted opaque continuation token and page index;
 - cumulative aggregate counters (matched, protected, unknown, mismatched and unverifiable);
 - status `running/completed/failed`, timestamps and bounded failure code;
 - unique partial index that prevents concurrent active cycles in the same scope, even across processes;
 - PostgreSQL trigger rejecting DELETE **and any change to bucket, direction or namespace**, so a cursor cannot be reassigned to another private scope.
 
-The PostgreSQL repository `PgFreeInventoryCheckpoints` can claim or recover a cycle, renew an exact unexpired lease, acknowledge exactly one bounded page, or mark an operator-aborted cycle failed. Acknowledgement CAS checks **cycle ID, epoch, expected page index, old cursor and live lease in one transaction** and persists the new cursor and cumulative counts atomically. A lost COMMIT ACK cannot count a page twice; a new claimant resumes the durable cursor after lease expiry. A stale worker cannot renew or append to another worker's cycle. The in-memory cursor advances only after a confirmed PostgreSQL CAS.
+The PostgreSQL repository `PgFreeInventoryCheckpoints` can claim or recover a cycle, renew an exact unexpired lease, acknowledge exactly one bounded page, or mark an operator-aborted cycle failed. Acknowledgement CAS checks **cycle ID, epoch, expected page index, old cursor and live lease in one transaction** and persists the new cursor and cumulative counts atomically. A lost COMMIT ACK cannot count a page twice; a new claimant resumes the durable cursor after lease expiry. A stale worker cannot renew or append to another worker's cycle. The in-memory cursor advances only after a confirmed PostgreSQL CAS. Committing a nonfinal page releases the lease and resets the retry budget in the same update. The next caller immediately claims the next page at a higher epoch.
 
 `None` as the next cursor completes the cycle. An untrusted caller cannot pass malformed source cursor, invalid direction/namespace or inconsistent counts. Even a status `completed` is **only audit progress**, not a consistent cross-S3/PG snapshot or permission to delete any object.
 
 ## Acceptance tests
 
-`crates/books/tests/free_inventory_cycles_pg.rs` uses disposable PG18 to cover new cycle, concurrent claim refusal, exact page accumulation, replay rejection, completion, old epoch expiry/steal and token recovery, with no S3 write/delete. The test runs in both the mandatory and manual private MinIO-backed workflows with identical commands. Unit tests reject public/invalid cursor and impossible page totals.
+`crates/books/tests/free_inventory_cycles_pg.rs` uses disposable PG18 to cover new cycle, concurrent claim refusal, exact page accumulation, replay rejection, completion, old epoch expiry/steal, token recovery, immediate handoff across ten pages and exhausted retries without progress, with no S3 write/delete. The test runs in both the mandatory and manual private MinIO-backed workflows with identical commands. Unit tests reject public/invalid cursor and impossible page totals.
 
 ## Remaining original DROP-07 gates
 
