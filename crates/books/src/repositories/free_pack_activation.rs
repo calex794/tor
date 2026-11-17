@@ -15,7 +15,6 @@ pub struct PackActivationClaim {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActivationDisposition {
-    Completed,
     Retryable,
     Terminal,
 }
@@ -60,12 +59,23 @@ impl PgFreePackCatalog {
             return Err(AuthorError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(map_error)?;
+        // Always acquire the parent R4a job lock before its activation row.
+        // A bulk UPDATE of activation rows first could deadlock against B's
+        // parent-job -> activation-row -> edition locks during a cutover.
         sqlx::query(
-            "UPDATE free_pack_activation_jobs
+            "WITH expired AS (
+                SELECT j.id FROM free_pack_jobs j
+                JOIN free_pack_activation_jobs a ON a.pack_job_id=j.id
+                WHERE j.status='succeeded' AND a.status='running'
+                  AND a.attempts>=8 AND a.locked_until<=clock_timestamp()
+                ORDER BY j.id FOR UPDATE OF j SKIP LOCKED LIMIT 32
+             )
+             UPDATE free_pack_activation_jobs a
              SET status='failed',locked_until=NULL,completed_at=clock_timestamp(),
                  updated_at=clock_timestamp(),failure_code='retry_budget_exhausted'
-             WHERE status='running' AND attempts>=8
-               AND locked_until<=clock_timestamp()",
+             FROM expired e WHERE a.pack_job_id=e.id
+               AND a.status='running' AND a.attempts>=8
+               AND a.locked_until<=clock_timestamp()",
         )
         .execute(&mut *tx)
         .await
@@ -175,9 +185,9 @@ impl PgFreePackCatalog {
         Ok(affected.rows_affected() == 1)
     }
 
-    /// Only the current activation epoch may settle an attempt. This does
-    /// NOT itself authorize active CAS: a future B cutover must also fence
-    /// the activation epoch within the same pointer transaction.
+    /// Only the current activation epoch may settle a failed attempt. No
+    /// ordinary code can report Completed: ONLY B's same-transaction
+    /// all-member pointer CAS may mark an activation succeeded.
     pub async fn settle_pack_activation(
         &self,
         claim: &PackActivationClaim,
@@ -187,18 +197,6 @@ impl PgFreePackCatalog {
             return Err(AuthorError::Invalid);
         }
         let affected = match disposition {
-            ActivationDisposition::Completed => sqlx::query(
-                "UPDATE free_pack_activation_jobs
-                 SET status='succeeded',locked_until=NULL,completed_at=clock_timestamp(),
-                     updated_at=clock_timestamp(),failure_code=NULL
-                 WHERE pack_job_id=$1 AND lease_epoch=$2 AND status='running'
-                   AND locked_until>clock_timestamp()",
-            )
-            .bind(claim.pack.job_id)
-            .bind(claim.activation_epoch)
-            .execute(&self.pool)
-            .await
-            .map_err(map_error)?,
             ActivationDisposition::Terminal => sqlx::query(
                 "UPDATE free_pack_activation_jobs
                  SET status='failed',locked_until=NULL,completed_at=clock_timestamp(),
