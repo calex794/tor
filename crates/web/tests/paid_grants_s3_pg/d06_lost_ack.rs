@@ -75,3 +75,28 @@ pub(super) fn assert_retry_preserves_evidence(
         "retry must not duplicate purchase, entitlement or wallet entry"
     );
 }
+
+pub(super) async fn assert_purchase_list_bound_to_buyer(
+    app: &Router,
+    chapter: i64,
+    purchase_id: i64,
+    buyer_cookie: &str,
+    stranger_cookie: &str,
+) {
+    let stranger_list = private_get(app, "/me/purchases", Some(stranger_cookie)).await;
+    assert_eq!(stranger_list.status(), StatusCode::OK);
+    assert!(
+        !html_body(stranger_list)
+            .await
+            .contains(&format!("purchase_id={purchase_id}")),
+        "another account cannot enumerate purchases"
+    );
+    let owned_list = private_get(app, "/me/purchases", Some(buyer_cookie)).await;
+    assert_eq!(owned_list.status(), StatusCode::OK);
+    assert_eq!(owned_list.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(owned_list.headers()[header::REFERRER_POLICY], "no-referrer");
+    assert_eq!(owned_list.headers()["x-robots-tag"], "noindex");
+    assert!(html_body(owned_list)
+        .await
+        .contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
+}
