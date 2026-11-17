@@ -2,6 +2,10 @@
 
 **Offline only; no S3 access, VPS deployment, database, migrations or automatic backfill.**
 
+First library-based pilot (55 distinct book covers, Pillow/libwebp proxy):
+[cover-webp-55-cover-pilot-20261118.md](cover-webp-55-cover-pilot-20261118.md).
+It is not an exact Rust worker benchmark and does not authorize historical backfill.
+
 After the v2 lossy WebP recipe (#1017) and the G-05b read-only metadata inventory,
 the next required evidence is **representative cover quality and encoder cost**.
 A single attractive book cover does not establish an average saving for 100,000 books.
