@@ -427,6 +427,26 @@ impl PgLayers {
         if public_books == 0 {
             return Err(LayerError::Inaccessible);
         }
+        // Ordinary deletion does not revoke historical Layer entitlements.
+        // But a newly purchased composition must not include a retired Book
+        // in immutable per-Book revenue snapshots. Require a new composition
+        // revision that excludes it before debiting any buyer's wallet.
+        // B deletion and D checkout serialize on the Book SHARE lock above.
+        let contains_retired: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM commerce_layer_version_books vb
+                JOIN books b ON b.id=vb.book_id
+                WHERE vb.layer_version_id=$1
+                  AND b.lifecycle_status IN ('pending_deletion','ordinary_deleted')
+            )",
+        )
+        .bind(cmd.version.get())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        if contains_retired {
+            return Err(LayerError::Inaccessible);
+        }
         let kind: String = offer
             .try_get("term_kind")
             .map_err(|_| LayerError::Unavailable)?;
