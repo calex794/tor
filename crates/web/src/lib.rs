@@ -65,6 +65,8 @@ pub mod free_author_publish;
 #[cfg(feature = "s3-free")]
 pub mod free_pack_gateway;
 #[cfg(feature = "s3-free")]
+pub mod free_pack_http;
+#[cfg(feature = "s3-free")]
 pub mod free_pack_planner;
 #[cfg(feature = "s3-free")]
 pub mod free_pack_worker;

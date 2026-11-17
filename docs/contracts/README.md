@@ -55,3 +55,4 @@
 - [DROP-04a: direct PACK staged receipt](tor-store-drop04a-pack-direct-stage.md): approved bulk source directly to verified seekable PACK and immutable leased B stage, no SINGLE or live publication.
 
 - [DROP-04b: atomic direct PACK import finalizer](tor-store-drop04b-atomic-direct-finalizer.md): B fenced all-or-nothing immutable PACK batch materialization and preserved S349 publication guard, not live worker cutover.
+- [DROP-06a active FREE PACK Range](tor-store-drop06a-active-free-pack-range.md): isolated C-authorized HTTP source of one active verified immutable edition, no live route, no whole-PACK URL.

@@ -132,6 +132,118 @@ impl PgFreeS3Ref {
     }
 }
 
+/// DROP-06a: the *same C authorization* as S349, but for a bodyless FREE
+/// edition whose active physical generation is an immutable verified PACK.
+/// This path must never require a fictional SINGLE receipt, nor authorize a
+/// candidate PACK that has not been made the exact active edition.
+impl PgFreeS3Ref {
+    pub async fn for_active_pack_session(
+        &self,
+        chapter_id: i64,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<FreeS3Ref>, sqlx::Error> {
+        if chapter_id <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT g.chapter_id,g.version_id,g.content_sha256 AS sha256,
+                    g.size_bytes,pack.bucket
+             FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_publications pub ON pub.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=pub.version_id
+             JOIN free_edition_active_storage a
+               ON a.chapter_id=v.chapter_id AND a.version_id=v.id
+             JOIN free_edition_storage_generations g
+               ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+              AND g.generation=a.generation AND g.placement_kind='pack'
+              AND g.content_sha256=v.content_sha256
+             JOIN free_storage_packs pack ON pack.id=g.pack_id
+             WHERE c.id=$1 AND c.visibility='public'
+               AND c.access_level='free' AND c.price_amount=0
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic' OR EXISTS (
+                   SELECT 1 FROM sessions sess
+                   JOIN users acct ON acct.id=sess.user_id
+                   WHERE sess.token_hash=$2::bytea AND sess.revoked_at IS NULL
+                     AND sess.expires_at>now() AND acct.account_state='active'
+                     AND (
+                       (b.access_level='adult' AND acct.adult_enabled)
+                       OR
+                       (b.access_level='pro_adult' AND EXISTS (
+                         SELECT 1 FROM user_level_grants ag
+                         WHERE ag.user_id=acct.id AND ag.level='pro_adult'
+                           AND ag.is_active
+                       ))
+                     )
+               ))",
+        )
+        .bind(chapter_id)
+        .bind(session_digest.map(|digest| digest.as_slice()))
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(decode).transpose()
+    }
+
+    /// Saved historical FREE V1: pinned identity plus the SAME saved age,
+    /// deletion and moderation policy as for_saved_session. An arbitrary
+    /// version parameter is not sufficient, and anonymous mode is refused.
+    pub async fn for_saved_active_pack_session(
+        &self,
+        chapter: i64,
+        version: i64,
+        digest: Option<&[u8; 32]>,
+    ) -> Result<Option<FreeS3Ref>, sqlx::Error> {
+        let Some(digest) = digest else {
+            return Ok(None);
+        };
+        if chapter <= 0 || version <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT g.chapter_id,g.version_id,g.content_sha256 AS sha256,
+                    g.size_bytes,pack.bucket
+             FROM reader_saved_free_chapters pin
+             JOIN chapters c ON c.id=pin.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN users u ON u.id=pin.user_id AND u.account_state='active'
+             JOIN sessions sess ON sess.user_id=u.id AND sess.token_hash=$3::bytea
+               AND sess.revoked_at IS NULL AND sess.expires_at>now()
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=pin.version_id
+             JOIN free_edition_active_storage a
+               ON a.chapter_id=v.chapter_id AND a.version_id=v.id
+             JOIN free_edition_storage_generations g
+               ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+              AND g.generation=a.generation AND g.placement_kind='pack'
+              AND g.content_sha256=v.content_sha256
+             JOIN free_storage_packs pack ON pack.id=g.pack_id
+             WHERE pin.chapter_id=$1 AND pin.version_id=$2
+               AND c.visibility='public' AND c.access_level='free'
+               AND c.price_amount=0
+               AND b.visibility_status='active' AND NOT b.admin_hold
+               AND NOT b.is_deleted AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion'
+                 OR (b.lifecycle_status='ordinary_deleted'
+                   AND b.ordinary_deleted_at IS NOT NULL))
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND u.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants ug
+                   WHERE ug.user_id=u.id AND ug.level='pro_adult'
+                     AND ug.is_active)))",
+        )
+        .bind(chapter)
+        .bind(version)
+        .bind(digest.as_slice())
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(decode).transpose()
+    }
+}
+
 fn decode(row: sqlx::postgres::PgRow) -> Result<FreeS3Ref, sqlx::Error> {
     let digest: Vec<u8> = row.try_get("sha256")?;
     let sha256: [u8; 32] = digest
