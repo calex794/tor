@@ -80,6 +80,7 @@ pub(super) async fn page(
             access_level: match chapter.access {
                 LayerTocAccess::Subscription => "layer",
                 LayerTocAccess::PublicFree => "free",
+                LayerTocAccess::ArchivedFree => "archived_free",
             },
         })
         .collect();
