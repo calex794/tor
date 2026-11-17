@@ -209,9 +209,16 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        post(&app, &token, &csrf, 'B', "/api/v1/purchases/batch", batch.clone())
-            .await
-            .status(),
+        post(
+            &app,
+            &token,
+            &csrf,
+            'B',
+            "/api/v1/purchases/batch",
+            batch.clone()
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(finance(&pool, buyer).await, (1000, 0, 0, 0));
@@ -224,9 +231,23 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     let single = post(&app, &token, &csrf, 'A', "/api/v1/purchases", one.clone()).await;
     assert_eq!(single.status(), StatusCode::OK);
     assert_eq!(json_body(single).await["replayed"], false);
-    let several = post(&app, &token, &csrf, 'B', "/api/v1/purchases/batch", batch.clone()).await;
+    let several = post(
+        &app,
+        &token,
+        &csrf,
+        'B',
+        "/api/v1/purchases/batch",
+        batch.clone(),
+    )
+    .await;
     assert_eq!(several.status(), StatusCode::OK);
-    assert_eq!(json_body(several).await["purchases"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        json_body(several).await["purchases"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     assert_eq!(finance(&pool, buyer).await, (700, 3, 3, 3));
 
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
