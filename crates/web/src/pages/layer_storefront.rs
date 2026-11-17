@@ -221,6 +221,30 @@ pub fn purchased_page(terms: &[LayerTermCard], paid_reader_available: bool) -> H
         } else {
             format!("С {} · бессрочно", escape_html(&term.starts_utc))
         };
+        let mut archived_books = String::new();
+        if !term.archived_books.is_empty() {
+            archived_books.push_str("<div class=\"layer-term-archive\" data-layer-archive><strong>Сохранённые книги</strong><ul>");
+            for book in &term.archived_books {
+                let title = escape_html(&book.title);
+                if paid_reader_available && term.state == "active" {
+                    write!(
+                        archived_books,
+                        "<li data-layer-archived-book-id=\"{}\"><a href=\"/read/layer/{}\">{title}</a> <span>Удалена с сайта</span></li>",
+                        book.book_id,
+                        book.chapter_id
+                    )
+                    .expect("write owned Layer archive entry");
+                } else {
+                    write!(
+                        archived_books,
+                        "<li data-layer-archived-book-id=\"{}\">{title} <span>Удалена с сайта</span></li>",
+                        book.book_id
+                    )
+                    .expect("write owned Layer archive label");
+                }
+            }
+            archived_books.push_str("</ul></div>");
+        }
         let read_link = match (paid_reader_available, term.first_readable_chapter) {
             (true, Some(chapter_id)) if term.state == "active" => {
                 format!(
@@ -238,6 +262,7 @@ pub fn purchased_page(terms: &[LayerTermCard], paid_reader_available: bool) -> H
              <p class=\"layer-term-card__price\">{}</p>
              <a class=\"ui-button ui-button--ghost\" href=\"/layers/{}\">Открыть пакет</a>
              {read_link}
+             {archived_books}
              </article>",
             term.term_id,
             rubles(term.price_minor),
@@ -331,11 +356,21 @@ mod tests {
             expires_utc: Some("28.11.2026 12:00".into()),
             state: "active".into(),
             first_readable_chapter: Some(111),
+            archived_books: vec![tor_commerce::repositories::layer_storefront::ArchivedLayerBook {
+                book_id: 79,
+                title: "Архивная <книга>".into(),
+                chapter_id: 222,
+            }],
         };
         let enabled = purchased_page(&[term.clone()], true).0;
         assert!(enabled.contains("href=\"/read/layer/111\""));
         assert!(enabled.contains("Читать главу"));
         assert!(enabled.contains("Мой &lt;пакет&gt;"));
+        assert!(enabled.contains("data-layer-archived-book-id=\"79\""));
+        assert!(enabled.contains("/read/layer/222"));
+        assert!(enabled.contains("Архивная &lt;книга&gt;"));
+        assert!(enabled.contains("Удалена с сайта"));
+        assert!(!enabled.contains("Архивная <книга>"));
         assert!(!enabled.contains("<пакет>"));
         assert!(!purchased_page(&[term.clone()], false)
             .0
