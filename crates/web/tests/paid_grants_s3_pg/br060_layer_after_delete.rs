@@ -199,7 +199,7 @@ pub(super) async fn after_deletion(
     assert_eq!(
         private_get(
             app,
-            &format!("/api/v1/reader/layer/{chapter}/toc/window?limit=36"),
+            &format!("/api/v1/reader/layer/{chapter}/toc/window?after=1.{chapter}&limit=36"),
             Some(&active.cookie),
         )
         .await
