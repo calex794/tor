@@ -786,8 +786,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .await
         .unwrap();
     assert!(matches!(
-        repo.activate_verified_pack(job, epoch, &receipt)
-            .await,
+        repo.activate_verified_pack(job, epoch, &receipt).await,
         Err(AuthorError::Conflict)
     ));
     let empty: i64 = sqlx::query_scalar(
@@ -809,8 +808,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
 
     assert!(matches!(
-        repo.activate_verified_pack(job, epoch - 1, &receipt)
-            .await,
+        repo.activate_verified_pack(job, epoch - 1, &receipt).await,
         Err(AuthorError::Conflict)
     ));
     let mut fake = receipt.clone();
@@ -887,8 +885,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
     assert!(switched);
     assert!(matches!(
-        repo.activate_verified_pack(job, epoch, &receipt)
-            .await,
+        repo.activate_verified_pack(job, epoch, &receipt).await,
         Err(AuthorError::Conflict)
     ));
     let second_generation: i64 = sqlx::query_scalar(
