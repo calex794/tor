@@ -127,26 +127,22 @@ impl PgFreeObservedClassifier {
 mod tests {
     use super::*;
 
-    #[test]
-    fn validation_denies_duplicate_untrusted_and_oversized_pages() {
+    #[tokio::test]
+    async fn validation_denies_duplicate_untrusted_and_oversized_pages() {
+        // SQLx's lazy pool needs a Tokio runtime even when validation rejects
+        // before issuing a query. This test never contacts PostgreSQL.
         let pool = PgPool::connect_lazy("postgresql://127.0.0.1:5432/none")
             .expect("construct only; never connects to external PG");
         let classifier = PgFreeObservedClassifier::new(pool);
-        let result = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                classifier
-                    .classify_page(
-                        "tor-private-free",
-                        &[
-                            "private/free-chapters/1/1.md".to_owned(),
-                            "private/free-chapters/1/1.md".to_owned(),
-                        ],
-                    )
-                    .await
-            });
+        let result = classifier
+            .classify_page(
+                "tor-private-free",
+                &[
+                    "private/free-chapters/1/1.md".to_owned(),
+                    "private/free-chapters/1/1.md".to_owned(),
+                ],
+            )
+            .await;
         assert_eq!(result, Err(FreeInventoryError::Invalid));
     }
 }
