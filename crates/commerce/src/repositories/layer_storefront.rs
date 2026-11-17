@@ -348,7 +348,12 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
              AND (b.visibility='public' OR
                   (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL))
              AND (b.lifecycle_status<>'ordinary_deleted' OR
-                  t.purchased_at<b.ordinary_deleted_at)
+                  t.purchased_at<COALESCE((
+                      SELECT req.requested_at
+                      FROM book_ordinary_deletion_requests req
+                      WHERE req.book_id=b.id
+                        AND req.request_revision=b.lifecycle_revision-1
+                  ),b.ordinary_deleted_at))
              AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              AND (
                b.access_level='basic'
