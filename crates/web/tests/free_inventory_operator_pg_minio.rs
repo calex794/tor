@@ -6,11 +6,12 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
 };
-use std::{env, time::{SystemTime, UNIX_EPOCH}};
-use tor_books::repositories::{free_inventory_cycles::InventoryNamespace, PgCatalog};
-use tor_web::free_pack_worker::inventory_operator::{
-    OperatorObservedScanner, OperatorScanStep,
+use std::{
+    env,
+    time::{SystemTime, UNIX_EPOCH},
 };
+use tor_books::repositories::{free_inventory_cycles::InventoryNamespace, PgCatalog};
+use tor_web::free_pack_worker::inventory_operator::{OperatorObservedScanner, OperatorScanStep};
 
 #[tokio::test]
 #[ignore = "requires isolated disposable PG18/tor_ci and loopback MinIO"]
@@ -52,15 +53,21 @@ async fn drop_07d_one_observed_page_commits_unknown_counts_without_gc() {
             .unwrap();
     }
     let catalog = PgCatalog::connect(&url).await.unwrap();
-    let operator = OperatorObservedScanner::new(
-        &catalog,
-        s3.clone(),
-        BUCKET.to_owned(),
-    ).unwrap();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    let response = operator.run_one(InventoryNamespace::Single, now).await.unwrap();
+    let operator = OperatorObservedScanner::new(&catalog, s3.clone(), BUCKET.to_owned()).unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let response = operator
+        .run_one(InventoryNamespace::Single, now)
+        .await
+        .unwrap();
     let cycle_id = match response {
-        OperatorScanStep::Completed { cycle_id, page_index, counters } => {
+        OperatorScanStep::Completed {
+            cycle_id,
+            page_index,
+            counters,
+        } => {
             assert_eq!(page_index, 1);
             assert_eq!(counters.inspected, 2);
             assert_eq!(counters.registered, 0);
@@ -79,12 +86,14 @@ async fn drop_07d_one_observed_page_commits_unknown_counts_without_gc() {
     .await
     .unwrap();
     assert_eq!(counted, ("completed".to_owned(), 1, 2, 2));
-    assert!(s3
-        .get_object()
-        .bucket(BUCKET)
-        .key("private/free-chapters/70007/70001.md")
-        .send()
-        .await
-        .is_ok(), "operator evidence must preserve source bytes");
+    assert!(
+        s3.get_object()
+            .bucket(BUCKET)
+            .key("private/free-chapters/70007/70001.md")
+            .send()
+            .await
+            .is_ok(),
+        "operator evidence must preserve source bytes"
+    );
     println!("DROP07D_PG_MINIO_OPERATOR_PASS: single bounded LIST+PG classification, fenced checkpoint, unknown never GC");
 }
