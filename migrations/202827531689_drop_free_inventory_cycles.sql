@@ -40,8 +40,9 @@ CREATE UNIQUE INDEX free_inventory_one_running_cycle
     ON free_storage_inventory_cycles(bucket,direction,namespace)
     WHERE status='running';
 
-CREATE TRIGGER free_inventory_cycles_no_delete
-    BEFORE DELETE ON free_storage_inventory_cycles
+CREATE TRIGGER free_inventory_cycles_scope_immutable
+    BEFORE UPDATE OF bucket,direction,namespace OR DELETE
+    ON free_storage_inventory_cycles
     FOR EACH ROW EXECUTE FUNCTION reject_free_chapter_storage_change();
 
 COMMENT ON TABLE free_storage_inventory_cycles IS
