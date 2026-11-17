@@ -560,7 +560,10 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
             .fetch_one(&f.pool)
             .await
             .unwrap();
-    assert!(first_readable, "the paid grant fixture must pass live S020 ACL");
+    assert!(
+        first_readable,
+        "the paid grant fixture must pass live S020 ACL"
+    );
 
     exposure
         .record(
