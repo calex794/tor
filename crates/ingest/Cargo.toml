@@ -10,6 +10,8 @@ s3 = ["dep:aws-sdk-s3"]
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 fast_image_resize = "3"
+# libwebp provides lossy WebP; image 0.25 only provides a lossless encoder.
+webp = { version = "0.3.1", default-features = false }
 async-trait.workspace = true
 sqlx.workspace = true
 serde_json = "1"
