@@ -277,8 +277,7 @@ async fn d_02_pro_grant_revocation_committed_before_grant_lock_prevents_charge()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_02_wallet_row_must_precede_age_row_for_swap_lock_order() {
-    let (pool, buyer, book, chapter, version) =
-        fixture("adult_wallet_user_order", 900, 100).await;
+    let (pool, buyer, book, chapter, version) = fixture("adult_wallet_user_order", 900, 100).await;
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -334,13 +333,11 @@ async fn d_02_wallet_row_must_precede_age_row_for_swap_lock_order() {
     // while the checkout is waiting for the wallet. If the checkout had
     // locked users SHARE first, NOWAIT would fail deterministically.
     let mut age_probe = pool.begin().await.unwrap();
-    let user: i64 = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT",
-    )
-    .bind(buyer)
-    .fetch_one(&mut *age_probe)
-    .await
-    .expect("buyer age lock must not precede the wallet");
+    let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT")
+        .bind(buyer)
+        .fetch_one(&mut *age_probe)
+        .await
+        .expect("buyer age lock must not precede the wallet");
     assert_eq!(user, buyer);
     age_probe.rollback().await.unwrap();
 
