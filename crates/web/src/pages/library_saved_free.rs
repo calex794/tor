@@ -360,9 +360,14 @@ fn saved_free_reader_internal(
     }
 
     let s3 = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
+    let pack_attr = if s3 && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1") {
+        " data-free-pack-reader=\"1\""
+    } else {
+        ""
+    };
     if s3 {
         let token = if chapter.ordinary_deleted { csrf } else { "" };
-        progress_attributes=format!("id=\"chapter-text\" data-free-s3-chapter=\"{}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-s3-saved=\"1\" data-free-s3-archive=\"{}\"",chapter.chapter_id,chapter.version_id,escape_html(token),if chapter.ordinary_deleted {"1"}else{"0"});
+        progress_attributes=format!("id=\"chapter-text\" data-free-s3-chapter=\"{}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-s3-saved=\"1\" data-free-s3-archive=\"{}\"{pack_attr}",chapter.chapter_id,chapter.version_id,escape_html(token),if chapter.ordinary_deleted {"1"}else{"0"});
         if let Some(place) = chapter.saved_place {
             write!(
                 progress_attributes,
@@ -371,7 +376,17 @@ fn saved_free_reader_internal(
             )
             .expect("saved source position");
         }
-        body=format!("<p role=\"status\">Загружаем сохранённую редакцию…</p><noscript><a href=\"/api/v1/chapters/{}/free-grant?mode=saved&amp;version_id={}&amp;format=source\">Открыть текст без JavaScript</a></noscript>",chapter.chapter_id,chapter.version_id);
+        let source = if pack_attr.is_empty() {
+            "free-grant"
+        } else {
+            "free-source"
+        };
+        let format_arg = if pack_attr.is_empty() {
+            "&amp;format=source"
+        } else {
+            ""
+        };
+        body=format!("<p role=\"status\">Загружаем сохранённую редакцию…</p><noscript><a href=\"/api/v1/chapters/{}/{source}?mode=saved&amp;version_id={}{format_arg}\">Открыть текст без JavaScript</a></noscript>",chapter.chapter_id,chapter.version_id);
         script = "<script defer src=\"/assets/newboo-free-s3-reader.js\"></script>".to_owned();
     }
     let resume = if chapter

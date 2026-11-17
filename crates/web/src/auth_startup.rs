@@ -28,8 +28,45 @@ pub struct AuthInputs {
     >,
 }
 
+/// DROP-06b runtime composition stays outside the 600-line main entrypoint.
+/// Default OFF; no background worker, live migration, or unpublished PACK grant.
+#[cfg(feature = "s3-free")]
+async fn configured_pack_reader_routes(
+    input: &AuthInputs,
+) -> Result<Option<axum::Router>, Box<dyn Error>> {
+    let enabled = match env::var("TOR_FREE_PACK_READER_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_FREE_PACK_READER_ENABLED must be 0 or 1".into()),
+    };
+    if !enabled {
+        return Ok(None);
+    }
+    if env::var_os("DATABASE_URL").is_none()
+        || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
+        || env::var("TOR_DEMO_MODE").as_deref() == Ok("1")
+    {
+        return Err("DROP-06b reader requires authenticated PostgreSQL".into());
+    }
+    let author = input
+        .free_author
+        .as_ref()
+        .ok_or("DROP-06b reader requires configured FREE S3 publisher")?;
+    let (_, bucket) = author.reader_store();
+    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let client = aws_sdk_s3::Client::new(&config);
+    Ok(Some(tor_web::free_pack_http::router(
+        input.accounts.clone(),
+        input.secure,
+        input.origin.clone(),
+        client,
+        bucket,
+    )?))
+}
+
 impl AuthInputs {
-    pub fn router(self) -> Result<axum::Router, Box<dyn Error>> {
+    pub async fn router(self) -> Result<axum::Router, Box<dyn Error>> {
         #[cfg(feature = "s3-free")]
         {
             let free_routes = self
@@ -49,14 +86,24 @@ impl AuthInputs {
                     .map_err(|error| -> Box<dyn Error> { error.into() })
                 })
                 .transpose()?;
+            let pack_routes = configured_pack_reader_routes(&self).await?;
             let base = self.router_base()?;
-            Ok(match free_routes {
+            let app = match free_routes {
                 Some(routes) => base.merge(tor_web::instrument_additional_routes(routes)),
                 None => base,
+            };
+            Ok(match pack_routes {
+                Some(routes) => app.merge(tor_web::instrument_additional_routes(routes)),
+                None => app,
             })
         }
         #[cfg(not(feature = "s3-free"))]
-        self.router_base()
+        {
+            if env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1") {
+                return Err("DROP-06b reader requires --features s3-free".into());
+            }
+            self.router_base()
+        }
     }
 
     fn router_base(self) -> Result<axum::Router, Box<dyn Error>> {

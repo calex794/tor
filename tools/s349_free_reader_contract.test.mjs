@@ -62,13 +62,35 @@ async function runCase(options = {}) {
     ...options.grant,
   };
   const actual = options.received || bytes;
+  const plan = {
+    schema: "tor.free-source-plan.v1", chapter_id: "101", version_id: "201",
+    transport: options.transport || "gateway", sha256: sha(bytes), size_bytes: bytes.length,
+    ...options.plan,
+  };
   let storageResponse;
   const fetch = async (url, config) => {
     events.requests.push({ url: String(url), config });
-    if (String(url).startsWith("/api/")) {
+    if (String(url).includes("/free-source-plan")) {
+      return new Response(options.planText ?? JSON.stringify(plan), {
+        status: options.planStatus || 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (String(url).includes("/free-grant")) {
       return new Response(options.grantText ?? JSON.stringify(grant), {
         status: options.grantStatus || 200,
         headers: { "content-type": "application/json" },
+      });
+    }
+    if (String(url).includes("/free-pack-source")) {
+      return new Response(options.received || bytes, {
+        status: options.packStatus || 200,
+        headers: {
+          "content-type": options.packContentType || "text/plain; charset=utf-8",
+          "x-tor-free-version-id": options.packVersion || "201",
+          "x-tor-free-sha256": options.packHash || sha(bytes),
+          "x-tor-free-size": String(options.packSize ?? bytes.length),
+        },
       });
     }
     if (options.neverResponds) {
@@ -272,4 +294,71 @@ test("a stalled provider is aborted instead of keeping the loading view forever"
 test("missing reader or invalid identity never touches the network", async () => {
   assert.equal((await runCase({ absent: true })).requests.length, 0);
   assert.equal((await runCase({ invalidIdentity: true, dataset: { freeS3Chapter: "../private" } })).requests.length, 0);
+});
+
+
+test("DROP-06b: selected PACK reads one authorized chapter without SINGLE grants", async () => {
+  const result = await runCase({ dataset: { freePackReader: "1" } });
+  assert.equal(result.failed, false);
+  assert.equal(result.requests.length, 2);
+  assert.equal(result.requests[0].url, "/api/v1/chapters/101/free-source-plan");
+  assert.equal(result.requests[1].url, "/api/v1/chapters/101/free-pack-source");
+  assert.ok(result.requests.every(request => request.config.credentials === "same-origin"));
+  assert.equal(result.article.textContent, "Chapter ASecond paragraph");
+});
+
+test("DROP-06b: saved V1 uses same pin-scoped plan and exact PACK frame", async () => {
+  const result = await runCase({ dataset: { freePackReader: "1", freeS3Saved: "1" } });
+  assert.equal(result.failed, false);
+  assert.equal(result.requests[0].url,
+    "/api/v1/chapters/101/free-source-plan?mode=saved&version_id=201");
+  assert.equal(result.requests[1].url,
+    "/api/v1/chapters/101/free-pack-source?mode=saved&version_id=201");
+});
+
+test("DROP-06b: selected SINGLE remains signed and is checked against source plan", async () => {
+  const result = await runCase({ dataset: { freePackReader: "1" }, transport: "signed-single" });
+  assert.equal(result.failed, false);
+  assert.equal(result.requests.length, 3);
+  assert.ok(result.requests[1].url.endsWith("/free-grant"));
+  assert.equal(result.requests[2].url, objectURL);
+});
+
+for (const [name, overrides] of [
+  ["plan denied", { planStatus: 404 }],
+  ["wrong planned version", { plan: { version_id: "202" } }],
+  ["wrong planned hash", { plan: { sha256: "f".repeat(64) } }],
+  ["malformed planned hash", { plan: { sha256: "bad" } }],
+  ["unapproved transport", { plan: { transport: "whole-pack-url" } }],
+  ["PACK unavailable", { packStatus: 503 }],
+  ["PACK version mismatch", { packVersion: "202" }],
+  ["PACK hash mismatch", { packHash: "f".repeat(64) }],
+  ["PACK length mismatch", { packSize: 200000 }],
+  ["PACK corrupt bytes", { received: Buffer.from("invalid-other-bytes") }],
+]) {
+  test(`DROP-06b: ${name} fails closed without SINGLE fallback`, async () => {
+    const result = await runCase({ dataset: { freePackReader: "1" }, ...overrides });
+    assertDenied(result, ["plan denied", "wrong planned version", "malformed planned hash",
+      "unapproved transport"].includes(name) ? 1 : 2);
+    assert.ok(result.requests.every(request => !request.url.includes("/free-grant")));
+    assert.ok(result.requests.every(request => !request.url.startsWith("https://")));
+  });
+}
+
+test("DROP-06b: selected SINGLE grant must match immutable plan", async () => {
+  const result = await runCase({
+    dataset: { freePackReader: "1" },
+    transport: "signed-single",
+    grant: { sha256: "f".repeat(64) },
+  });
+  assertDenied(result, 2);
+});
+
+test("DROP-06b: 50,000 astral symbols preserve UTF-16 progress offsets", async () => {
+  const result = await runCase({
+    dataset: { freePackReader: "1" }, text: "😀".repeat(50000), csrf: "x".repeat(43),
+  });
+  assert.equal(result.failed, false);
+  assert.equal(result.article.textContent.length, 100000);
+  assert.equal(result.article.dataset.freeProgressVersion, "201");
 });

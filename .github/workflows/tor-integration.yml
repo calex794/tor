@@ -1833,6 +1833,8 @@ jobs:
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           node --check tools/s035_contiguous_paid_browser.cjs
           node --check tools/paid_reader_private_media_browser.cjs
+          node --check tools/drop_06b_pack_chromium.cjs
+          node tools/drop_06b_pack_chromium.cjs
           cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/layer_reader_minio_chromium_e2e.cjs
@@ -1841,6 +1843,8 @@ jobs:
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_private_media_browser.cjs
+          # free_author_s3_pg includes the DROP-04b/06b PG18+MinIO cases;
+          # do not rerun the same fixed-identity fixtures in this database.
           TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()

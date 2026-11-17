@@ -20,7 +20,8 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 436);
+    // DROP-06b adds a separately reviewed, C-authorized source-plan route.
+    assert_eq!(unique.len(), 438);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;

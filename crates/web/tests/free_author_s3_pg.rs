@@ -146,6 +146,14 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         ENDPOINT.to_owned(),
     )
     .unwrap();
+    let pack_routes = tor_web::free_pack_http::router(
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        client.clone(),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth_free_s3(
         catalog,
         PgReader::new(pool.clone()),
@@ -154,7 +162,8 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         None,
         publisher,
     )
-    .merge(tor_web::instrument_additional_routes(grants));
+    .merge(tor_web::instrument_additional_routes(grants))
+    .merge(tor_web::instrument_additional_routes(pack_routes));
     let (app, traffic) = traffic::instrument(app, MARKER);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
         .await
@@ -270,6 +279,47 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     println!("S349_NETWORK no_javascript={no_js}");
 
     assert!(read["direct_s3_gets"].as_u64().unwrap() >= 1);
+    // DROP-06b no-JS transport-neutral URL: an active SINGLE must remain
+    // an explicitly reauthorized signed SINGLE, never an invented PACK.
+    let no_js_single = http
+        .get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-source"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_js_single.status().as_u16(), 303);
+    assert_eq!(
+        no_js_single
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        format!("/api/v1/chapters/{chapter}/free-grant?format=source")
+    );
+    let signed_single = http
+        .get(format!(
+            "{ORIGIN}/api/v1/chapters/{chapter}/free-grant?format=source"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(signed_single.status().as_u16(), 303);
+    let signed_location = signed_single
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        signed_location.starts_with(ENDPOINT),
+        "signed SINGLE uses the verified S3 origin"
+    );
+    let signed_bytes = http.get(signed_location).send().await.unwrap();
+    assert_eq!(signed_bytes.status().as_u16(), 200);
+    assert_eq!(
+        signed_bytes.bytes().await.unwrap().as_ref(),
+        MARKDOWN.as_bytes()
+    );
     let grant_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant");
     pg(
         &url,
@@ -278,6 +328,16 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     assert_eq!(
         http.get(&grant_url).send().await.unwrap().status().as_u16(),
         404
+    );
+    assert_eq!(
+        http.get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-source"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        404,
+        "a held SINGLE must not retain its no-JS redirect"
     );
     pg(&url,&format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({owner},'administrator',true)"));
     let admin = browser(json!({"mode":"read","admin":true,"origin":ORIGIN,

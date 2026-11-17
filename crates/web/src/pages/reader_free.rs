@@ -135,14 +135,17 @@ pub fn reader_with_public_discussions(
         .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
         .unwrap_or_default();
     let s3_reader = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
+    let pack_reader =
+        s3_reader && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1");
     let progress = if s3_reader {
         ProgressView {
-            html: format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{}/free-grant?format=source\">Открыть текст без JavaScript</a></noscript>",chapter_id.unwrap_or(0)),
+            html: format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{}/{}\">Открыть текст без JavaScript</a></noscript>", chapter_id.unwrap_or(0), if pack_reader { "free-source" } else { "free-grant?format=source" }),
             attributes: chapter_id.map_or_else(String::new, |id| {
                 format!(
-                    "data-free-s3-chapter=\"{id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\"",
+                    "data-free-s3-chapter=\"{id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\"{}",
                     chapter.version_id,
-                    escape_html(csrf.unwrap_or(""))
+                    escape_html(csrf.unwrap_or("")),
+                    if pack_reader { " data-free-pack-reader=\"1\"" } else { "" }
                 )
             }),
             subtitle: "Бесплатная глава. Можно читать без регистрации.",
