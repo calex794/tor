@@ -66,8 +66,7 @@ impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker
     }
 
     async fn process_claim(&self, claim: &CoverClaim) -> Result<bool, CoverError> {
-        if (claim.recipe_version != RECIPE_VERSION
-            && claim.recipe_version != LEGACY_RECIPE_VERSION)
+        if (claim.recipe_version != RECIPE_VERSION && claim.recipe_version != LEGACY_RECIPE_VERSION)
             || !(1..=MAX_SOURCE_BYTES as i64).contains(&claim.source_size)
         {
             return Err(CoverError::Invalid);
@@ -88,9 +87,9 @@ impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker
             let images = tokio::task::spawn_blocking(move || {
                 process_cover_with_recipe(&source, &mime, &recipe)
             })
-                .await
-                .map_err(|_| CoverError::Unavailable)?
-                .map_err(|_| CoverError::Invalid)?;
+            .await
+            .map_err(|_| CoverError::Unavailable)?
+            .map_err(|_| CoverError::Invalid)?;
             if images.len() != 2 {
                 return Err(CoverError::Invalid);
             }
