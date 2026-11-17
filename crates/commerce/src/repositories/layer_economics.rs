@@ -36,12 +36,28 @@ pub(crate) async fn preflight_term_economics(
         .map_err(|_| LayerError::Unavailable)?;
         previous.unwrap_or(base_version)
     };
-    // All historical Book rows are already SHARE-locked by checkout.
-    // Never debit a buyer for a composition containing a Book whose owner
-    // has requested ordinary deletion. A new sale must use a clean current
-    // version; historical paid terms keep their immutable pre-deletion rights.
-    // Inspect the entire origin..base interval: a continuous prepaid renewal
-    // must not accidentally allocate new money to an already retired Book.
+    // A new quote must not charge readers for a Book the owner has removed.
+    // Inspect ONLY the new public composition here. An uninterrupted prepaid
+    // renewal may still legitimately pay for archived Books acquired in an
+    // earlier immutable version of the same Layer.
+    let retired_in_current: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM commerce_layer_version_books vb
+             JOIN books b ON b.id=vb.book_id
+             WHERE vb.layer_version_id=$1
+               AND b.lifecycle_status IN ('pending_deletion','ordinary_deleted')
+         )",
+    )
+    .bind(base_version)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| LayerError::Unavailable)?;
+    if retired_in_current {
+        return Err(LayerError::Inaccessible);
+    }
+    // All inherited Books are already SHARE-locked. A moderation or legal
+    // block still forbids a new financial commitment, but ordinary creator
+    // deletion does not erase archival rights from an active term.
     let unavailable: bool = sqlx::query_scalar(
         "SELECT EXISTS(
              SELECT 1 FROM commerce_layer_versions origin
@@ -51,8 +67,7 @@ pub(crate) async fn preflight_term_economics(
              JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
              JOIN books b ON b.id=vb.book_id
              WHERE origin.id=$1 AND base.id=$2 AND origin.layer_id=$3
-               AND (b.admin_hold OR b.is_deleted OR b.visibility_status<>'active'
-                    OR b.lifecycle_status IN ('pending_deletion','ordinary_deleted'))
+               AND (b.admin_hold OR b.is_deleted OR b.visibility_status<>'active')
          )",
     )
     .bind(origin_version)
