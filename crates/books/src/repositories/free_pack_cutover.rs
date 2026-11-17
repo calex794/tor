@@ -92,7 +92,7 @@ impl PgFreePackCatalog {
         let approved: Vec<u8> = column(&job, "approved_fingerprint")?;
         let count: i32 = column(&job, "expected_chapter_count")?;
         if epoch != expected_epoch
-            || approved != fingerprint
+            || approved.as_slice() != fingerprint.as_slice()
             || count as usize != verified.frames.len()
         {
             return Err(AuthorError::Conflict);
@@ -216,6 +216,9 @@ impl PgFreePackCatalog {
             .map_err(db_error)?;
             let next = candidate.ok_or(AuthorError::Conflict)?;
 
+            // Ordinary S349 SINGLE publications have NO active pointer.
+            // An absent pointer means the verified original SINGLE is active;
+            // first promotion inserts a PACK pointer with expected generation 0.
             let active = sqlx::query(
                 "SELECT a.generation,g.placement_kind,g.pack_id,
                         g.content_sha256,g.size_bytes
@@ -230,23 +233,27 @@ impl PgFreePackCatalog {
             .bind(frame.version_id)
             .fetch_optional(&mut *tx)
             .await
-            .map_err(db_error)?
-            .ok_or(AuthorError::Conflict)?;
-            let current: i64 = column(&active, "generation")?;
-            let kind: String = column(&active, "placement_kind")?;
-            let active_pack: Option<i64> = column(&active, "pack_id")?;
-            let active_hash: Vec<u8> = column(&active, "content_sha256")?;
-            let active_size: i64 = column(&active, "size_bytes")?;
-            if active_hash != frame.content_sha256 || active_size != frame.size_bytes as i64 {
-                return Err(AuthorError::Conflict);
-            }
-
-            if kind == "pack" && current == next && active_pack == Some(pack_id) {
-                already += 1;
-            } else if kind == "single" && current < next && active_pack.is_none() {
-                swaps.push((frame.chapter_id, frame.version_id, current, next));
+            .map_err(db_error)?;
+            if let Some(active) = active {
+                let current: i64 = column(&active, "generation")?;
+                let kind: String = column(&active, "placement_kind")?;
+                let active_pack: Option<i64> = column(&active, "pack_id")?;
+                let active_hash: Vec<u8> = column(&active, "content_sha256")?;
+                let active_size: i64 = column(&active, "size_bytes")?;
+                if active_hash.as_slice() != frame.content_sha256.as_slice()
+                    || active_size != frame.size_bytes as i64
+                {
+                    return Err(AuthorError::Conflict);
+                }
+                if kind == "pack" && current == next && active_pack == Some(pack_id) {
+                    already += 1;
+                } else if kind == "single" && current < next && active_pack.is_none() {
+                    swaps.push((frame.chapter_id, frame.version_id, current, next));
+                } else {
+                    return Err(AuthorError::Conflict);
+                }
             } else {
-                return Err(AuthorError::Conflict);
+                swaps.push((frame.chapter_id, frame.version_id, 0, next));
             }
         }
 
@@ -264,19 +271,19 @@ impl PgFreePackCatalog {
         }
 
         for (chapter, version, old, next) in swaps {
-            let changed = sqlx::query(
-                "UPDATE free_edition_active_storage
-                 SET generation=$4,changed_at=clock_timestamp()
-                 WHERE chapter_id=$1 AND version_id=$2 AND generation=$3",
+            // The R2 SQL helper performs first-insert or fenced monotone
+            // UPDATE under the edition lock; a lost race aborts all rows.
+            let changed: bool = sqlx::query_scalar(
+                "SELECT promote_free_edition_storage($1,$2,$3,$4)",
             )
             .bind(chapter)
             .bind(version)
             .bind(old)
             .bind(next)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await
             .map_err(db_error)?;
-            if changed.rows_affected() != 1 {
+            if !changed {
                 return Err(AuthorError::Conflict);
             }
         }
