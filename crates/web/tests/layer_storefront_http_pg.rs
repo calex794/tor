@@ -619,5 +619,51 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         .await
         .contains(book_title));
 
+    // This test has Layer pages explicitly enabled, unlike the MinIO
+    // delivery fixture. Verify the real actor-scoped HTML projection and
+    // escaping after an ordinary creator deletion. The S034 suite exercises
+    // the separate owner step-up and site-moderator approval HTTP workflow.
+    let request_revision = pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='pending_deletion',
+                    lifecycle_revision=lifecycle_revision+1,visibility='draft'
+             WHERE id={book} RETURNING lifecycle_revision"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO book_ordinary_deletion_requests
+             (book_id,request_revision,owner_user_id,
+              previous_lifecycle_status,previous_visibility)
+             VALUES({book},{request_revision},{author},'in_progress','public')
+             RETURNING book_id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',
+                    lifecycle_revision=lifecycle_revision+1,
+                    ordinary_deleted_at=clock_timestamp()
+             WHERE id={book} RETURNING id"
+        ),
+    );
+    let archive_reply = get(&app, "/me/library/layers", Some(&buyer_token)).await;
+    assert_eq!(archive_reply.status(), StatusCode::OK);
+    let archive_html = html(archive_reply).await;
+    assert!(archive_html.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
+    assert!(archive_html.contains("Удалена с сайта"));
+    assert!(archive_html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!archive_html.contains("<script>alert(1)</script>"));
+    let anonymous = html(get(&app, "/me/library/layers", None).await).await;
+    assert!(!anonymous.contains("data-layer-archived-book-id"));
+    let unrelated = html(get(&app, "/me/library/layers", Some(&stranger_token)).await).await;
+    assert!(!unrelated.contains("data-layer-archived-book-id"));
+    assert!(!unrelated.contains("Удалена с сайта"));
+    let storefront_after_delete = html(get(&app, &path, None).await).await;
+    assert!(!storefront_after_delete.contains(book_title));
+
     pool.close().await;
 }

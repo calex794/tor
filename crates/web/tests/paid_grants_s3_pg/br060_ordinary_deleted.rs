@@ -224,6 +224,7 @@ pub(super) async fn verify(
         StatusCode::NOT_FOUND,
         "the owner request hides the Book before review",
     );
+    super::br060_layer_after_delete::while_pending(app, chapter, &active_layer).await;
     assert_eq!(
         moderated_form(
             app,
