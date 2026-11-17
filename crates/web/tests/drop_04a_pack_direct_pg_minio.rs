@@ -569,5 +569,99 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             && String::from_utf8_lossy(&invalid.stderr).contains("S349/DROP:"),
         "the S349/DROP guard must reject bodyless free editions without proof"
     );
+
+    // DROP-06a: only the independently mounted HTTP router is under test.
+    // A PACK-direct edition has no SINGLE grant; C authorizes the exact
+    // active generation after the book is explicitly made public/basic.
+    pg(&url, &format!(
+        "UPDATE books SET visibility='public',access_level='basic' WHERE id={book}"
+    ));
+    let c = tor_reading::repositories::free_s3_ref::PgFreeS3Ref::new(pool.clone());
+    for frame in &receipt.frames {
+        let authorized = c.for_active_pack_session(frame.chapter_id, None)
+            .await.unwrap().unwrap();
+        assert_eq!(authorized.version_id, frame.version_id);
+        assert_eq!(authorized.sha256, frame.content_sha256);
+        assert_eq!(authorized.bucket, BUCKET);
+        assert!(c.for_session(frame.chapter_id, None).await.unwrap().is_none(),
+            "PACK-direct has no SINGLE to presign");
+    }
+    use axum::{body::{to_bytes, Body}, http::{Request, StatusCode}};
+    use tower::ServiceExt;
+    let app = tor_web::free_pack_http::router(
+        tor_accounts::repositories::PgAccounts::from_pool(pool.clone()),
+        false,
+        "http://127.0.0.1:3098".into(),
+        client.clone(),
+        BUCKET.into(),
+    ).unwrap();
+
+    for (index, frame) in receipt.frames.iter().enumerate() {
+        let uri = format!(
+            "/api/v1/chapters/{}/free-pack-source", frame.chapter_id
+        );
+        let response = app.clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(response.headers()["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(
+            response.headers()["x-tor-free-version-id"],
+            frame.version_id.to_string()
+        );
+        let bytes = to_bytes(response.into_body(), 200_001).await.unwrap();
+        assert_eq!(bytes.as_ref(), chapters[index].body.as_bytes(),
+            "only exact requested Unicode chapter bytes; never the neighbor");
+        let actual: [u8; 32] = Sha256::digest(&bytes).into();
+        assert_eq!(actual, frame.content_sha256);
+    }
+
+    let uri = format!(
+        "/api/v1/chapters/{}/free-pack-source", receipt.frames[0].chapter_id
+    );
+    let saved = app.clone().oneshot(
+        Request::builder()
+            .uri(format!("{uri}?mode=saved&version_id={}",
+                receipt.frames[0].version_id))
+            .body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(saved.status(), StatusCode::NOT_FOUND,
+        "a client-selected V1 without saved pin cannot grant any packed frame");
+
+    let arbitrary_range = app.clone().oneshot(
+        Request::builder().uri(&uri).header("Range","bytes=0-9999999")
+            .body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(arbitrary_range.status(), StatusCode::BAD_REQUEST,
+        "the client cannot obtain any arbitrary adjacent frame or entire PACK");
+
+    let external = app.clone().oneshot(
+        Request::builder().uri(&uri).header("sec-fetch-site","cross-site")
+            .body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(external.status(), StatusCode::FORBIDDEN);
+
+    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    let held = app.clone().oneshot(
+        Request::builder().uri(&uri).body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(held.status(), StatusCode::NOT_FOUND);
+    pg(&url, &format!(
+        "UPDATE books SET admin_hold=false,access_level='adult' WHERE id={book}"
+    ));
+    let adult = app.clone().oneshot(
+        Request::builder().uri(&uri).body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(adult.status(), StatusCode::NOT_FOUND,
+        "anonymous users cannot read restricted PACK editions");
+    pg(&url, &format!(
+        "UPDATE books SET access_level='basic',visibility='draft' WHERE id={book}"
+    ));
+    let hidden = app.clone().oneshot(
+        Request::builder().uri(&uri).body(Body::empty()).unwrap()
+    ).await.unwrap();
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
     pool.close().await;
 }
