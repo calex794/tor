@@ -80,8 +80,7 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
     assert_eq!(second_page.next_token, None);
 
     const PACK_KEY: &str = "private/free-packs/ci/drop07-list-immutable.zst";
-    const MANIFEST_KEY: &str =
-        "private/free-packs/ci/drop07-list-immutable.manifest.json";
+    const MANIFEST_KEY: &str = "private/free-packs/ci/drop07-list-immutable.manifest.json";
     for name in [PACK_KEY, MANIFEST_KEY] {
         client
             .put_object()
@@ -97,14 +96,19 @@ async fn drop_07a_actual_bytes_are_verified_without_missing_or_gc_claims() {
         .await
         .unwrap();
     assert_eq!(packed.listed.len(), 2);
-    assert!(packed.listed.iter().any(|entry| entry.object_key == PACK_KEY));
+    assert!(packed
+        .listed
+        .iter()
+        .any(|entry| entry.object_key == PACK_KEY));
     assert!(packed
         .listed
         .iter()
         .any(|entry| entry.object_key == MANIFEST_KEY));
     assert!(packed.next_token.is_none());
     assert_eq!(
-        lister.list_page(BUCKET, FreeListNamespace::Pack, None, 129).await,
+        lister
+            .list_page(BUCKET, FreeListNamespace::Pack, None, 129)
+            .await,
         Err(StorageError::Invalid)
     );
 
