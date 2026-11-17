@@ -3,6 +3,7 @@
 //! The B-approved offline pack builder/writer is never exposed to HTTP actors.
 
 pub mod activation;
+pub mod inventory_dry_run;
 pub mod runner;
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;

@@ -3,6 +3,8 @@ pub mod free_chapter_s3;
 #[cfg(feature = "s3")]
 pub mod free_expected_inventory_s3;
 #[cfg(feature = "s3")]
+pub mod free_inventory_list_s3;
+#[cfg(feature = "s3")]
 pub mod free_pack_proof_s3;
 #[cfg(feature = "s3")]
 pub mod free_pack_range_s3;

@@ -36,7 +36,7 @@ pub struct PgFreeExpectedInventory {
     pool: PgPool,
 }
 
-fn valid_bucket(value: &str) -> bool {
+pub(super) fn valid_bucket(value: &str) -> bool {
     let b = value.as_bytes();
     (3..=63).contains(&b.len())
         && b[0].is_ascii_lowercase()
@@ -46,7 +46,7 @@ fn valid_bucket(value: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
-fn valid_cursor(value: &str) -> bool {
+pub(super) fn valid_cursor(value: &str) -> bool {
     value.len() <= 260
         && value.starts_with("private/free-")
         && !value.contains("//")

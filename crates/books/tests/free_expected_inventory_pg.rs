@@ -2,9 +2,12 @@
 //! Never contacts a real provider or changes storage placement.
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 use tor_books::{
     repositories::{
         free_expected_inventory::{FreeObjectKind, PgFreeExpectedInventory},
+        free_observed_reconcile::{FreeReferenceState, PgFreeObservedClassifier},
+        free_pack_attach::PgFreePackCatalog,
         free_s3_publish::PgFreeS3Publication,
     },
     services::authoring::{save_chapter, SaveChapterRequest},
@@ -94,6 +97,65 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
         seen.push((entry.kind, entry.object_key.clone()));
         cursor = page.next_after_key;
     }
+    // DROP-07b: A pending R4a job protects its destination PACK and sidecar
+    // even before the worker uploads either object. Unknown is never orphan.
+    let pending_key = format!("private/free-packs/ci/drop07-{book}-pending.zst");
+    let pending_manifest = pending_key.replace(".zst", ".manifest.json");
+    let planned = PackPlacementReceipt {
+        target: PackPlacementTarget {
+            bucket: bucket.clone(),
+            pack_key: pending_key.clone(),
+            manifest_key: pending_manifest.clone(),
+            pack_sha256: [21; 32],
+            manifest_sha256: [22; 32],
+            pack_bytes: 1000,
+            manifest_bytes: 512,
+            seek_table_start: 900,
+        },
+        frames: vec![PackPlacementFrame {
+            chapter_id: edition.chapter_id,
+            version_id: edition.version_id,
+            content_sha256: digest,
+            size_bytes: content.len() as u64,
+            frame_offset: 0,
+            frame_bytes: 80,
+        }],
+    };
+    let job_catalog = PgFreePackCatalog::new(pool.clone());
+    job_catalog.schedule_pack_job(actor, book, &planned).await.unwrap();
+
+    let source_key = format!(
+        "private/free-chapters/{}/{}.md",
+        edition.chapter_id, edition.version_id
+    );
+    let unknown_key = format!("private/free-packs/ci/drop07-{book}-unregistered.zst");
+    let observed = [
+        source_key.clone(),
+        pack_key.clone(),
+        manifest_key.clone(),
+        pending_key.clone(),
+        pending_manifest.clone(),
+        unknown_key.clone(),
+    ];
+    let observations = PgFreeObservedClassifier::new(pool.clone())
+        .classify_page(&bucket, &observed)
+        .await
+        .unwrap();
+    assert_eq!(observations.len(), observed.len());
+    let state = |key: &str| {
+        observations
+            .iter()
+            .find(|item| item.object_key == key)
+            .map(|item| item.state)
+    };
+    for name in [&source_key, &pack_key, &manifest_key] {
+        assert_eq!(state(name), Some(FreeReferenceState::Registered));
+    }
+    for name in [&pending_key, &pending_manifest] {
+        assert_eq!(state(name), Some(FreeReferenceState::ProtectedPending));
+    }
+    assert_eq!(state(&unknown_key), Some(FreeReferenceState::Unknown));
+
     assert_eq!(seen.len(), 3);
     assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Single));
     assert!(seen.iter().any(|(kind, _)| *kind == FreeObjectKind::Pack));
