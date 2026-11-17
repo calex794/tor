@@ -131,6 +131,8 @@ jobs:
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
           TOR_COVER_WORKER_ENABLED: '1'
+          TOR_COVER_LOSSY_WEBP_ENABLED: '1'
+          TOR_COVER_EXPECT_LOSSY_WEBP: '1'
           TOR_AUTH_ENABLED: '1'
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
           TOR_LISTEN_ADDR: 127.0.0.1:3098
