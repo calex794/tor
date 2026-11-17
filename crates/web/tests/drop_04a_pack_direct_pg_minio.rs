@@ -18,14 +18,13 @@ use tor_books::{
 };
 use tor_imports::{domain::ChapterImportClaim, repositories::postgres::PgImportJobs};
 use tor_storage::{
+    domain::provider::StorageError,
     repositories::{
         free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore,
         free_pack_write_s3::S3FreePackWriter,
     },
-    domain::provider::StorageError,
     services::{
-        free_chapter::FreeChapterObject,
-        free_pack_read::PackFrameStore,
+        free_chapter::FreeChapterObject, free_pack_read::PackFrameStore,
         free_placement::ValidatedPackReference,
     },
 };
@@ -44,16 +43,12 @@ struct RevokeAfterRange {
 
 #[async_trait::async_trait]
 impl PackFrameStore for RevokeAfterRange {
-    async fn fetch_frame(
-        &self,
-        frame: &ValidatedPackReference,
-    ) -> Result<Vec<u8>, StorageError> {
+    async fn fetch_frame(&self, frame: &ValidatedPackReference) -> Result<Vec<u8>, StorageError> {
         let bytes = self.store.fetch_frame(frame).await?;
         pg(&self.database, &self.statement);
         Ok(bytes)
     }
 }
-
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));
@@ -813,7 +808,8 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             Request::builder()
                 .uri(format!(
                     "/api/v1/chapters/{}/free-source-plan?mode=saved&version_id={}",
-                    first.chapter_id, first.version_id + 1
+                    first.chapter_id,
+                    first.version_id + 1
                 ))
                 .header("cookie", format!("tor-dev-session={session}"))
                 .body(Body::empty())
@@ -826,9 +822,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     // After a real S3 Range read, revoke publication with an admin hold.
     // The exact bytes must be discarded by the independent PostgreSQL recheck.
     let revoke_book = RevokeAfterRange {
-        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(
-            client.clone(),
-        ),
+        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(client.clone()),
         database: url.clone(),
         statement: format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     };
@@ -842,13 +836,14 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     )
     .await;
     assert!(matches!(after_hold, Err(StorageError::Invalid)));
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
 
     // A session revoked after the real MinIO fetch cannot recover saved V1.
     let revoke_session = RevokeAfterRange {
-        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(
-            client.clone(),
-        ),
+        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(client.clone()),
         database: url.clone(),
         statement: format!(
             "UPDATE sessions SET revoked_at=now()
