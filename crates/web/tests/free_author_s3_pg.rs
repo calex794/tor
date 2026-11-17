@@ -288,11 +288,18 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .unwrap();
     assert_eq!(no_js_single.status().as_u16(), 303);
     assert_eq!(
-        no_js_single.headers().get("location").unwrap().to_str().unwrap(),
+        no_js_single
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         format!("/api/v1/chapters/{chapter}/free-grant?format=source")
     );
     let signed_single = http
-        .get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant?format=source"))
+        .get(format!(
+            "{ORIGIN}/api/v1/chapters/{chapter}/free-grant?format=source"
+        ))
         .send()
         .await
         .unwrap();
@@ -303,10 +310,16 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .unwrap()
         .to_str()
         .unwrap();
-    assert!(signed_location.starts_with(ENDPOINT), "signed SINGLE uses the verified S3 origin");
+    assert!(
+        signed_location.starts_with(ENDPOINT),
+        "signed SINGLE uses the verified S3 origin"
+    );
     let signed_bytes = http.get(signed_location).send().await.unwrap();
     assert_eq!(signed_bytes.status().as_u16(), 200);
-    assert_eq!(signed_bytes.bytes().await.unwrap().as_ref(), MARKDOWN.as_bytes());
+    assert_eq!(
+        signed_bytes.bytes().await.unwrap().as_ref(),
+        MARKDOWN.as_bytes()
+    );
     let grant_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant");
     pg(
         &url,
@@ -318,7 +331,11 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     );
     assert_eq!(
         http.get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-source"))
-            .send().await.unwrap().status().as_u16(),
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
         404,
         "a held SINGLE must not retain its no-JS redirect"
     );
