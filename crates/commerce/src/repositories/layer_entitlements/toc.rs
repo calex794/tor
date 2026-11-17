@@ -102,7 +102,7 @@ impl PgLayerChapterEntitlements {
              JOIN books b ON b.id=c.book_id
              JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
              WHERE anchor.id=$2
-               AND (b.visibility='public' OR
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' OR
                     (b.lifecycle_status='ordinary_deleted'
                      AND b.ordinary_deleted_at IS NOT NULL))
                AND b.visibility_status='active'
