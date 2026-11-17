@@ -30,10 +30,10 @@ use tor_storage::{
 };
 use tor_web::free_author_publish::PgFreeAuthorPublisher;
 
-#[path = "drop_04a_pack_direct_pg_minio/v1_v2_transport.rs"]
-mod v1_v2_transport;
 #[path = "drop_04a_pack_direct_pg_minio/pack_editor.rs"]
 mod pack_editor;
+#[path = "drop_04a_pack_direct_pg_minio/v1_v2_transport.rs"]
+mod v1_v2_transport;
 
 const BUCKET: &str = "tor-drop-direct-stage-ci";
 const ENDPOINT: &str = "http://127.0.0.1:9000";
@@ -990,7 +990,10 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap();
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
-    pg(&url, &format!("UPDATE books SET visibility='public' WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility='public' WHERE id={book}"),
+    );
     pack_editor::verify(&url, &client, actor, book, &first, &chapters).await;
     pool.close().await;
 }
