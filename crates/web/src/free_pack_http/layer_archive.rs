@@ -32,10 +32,7 @@ fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
             .is_some_and(|value| cookies.valid_csrf(headers, value))
 }
 
-async fn actor(
-    state: &PackHttpState,
-    headers: &HeaderMap,
-) -> Result<PositiveId, StatusCode> {
+async fn actor(state: &PackHttpState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
     let token = state
         .cookies
         .session_token(headers)
@@ -182,11 +179,14 @@ pub(super) async fn read_pack(
     );
     for (name, value) in [
         ("x-tor-free-version-id", edition.version_id().to_string()),
-        ("x-tor-free-sha256", edition
-            .sha256()
-            .iter()
-            .map(|octet| format!("{octet:02x}"))
-            .collect::<String>()),
+        (
+            "x-tor-free-sha256",
+            edition
+                .sha256()
+                .iter()
+                .map(|octet| format!("{octet:02x}"))
+                .collect::<String>(),
+        ),
         ("x-tor-free-size", edition.size_bytes().to_string()),
     ] {
         let Ok(value) = HeaderValue::from_str(&value) else {
@@ -218,7 +218,10 @@ mod tests {
         let mut headers = HeaderMap::new();
         let csrf = "A".repeat(43);
         headers.insert(header::ORIGIN, cookies.origin.parse().unwrap());
-        headers.insert(header::COOKIE, format!("tor-dev-csrf={csrf}").parse().unwrap());
+        headers.insert(
+            header::COOKIE,
+            format!("tor-dev-csrf={csrf}").parse().unwrap(),
+        );
         headers.insert("x-csrf-token", csrf.parse().unwrap());
         assert!(csrf_valid(&cookies, &headers));
         headers.insert(header::ORIGIN, "https://evil.example.test".parse().unwrap());
