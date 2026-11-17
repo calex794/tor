@@ -278,5 +278,8 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
          old_version_preserved={old_preserved} exact_old_version_removed={old_removed} \
          current_newer_version_preserved={newer_preserved}"
     );
-    assert!(accepted, "real provider exact-version deletion acceptance failed");
+    assert!(
+        accepted,
+        "real provider exact-version deletion acceptance failed"
+    );
 }
