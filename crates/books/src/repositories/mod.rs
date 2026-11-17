@@ -11,6 +11,7 @@ pub mod free_pack_cutover;
 pub mod free_pack_jobs;
 pub mod free_pack_planner;
 pub mod free_pack_reader;
+pub mod free_pack_rollback;
 pub mod free_pack_sources;
 pub mod free_s3_publish;
 pub mod personal_books;
