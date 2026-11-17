@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 438] = [
+static ROUTES: [RouteRegistration; 441] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -448,6 +448,9 @@ static ROUTES: [RouteRegistration; 438] = [
     RouteRegistration::new("/api/v1/chapters/{id}/free-pack-source", "GET", "/api/v1/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 435
     RouteRegistration::new("/api/v1/chapters/{id}/free-source-plan", "GET", "/api/v1/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 436
     RouteRegistration::new("/api/v1/chapters/{id}/free-source", "GET", "/api/v1/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 437
+    RouteRegistration::new("/read/layer/free/{id}", "GET", "/read/layer/", Prefix, Page, Reading, CostClass::ExpensiveRead), // 438
+    RouteRegistration::new("/api/v1/reader/layer/free/{id}/grant", "POST", "/api/v1/reader/layer/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 439
+    RouteRegistration::new("/assets/newboo-layer-free-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 440
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
