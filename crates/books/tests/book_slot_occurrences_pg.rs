@@ -1,5 +1,8 @@
 //! S058: book-slot claims must be durable, exclusive, and revision-fenced.
 //! Writes are allowed only against disposable tor_ci.
+#[path = "support/s058_fixture_guard.rs"]
+mod s058_fixture_guard;
+
 use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::PgAuthoring,
@@ -23,6 +26,7 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.expect("disposable postgres");
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES('s058-occurrence-owner@tor-ci.example','S058 Owner','$argon2id$test')
@@ -160,18 +164,8 @@ async fn s058_global_queue_skips_locked_book_then_claims_it_after_rollback() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
 
-    // A previous interrupted run may have left only this test's fixtures due.
-    // Clean up our own namespace, never other tests' or production schedules.
-    sqlx::query(
-        "UPDATE book_delayed_publication_settings s
-         SET enabled=FALSE FROM books b
-         WHERE b.id=s.book_id AND b.source_identity
-           LIKE 'tor-ci:s058-queue-stress:%' AND s.enabled",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES('s058-queue-stress@tor-ci.example','S058 queue','$argon2id$test')

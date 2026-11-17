@@ -1,5 +1,8 @@
 //! S058: B-06 chapter release and book schedule slot must commit together.
 //! Every writing test runs only on disposable /tor_ci PostgreSQL.
+#[path = "support/s058_fixture_guard.rs"]
+mod s058_fixture_guard;
+
 use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::{
@@ -90,7 +93,9 @@ async fn slot_test_pool() -> (PgPool, sqlx::PgConnection) {
         .execute(&mut lock)
         .await
         .unwrap();
-    (PgPool::connect(&url).await.unwrap(), lock)
+    let pool = PgPool::connect(&url).await.unwrap();
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
+    (pool, lock)
 }
 
 #[tokio::test]

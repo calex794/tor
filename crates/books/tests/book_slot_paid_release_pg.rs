@@ -1,5 +1,8 @@
 //! S058 paid book-level cadence: prepared ciphertext is not a publication.
 //! Database tests run only against disposable tor_ci PostgreSQL.
+#[path = "support/s058_fixture_guard.rs"]
+mod s058_fixture_guard;
+
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgPool};
 use tor_books::{
@@ -22,7 +25,9 @@ async fn test_pool() -> (PgPool, sqlx::PgConnection) {
         .execute(&mut lock)
         .await
         .unwrap();
-    (PgPool::connect(&url).await.unwrap(), lock)
+    let pool = PgPool::connect(&url).await.unwrap();
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
+    (pool, lock)
 }
 
 async fn ready_object(

@@ -1,5 +1,8 @@
 //! S058: first invisible chapter wins; terminal blocked/empty are durable.
 //! Only disposable /tor_ci PostgreSQL may be modified.
+#[path = "support/s058_fixture_guard.rs"]
+mod s058_fixture_guard;
+
 use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::{book_delayed_schedule::BookSlotFrontier, PgAuthoring},
@@ -99,6 +102,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
     let (author, owner, book) = owner_and_book(&pool, "blocked").await;
     let two = author
         .create_pending_free_chapter(owner, &chapter(book, 2, "Вторая", &fixture_key(book, 2)))
@@ -250,6 +254,7 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
     let (author, owner, book) = owner_and_book(&pool, "empty").await;
     author
         .replace_book_delayed_schedule(
