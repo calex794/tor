@@ -22,7 +22,7 @@ pub(super) async fn verify(
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
     assert!(matches!(
-        activate_one_verified_pack(catalog, proof, single, &claim).await,
+        activate_one_verified_pack(catalog, proof, single, claim).await,
         Err(AuthorError::Conflict)
     ));
     let no_active: i64 = pg(
@@ -56,7 +56,7 @@ pub(super) async fn verify(
         .await
         .unwrap();
     assert!(matches!(
-        activate_one_verified_pack(catalog, proof, single, &claim).await,
+        activate_one_verified_pack(catalog, proof, single, claim).await,
         Err(AuthorError::Unavailable)
     ));
     let still_zero: i64 = pg(
@@ -75,8 +75,8 @@ pub(super) async fn verify(
         .unwrap();
 
     let (one, two) = tokio::join!(
-        activate_one_verified_pack(catalog, proof, single, &claim),
-        activate_one_verified_pack(catalog, proof, single, &claim),
+        activate_one_verified_pack(catalog, proof, single, claim),
+        activate_one_verified_pack(catalog, proof, single, claim),
     );
     assert!(matches!(
         (one.unwrap(), two.unwrap()),
@@ -84,7 +84,7 @@ pub(super) async fn verify(
             | (PackActivation::AlreadyActive, PackActivation::Activated)
     ));
     assert_eq!(
-        activate_one_verified_pack(catalog, proof, single, &claim)
+        activate_one_verified_pack(catalog, proof, single, claim)
             .await
             .unwrap(),
         PackActivation::AlreadyActive,
@@ -106,7 +106,7 @@ pub(super) async fn verify(
         active_pack, 2,
         "both editions activate in one PG transaction"
     );
-    for (chapter, version, _) in &editions {
+    for (chapter, version, _) in editions {
         let original_single: i64 = pg(
             url,
             &format!(
