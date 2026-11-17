@@ -123,15 +123,20 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(payloads, vec![(reader, v2, "reader.chapter.updated".into())]);
-    let complete: bool = sqlx::query_scalar(
-        "SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid",
-    )
-    .bind(&root)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(complete, "the revision root is acknowledged only after fanout");
+    assert_eq!(
+        payloads,
+        vec![(reader, v2, "reader.chapter.updated".into())]
+    );
+    let complete: bool =
+        sqlx::query_scalar("SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid")
+            .bind(&root)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        complete,
+        "the revision root is acknowledged only after fanout"
+    );
     assert_eq!(notifications.deliver_pending(1).await.unwrap(), 1);
     assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
     let private_bell: (String, String) = sqlx::query_as(
@@ -142,7 +147,10 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(private_bell, ("chapter_updated".into(), format!("/reader/{chapter}")));
+    assert_eq!(
+        private_bell,
+        ("chapter_updated".into(), format!("/reader/{chapter}"))
+    );
     let too_late: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM user_notifications
          WHERE recipient_user_id=$1 AND kind='chapter_updated'",
@@ -179,7 +187,11 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(notifications.list(reader, None, 10).await.unwrap().is_empty());
+    assert!(notifications
+        .list(reader, None, 10)
+        .await
+        .unwrap()
+        .is_empty());
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -193,7 +205,11 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
         .await
         .unwrap();
     assert!(
-        notifications.list(reader, None, 10).await.unwrap().is_empty(),
+        notifications
+            .list(reader, None, 10)
+            .await
+            .unwrap()
+            .is_empty(),
         "an unfollow hides the private V2 notice immediately"
     );
     pool.close().await;
