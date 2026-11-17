@@ -254,7 +254,8 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     let initial_updates = http(&app, "GET", "/me/library?view=updates", &reader_cookie, "", ORIGIN)
         .await;
     assert_eq!(initial_updates.0, StatusCode::OK);
-    assert!(initial_updates.1.contains("Новых глав пока нет"));
+    assert!(!initial_updates.1.contains("RET01 New chapter"));
+    assert!(!initial_updates.1.contains("История первая"));
 
     // An owner Save on this already-public Book creates the next FREE
     // first release. A reader's forged Save cannot publish anything.
