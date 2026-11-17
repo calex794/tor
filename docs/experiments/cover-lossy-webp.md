@@ -12,6 +12,8 @@ The current v1 recipe `newboo-cover-lossless-webp-v1` uses `image::WebPEncoder::
 - New v2 recipe: `tor-cover-webp-lossy-q85-v2`. Opaque covers are encoded with libwebp quality 85. Covers with any non-opaque pixels are encoded losslessly to preserve alpha.
 - Historical v1 jobs remain playable: the worker reads the *recorded* `recipe_version` on every claim and renders v1 using the original lossless encoder. This includes jobs enqueued before a later binary upgrade.
 - **Default off:** `TOR_COVER_LOSSY_WEBP_ENABLED=1` explicitly selects v2 for new book-cover jobs. Absent, `0` or invalid values keep v1. The worker recognizes both recipes irrespective of this variable. Changes to this variable affect only jobs enqueued afterward.
+- `process_cover()` stays on the legacy recipe for direct callers (including Layer/package covers). Only `process_cover_with_recipe()` can select v2; changing ordinary book covers cannot accidentally change package-cover behavior.
+- The real PostgreSQL + S3 + Chromium owner journey explicitly sets the v2 flag and checks that both public variants have a lossy `VP8 ` bitstream, while the image suite tests v1 replay and alpha.
 - Original source objects are still verified and stored as before; old approved WebP objects are **not** automatically rewritten or replaced. The existing private-object lifecycle and CDN invalidation rules are unaffected.
 
 ## Code boundaries
