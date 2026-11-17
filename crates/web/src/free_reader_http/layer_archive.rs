@@ -16,6 +16,16 @@ fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
 }
 
+fn trusted_grant_request(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
+    headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
+        == Some(cookies.origin.as_str())
+        && cookies.same_origin(headers)
+        && headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|token| cookies.valid_csrf(headers, token))
+}
+
 async fn authorized_actor(
     state: &FreeGrantState,
     headers: &HeaderMap,
@@ -172,14 +182,7 @@ pub(super) async fn grant(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-        != Some(state.cookies.origin.as_str())
-        || !state.cookies.same_origin(&headers)
-        || !headers
-            .get("x-csrf-token")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|token| state.cookies.valid_csrf(&headers, token))
-    {
+    if !trusted_grant_request(&state.cookies, &headers) {
         return deny(StatusCode::FORBIDDEN);
     }
     let Ok(chapter) = PositiveId::new(id) else {
@@ -245,5 +248,34 @@ mod tests {
         assert!(!html.contains("purchase_id"));
         assert!(!html.contains("dek_b64u"));
         assert!(html.contains("Удалена с сайта"));
+    }
+
+    #[test]
+    fn signed_layer_free_grant_requires_real_origin_and_double_submit_csrf() {
+        let cookies = super::super::CookiePolicy {
+            secure: false,
+            origin: "https://tor.example.test".to_owned(),
+        };
+        let token = "A".repeat(43);
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, "https://tor.example.test".parse().unwrap());
+        headers.insert("x-csrf-token", token.parse().unwrap());
+        headers.insert(
+            header::COOKIE,
+            format!("tor-dev-csrf={token}").parse().unwrap(),
+        );
+        assert!(trusted_grant_request(&cookies, &headers));
+
+        headers.insert(header::ORIGIN, "https://foreign.example.test".parse().unwrap());
+        assert!(!trusted_grant_request(&cookies, &headers));
+        headers.insert(header::ORIGIN, "https://tor.example.test".parse().unwrap());
+        headers.insert("x-csrf-token", "B".repeat(43).parse().unwrap());
+        assert!(!trusted_grant_request(&cookies, &headers));
+        headers.insert("x-csrf-token", token.parse().unwrap());
+        headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        assert!(!trusted_grant_request(&cookies, &headers));
+        headers.remove("sec-fetch-site");
+        headers.remove(header::ORIGIN);
+        assert!(!trusted_grant_request(&cookies, &headers));
     }
 }
