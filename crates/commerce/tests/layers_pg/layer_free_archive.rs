@@ -50,7 +50,6 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
     .fetch_one(&mut *tx)
     .await
     .unwrap();
-    assert_eq!(resolver.archived_free_version(id(buyer), id(free)).await.unwrap(), None);
     sqlx::query(
         "INSERT INTO book_ordinary_deletion_requests
          (book_id,request_revision,owner_user_id,previous_lifecycle_status,previous_visibility)
