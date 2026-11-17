@@ -32,6 +32,8 @@ use tor_web::free_author_publish::PgFreeAuthorPublisher;
 
 #[path = "drop_04a_pack_direct_pg_minio/pack_editor.rs"]
 mod pack_editor;
+#[path = "drop_04a_pack_direct_pg_minio/layer_archive.rs"]
+mod layer_archive;
 #[path = "drop_04a_pack_direct_pg_minio/v1_v2_transport.rs"]
 mod v1_v2_transport;
 
@@ -995,5 +997,9 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         &format!("UPDATE books SET visibility='public' WHERE id={book}"),
     );
     pack_editor::verify(&url, &client, actor, book, &receipt, &chapters).await;
+    // D-05: the same proven, active, direct-import PACK is now acquired in
+    // a paid Layer, then removed through genuine owner+moderator flows.
+    // No new PACK construction or mocked S3 frame is permitted here.
+    layer_archive::verify(&url, &client, actor, book, &receipt, &chapters).await;
     pool.close().await;
 }
