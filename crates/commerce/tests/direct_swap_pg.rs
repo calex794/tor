@@ -80,8 +80,8 @@ async fn fixture() -> Case {
     let mut books = Vec::new();
     for idx in [1, 2] {
         let book: i64 = sqlx::query_scalar(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES($1,'ru','D-06 swap fixture','public',$2) RETURNING id",
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES($1,'ru','D-06 swap fixture','public',$2,'basic') RETURNING id",
         )
         .bind(format!("ci:d06:swap:{nonce}:{idx}"))
         .bind(owner)
