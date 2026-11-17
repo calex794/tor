@@ -1,6 +1,6 @@
 # DROP-07c — durable, lease-fenced FREE inventory checkpoints
 
-Status: **Draft**, stacked on DROP-07b / [PR #1024](https://github.com/calex794/tor/pull/1024). TOR is greenfield and has no existing catalogue. No historic migration, VPS deployment, live schedule or productive SQL application is authorized.
+Status: **Draft**, based on accepted DROP-07b / [PR #1024](https://github.com/calex794/tor/pull/1024) (merged as `main@8816663d`). TOR is greenfield and has no existing catalogue. No historic migration, VPS deployment, live schedule or productive SQL application is authorized.
 
 ## Why this exists
 
@@ -15,7 +15,7 @@ Migration `202827531689_drop_free_inventory_cycles.sql` creates `free_storage_in
 - cumulative aggregate counters (matched, protected, unknown, mismatched and unverifiable);
 - status `running/completed/failed`, timestamps and bounded failure code;
 - unique partial index that prevents concurrent active cycles in the same scope, even across processes;
-- DELETE guard for immutable audit history.
+- PostgreSQL trigger rejecting DELETE **and any change to bucket, direction or namespace**, so a cursor cannot be reassigned to another private scope.
 
 The PostgreSQL repository `PgFreeInventoryCheckpoints` can claim or recover a cycle, renew an exact unexpired lease, acknowledge exactly one bounded page, or mark an operator-aborted cycle failed. Acknowledgement CAS checks **cycle ID, epoch, expected page index, old cursor and live lease in one transaction** and persists the new cursor and cumulative counts atomically. A lost COMMIT ACK cannot count a page twice; a new claimant resumes the durable cursor after lease expiry. A stale worker cannot renew or append to another worker's cycle. The in-memory cursor advances only after a confirmed PostgreSQL CAS.
 
@@ -31,6 +31,6 @@ The PostgreSQL repository `PgFreeInventoryCheckpoints` can claim or recover a cy
 2. Repeat a full independent inventory pass to address S3 LIST/PG publication races; verify saved V1, any offline backups, incomplete PUTs, pending imported PACKs and retention under a separate protection index. Checkpoint completion alone cannot prove these.
 3. Produce sanitized, compareable, audited dry-run evidence; UNKNOWN remains UNKNOWN regardless of age.
 4. Implement quarantine / retention / quorum and an opt-in, security-reviewed GC only in a subsequent explicit PR. No DELETE in this one.
-5. Exact-head CI 23/23 followed by complete post-merge acceptance. Both PR #1024 and the stacked checkpoint PR must be accepted in order.
+5. Exact-head CI 23/23 followed by complete post-merge acceptance. The accepted #1024 and this independent #1026 must each pass exact-head and post-merge CI.
 
 [Original DROP plan](https://app.notion.com/p/41a32a84beec816db12deb24688716d6).
