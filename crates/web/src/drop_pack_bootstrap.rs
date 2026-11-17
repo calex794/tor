@@ -185,7 +185,6 @@ pub async fn configure_planner(
     )?)
 }
 
-
 /// DROP-05b: only an independently opted-in authenticated runtime may
 /// start the queued active-placement cutover. Separate from the planner,
 /// R4b3 candidate builder and PACK-direct import. Default OFF.
@@ -230,8 +229,7 @@ pub async fn configure_cutover(
 > {
     use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
     use tor_storage::repositories::{
-        free_chapter_s3::S3FreeChapterStore,
-        free_pack_proof_s3::S3PackProofStore,
+        free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore,
     };
 
     let bucket = env::var("TOR_FREE_S3_BUCKET")?;
@@ -246,15 +244,16 @@ pub async fn configure_cutover(
     b.probe_pack_activation_schema()
         .await
         .map_err(|_| "DROP PACK activation schema not migrated")?;
-    Ok(tor_web::free_pack_worker::activation::DropPackActivationWorker::new(
-        b,
-        single,
-        S3PackProofStore::new(client),
-        bucket,
-        120,
-    )?)
+    Ok(
+        tor_web::free_pack_worker::activation::DropPackActivationWorker::new(
+            b,
+            single,
+            S3PackProofStore::new(client),
+            bucket,
+            120,
+        )?,
+    )
 }
-
 
 /// Configure all optional DROP background services at the same authenticated
 /// PG readiness boundary. The independent cutover flag remains default OFF.
@@ -312,8 +311,14 @@ pub fn start_services(
     Option<tokio::task::JoinHandle<()>>,
 ) {
     (
-        services.worker.map(tor_web::free_pack_worker::runner::start_background),
-        services.planner.map(tor_web::free_pack_planner::start_background),
-        services.cutover.map(tor_web::free_pack_worker::activation::start_background),
+        services
+            .worker
+            .map(tor_web::free_pack_worker::runner::start_background),
+        services
+            .planner
+            .map(tor_web::free_pack_planner::start_background),
+        services
+            .cutover
+            .map(tor_web::free_pack_worker::activation::start_background),
     )
 }
