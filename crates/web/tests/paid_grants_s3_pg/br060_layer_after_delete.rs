@@ -297,9 +297,30 @@ pub(super) async fn after_deletion(
         StatusCode::OK,
         "old Layer reader keeps a private paged archive TOC"
     );
-    let old_library =
-        html_body(private_get(app, "/me/library/layers", Some(&active.cookie)).await).await;
-    assert!(old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
+    let old_terms = tor_commerce::repositories::layer_storefront::purchased_terms(
+        active.subscriber,
+        active.accounts.pool(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        old_terms
+            .iter()
+            .any(|term| term.archived_books.iter().any(|entry| entry.book_id == book)),
+        "owned Layer archive must include Book in repository projection: {old_terms:?}"
+    );
+    let library_response =
+        private_get(app, "/me/library/layers", Some(&active.cookie)).await;
+    assert_eq!(
+        library_response.status(),
+        StatusCode::OK,
+        "owned Layer archive page must render successfully"
+    );
+    let old_library = html_body(library_response).await;
+    assert!(
+        old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")),
+        "owned Book archive must be visible in My Packages"
+    );
     assert!(old_library.contains("Удалена с сайта"));
 
     let layer_repo = PgLayers::new(active.accounts.pool().clone());
