@@ -101,7 +101,7 @@ function installLayerToc(root) {
     return item && validId(item.chapter_id) &&
       Number.isSafeInteger(item.chapter_no) && item.chapter_no > 0 &&
       typeof item.title === "string" && item.title.length <= 1000 &&
-      (item.access_level === "layer" || item.access_level === "free");
+      ["layer", "free", "archived_free"].includes(item.access_level);
   }
   function render(item) {
     const row = document.createElement("li");
@@ -112,7 +112,10 @@ function installLayerToc(root) {
     row.dataset.tocNo = String(item.chapter_no);
     row.dataset.tocState = item.access_level;
     const link = document.createElement("a");
-    link.href = (item.access_level === "layer" ? "/read/layer/" : "/reader/") +
+    // An ordinary-deleted FREE book cannot be reopened via public /reader.
+    // The private endpoint requires an old paid Layer origin and frozen V1.
+    link.href = (item.access_level === "layer" ? "/read/layer/" :
+      item.access_level === "archived_free" ? "/read/layer/free/" : "/reader/") +
       item.chapter_id;
     const title = document.createElement("span");
     title.className = "reader-paid__toc-title";
@@ -120,7 +123,8 @@ function installLayerToc(root) {
     const badge = document.createElement("span");
     badge.className = "reader-paid__toc-badge reader-paid__toc-badge--" +
       (item.access_level === "layer" ? "owned" : "free");
-    badge.textContent = item.access_level === "layer" ? "Layer" : "Бесплатно";
+    badge.textContent = item.access_level === "layer" ? "Layer" :
+      item.access_level === "archived_free" ? "Архив Layer" : "Бесплатно";
     link.append(title, badge);
     row.append(link);
     return row;
