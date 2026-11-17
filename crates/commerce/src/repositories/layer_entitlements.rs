@@ -91,12 +91,25 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                                ),b.ordinary_deleted_at))
                           AND (b.lifecycle_status<>'ordinary_deleted'
                                OR (b.ordinary_deleted_at IS NOT NULL
-                                   AND t.purchased_at < COALESCE((
-                                       SELECT req.requested_at
-                                       FROM book_ordinary_deletion_requests req
-                                       WHERE req.book_id=b.id
-                                         AND req.request_revision=b.lifecycle_revision-1
-                                   ),b.ordinary_deleted_at)))
+                                   AND EXISTS (
+                                       SELECT 1 FROM commerce_layer_terms legacy
+                                       WHERE legacy.user_id=t.user_id
+                                         AND legacy.layer_id=t.layer_id
+                                         AND legacy.access_origin_version_id=t.access_origin_version_id
+                                         AND legacy.purchased_at<COALESCE((
+                                             SELECT req.requested_at
+                                             FROM book_ordinary_deletion_requests req
+                                             WHERE req.book_id=b.id
+                                               AND req.request_revision=b.lifecycle_revision-1
+                                         ),b.ordinary_deleted_at)
+                                         AND (legacy.expires_at IS NULL
+                                              OR legacy.expires_at>COALESCE((
+                                                  SELECT req.requested_at
+                                                  FROM book_ordinary_deletion_requests req
+                                                  WHERE req.book_id=b.id
+                                                    AND req.request_revision=b.lifecycle_revision-1
+                                              ),b.ordinary_deleted_at))
+                                   )))
                           AND t.started_at<=now()
                           AND (t.expires_at IS NULL OR t.expires_at>now())
                           AND NOT EXISTS (
