@@ -184,3 +184,73 @@ pub async fn configure_planner(
         PackPlannerPolicy::default(),
     )?)
 }
+
+
+/// DROP-05b: only an independently opted-in authenticated runtime may
+/// start the queued active-placement cutover. Separate from the planner,
+/// R4b3 candidate builder and PACK-direct import. Default OFF.
+pub fn cutover_enabled(demo: bool, worker_enabled: bool) -> Result<bool, &'static str> {
+    let setting = match env::var("TOR_DROP_PACK_CUTOVER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("Invalid DROP cutover setting"),
+    };
+    #[cfg(feature = "s3-free")]
+    {
+        tor_web::free_pack_worker::activation::cutover_opt_in(
+            setting.as_deref(),
+            demo,
+            env::var_os("DATABASE_URL").is_some(),
+            env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+            env::var_os("TOR_FREE_S3_BUCKET").is_some(),
+            env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1"),
+            worker_enabled,
+        )
+    }
+    #[cfg(not(feature = "s3-free"))]
+    {
+        let _ = (demo, worker_enabled);
+        match setting.as_deref() {
+            None | Some("0") => Ok(false),
+            Some("1") => Err("DROP cutover requires --features s3-free"),
+            Some(_) => Err("TOR_DROP_PACK_CUTOVER_ENABLED must be 0 or 1"),
+        }
+    }
+}
+
+/// Only when separately opted in. Do not apply database migrations at startup.
+#[cfg(feature = "s3-free")]
+pub async fn configure_cutover(
+    catalog: &tor_books::repositories::PgCatalog,
+) -> Result<
+    tor_web::free_pack_worker::activation::DropPackActivationWorker<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+    Box<dyn Error>,
+> {
+    use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
+    use tor_storage::repositories::{
+        free_chapter_s3::S3FreeChapterStore,
+        free_pack_proof_s3::S3PackProofStore,
+    };
+
+    let bucket = env::var("TOR_FREE_S3_BUCKET")?;
+    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let client = aws_sdk_s3::Client::new(&config);
+    let single = S3FreeChapterStore::new(client.clone(), bucket.clone())
+        .map_err(|_| "Invalid private DROP activation bucket")?;
+    let b = PgFreePackCatalog::new(catalog.pool().clone());
+    b.probe_pack_worker_schema()
+        .await
+        .map_err(|_| "DROP PACK worker schema not migrated")?;
+    b.probe_pack_activation_schema()
+        .await
+        .map_err(|_| "DROP PACK activation schema not migrated")?;
+    Ok(tor_web::free_pack_worker::activation::DropPackActivationWorker::new(
+        b,
+        single,
+        S3PackProofStore::new(client),
+        bucket,
+        120,
+    )?)
+}
