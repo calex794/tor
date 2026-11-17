@@ -71,3 +71,23 @@ pub async fn upload_one_approved_pack(
         .finish_pack_job(claim.job_id, claim.epoch, &verified.placement_receipt())
         .await
 }
+
+
+/// DROP-05a: internal-only, independently reverified activation of an
+/// already succeeded candidate. Never called by HTTP or a startup loop.
+/// The full G proof and B all-member CAS are deliberately separate; failure
+/// at either boundary leaves every original S349 SINGLE intact.
+pub async fn activate_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    proof: &S3PackProofStore,
+    claim: &PackJobClaim,
+) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    // Reuse the exact R4b1 proof path, including full PACK + manifest readback,
+    // manifest/frame matching and the immutable approved receipt comparison.
+    // For a succeeded R4a job finish_pack_job is an idempotent readback;
+    // it must not create a second physical generation.
+    finalize_one_verified_pack(catalog, proof, claim).await?;
+    catalog
+        .activate_verified_pack(claim.job_id, claim.epoch, &claim.receipt)
+        .await
+}
