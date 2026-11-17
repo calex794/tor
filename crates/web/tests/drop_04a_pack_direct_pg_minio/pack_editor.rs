@@ -192,7 +192,8 @@ pub(super) async fn verify(
         .unwrap()
         .unwrap();
     assert_eq!(saved.version_id, version);
-    assert_eq!(saved.sha256, Sha256::digest(original.as_bytes()).into());
+    let old_digest: [u8; 32] = Sha256::digest(original.as_bytes()).into();
+    assert_eq!(saved.sha256, old_digest);
     println!(
         "DROP04C_PACK_EDITOR_PASS: owner browser V1 PACK -> V2 SINGLE, replay, pin preservation"
     );
