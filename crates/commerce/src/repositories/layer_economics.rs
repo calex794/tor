@@ -36,9 +36,12 @@ pub(crate) async fn preflight_term_economics(
         .map_err(|_| LayerError::Unavailable)?;
         previous.unwrap_or(base_version)
     };
-    // All historical Book rows are already SHARE-locked by the checkout
-    // transaction. Never debit a Layer buyer while any included or inherited
-    // Book is administratively held or deleted.
+    // All historical Book rows are already SHARE-locked by checkout.
+    // Never debit a buyer for a composition containing a Book whose owner
+    // has requested ordinary deletion. A new sale must use a clean current
+    // version; historical paid terms keep their immutable pre-deletion rights.
+    // Inspect the entire origin..base interval: a continuous prepaid renewal
+    // must not accidentally allocate new money to an already retired Book.
     let unavailable: bool = sqlx::query_scalar(
         "SELECT EXISTS(
              SELECT 1 FROM commerce_layer_versions origin
@@ -48,7 +51,8 @@ pub(crate) async fn preflight_term_economics(
              JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
              JOIN books b ON b.id=vb.book_id
              WHERE origin.id=$1 AND base.id=$2 AND origin.layer_id=$3
-               AND (b.admin_hold OR b.is_deleted OR b.visibility_status<>'active')
+               AND (b.admin_hold OR b.is_deleted OR b.visibility_status<>'active'
+                    OR b.lifecycle_status IN ('pending_deletion','ordinary_deleted'))
          )",
     )
     .bind(origin_version)
