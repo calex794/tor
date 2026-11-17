@@ -108,3 +108,31 @@ pub async fn activate_one_verified_pack(
         .activate_verified_pack(claim.job_id, claim.epoch, &claim.receipt)
         .await
 }
+
+/// DROP-05c: explicit operator-only physical recovery. A corrupt or missing
+/// active PACK is NOT a reason for automatic fallback. An operator must first
+/// independently verify ALL original immutable SINGLE bytes, then B atomically
+/// creates newer SINGLE generations for the complete approved PACK membership.
+/// This function is not wired to an HTTP route, startup or automatic worker.
+pub async fn rollback_one_verified_pack(
+    catalog: &PgFreePackCatalog,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
+    claim: &PackJobClaim,
+) -> Result<tor_books::repositories::free_pack_rollback::PackRollback, AuthorError> {
+    for frame in &claim.receipt.frames {
+        let object = FreeChapterObject::from_metadata(
+            frame.chapter_id,
+            frame.version_id,
+            frame.content_sha256,
+            frame.size_bytes,
+        )
+        .map_err(|_| AuthorError::Invalid)?;
+        original_single
+            .get_verified(&object)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+    }
+    catalog
+        .rollback_verified_pack_to_single(claim.job_id, claim.epoch, &claim.receipt)
+        .await
+}
