@@ -117,6 +117,7 @@ async fn drop_04d_100k_bounded_worker_import() {
     assert!((1..=100_000).contains(&total));
     let f = Fixture::new("Bounded 100k PACK load").await;
     let worker = f.worker(true);
+    let rss_before = linux_rss("VmRSS:");
     let started = Instant::now();
     let mut batches = 0;
     let body = "Синтетический текст испытания хранилища 😀 中文. ".repeat(11);
@@ -165,6 +166,8 @@ async fn drop_04d_100k_bounded_worker_import() {
         "DROP04D_LOAD_PASS chapters={total} batches={batches} seconds={:.3}",
         started.elapsed().as_secs_f64()
     );
+    let peak = linux_rss("VmHWM:");
+    println!("DROP04E_RESOURCE_PASS client_peak_rss_kib={peak} before_kib={rss_before} peak_growth_kib={}", peak.saturating_sub(rss_before));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -306,4 +309,17 @@ async fn drop_04d_legacy_single_checkpoint_survives_pack_rollout() {
     println!(
         "DROP04D_LEGACY_SINGLE_PASS: real verified checkpoint resumes SINGLE after PACK rollout"
     );
+}
+
+// Linux CI measurement of the actual worker process. Includes runtime and
+// shared-client overhead; not a claim about total PostgreSQL/MinIO/VPS memory.
+fn linux_rss(field: &str) -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix(field))
+        .and_then(|value| value.split_whitespace().next())
+        .unwrap()
+        .parse()
+        .unwrap()
 }
