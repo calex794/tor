@@ -378,6 +378,13 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
                JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
                     AND vb.book_id=b.id
                WHERE origin.id=t.access_origin_version_id AND origin.layer_id=t.layer_id
+                 AND (b.lifecycle_status<>'ordinary_deleted'
+                      OR v.created_at<COALESCE((
+                          SELECT req.requested_at
+                          FROM book_ordinary_deletion_requests req
+                          WHERE req.book_id=b.id
+                            AND req.request_revision=b.lifecycle_revision-1
+                      ),b.ordinary_deleted_at))
              )
            ORDER BY c.id LIMIT 1
          ) preview ON TRUE
