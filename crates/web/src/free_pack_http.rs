@@ -128,9 +128,7 @@ async fn selected_source(
         }
     } else {
         let single = match mode {
-            FreePackReadMode::Published => {
-                state.reference.for_session(chapter, digest).await
-            }
+            FreePackReadMode::Published => state.reference.for_session(chapter, digest).await,
             FreePackReadMode::Saved { version_id } => {
                 state
                     .reference
@@ -171,11 +169,14 @@ async fn no_js_source(
     }
     let mode = match (query.mode.as_deref(), query.version_id) {
         (None, None) => FreePackReadMode::Published,
-        (Some("saved"), Some(version_id)) if version_id > 0 =>
-            FreePackReadMode::Saved { version_id },
+        (Some("saved"), Some(version_id)) if version_id > 0 => {
+            FreePackReadMode::Saved { version_id }
+        }
         _ => return deny(StatusCode::BAD_REQUEST),
     };
-    let digest = state.cookies.session_token(&headers)
+    let digest = state
+        .cookies
+        .session_token(&headers)
         .map(|token| session_token_digest(&token));
     let (_, transport) = match selected_source(&state, chapter, mode, digest.as_ref()).await {
         Ok(selection) => selection,
@@ -194,7 +195,10 @@ async fn no_js_source(
             format!("/api/v1/chapters/{chapter}/free-grant?mode=saved&version_id={version_id}&format=source"),
     };
     let mut response = private_response(axum::response::Redirect::to(&target), &[]);
-    response.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     response
 }
 
@@ -225,11 +229,10 @@ async fn plan(
         .cookies
         .session_token(&headers)
         .map(|token| session_token_digest(&token));
-    let (edition, transport) =
-        match selected_source(&state, chapter, mode, digest.as_ref()).await {
-            Ok(selection) => selection,
-            Err(status) => return deny(status),
-        };
+    let (edition, transport) = match selected_source(&state, chapter, mode, digest.as_ref()).await {
+        Ok(selection) => selection,
+        Err(status) => return deny(status),
+    };
     let sha = edition
         .sha256
         .iter()
