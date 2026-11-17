@@ -67,7 +67,7 @@ pub fn process_cover_with_recipe(
         };
         // Alpha-bearing covers retain their alpha exactly; WebP lossy would
         // preserve alpha but can change nearby RGB and introduce halos.
-        let has_transparency = resized.to_rgba8().pixels().any(|p| p.0[3] != 255);
+        let has_transparency = lossy && resized.to_rgba8().pixels().any(|p| p.0[3] != 255);
         let (bytes, encoding) = if lossy && !has_transparency {
             (encode_webp_lossy(&resized)?, "webp-lossy-q85")
         } else {
