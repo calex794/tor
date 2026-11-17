@@ -136,3 +136,59 @@ fn default_with_team_50_40_10_requires_four_owner_two_team_one_outside_candidate
         [250, 190, 60]
     );
 }
+
+fn tally_if_full(pools: [Vec<ShelfCandidate>; 3]) -> Option<[usize; 3]> {
+    let mut totals = [0; 3];
+    for rotation in 0..100 {
+        let cards = select_shelf(SOURCE_BOOK, pools.clone(), 5, rotation);
+        if cards.len() != 5 {
+            return None;
+        }
+        for card in cards {
+            match card.source {
+                ShelfSource::Author => totals[0] += 1,
+                ShelfSource::Teammate => totals[1] += 1,
+                ShelfSource::OtherAuthors => totals[2] += 1,
+            }
+        }
+    }
+    Some(totals)
+}
+
+#[test]
+fn smaller_eligible_inventories_cannot_sustain_exact_shares_over_100_rotations() {
+    // The exact 70/30 benchmark needs at least 6 candidates in total:
+    // 4 more Books by the source owner + 2 outside Books.
+    for author in 1..=5 {
+        for other in 1..=5 {
+            if author + other < 6 {
+                assert_ne!(
+                    tally_if_full([candidates(10, author), vec![], candidates(1000, other)]),
+                    Some([350, 0, 150]),
+                    "author={author} other={other}"
+                );
+            }
+        }
+    }
+
+    // All three source categories need eligible candidates. The exact
+    // 50/40/10 benchmark needs at least 7 candidates in total:
+    // 4 more owner Books + 2 active teammate Books + 1 outside Book.
+    for author in 1..=6 {
+        for team in 1..=6 {
+            for other in 1..=6 {
+                if author + team + other < 7 {
+                    assert_ne!(
+                        tally_if_full([
+                            candidates(10, author),
+                            candidates(100, team),
+                            candidates(1000, other),
+                        ]),
+                        Some([250, 200, 50]),
+                        "author={author} team={team} other={other}"
+                    );
+                }
+            }
+        }
+    }
+}
