@@ -383,7 +383,8 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
     .fetch_all(pool)
     .await
     .map_err(|_| LayerError::Unavailable)?;
-    let mut terms: Vec<LayerTermCard> = rows.into_iter()
+    let mut terms: Vec<LayerTermCard> = rows
+        .into_iter()
         .map(|row| {
             Ok(LayerTermCard {
                 layer_id: row
