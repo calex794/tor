@@ -157,7 +157,7 @@ pub(super) async fn verify_isolated_buyer(
                     version_id: PositiveId::new(version).unwrap(),
                 },
                 MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}D", "K".repeat(42))).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "K".repeat(42))).unwrap(),
             )
             .unwrap(),
         )
