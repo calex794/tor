@@ -1,6 +1,9 @@
 //! DROP-07d disposable PG18+MinIO manual observer: never GC or prod.
 #![cfg(feature = "s3-free")]
 
+#[path = "free_inventory_operator_pg_minio/drop_quarantine_drill.rs"]
+mod drop_quarantine_drill;
+
 use aws_sdk_s3::{
     config::{retry::RetryConfig, BehaviorVersion, Credentials, Region},
     primitives::ByteStream,

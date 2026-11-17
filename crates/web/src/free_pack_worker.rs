@@ -5,6 +5,7 @@
 pub mod activation;
 pub mod inventory_dry_run;
 pub mod inventory_operator;
+pub mod quarantine_operator;
 pub mod runner;
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;
