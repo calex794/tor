@@ -7,6 +7,7 @@ pub mod cover_review;
 pub mod cover_slots;
 pub mod cover_source_cleanup;
 pub mod free_expected_inventory;
+pub mod free_inventory_cycles;
 pub mod free_observed_reconcile;
 pub mod free_pack_activation;
 pub mod free_pack_attach;
