@@ -15,7 +15,10 @@ async fn d_02_adult_and_suspended_buyer_never_charge_without_live_eligibility() 
     let store = PgCheckout::new(pool.clone());
     let buy = command(buyer, chapter, version, 100, 'V');
 
-    assert_eq!(store.checkout_once(&buy).await, Err(CheckoutError::Inaccessible));
+    assert_eq!(
+        store.checkout_once(&buy).await,
+        Err(CheckoutError::Inaccessible)
+    );
     money_unchanged(&pool, buyer, 900).await;
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
@@ -26,15 +29,14 @@ async fn d_02_adult_and_suspended_buyer_never_charge_without_live_eligibility() 
     let paid = store.checkout_once(&buy).await.unwrap();
     assert!(!paid.replayed);
     assert_eq!(paid.balance_after.get(), 800);
-    let can_read: bool =
-        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
-            .bind(buyer)
-            .bind(paid.purchase_id.get())
-            .bind(chapter)
-            .bind(version)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let can_read: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(buyer)
+        .bind(paid.purchase_id.get())
+        .bind(chapter)
+        .bind(version)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(can_read);
 
     // Losing age clearance later does not delete immutable paid possession.
@@ -87,7 +89,10 @@ async fn d_02_pro_adult_needs_own_active_grant_and_preserves_paid_history() {
         .unwrap();
     let store = PgCheckout::new(pool.clone());
     let buy = command(buyer, chapter, version, 100, 'X');
-    assert_eq!(store.checkout_once(&buy).await, Err(CheckoutError::Inaccessible));
+    assert_eq!(
+        store.checkout_once(&buy).await,
+        Err(CheckoutError::Inaccessible)
+    );
     money_unchanged(&pool, buyer, 900).await;
 
     let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
@@ -111,7 +116,10 @@ async fn d_02_pro_adult_needs_own_active_grant_and_preserves_paid_history() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(store.checkout_once(&buy).await, Err(CheckoutError::Inaccessible));
+    assert_eq!(
+        store.checkout_once(&buy).await,
+        Err(CheckoutError::Inaccessible)
+    );
     money_unchanged(&pool, buyer, 900).await;
 
     sqlx::query(
@@ -124,15 +132,14 @@ async fn d_02_pro_adult_needs_own_active_grant_and_preserves_paid_history() {
     .unwrap();
     let paid = store.checkout_once(&buy).await.unwrap();
     assert!(!paid.replayed);
-    let entitled: bool =
-        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
-            .bind(buyer)
-            .bind(paid.purchase_id.get())
-            .bind(chapter)
-            .bind(version)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let entitled: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(buyer)
+        .bind(paid.purchase_id.get())
+        .bind(chapter)
+        .bind(version)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(entitled);
 
     sqlx::query(
