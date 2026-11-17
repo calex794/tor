@@ -26,6 +26,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let drop_pack_worker_enabled = drop_pack_bootstrap::enabled(demo)?;
     let drop_pack_planner_enabled =
         drop_pack_bootstrap::planner_enabled(demo, drop_pack_worker_enabled)?;
+    let drop_pack_cutover_enabled =
+        drop_pack_bootstrap::cutover_enabled(demo, drop_pack_worker_enabled)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -194,10 +196,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut pending_drop_pack_worker = None;
     #[cfg(feature = "s3-free")]
     let mut pending_drop_pack_planner = None;
+    #[cfg(feature = "s3-free")]
+    let mut pending_drop_pack_cutover = None;
     #[cfg(not(feature = "s3-free"))]
     let _ = (
         drop_pack_worker_enabled,
         drop_pack_planner_enabled,
+        drop_pack_cutover_enabled,
         pack_direct_import_enabled,
     );
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
@@ -391,6 +396,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         Some(drop_pack_bootstrap::configure_planner(&catalog).await?);
                 }
                 #[cfg(feature = "s3-free")]
+                if drop_pack_cutover_enabled {
+                    pending_drop_pack_cutover =
+                        Some(drop_pack_bootstrap::configure_cutover(&catalog).await?);
+                }
+                #[cfg(feature = "s3-free")]
                 {
                     if chapter_import_worker_enabled && free_author.is_none() {
                         return Err(
@@ -555,6 +565,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-free")]
     let _drop_pack_planner =
         pending_drop_pack_planner.map(tor_web::free_pack_planner::start_background);
+    #[cfg(feature = "s3-free")]
+    let _drop_pack_cutover =
+        pending_drop_pack_cutover.map(tor_web::free_pack_worker::activation::start_background);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         #[cfg(feature = "s3-free")]
         {
