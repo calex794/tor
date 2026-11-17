@@ -289,7 +289,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         .await,
     )
     .await;
-    assert!(waiting_library.contains(&format!("href=\"/read/{chapter}\"")));
+    assert!(waiting_library.contains(&format!("href=\"/read/{chapter}#p-1\"")));
 
     assert_eq!(
         call(&app, "GET", &owner_path, &reader_cookie, ORIGIN, "")
