@@ -32,13 +32,14 @@ mod package_cover;
 
 const MAX_MULTIPART_BYTES: usize = MAX_SOURCE_BYTES + 64 * 1024;
 
-/// The operator must opt in explicitly; previously queued jobs are stamped
-/// with their recipe and remain reproducible across flag changes.
+/// New book-cover uploads use WebP q85 by default. Operators can set
+/// TOR_COVER_LOSSY_WEBP_ENABLED=0 to opt out for subsequently enqueued jobs.
+/// Unrecognized values fail closed to legacy lossless. Workers always replay
+/// the recipe stamped on the job, independently of subsequent flag changes.
 fn cover_recipe_for_flag(value: Option<&str>) -> &'static str {
-    if value == Some("1") {
-        RECIPE_VERSION
-    } else {
-        LEGACY_RECIPE_VERSION
+    match value {
+        None | Some("1") => RECIPE_VERSION,
+        _ => LEGACY_RECIPE_VERSION,
     }
 }
 
@@ -228,11 +229,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lossy_cover_recipe_requires_explicit_opt_in() {
-        assert_eq!(cover_recipe_for_flag(None), LEGACY_RECIPE_VERSION);
+    fn new_cover_uploads_default_to_lossy_with_explicit_lossless_opt_out() {
+        assert_eq!(cover_recipe_for_flag(None), RECIPE_VERSION);
+        assert_eq!(cover_recipe_for_flag(Some("1")), RECIPE_VERSION);
         assert_eq!(cover_recipe_for_flag(Some("0")), LEGACY_RECIPE_VERSION);
         assert_eq!(cover_recipe_for_flag(Some("yes")), LEGACY_RECIPE_VERSION);
-        assert_eq!(cover_recipe_for_flag(Some("1")), RECIPE_VERSION);
+        assert_eq!(cover_recipe_for_flag(Some("")), LEGACY_RECIPE_VERSION);
     }
 
     #[test]
