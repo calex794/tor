@@ -37,6 +37,8 @@ jobs:
         run: python3 tools/check_feature_layout.py
       - name: S025 staging verifier offline unit tests (no network)
         run: python3 -m unittest discover -s tools -p test_s025_cdn_staging_probe.py
+      - name: DROP-08b historical FREE pinned receipts (offline negative controls)
+        run: python3 -m unittest discover -s tests/architecture -p test_drop08_historical_free_pins.py
       - name: S006 free reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_free_progress_reconcile.test.mjs
       - name: S006 paid reader lost-ack reconciliation (offline Node)
