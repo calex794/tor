@@ -304,9 +304,10 @@ pub(super) async fn after_deletion(
     .await
     .unwrap();
     assert!(
-        old_terms
+        old_terms.iter().any(|term| term
+            .archived_books
             .iter()
-            .any(|term| term.archived_books.iter().any(|entry| entry.book_id == book)),
+            .any(|entry| entry.book_id == book)),
         "owned Layer archive must include Book in repository projection: {old_terms:?}"
     );
     // This fixture intentionally has TOR_LAYER_PAGES_ENABLED off. The UI
@@ -419,9 +420,10 @@ pub(super) async fn after_deletion(
     .await
     .unwrap();
     assert!(
-        late_terms
+        late_terms.iter().all(|term| term
+            .archived_books
             .iter()
-            .all(|term| term.archived_books.iter().all(|entry| entry.book_id != book)),
+            .all(|entry| entry.book_id != book)),
         "new buyer must not enumerate archived Book through a private SQL projection"
     );
     assert_surviving_book_entitlement(
