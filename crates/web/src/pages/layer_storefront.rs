@@ -3,7 +3,9 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::layer_storefront::{ArchivedLayerBook, LayerStorefront, LayerTermCard};
+use tor_commerce::repositories::layer_storefront::{
+    ArchivedLayerBook, LayerStorefront, LayerTermCard,
+};
 
 fn rubles(minor: i64) -> String {
     format!("{},{:02} ₽", minor / 100, minor % 100)
