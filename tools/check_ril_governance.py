@@ -78,6 +78,9 @@ SCOPE_CALLS = {
     "pinned_free_chapter", "pinned_free_chapters", "saved_archive_chapters", "saved_archive_toc_window", "purchased_only_books",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases", "mixed_book_toc_window", "layer_toc_window",
+    # D-05: this helper checks the historical paid term and exact frozen
+    # FREE edition. The grant invokes it before and after S3 signing.
+    "authorized_free_source",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "save_rating", "add_comment", "delete_comment",
     "delivery_preference", "set_delivery_preference",
