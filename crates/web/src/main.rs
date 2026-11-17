@@ -193,11 +193,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-free")]
     let mut pending_free_import_author: Option<tor_web::free_author_publish::S3FreeAuthor> = None;
     #[cfg(feature = "s3-free")]
-    let mut pending_drop_pack_worker = None;
-    #[cfg(feature = "s3-free")]
-    let mut pending_drop_pack_planner = None;
-    #[cfg(feature = "s3-free")]
-    let mut pending_drop_pack_cutover = None;
+    let mut pending_drop_pack_services = None;
     #[cfg(not(feature = "s3-free"))]
     let _ = (
         drop_pack_worker_enabled,
@@ -386,19 +382,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(feature = "s3-free")]
                 let free_author = auth_startup::configured_free_publisher(&catalog).await?;
                 #[cfg(feature = "s3-free")]
-                if drop_pack_worker_enabled {
-                    pending_drop_pack_worker =
-                        Some(drop_pack_bootstrap::configure(&catalog).await?);
-                }
-                #[cfg(feature = "s3-free")]
-                if drop_pack_planner_enabled {
-                    pending_drop_pack_planner =
-                        Some(drop_pack_bootstrap::configure_planner(&catalog).await?);
-                }
-                #[cfg(feature = "s3-free")]
-                if drop_pack_cutover_enabled {
-                    pending_drop_pack_cutover =
-                        Some(drop_pack_bootstrap::configure_cutover(&catalog).await?);
+                if drop_pack_worker_enabled || drop_pack_planner_enabled || drop_pack_cutover_enabled
+                {
+                    pending_drop_pack_services = Some(
+                        drop_pack_bootstrap::configure_services(
+                            &catalog,
+                            drop_pack_worker_enabled,
+                            drop_pack_planner_enabled,
+                            drop_pack_cutover_enabled,
+                        )
+                        .await?,
+                    );
                 }
                 #[cfg(feature = "s3-free")]
                 {
@@ -560,14 +554,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     });
     #[cfg(feature = "s3-free")]
-    let _drop_pack_worker =
-        pending_drop_pack_worker.map(tor_web::free_pack_worker::runner::start_background);
-    #[cfg(feature = "s3-free")]
-    let _drop_pack_planner =
-        pending_drop_pack_planner.map(tor_web::free_pack_planner::start_background);
-    #[cfg(feature = "s3-free")]
-    let _drop_pack_cutover =
-        pending_drop_pack_cutover.map(tor_web::free_pack_worker::activation::start_background);
+    let _drop_pack_services =
+        pending_drop_pack_services.map(drop_pack_bootstrap::start_services);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         #[cfg(feature = "s3-free")]
         {
