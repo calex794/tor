@@ -275,6 +275,21 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert_eq!(count, 1, "duplicate requests must be idempotent");
     let confirmed = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
     assert!(confirmed.contains("Вы уже сообщили автору"));
+    // After a verified completion with no next release, the library must
+    // still point to the completed frontier rather than invent a chapter.
+    let waiting_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=reading",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(waiting_library.contains(&format!("href=\"/read/{chapter}\"")));
 
     assert_eq!(
         call(&app, "GET", &owner_path, &reader_cookie, ORIGIN, "")
@@ -357,6 +372,32 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     assert!(follower_updates.contains("Отметить прочитанной"));
+    // RET-00b/c: the same canonical first release must also advance the
+    // library's single Continue Reading destination, without fabricating
+    // a new saved position or treating the update as read.
+    let returned_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=reading",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(returned_library.contains(&format!("href=\"/read/{released}\"")));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT chapter_id FROM reader_book_positions WHERE user_id={reader} AND book_id={book}"
+            )
+        ),
+        chapter.to_string(),
+        "suggesting the next free chapter does not mutate durable progress"
+    );
     // A delivered on-site release must support an actor-scoped read receipt.
     // A page view or successful chapter read does not silently acknowledge it.
     let read_state_path = format!("/me/updates/{released}/read-state");
