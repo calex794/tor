@@ -78,7 +78,7 @@ impl Fixture {
                 .build(),
         );
         let _ = client.create_bucket().bucket(BUCKET).send().await;
-        let id = generate_session_token();
+        let id = generate_session_token().to_ascii_lowercase();
         let actor = pg(&url, &format!("INSERT INTO users(email_normalized,display_name,password_hash) VALUES('{id}@tor.example','DROP worker','$argon2id$test') RETURNING id")).parse().unwrap();
         let book = pg(&url, &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:drop-worker:{id}','ru','{label}','draft',{actor}) RETURNING id")).parse().unwrap();
         let catalog = PgCatalog::connect(&url).await.unwrap();
