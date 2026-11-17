@@ -273,16 +273,15 @@ impl PgFreePackCatalog {
         for (chapter, version, old, next) in swaps {
             // The R2 SQL helper performs first-insert or fenced monotone
             // UPDATE under the edition lock; a lost race aborts all rows.
-            let changed: bool = sqlx::query_scalar(
-                "SELECT promote_free_edition_storage($1,$2,$3,$4)",
-            )
-            .bind(chapter)
-            .bind(version)
-            .bind(old)
-            .bind(next)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db_error)?;
+            let changed: bool =
+                sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,$3,$4)")
+                    .bind(chapter)
+                    .bind(version)
+                    .bind(old)
+                    .bind(next)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
             if !changed {
                 return Err(AuthorError::Conflict);
             }
