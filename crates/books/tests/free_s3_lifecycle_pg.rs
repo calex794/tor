@@ -762,12 +762,21 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
     assert_eq!(zero, 0, "ordinary SINGLE publication has no active pointer");
 
     let job = repo.schedule_pack_job(actor, book, &receipt).await.unwrap();
-    let claim = repo.claim_pack_job(120).await.unwrap().unwrap();
-    assert_eq!(claim.job_id, job);
-    assert_eq!(claim.receipt, receipt);
-    repo.finish_pack_job(job, claim.epoch, &receipt)
-        .await
-        .unwrap();
+    // Use this precise job, not global SKIP LOCKED admission from another
+    // concurrently running PG fixture in the shared disposable database.
+    let epoch = 1_i64;
+    sqlx::query(
+        "UPDATE free_pack_jobs
+         SET status='running',lease_epoch=$2,
+             locked_until=clock_timestamp()+interval '2 minutes'
+         WHERE id=$1 AND status='pending'",
+    )
+    .bind(job)
+    .bind(epoch)
+    .execute(&pool)
+    .await
+    .unwrap();
+    repo.finish_pack_job(job, epoch, &receipt).await.unwrap();
 
     // Every member must be permitted. Deny after the first has been checked;
     // no pointer is allowed to be committed for any member.
@@ -777,7 +786,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .await
         .unwrap();
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt)
+        repo.activate_verified_pack(job, epoch, &receipt)
             .await,
         Err(AuthorError::Conflict)
     ));
@@ -800,21 +809,21 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
 
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch - 1, &receipt)
+        repo.activate_verified_pack(job, epoch - 1, &receipt)
             .await,
         Err(AuthorError::Conflict)
     ));
     let mut fake = receipt.clone();
     fake.target.pack_sha256[0] ^= 1;
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch, &fake).await,
+        repo.activate_verified_pack(job, epoch, &fake).await,
         Err(AuthorError::Conflict)
     ));
 
     // Same-job competing callers must serialize and perform one logical CAS.
     let (left, right) = tokio::join!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt),
-        repo.activate_verified_pack(job, claim.epoch, &receipt)
+        repo.activate_verified_pack(job, epoch, &receipt),
+        repo.activate_verified_pack(job, epoch, &receipt)
     );
     assert!(matches!(
         (left.unwrap(), right.unwrap()),
@@ -822,7 +831,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
             | (PackActivation::AlreadyActive, PackActivation::Activated)
     ));
     assert_eq!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt)
+        repo.activate_verified_pack(job, epoch, &receipt)
             .await
             .unwrap(),
         PackActivation::AlreadyActive
@@ -878,7 +887,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
     assert!(switched);
     assert!(matches!(
-        repo.activate_verified_pack(job, claim.epoch, &receipt)
+        repo.activate_verified_pack(job, epoch, &receipt)
             .await,
         Err(AuthorError::Conflict)
     ));
