@@ -1,5 +1,6 @@
 pub mod crypto;
 pub mod free_chapter;
+pub mod free_pack_compaction;
 pub mod free_pack_proof;
 pub mod free_pack_read;
 pub mod free_pack_write;
