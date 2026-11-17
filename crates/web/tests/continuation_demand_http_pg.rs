@@ -715,6 +715,89 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(owner_fulfilled
         .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+
+    // RET-02: Follow controls personal notifications, never the ability to
+    // confirm a genuine completion of an otherwise public FREE chapter.
+    let observer_finish = format!(
+        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=0"
+    );
+    let wrong_version = observer_finish.replace(
+        &format!("version_id={released_version}"),
+        &format!("version_id={version}"),
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &observer_cookie,
+            ORIGIN,
+            &wrong_version
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "B cannot confirm a different immutable edition"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &observer_cookie,
+            ORIGIN,
+            &observer_finish
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER,
+        "B can meaningfully finish a public FREE chapter without Follow"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE chapter_id={released} AND user_id IN ({reader},{observer})"
+            )
+        ),
+        "2",
+        "A and B have independent verified completion facts"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='ChapterCompletedV1'
+                   AND dedupe_key IN ('chapter-completed:{reader}:{released}',
+                                      'chapter-completed:{observer}:{released}')"
+            )
+        ),
+        "2",
+        "completion outbox is recipient-specific, not a shared book event"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "B's actual reading must not forge A's Follow receipt"
+    );
     // A separate synthetic paid release remains as the old non-leak regression.
 
     let next: i64 = pg(
