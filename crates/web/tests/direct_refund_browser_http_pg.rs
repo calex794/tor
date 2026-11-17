@@ -174,8 +174,8 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:s036:book:{nonce}','ru','Книга <script>x</script>','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s036:book:{nonce}','ru','Книга <script>x</script>','public',{owner},'basic')
              RETURNING id"
         ),
     )
