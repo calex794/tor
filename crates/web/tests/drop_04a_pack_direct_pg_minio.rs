@@ -825,7 +825,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     // the original V1 PACK, without manufacturing a SINGLE for old bytes.
     // Author-editing PACK-direct is a separate cutover precondition: this
     // isolated test only sets up a fully verified B/S349 publication switch.
-    let v2_body = format!("{}\\n\\nV2_ONLY_MARKER", chapters[0].body);
+    let v2_body = format!("{}\n\nV2_ONLY_MARKER", chapters[0].body);
     let v2_hash: [u8; 32] = Sha256::digest(v2_body.as_bytes()).into();
     let v2_hash_hex = hex::encode(v2_hash);
     let v2_id: i64 = pg(
@@ -863,14 +863,9 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
             first.chapter_id
         ),
     );
-    let v2_object =
-        FreeChapterObject::for_markdown(first.chapter_id, v2_id, &v2_body).unwrap();
+    let v2_object = FreeChapterObject::for_markdown(first.chapter_id, v2_id, &v2_body).unwrap();
     let single_store = S3FreeChapterStore::new(client.clone(), BUCKET.into()).unwrap();
-    tor_storage::services::free_chapter::upload_and_verify(
-        &single_store,
-        &v2_object,
-        &v2_body,
-    )
+    tor_storage::services::free_chapter::upload_and_verify(&single_store, &v2_object, &v2_body)
     .await
     .unwrap();
     pg(
@@ -913,7 +908,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     assert_eq!(current_json["transport"], "signed-single");
     assert_eq!(current_json["version_id"], v2_id.to_string());
     assert_eq!(current_json["sha256"], v2_hash_hex);
-    assert_eq!(current_json["size_bytes"], v2_body.len());
+    assert_eq!(current_json["size_bytes"], v2_body.len() as u64);
     assert!(
         c.for_active_pack_session(first.chapter_id, None)
             .await
@@ -933,7 +928,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .unwrap();
     assert_eq!(current_no_js.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        current_no_js.headers()["location"],
+        current_no_js.headers()["location"].to_str().unwrap(),
         format!(
             "/api/v1/chapters/{}/free-grant?format=source",
             first.chapter_id
