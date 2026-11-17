@@ -22,12 +22,38 @@ use tor_storage::{
         free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore,
         free_pack_write_s3::S3FreePackWriter,
     },
-    services::free_chapter::FreeChapterObject,
+    domain::provider::StorageError,
+    services::{
+        free_chapter::FreeChapterObject,
+        free_pack_read::PackFrameStore,
+        free_placement::ValidatedPackReference,
+    },
 };
 use tor_web::free_author_publish::PgFreeAuthorPublisher;
 
 const BUCKET: &str = "tor-drop-direct-stage-ci";
 const ENDPOINT: &str = "http://127.0.0.1:9000";
+
+// Simulates a deterministic revoke exactly after MinIO Range GET but before
+// C/B's post-fetch PostgreSQL reauthorization. No race or sleeps involved.
+struct RevokeAfterRange {
+    store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore,
+    database: String,
+    statement: String,
+}
+
+#[async_trait::async_trait]
+impl PackFrameStore for RevokeAfterRange {
+    async fn fetch_frame(
+        &self,
+        frame: &ValidatedPackReference,
+    ) -> Result<Vec<u8>, StorageError> {
+        let bytes = self.store.fetch_frame(frame).await?;
+        pg(&self.database, &self.statement);
+        Ok(bytes)
+    }
+}
+
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));
@@ -726,6 +752,136 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap();
     assert_eq!(denied_plain.status(), StatusCode::NOT_FOUND);
+
+    // A real pinned free edition (not merely a browser-supplied version ID)
+    // can read the active, immutable PACK without materializing a SINGLE.
+    let session = tor_accounts::services::security::generate_session_token();
+    let session_digest = tor_accounts::services::security::session_token_digest(&session);
+    let digest_hex = hex::encode(session_digest);
+    let first = &receipt.frames[0];
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO sessions(user_id,token_hash,expires_at)
+             VALUES({actor},decode('{digest_hex}','hex'),now()+interval '1 hour')"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+             VALUES({actor},{},{})",
+            first.chapter_id, first.version_id
+        ),
+    );
+    assert!(
+        c.for_saved_active_pack_session(first.chapter_id, first.version_id, Some(&session_digest))
+            .await
+            .unwrap()
+            .is_some(),
+        "C must authorize the exact pinned V1 with the live cookie"
+    );
+    for path in ["free-source-plan", "free-pack-source", "free-source"] {
+        let uri = format!(
+            "/api/v1/chapters/{}/{path}?mode=saved&version_id={}",
+            first.chapter_id, first.version_id
+        );
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("cookie", format!("tor-dev-session={session}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body = to_bytes(response.into_body(), 200_001).await.unwrap();
+        if path == "free-source-plan" {
+            let plan: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(plan["transport"], "gateway");
+            assert_eq!(plan["version_id"], first.version_id.to_string());
+        } else {
+            assert_eq!(body.as_ref(), chapters[0].body.as_bytes(), "{path}");
+        }
+    }
+    let wrong_version = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/chapters/{}/free-source-plan?mode=saved&version_id={}",
+                    first.chapter_id, first.version_id + 1
+                ))
+                .header("cookie", format!("tor-dev-session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_version.status(), StatusCode::NOT_FOUND);
+
+    // After a real S3 Range read, revoke publication with an admin hold.
+    // The exact bytes must be discarded by the independent PostgreSQL recheck.
+    let revoke_book = RevokeAfterRange {
+        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(
+            client.clone(),
+        ),
+        database: url.clone(),
+        statement: format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    };
+    let after_hold = tor_web::free_pack_gateway::read_authorized_active(
+        &c,
+        &tor_books::repositories::free_pack_attach::PgFreePackCatalog::new(pool.clone()),
+        &revoke_book,
+        first.chapter_id,
+        None,
+        tor_web::free_pack_gateway::FreePackReadMode::Published,
+    )
+    .await;
+    assert!(matches!(after_hold, Err(StorageError::Invalid)));
+    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+
+    // A session revoked after the real MinIO fetch cannot recover saved V1.
+    let revoke_session = RevokeAfterRange {
+        store: tor_storage::repositories::free_pack_range_s3::S3PackFrameStore::new(
+            client.clone(),
+        ),
+        database: url.clone(),
+        statement: format!(
+            "UPDATE sessions SET revoked_at=now()
+             WHERE user_id={actor} AND token_hash=decode('{digest_hex}','hex')"
+        ),
+    };
+    let after_revoke = tor_web::free_pack_gateway::read_authorized_active(
+        &c,
+        &tor_books::repositories::free_pack_attach::PgFreePackCatalog::new(pool.clone()),
+        &revoke_session,
+        first.chapter_id,
+        Some(&session_digest),
+        tor_web::free_pack_gateway::FreePackReadMode::Saved {
+            version_id: first.version_id,
+        },
+    )
+    .await;
+    assert!(matches!(after_revoke, Err(StorageError::Invalid)));
+    let revoked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/chapters/{}/free-source?mode=saved&version_id={}",
+                    first.chapter_id, first.version_id
+                ))
+                .header("cookie", format!("tor-dev-session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::NOT_FOUND);
 
     let arbitrary_range = app
         .clone()
