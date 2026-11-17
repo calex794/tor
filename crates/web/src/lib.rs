@@ -1,4 +1,3 @@
-//! Routing shell only: book business logic remains in tor-books.
 use axum::{
     extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
