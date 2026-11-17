@@ -52,8 +52,8 @@ async fn d_09_post_materializes_mature_earnings_in_same_commit() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Mature credits','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','Mature credits','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:s039:mature:{stamp}"))
     .bind(owner)
