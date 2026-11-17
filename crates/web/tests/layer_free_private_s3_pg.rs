@@ -45,8 +45,18 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:"));
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
     let output = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url,
-            "--command", sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("disposable PostgreSQL fixture");
     assert!(
@@ -56,7 +66,6 @@ fn pg(url: &str, sql: &str) -> String {
     );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
-
 
 async fn user(accounts: &PgAccounts, role: &str) -> (i64, String, String) {
     let token = generate_session_token();
@@ -187,13 +196,24 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     );
     pg(
         &url,
-        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
 
     let layers = PgLayers::new(pool.clone());
-    let layer = layers.create_layer(id(owner), "Archived FREE test").await.unwrap();
-    let term_version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
-    let offer = layers.publish_offer(id(owner), id(layer), 90, true).await.unwrap();
+    let layer = layers
+        .create_layer(id(owner), "Archived FREE test")
+        .await
+        .unwrap();
+    let term_version = layers
+        .add_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
+    let offer = layers
+        .publish_offer(id(owner), id(layer), 90, true)
+        .await
+        .unwrap();
     pg(
         &url,
         &format!(
@@ -216,17 +236,30 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
 
     // Genuine authenticated author deletion and independent site moderation.
     let author = PgAuthoring::new(pool.clone());
-    let revision = author.ordinary_deletion_view(owner, book).await.unwrap().unwrap().revision;
+    let revision = author
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .unwrap()
+        .revision;
     let pending = author
         .advance_ordinary_deletion(
-            owner, book, revision, "start",
-            &session_token_digest(&owner_session), &owner_hash,
+            owner,
+            book,
+            revision,
+            "start",
+            &session_token_digest(&owner_session),
+            &owner_hash,
         )
         .await
         .unwrap();
     accounts
         .moderate_ordinary_deletion(
-            &session_token_digest(&moderator_session), book, pending, "approve", "",
+            &session_token_digest(&moderator_session),
+            book,
+            pending,
+            "approve",
+            "",
         )
         .await
         .unwrap();
@@ -247,34 +280,71 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     let page = format!("/read/layer/free/{chapter}");
     let get_old = call(&app, Method::GET, &page, Some(&buyer_session), None, None).await;
     assert_eq!(get_old.status(), StatusCode::OK);
-    let html = String::from_utf8(to_bytes(get_old.into_body(), 250_000).await.unwrap().to_vec()).unwrap();
+    let html = String::from_utf8(
+        to_bytes(get_old.into_body(), 250_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("data-layer-free-reader"));
     assert!(!html.contains("X-Amz-Signature"));
     assert!(!html.contains("private/free-chapters/"));
     assert_eq!(
-        call(&app, Method::GET, &page, Some(&unrelated_session), None, None)
-            .await.status(),
+        call(
+            &app,
+            Method::GET,
+            &page,
+            Some(&unrelated_session),
+            None,
+            None
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        call(&app, Method::GET, &page, None, None, None).await.status(),
+        call(&app, Method::GET, &page, None, None, None)
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED,
     );
 
     let csrf = generate_session_token();
     let grant_path = format!("/api/v1/reader/layer/free/{chapter}/grant");
     assert_eq!(
-        call(&app, Method::POST, &grant_path, Some(&buyer_session), Some(&csrf), None)
-            .await.status(),
+        call(
+            &app,
+            Method::POST,
+            &grant_path,
+            Some(&buyer_session),
+            Some(&csrf),
+            None
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        call(&app, Method::POST, &grant_path, Some(&unrelated_session), Some(&csrf), Some(ORIGIN))
-            .await.status(),
+        call(
+            &app,
+            Method::POST,
+            &grant_path,
+            Some(&unrelated_session),
+            Some(&csrf),
+            Some(ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
     );
     let granted = call(
-        &app, Method::POST, &grant_path, Some(&buyer_session), Some(&csrf), Some(ORIGIN),
+        &app,
+        Method::POST,
+        &grant_path,
+        Some(&buyer_session),
+        Some(&csrf),
+        Some(ORIGIN),
     )
     .await;
     assert_eq!(granted.status(), StatusCode::OK);
@@ -299,8 +369,16 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
         ),
     );
     assert_eq!(
-        call(&app, Method::POST, &grant_path, Some(&buyer_session), Some(&csrf), Some(ORIGIN))
-            .await.status(),
+        call(
+            &app,
+            Method::POST,
+            &grant_path,
+            Some(&buyer_session),
+            Some(&csrf),
+            Some(ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
     );
 }
