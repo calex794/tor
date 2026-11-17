@@ -1,6 +1,6 @@
 //! DROP-04c: a real author browser edits a PACK-only chapter into SINGLE V2.
 //! The immutable PACK V1 and its saved-reader pin must survive the edit.
-use super::{pg, BUCKET, ENDPOINT};
+use super::{pg, BUCKET};
 use aws_sdk_s3::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -24,10 +24,12 @@ pub(super) async fn verify(
     client: &Client,
     actor: i64,
     book: i64,
-    edition: (i64, i64),
-    original: &str,
+    receipt: &tor_contracts::drop_pack::PackPlacementReceipt,
+    chapters: &[tor_books::services::chapter_file_import::ImportedChapter],
 ) {
-    let (chapter, version) = edition;
+    let frame = &receipt.frames[1];
+    let (chapter, version) = (frame.chapter_id, frame.version_id);
+    let original = chapters[1].body.as_str();
     let session = generate_session_token();
     let digest = session_token_digest(&session);
     let hex_digest = hex::encode(digest);
