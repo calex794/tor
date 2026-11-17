@@ -141,5 +141,4 @@ mod tests {
         assert!(!html.contains("Текущая опубликованная редакция Layer"));
         assert!(!html.contains("dek_b64u"));
     }
-
 }
