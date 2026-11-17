@@ -226,8 +226,13 @@ impl PgFreePackCatalog {
                     f.content_sha256,
                     size,
                 ));
-            } else if current > pack_generation && kind == "single" && active_pack.is_none() {
-                // An exact replay after a lost PG commit ACK is read-only.
+            } else if current == pack_generation.checked_add(1).ok_or(AuthorError::Conflict)?
+                && kind == "single"
+                && active_pack.is_none()
+            {
+                // Only the immediate next immutable SINGLE generation is a
+                // possible replay of this exact rollback. An unrelated later
+                // placement is NOT proof that this operator action committed.
                 already += 1;
             } else {
                 return Err(AuthorError::Conflict);
@@ -244,8 +249,12 @@ impl PgFreePackCatalog {
             return Err(AuthorError::Conflict);
         }
         for (chapter, version, expected, sha, size) in rollback_members {
-            let next: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(MAX(generation),0)+1
+            // With no rollback provenance table yet, fail closed if any
+            // unrelated higher candidate already exists. This guarantees
+            // the immediate successor represents this explicit operation,
+            // so a lost COMMIT ACK can be recognized without guessing.
+            let max_generation: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(generation),0)
                  FROM free_edition_storage_generations
                  WHERE chapter_id=$1 AND version_id=$2",
             )
@@ -254,6 +263,10 @@ impl PgFreePackCatalog {
             .fetch_one(&mut *tx)
             .await
             .map_err(write_error)?;
+            if max_generation != expected {
+                return Err(AuthorError::Conflict);
+            }
+            let next = expected.checked_add(1).ok_or(AuthorError::Conflict)?;
             sqlx::query(
                 "INSERT INTO free_edition_storage_generations
                    (chapter_id,version_id,generation,placement_kind,content_sha256,size_bytes)
