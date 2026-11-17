@@ -193,8 +193,8 @@ async fn swap_journey(width: u32) {
     let source_book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:d06:browser:source:{nonce}','ru','Исходная книга','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:d06:browser:source:{nonce}','ru','Исходная книга','public',{owner},'basic')
          RETURNING id"
         ),
     )
@@ -203,8 +203,8 @@ async fn swap_journey(width: u32) {
     let target_book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:d06:browser:target:{nonce}','ru','Новая книга','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:d06:browser:target:{nonce}','ru','Новая книга','public',{owner},'basic')
          RETURNING id"
         ),
     )
