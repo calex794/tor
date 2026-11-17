@@ -122,6 +122,8 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
                 .await
                 .map_err(|_| AuthorError::Unavailable)?
                 .map_err(map_storage)?;
+        self.reserve_s3_keys(&[&packed.target().pack_key, &packed.target().manifest_key])
+            .await?;
         let proof = writer
             .upload_and_verify(&packed)
             .await
