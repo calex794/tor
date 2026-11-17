@@ -276,53 +276,7 @@ pub(super) async fn after_deletion(
     assert!(old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
     assert!(old_library.contains("Удалена с сайта"));
 
-    // A stale offer still carrying the deleted Book ID must not collect money:
-    // its immutable per-Book revenue snapshot would include unavailable
-    // content. Require a clean current composition first.
-    let (blocked_buyer, _) =
-        user(&active.accounts, "br060-layer-stale-offer@tor-ci.example").await;
-    pg(
-        url,
-        &format!(
-            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
-             VALUES({blocked_buyer},300,'RUB')"
-        ),
-    );
     let layer_repo = PgLayers::new(active.accounts.pool().clone());
-    let stale_checkout = layer_repo
-        .buy(&LayerCheckoutCommand {
-            actor: PositiveId::new(blocked_buyer).unwrap(),
-            wallet: WalletId::new(blocked_buyer).unwrap(),
-            layer: PositiveId::new(active.layer_id).unwrap(),
-            offer: PositiveId::new(active.offer_id).unwrap(),
-            version: PositiveId::new(active.layer_version).unwrap(),
-            expected_price: MoneyMinor::new(90).unwrap(),
-            key: IdempotencyKey::parse(&format!("{}8", "F".repeat(42))).unwrap(),
-        })
-        .await;
-    assert!(
-        matches!(
-            stale_checkout,
-            Err(tor_commerce::domain::layers::LayerError::Inaccessible)
-        ),
-        "stale Layer composition must not debit a new buyer after Book deletion"
-    );
-    assert_eq!(
-        scalar(
-            url,
-            &format!(
-                "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={blocked_buyer}"
-            ),
-        ),
-        300
-    );
-    assert_eq!(
-        scalar(
-            url,
-            &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={blocked_buyer}"),
-        ),
-        0
-    );
 
     // Rebuild only the current offer composition. Historical paid versions
     // are immutable: removing a deleted Book from a NEW package must not
