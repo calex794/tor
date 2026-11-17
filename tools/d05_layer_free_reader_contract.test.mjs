@@ -25,12 +25,12 @@ const baseGrant = {
   size_bytes: bytes.byteLength
 };
 
-function networkResponse(body, type = "application/json") {
+function networkResponse(body, type = "application/json", status = 200, extra = {}) {
   return {
-    ok: true,
-    status: 200,
+    ok: status >= 200 && status < 300,
+    status,
     redirected: false,
-    headers: { get: key => key === "content-type" ? type : null },
+    headers: { get: key => extra[key] ?? (key === "content-type" ? type : null) },
     json: async () => body,
     body: {
       getReader: () => {
@@ -46,7 +46,11 @@ function networkResponse(body, type = "application/json") {
   };
 }
 
-async function run({ grant = baseGrant, payload = bytes } = {}) {
+async function run({
+  grant = baseGrant, payload = bytes, pack = false,
+  packSha = hash, packSize = bytes.byteLength, packStatus = 200,
+  singleStatus = 404
+} = {}) {
   const status = { textContent: "" };
   const article = {
     children: [],
@@ -80,9 +84,22 @@ async function run({ grant = baseGrant, payload = bytes } = {}) {
       assert.equal(options.method, "POST");
       assert.equal(options.headers["X-CSRF-Token"], "A".repeat(43));
       assert.equal(options.credentials, "same-origin");
-      return networkResponse(grant);
+      return pack
+        ? networkResponse(null, "application/json", singleStatus)
+        : networkResponse(grant);
     }
-    assert.equal(calls.length, 2, "no alternate public grant fallback");
+    assert.equal(calls.length, 2, "no alternate public reader fallback");
+    if (pack) {
+      assert.equal(uri, "/api/v1/reader/layer/free/17/pack");
+      assert.equal(options.method, "POST");
+      assert.equal(options.credentials, "same-origin");
+      assert.equal(options.headers["X-CSRF-Token"], "A".repeat(43));
+      return networkResponse(payload, "text/plain", packStatus, {
+        "x-tor-free-version-id": version,
+        "x-tor-free-sha256": packSha,
+        "x-tor-free-size": String(packSize)
+      });
+    }
     assert.equal(uri, signed);
     assert.equal(options.credentials, "omit");
     assert.equal(options.redirect, "error");
@@ -126,5 +143,30 @@ test("wrong archive version, origin and oversized responses never leak content",
     assert.equal(output.calls.length, 1, "must reject before external S3 GET");
     assert.equal(output.article.children.length, 0);
     assert.match(output.status.textContent, /недоступно/);
+  }
+});
+
+test("PACK fallback reads only protected same-origin exact frame and never HTML", async () => {
+  const output = await run({ pack: true });
+  assert.equal(output.calls.length, 2);
+  assert.equal(output.calls[1].uri, "/api/v1/reader/layer/free/17/pack");
+  assert.match(output.status.textContent, /Архивная редакция/);
+  assert.equal(output.article.children[0].pieces[1].textContent,
+    "<script>alert('unsafe')</script>");
+  assert.equal(output.calls.filter(call => call.uri.includes("/reader/")).length, 1);
+});
+
+test("PACK hash, length and denial cannot release HTML or trigger public fallback", async () => {
+  for (const opts of [
+    { pack: true, packSha: "0".repeat(64) },
+    { pack: true, packSize: bytes.byteLength - 1 },
+    { pack: true, packStatus: 403 },
+    { pack: true, singleStatus: 403 }
+  ]) {
+    const result = await run(opts);
+    assert.equal(result.article.children.length, 0);
+    assert.match(result.status.textContent, /недоступно/);
+    assert.ok(result.calls.length <= 2);
+    assert.ok(result.calls.every(call => !call.uri.includes("/reader/")));
   }
 });
