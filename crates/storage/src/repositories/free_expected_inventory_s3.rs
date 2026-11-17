@@ -25,7 +25,7 @@ fn valid_key(value: &str) -> bool {
     let free_pack = value.starts_with("private/free-packs/")
         && (value.ends_with(".zst") || value.ends_with(".manifest.json"));
     (free_single || free_pack)
-        && (32..=260).contains(&value.len())
+        && (25..=260).contains(&value.len())
         && !value.contains("//")
         && !value
             .split('/')
@@ -123,6 +123,7 @@ mod tests {
             "private/free-packs/import/abc1234567890.manifest.json"
         ));
         assert!(valid_key("private/free-chapters/123456789/123456789.md"));
+        assert!(valid_key("private/free-chapters/1/1.md"));
         for name in [
             "public/free-packs/import/1234567890.zst",
             "private/free-chapters/../123456789.md",
