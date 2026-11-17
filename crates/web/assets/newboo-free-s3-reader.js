@@ -254,49 +254,93 @@
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 15000);
     try {
-      const grantResponse = await fetch(
-        "/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-grant" +
-          (article.dataset.freeS3Saved === "1" ? "?mode=saved&version_id=" + version : ""), {
-          credentials: "same-origin", cache: "no-store", redirect: "error",
-          referrerPolicy: "no-referrer", signal: controller.signal,
-          headers: { "Accept": "application/json" }
+
+      const query = article.dataset.freeS3Saved === "1"
+        ? "?mode=saved&version_id=" + version : "";
+      const common = {
+        credentials: "same-origin", cache: "no-store", redirect: "error",
+        referrerPolicy: "no-referrer", signal: controller.signal
+      };
+      const parsePlan = async response => {
+        if (response.status !== 200 || response.redirected ||
+            !/^application\\/json\\b/i.test(response.headers.get("content-type") || "")) {
+          throw Error("source plan denied");
         }
-      );
-      if (grantResponse.status !== 200 || grantResponse.redirected) throw Error("grant denied");
-      // The grant is small metadata, never a second transport for chapter text.
-      const grantBytes = await readBounded(grantResponse, 16384);
-      const grant = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(grantBytes));
-      if (grant?.schema !== "tor.free-s3-grant.v1" ||
-          grant.chapter_id !== chapter || grant.version_id !== version ||
-          !Number.isInteger(grant.size_bytes) || grant.size_bytes < 1 ||
-          grant.size_bytes > 200000 ||
-          typeof grant.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(grant.sha256) ||
-          typeof grant.url !== "string" || grant.url.length > 4096) throw Error("invalid grant");
-      const target = new URL(grant.url);
-      const expires = target.searchParams.get("X-Amz-Expires");
-      if ((target.protocol !== "https:" &&
-           !(target.protocol === "http:" &&
-             (target.hostname === "localhost" || target.hostname === "127.0.0.1"))) ||
-          target.username || target.password || target.hash ||
-          !target.pathname.endsWith("/private/free-chapters/" + chapter + "/" + version + ".md") ||
-          target.searchParams.getAll("X-Amz-Signature").length !== 1 ||
-          !/^[a-f0-9]{64}$/.test(target.searchParams.get("X-Amz-Signature") || "") ||
-          !/^\d+$/.test(expires || "") || Number(expires) < 30 || Number(expires) > 120) {
-        throw Error("unsafe storage capability");
+        const plan = JSON.parse(new TextDecoder("utf-8", { fatal: true })
+          .decode(await readBounded(response, 4096)));
+        if (plan?.schema !== "tor.free-source-plan.v1" ||
+            plan.chapter_id !== chapter || plan.version_id !== version ||
+            !["gateway", "signed-single"].includes(plan.transport) ||
+            !Number.isInteger(plan.size_bytes) || plan.size_bytes < 1 ||
+            plan.size_bytes > 200000 ||
+            !/^[a-f0-9]{64}$/.test(plan.sha256 || "")) throw Error("invalid plan");
+        return plan;
+      };
+      const plan = article.dataset.freePackReader === "1"
+        ? await parsePlan(await fetch(
+            "/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-source-plan" + query,
+            { ...common, headers: { "Accept": "application/json" } }))
+        : null;
+      let bytes, expected;
+      if (plan?.transport === "gateway") {
+        const response = await fetch(
+          "/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-pack-source" + query,
+          { ...common, headers: { "Accept": "text/plain" } });
+        if (response.status !== 200 || response.redirected ||
+            !/^text\\/plain\\b/i.test(response.headers.get("content-type") || "") ||
+            response.headers.get("x-tor-free-version-id") !== version ||
+            response.headers.get("x-tor-free-sha256") !== plan.sha256 ||
+            response.headers.get("x-tor-free-size") !== String(plan.size_bytes)) {
+          throw Error("invalid PACK source");
+        }
+        bytes = await readBounded(response, plan.size_bytes);
+        expected = plan;
+      } else {
+        // A signed SINGLE is permitted only when the server selected SINGLE.
+        // Failure to fetch a selected PACK never downgrades to this path.
+        const grantResponse = await fetch(
+          "/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-grant" + query,
+          { ...common, headers: { "Accept": "application/json" } });
+        if (grantResponse.status !== 200 || grantResponse.redirected) throw Error("grant denied");
+        const grant = JSON.parse(new TextDecoder("utf-8", { fatal: true })
+          .decode(await readBounded(grantResponse, 16384)));
+        if (grant?.schema !== "tor.free-s3-grant.v1" ||
+            grant.chapter_id !== chapter || grant.version_id !== version ||
+            !Number.isInteger(grant.size_bytes) || grant.size_bytes < 1 ||
+            grant.size_bytes > 200000 ||
+            typeof grant.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(grant.sha256) ||
+            typeof grant.url !== "string" || grant.url.length > 4096 ||
+            (plan && (plan.transport !== "signed-single" ||
+              plan.sha256 !== grant.sha256 || plan.size_bytes !== grant.size_bytes))) {
+          throw Error("invalid grant");
+        }
+        const target = new URL(grant.url);
+        const expires = target.searchParams.get("X-Amz-Expires");
+        if ((target.protocol !== "https:" &&
+             !(target.protocol === "http:" &&
+               (target.hostname === "localhost" || target.hostname === "127.0.0.1"))) ||
+            target.username || target.password || target.hash ||
+            !target.pathname.endsWith("/private/free-chapters/" + chapter + "/" + version + ".md") ||
+            target.searchParams.getAll("X-Amz-Signature").length !== 1 ||
+            !/^[a-f0-9]{64}$/.test(target.searchParams.get("X-Amz-Signature") || "") ||
+            !/^\\d+$/.test(expires || "") || Number(expires) < 30 || Number(expires) > 120) {
+          throw Error("unsafe storage capability");
+        }
+        const response = await fetch(target, {
+          method: "GET", mode: "cors", credentials: "omit", cache: "no-store",
+          redirect: "error", referrerPolicy: "no-referrer", signal: controller.signal
+        });
+        if (response.status !== 200 || response.type === "opaque" || response.redirected) {
+          throw Error("storage unavailable");
+        }
+        bytes = await readBounded(response, grant.size_bytes);
+        expected = grant;
       }
-      const response = await fetch(target, {
-        method: "GET", mode: "cors", credentials: "omit", cache: "no-store",
-        redirect: "error", referrerPolicy: "no-referrer", signal: controller.signal
-      });
-      if (response.status !== 200 || response.type === "opaque" || response.redirected) {
-        throw Error("storage unavailable");
-      }
-      const bytes = await readBounded(response, grant.size_bytes);
-      if (bytes.length !== grant.size_bytes) throw Error("size mismatch");
+      if (bytes.length !== expected.size_bytes) throw Error("size mismatch");
       const digest = await crypto.subtle.digest("SHA-256", bytes);
       const actual = [...new Uint8Array(digest)]
         .map(value => value.toString(16).padStart(2, "0")).join("");
-      if (actual !== grant.sha256) throw Error("hash mismatch");
+      if (actual !== expected.sha256) throw Error("hash mismatch");
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
         .replace(/\r\n?/g, "\n");
       if (text.length < 1 || text.includes("\0") || [...text].length > 50000) {
