@@ -201,5 +201,40 @@ pub(super) async fn verify(
         url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
-    println!("DROP05C_SINGLE_ROLLBACK_PASS: missing source denied, held recovery, monotone 2-member CAS, replay, no deletes");
+    // A later, independent SINGLE generation is not evidence that the
+    // previous operator rollback was just committed. Refuse false replay.
+    let (chapter, version, _) = &editions[0];
+    pg(
+        url,
+        &format!(
+            "INSERT INTO free_edition_storage_generations
+             (chapter_id,version_id,generation,placement_kind,content_sha256,size_bytes)
+             SELECT chapter_id,version_id,3,'single',content_sha256,size_bytes
+             FROM free_edition_storage_generations
+             WHERE chapter_id={chapter} AND version_id={version} AND generation=2"
+        ),
+    );
+    assert_eq!(
+        pg(
+            url,
+            &format!("SELECT promote_free_edition_storage({chapter},{version},2,3)")
+        ),
+        "t"
+    );
+    assert!(matches!(
+        rollback_one_verified_pack(catalog, single, claim).await,
+        Err(AuthorError::Conflict)
+    ));
+    let second: i64 = pg(
+        url,
+        &format!(
+            "SELECT generation FROM free_edition_active_storage
+             WHERE chapter_id={} AND version_id={}",
+            editions[1].0, editions[1].1
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(second, 2, "stale operation cannot move other members");
+    println!("DROP05C_SINGLE_ROLLBACK_PASS: missing source denied, held recovery, monotone 2-member CAS, exact replay, stale later generation denied, no deletes");
 }
