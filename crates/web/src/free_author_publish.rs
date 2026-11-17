@@ -235,7 +235,10 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
             None
         };
         let bytes = if let Some(frame) = frame_before.as_ref() {
-            self.store.get_verified_pack(frame).await.map_err(map_storage)?
+            self.store
+                .get_verified_pack(frame)
+                .await
+                .map_err(map_storage)?
         } else {
             let object = FreeChapterObject::from_metadata(
                 chapter,
@@ -244,7 +247,10 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
                 owned.size_bytes,
             )
             .map_err(map_storage)?;
-            self.store.get_verified(&object).await.map_err(map_storage)?
+            self.store
+                .get_verified(&object)
+                .await
+                .map_err(map_storage)?
         };
         let current = self
             .repository
