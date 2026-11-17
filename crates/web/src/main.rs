@@ -382,7 +382,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(feature = "s3-free")]
                 let free_author = auth_startup::configured_free_publisher(&catalog).await?;
                 #[cfg(feature = "s3-free")]
-                if drop_pack_worker_enabled || drop_pack_planner_enabled || drop_pack_cutover_enabled
+                if drop_pack_worker_enabled
+                    || drop_pack_planner_enabled
+                    || drop_pack_cutover_enabled
                 {
                     pending_drop_pack_services = Some(
                         drop_pack_bootstrap::configure_services(
@@ -554,8 +556,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     });
     #[cfg(feature = "s3-free")]
-    let _drop_pack_services =
-        pending_drop_pack_services.map(drop_pack_bootstrap::start_services);
+    let _drop_pack_services = pending_drop_pack_services.map(drop_pack_bootstrap::start_services);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         #[cfg(feature = "s3-free")]
         {
