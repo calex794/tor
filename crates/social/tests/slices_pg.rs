@@ -776,7 +776,9 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
     let notifications = PgNotifications::new(pool.clone());
     let initial = notifications.preferences(b).await.unwrap();
     assert_eq!(initial.len(), 23);
-    assert!(initial.iter().any(|p| p.kind == "chapter_updated" && p.enabled));
+    assert!(initial
+        .iter()
+        .any(|p| p.kind == "chapter_updated" && p.enabled));
     assert!(initial.iter().all(|pref| pref.enabled));
     assert_eq!(notifications.preferences(0).await, Err(MailError::Invalid));
     assert_eq!(
