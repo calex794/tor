@@ -2,8 +2,8 @@
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage, Rgba, RgbaImage};
 use std::io::Cursor;
 use tor_ingest::services::image_pipeline::{
-    process_cover, ImagePipelineError as Error, COVER_CARD, COVER_MAIN, MAX_SOURCE_BYTES,
-    RECIPE_VERSION,
+    process_cover, process_cover_with_recipe, ImagePipelineError as Error, COVER_CARD, COVER_MAIN,
+    LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES, RECIPE_VERSION,
 };
 
 fn encode(image: &DynamicImage, format: ImageFormat) -> Vec<u8> {
@@ -27,11 +27,12 @@ fn colored_landscape() -> DynamicImage {
 }
 
 #[test]
-fn real_png_generates_both_decodable_lossless_webp_variants() {
+fn legacy_recipe_generates_both_decodable_lossless_webp_variants() {
     let original = encode(&colored_landscape(), ImageFormat::Png);
-    let variants = process_cover(&original, "image/png").unwrap();
+    let variants = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
     assert_eq!(variants.len(), 2);
-    assert_eq!(RECIPE_VERSION, "newboo-cover-lossless-webp-v1");
+    assert_eq!(LEGACY_RECIPE_VERSION, "newboo-cover-lossless-webp-v1");
+    assert_eq!(RECIPE_VERSION, "tor-cover-webp-lossy-q85-v2");
     for (variant, expected) in variants.iter().zip([COVER_MAIN, COVER_CARD]) {
         assert_eq!((variant.name, variant.width, variant.height), expected);
         assert_eq!(variant.encoding, "webp-lossless");
@@ -48,6 +49,44 @@ fn real_png_generates_both_decodable_lossless_webp_variants() {
             .0;
         assert_eq!(center, [0, 255, 0, 255]); // center of crop
     }
+}
+
+#[test]
+fn opaque_book_art_uses_lossy_v2_while_existing_jobs_keep_lossless_v1() {
+    // Deterministic high-frequency art: the lossy codec should be smaller,
+    // and the legacy recipe must stay reproducible after a worker upgrade.
+    let pixels = RgbImage::from_fn(380, 570, |x, y| {
+        let n = (x.wrapping_mul(1_103_515_245) ^ y.wrapping_mul(2_654_435_761))
+            .wrapping_add(x.wrapping_mul(y.wrapping_add(17)));
+        Rgb([n as u8, (n >> 8) as u8, (n >> 16) as u8])
+    });
+    let original = encode(&DynamicImage::ImageRgb8(pixels), ImageFormat::Png);
+    let lossy = process_cover(&original, "image/png").unwrap();
+    let legacy = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
+    assert_eq!(lossy.len(), 2);
+    for (new, old) in lossy.iter().zip(legacy.iter()) {
+        assert_eq!(new.encoding, "webp-lossy-q85");
+        assert_eq!(old.encoding, "webp-lossless");
+        assert_eq!(new.content_type, "image/webp");
+        assert_eq!(old.content_type, "image/webp");
+        assert_eq!((new.width, new.height), (old.width, old.height));
+        let decoded = image::load_from_memory_with_format(&new.bytes, ImageFormat::WebP)
+            .expect("decode libwebp lossy output");
+        assert_eq!((decoded.width(), decoded.height()), (new.width, new.height));
+        assert!(new.bytes.len() < old.bytes.len(), "lossy should beat v1 on photographic noise");
+    }
+    // This also verifies the old recipe has not silently changed on upgrade.
+    let replay = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
+    assert_eq!(legacy, replay);
+}
+
+#[test]
+fn unknown_recipe_fails_closed_before_any_encoding() {
+    let source = encode(&colored_landscape(), ImageFormat::Png);
+    assert!(matches!(
+        process_cover_with_recipe(&source, "image/png", "unknown-codec-v99"),
+        Err(Error::Encode(_))
+    ));
 }
 
 #[test]
@@ -69,6 +108,7 @@ fn transparent_input_keeps_alpha_and_is_lossless() {
     let img = RgbaImage::from_pixel(60, 90, Rgba([15, 120, 200, 78]));
     let png = encode(&DynamicImage::ImageRgba8(img), ImageFormat::Png);
     let outputs = process_cover(&png, "image/png").unwrap();
+    assert!(outputs.iter().all(|v| v.encoding == "webp-lossless"));
     let main = image::load_from_memory_with_format(&outputs[0].bytes, ImageFormat::WebP)
         .expect("decode lossless output")
         .to_rgba8();
