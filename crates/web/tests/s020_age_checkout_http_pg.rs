@@ -159,7 +159,7 @@ fn finance(url: &str, buyer: i64) -> (i64, i64, i64, i64) {
     (wallet, purchases, journal, rights)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci and TOR_PAID_CHECKOUT_ENABLED=1"]
 async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_debits() {
     assert_eq!(
