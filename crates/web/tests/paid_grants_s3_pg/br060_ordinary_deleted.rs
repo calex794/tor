@@ -182,6 +182,11 @@ pub(super) async fn verify(
     );
     let reviewer_cookie = reviewer_token.as_str();
     save_free_v1_before_removal(app, url, book, free_chapter, buyer_cookie, csrf).await;
+    // A separate active paid Layer CURRENT term is not a pinned direct V1.
+    let active_layer = super::br060_layer_after_delete::before_deletion(
+        app, url, accounts, book, chapter,
+    )
+    .await;
     // This real MinIO paid/free archive must be created by the author and
     // an independent live site moderator, never by a SQL-only tombstone.
     let owner_path = format!("/me/books/{book}/settings/delete");
@@ -490,6 +495,14 @@ pub(super) async fn verify(
         purchase_id,
         free_chapter,
         &fresh.session,
+    )
+    .await;
+    super::br060_layer_after_delete::after_deletion(
+        app,
+        url,
+        book,
+        chapter,
+        active_layer,
     )
     .await;
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
