@@ -1,5 +1,6 @@
 //! D-05 storefront read models. No money mutations or delivery grants.
 //! Public reads include only visible Book metadata; paid terms are actor-scoped.
+mod archive;
 use crate::domain::layers::LayerError;
 use sqlx::{PgPool, Row};
 
@@ -28,6 +29,13 @@ pub struct LayerStorefront {
 }
 
 #[derive(Clone, Debug)]
+pub struct ArchivedLayerBook {
+    pub book_id: i64,
+    pub title: String,
+    pub chapter_id: i64,
+}
+
+#[derive(Clone, Debug)]
 pub struct LayerTermCard {
     pub layer_id: i64,
     pub title: String,
@@ -38,6 +46,7 @@ pub struct LayerTermCard {
     pub expires_utc: Option<String>,
     pub state: String,
     pub first_readable_chapter: Option<i64>,
+    pub archived_books: Vec<ArchivedLayerBook>,
 }
 
 /// Bounded public listing; hidden, held and deleted Books cannot leak titles.
@@ -336,7 +345,11 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
            WHERE r.term_id IS NULL
              AND t.started_at<=now()
              AND (t.expires_at IS NULL OR t.expires_at>now())
-             AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+             AND (b.visibility='public' OR
+                  (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL))
+             AND (b.lifecycle_status<>'ordinary_deleted' OR
+                  t.purchased_at<b.ordinary_deleted_at)
+             AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              AND (
                b.access_level='basic'
                OR (b.access_level='adult' AND EXISTS (
@@ -370,7 +383,7 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
     .fetch_all(pool)
     .await
     .map_err(|_| LayerError::Unavailable)?;
-    rows.into_iter()
+    let mut terms: Vec<LayerTermCard> = rows.into_iter()
         .map(|row| {
             Ok(LayerTermCard {
                 layer_id: row
@@ -398,7 +411,13 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
                 first_readable_chapter: row
                     .try_get("first_readable_chapter")
                     .map_err(|_| LayerError::Unavailable)?,
+                archived_books: Vec::new(),
             })
         })
-        .collect()
+        .collect::<Result<_, LayerError>>()?;
+    let mut archived = archive::list_owned_archived_books(actor, pool, &terms).await?;
+    for term in &mut terms {
+        term.archived_books = archived.remove(&term.term_id).unwrap_or_default();
+    }
+    Ok(terms)
 }
