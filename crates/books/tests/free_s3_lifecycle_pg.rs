@@ -739,7 +739,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
     let key = format!("private/free-packs/ci/drop-05a-first-{book}.zst");
     let receipt = PackPlacementReceipt {
         target: PackPlacementTarget {
-            bucket: "tor-private-drop05-ci".into(),
+            bucket: "tor-private-s349-ci".into(),
             pack_key: key.clone(),
             manifest_key: key.replace(".zst", ".manifest.json"),
             pack_sha256: [38; 32],
