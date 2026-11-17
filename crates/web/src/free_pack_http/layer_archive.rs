@@ -32,7 +32,7 @@ fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
             .is_some_and(|value| cookies.valid_csrf(headers, value))
 }
 
-async fn actor(state: &PackHttpState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
+async fn authenticated_actor(state: &PackHttpState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
     let token = state
         .cookies
         .session_token(headers)
@@ -123,7 +123,7 @@ pub(super) async fn read_pack(
     if headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let actor = match actor(&state, &headers).await {
+    let actor = match authenticated_actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
@@ -168,7 +168,7 @@ pub(super) async fn read_pack(
     // A term can remain valid after a browser session is revoked during S3
     // I/O. Revalidate the original signed-in session itself, not just D's
     // actor ID and the immutable Layer origin, before returning plaintext.
-    match actor(&state, &headers).await {
+    match authenticated_actor(&state, &headers).await {
         Ok(current) if current == actor => {}
         Ok(_) | Err(StatusCode::UNAUTHORIZED) => return deny(StatusCode::NOT_FOUND),
         Err(status) => return deny(status),
