@@ -827,11 +827,8 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         &client,
         &app,
         &c,
-        first.chapter_id,
-        first.version_id,
-        &chapters[0].body,
-        &session,
-        &session_digest,
+        (first.chapter_id, first.version_id, &chapters[0].body),
+        (&session, &session_digest),
     )
     .await;
 
