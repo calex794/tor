@@ -1,11 +1,11 @@
-//! Original DROP-04a: direct packed upload from a S023 approved batch.
-//! No per-chapter SINGLE upload, no reader publication, no chapter INSERT.
-//! The next accepted DROP-04b must atomically bind the verified staged proof
-//! to a live edition and suitable C-authorized Range reader.
+//! S023 approved batch: durable transport -> verified PACK stage -> atomic finalize.
+//! No per-chapter SINGLE upload. Staging never creates reader publications.
 use super::*;
 use sha2::{Digest, Sha256};
 use tor_books::{
-    repositories::free_s3_publish::{DirectPackFinalize, DirectPackStageRequest},
+    repositories::free_s3_publish::{
+        DirectPackFinalize, DirectPackStageRequest, FreeImportTransport, ImportTransportRequest,
+    },
     services::chapter_file_import::{fingerprint, ImportedChapter, MAX_IMPORT_CHAPTERS},
 };
 use tor_contracts::drop_pack::PackPlacementReceipt;
@@ -15,9 +15,48 @@ use tor_storage::{
 };
 
 impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
-    /// This offline entrypoint is NOT called by the existing live import
-    /// worker. It can only stage a verified result; the old S349 route stays
-    /// unchanged until finalizer and reader acceptance are complete.
+    pub async fn probe_queued_import_schema(&self) -> Result<(), AuthorError> {
+        self.repository.probe_import_transport().await
+    }
+    /// Configure only the leased importer. Author saves and synchronous
+    /// previews keep their SINGLE contract. Startup separately requires the
+    /// accepted PACK reader; this builder is also used by disposable tests.
+    pub fn with_direct_pack_import(self, client: aws_sdk_s3::Client) -> Self {
+        self.with_pack_import_policy(client, true)
+    }
+
+    /// The preference affects only unstarted jobs. Already selected PACK
+    /// jobs retain their client and complete safely after rollout is disabled.
+    pub fn with_pack_import_policy(
+        mut self,
+        client: aws_sdk_s3::Client,
+        prefer_pack: bool,
+    ) -> Self {
+        self.direct_pack_client = Some(client);
+        self.prefer_pack_import = prefer_pack;
+        self
+    }
+
+    pub(super) async fn import_queued_direct_pack(
+        &self,
+        claim: &tor_imports::domain::ChapterImportClaim,
+        chapters: &[ImportedChapter],
+        client: &aws_sdk_s3::Client,
+    ) -> Result<usize, AuthorError> {
+        let receipt = self
+            .stage_direct_pack_only(claim, chapters, &S3FreePackWriter::new(client.clone()))
+            .await?;
+        self.finalize_direct_pack_after_reproof(
+            claim,
+            chapters,
+            &receipt,
+            &S3PackProofStore::new(client.clone()),
+        )
+        .await
+    }
+
+    /// Persist PACK choice before reservation/upload, then stage a fully
+    /// verified result. Reader publication is a separate atomic finalization.
     pub async fn stage_direct_pack_only(
         &self,
         claim: &tor_imports::domain::ChapterImportClaim,
@@ -33,6 +72,21 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
             || chapters.len() != claim.expected_chapter_count as usize
             || claim.approved_fingerprint.as_slice()
                 != fingerprint(claim.book_id, chapters).as_slice()
+        {
+            return Err(AuthorError::Conflict);
+        }
+        if self
+            .repository
+            .select_import_transport(ImportTransportRequest {
+                job: (claim.job_id, claim.epoch),
+                actor: claim.actor_id,
+                book: claim.book_id,
+                command_key: &claim.command_key,
+                chapters,
+                prefer_pack: true,
+            })
+            .await?
+            != FreeImportTransport::Pack
         {
             return Err(AuthorError::Conflict);
         }
@@ -92,9 +146,8 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
     }
 }
 
-/// Complete the original DROP-04b batch only after a fresh, independently
-/// verified full S3 GET. This is never called from the normal live importer
-/// until a C-authorized HTTP PACK reader is accepted and feature-gated.
+/// Complete the approved batch only after a fresh, independently verified
+/// full S3 GET. The queued importer reaches this through its durable PACK choice.
 impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
     pub async fn finalize_direct_pack_after_reproof(
         &self,

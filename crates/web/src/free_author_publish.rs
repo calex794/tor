@@ -24,6 +24,8 @@ pub struct PgFreeAuthorPublisher<S> {
     store: S,
     bucket: String,
     references: tor_reading::repositories::free_s3_ref::PgFreeS3Ref,
+    direct_pack_client: Option<aws_sdk_s3::Client>,
+    prefer_pack_import: bool,
 }
 
 impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
@@ -42,6 +44,8 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
             repository,
             store,
             bucket,
+            direct_pack_client: None,
+            prefer_pack_import: false,
         })
     }
 
@@ -129,7 +133,31 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
         claim: &tor_imports::domain::ChapterImportClaim,
         chapters: &[tor_books::services::chapter_file_import::ImportedChapter],
     ) -> Result<usize, AuthorError> {
-        self.import_queued_batch(claim, chapters).await
+        use tor_books::repositories::free_s3_publish::{
+            FreeImportTransport, ImportTransportRequest,
+        };
+        let selected = self
+            .repository
+            .select_import_transport(ImportTransportRequest {
+                job: (claim.job_id, claim.epoch),
+                actor: claim.actor_id,
+                book: claim.book_id,
+                command_key: &claim.command_key,
+                chapters,
+                prefer_pack: self.prefer_pack_import,
+            })
+            .await?;
+        match selected {
+            FreeImportTransport::Single => self.import_queued_batch(claim, chapters).await,
+            FreeImportTransport::Pack => {
+                let client = self
+                    .direct_pack_client
+                    .as_ref()
+                    .ok_or(AuthorError::Unavailable)?;
+                self.import_queued_direct_pack(claim, chapters, client)
+                    .await
+            }
+        }
     }
     async fn source_for_session(
         &self,

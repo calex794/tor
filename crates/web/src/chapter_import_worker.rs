@@ -214,6 +214,25 @@ pub fn worker_opt_in(
     }
 }
 
+/// PACK-only publication must never run without its accepted reader. This
+/// switch affects queued imports only and is independent of SINGLE packing.
+pub fn direct_pack_opt_in(
+    setting: Option<&str>,
+    demo: bool,
+    worker: bool,
+    reader: bool,
+    free_storage: bool,
+) -> Result<bool, &'static str> {
+    match setting {
+        None | Some("0") => Ok(false),
+        Some("1") if cfg!(feature = "s3-free") && !demo && worker && reader && free_storage => {
+            Ok(true)
+        }
+        Some("1") => Err("PACK-direct import requires s3-free, authenticated S023 and PACK reader"),
+        _ => Err("TOR_CHAPTER_IMPORT_PACK_DIRECT_ENABLED must be 0 or 1"),
+    }
+}
+
 pub fn start_chapter_import_worker_background(
     catalog: PgCatalog,
     storage: Arc<dyn ChapterImportObjectStore>,
@@ -262,6 +281,30 @@ fn start_worker(worker: ChapterImportWorker) -> JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_import_requires_reader_and_explicit_operator_opt_in() {
+        assert_eq!(direct_pack_opt_in(None, false, true, true, true), Ok(false));
+        assert_eq!(
+            direct_pack_opt_in(Some("0"), false, true, true, true),
+            Ok(false)
+        );
+        for (demo, worker, reader, storage) in [
+            (true, true, true, true),
+            (false, false, true, true),
+            (false, true, false, true),
+            (false, true, true, false),
+        ] {
+            assert!(direct_pack_opt_in(Some("1"), demo, worker, reader, storage).is_err());
+        }
+        assert_eq!(
+            direct_pack_opt_in(Some("1"), false, true, true, true).is_ok(),
+            cfg!(feature = "s3-free")
+        );
+        for value in ["", "yes", "true", "01", "2"] {
+            assert!(direct_pack_opt_in(Some(value), false, true, true, true).is_err());
+        }
+    }
 
     #[test]
     fn worker_is_default_off_and_requires_all_capabilities() {

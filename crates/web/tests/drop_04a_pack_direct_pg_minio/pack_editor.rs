@@ -17,6 +17,9 @@ use tor_reading::repositories::{free_s3_ref::PgFreeS3Ref, PgReader};
 use tor_storage::repositories::free_chapter_s3::S3FreeChapterStore;
 use tor_web::free_author_publish::PgFreeAuthorPublisher;
 
+#[path = "owner_faults.rs"]
+mod owner_faults;
+
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 pub(super) async fn verify(
@@ -49,6 +52,7 @@ pub(super) async fn verify(
              VALUES({actor},{chapter},{version})"
         ),
     );
+    owner_faults::verify(url, client, (actor, book, chapter), &session, original).await;
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool().clone();
     let repository = PgFreeS3Publication::new(pool.clone());

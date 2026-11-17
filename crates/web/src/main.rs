@@ -168,21 +168,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
-    let chapter_import_worker_setting = match env::var("TOR_CHAPTER_IMPORT_WORKER_ENABLED") {
-        Ok(setting) => Some(setting),
-        Err(env::VarError::NotPresent) => None,
-        Err(error) => return Err(error.into()),
-    };
-    let chapter_import_worker_enabled = match tor_web::chapter_import_worker::worker_opt_in(
-        chapter_import_worker_setting.as_deref(),
-        demo,
-        env::var_os("DATABASE_URL").is_some(),
-        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
-        chapter_import_store.is_some(),
-    ) {
-        Ok(enabled) => enabled,
-        Err(reason) => return Err(reason.into()),
-    };
+    let chapter_import_worker_enabled =
+        drop_pack_bootstrap::chapter_import_enabled(demo, chapter_import_store.is_some())?;
+    let pack_direct_import_enabled =
+        drop_pack_bootstrap::import_enabled(demo, chapter_import_worker_enabled)?;
     // Do not start jobs until the HTTP application and listener have passed
     // their own readiness checks. No second database pool is opened.
     let mut pending_cover_worker: Option<(
@@ -206,7 +195,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-free")]
     let mut pending_drop_pack_planner = None;
     #[cfg(not(feature = "s3-free"))]
-    let _ = (drop_pack_worker_enabled, drop_pack_planner_enabled);
+    let _ = (
+        drop_pack_worker_enabled,
+        drop_pack_planner_enabled,
+        pack_direct_import_enabled,
+    );
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
@@ -404,7 +397,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             "S3-free import worker requires configured TOR_FREE_S3_BUCKET".into(),
                         );
                     }
-                    pending_free_import_author = free_author.clone();
+                    pending_free_import_author = drop_pack_bootstrap::configure_import(
+                        free_author.clone(),
+                        pack_direct_import_enabled,
+                        chapter_import_worker_enabled,
+                    )
+                    .await?;
                 }
 
                 #[cfg(not(feature = "s3-free"))]
@@ -558,14 +556,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _drop_pack_planner =
         pending_drop_pack_planner.map(tor_web::free_pack_planner::start_background);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
-        println!("TOR chapter import worker enabled");
         #[cfg(feature = "s3-free")]
-        if let Some(writer) = pending_free_import_author {
-            return tor_web::chapter_import_worker::start_chapter_import_worker_with_free(
-                catalog, storage, writer,
-            );
+        {
+            drop_pack_bootstrap::start_import(catalog, storage, pending_free_import_author)
         }
-        tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
+        #[cfg(not(feature = "s3-free"))]
+        {
+            tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
+        }
     });
     // C completion events remain durable if the server restarts.
     // Only the authenticated PostgreSQL runtime consumes them.

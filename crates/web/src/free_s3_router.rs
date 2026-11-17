@@ -4,7 +4,9 @@ use axum::Router;
 use std::sync::Arc;
 use tor_reading::repositories::PgReader;
 
-pub fn router_with_postgres_reading_auth_free_s3(
+pub fn router_with_postgres_reading_auth_free_s3<
+    S: tor_storage::services::free_chapter::FreeChapterStore + 'static,
+>(
     catalog: PgCatalog,
     reader: PgReader,
     accounts: tor_accounts::repositories::PgAccounts,
@@ -13,9 +15,7 @@ pub fn router_with_postgres_reading_auth_free_s3(
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
         bool,
     )>,
-    free: crate::free_author_publish::PgFreeAuthorPublisher<
-        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
-    >,
+    free: crate::free_author_publish::PgFreeAuthorPublisher<S>,
 ) -> Router {
     let (objects, upload) = match covers {
         Some((store, enabled)) => (Some(store), enabled),

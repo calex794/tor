@@ -145,6 +145,7 @@ jobs:
           # free_author_s3_pg includes the DROP-04b/06b PG18+MinIO cases;
           # do not rerun the same fixed-identity fixtures in this database.
           TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
+          bash tools/drop_04d_worker_ci.sh
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4
