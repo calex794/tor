@@ -19,7 +19,8 @@ use std::{
     time::Instant,
 };
 use tor_ingest::services::image_pipeline::{
-    process_cover_with_recipe, ImageVariant, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES, RECIPE_VERSION,
+    process_cover_with_recipe, ImageVariant, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES,
+    RECIPE_VERSION,
 };
 
 const MAX_SAMPLES: usize = 500;
@@ -131,7 +132,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !root.is_dir() {
         return Err(io::Error::other("source-image-directory must exist").into());
     }
-    let limit = args.get(2).map_or(Ok(100), |value| value.parse::<usize>())?;
+    let limit = args
+        .get(2)
+        .map_or(Ok(100), |value| value.parse::<usize>())?;
     if !(1..=MAX_SAMPLES).contains(&limit) {
         return Err(io::Error::other("max-files must be 1..=500").into());
     }
