@@ -835,6 +835,24 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     )
     .await;
 
+    // V2 changed chapter 1 to SINGLE. All remaining PACK ACL and
+    // arbitrary-Range negatives must target chapter 2, still a real PACK.
+    let active_pack_uri = format!(
+        "/api/v1/chapters/{}/free-pack-source",
+        receipt.frames[1].chapter_id
+    );
+    let still_packed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(&active_pack_uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(still_packed.status(), StatusCode::OK);
+
     // After a real S3 Range read, revoke publication with an admin hold.
     // The exact bytes must be discarded by the independent PostgreSQL recheck.
     let revoke_book = RevokeAfterRange {
@@ -898,7 +916,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&uri)
+                .uri(&active_pack_uri)
                 .header("Range", "bytes=0-9999999")
                 .body(Body::empty())
                 .unwrap(),
@@ -915,7 +933,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&uri)
+                .uri(&active_pack_uri)
                 .header("sec-fetch-site", "cross-site")
                 .body(Body::empty())
                 .unwrap(),
@@ -930,7 +948,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let held = app
         .clone()
-        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(held.status(), StatusCode::NOT_FOUND);
@@ -940,7 +958,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let adult = app
         .clone()
-        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(
@@ -954,7 +972,7 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     );
     let hidden = app
         .clone()
-        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .oneshot(Request::builder().uri(&active_pack_uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
