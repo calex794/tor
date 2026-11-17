@@ -348,12 +348,25 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
              AND (b.visibility='public' OR
                   (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL))
              AND (b.lifecycle_status<>'ordinary_deleted' OR
-                  t.purchased_at<COALESCE((
-                      SELECT req.requested_at
-                      FROM book_ordinary_deletion_requests req
-                      WHERE req.book_id=b.id
-                        AND req.request_revision=b.lifecycle_revision-1
-                  ),b.ordinary_deleted_at))
+                  EXISTS (
+                      SELECT 1 FROM commerce_layer_terms legacy
+                      WHERE legacy.user_id=t.user_id
+                        AND legacy.layer_id=t.layer_id
+                        AND legacy.access_origin_version_id=t.access_origin_version_id
+                        AND legacy.purchased_at<COALESCE((
+                            SELECT req.requested_at
+                            FROM book_ordinary_deletion_requests req
+                            WHERE req.book_id=b.id
+                              AND req.request_revision=b.lifecycle_revision-1
+                        ),b.ordinary_deleted_at)
+                        AND (legacy.expires_at IS NULL OR
+                             legacy.expires_at>COALESCE((
+                                 SELECT req.requested_at
+                                 FROM book_ordinary_deletion_requests req
+                                 WHERE req.book_id=b.id
+                                   AND req.request_revision=b.lifecycle_revision-1
+                             ),b.ordinary_deleted_at))
+                  ))
              AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              AND (
                b.access_level='basic'
