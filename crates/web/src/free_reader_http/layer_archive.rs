@@ -16,7 +16,7 @@ fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
 }
 
-fn trusted_grant_request(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
+fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
         == Some(cookies.origin.as_str())
         && cookies.same_origin(headers)
@@ -26,7 +26,7 @@ fn trusted_grant_request(cookies: &super::CookiePolicy, headers: &HeaderMap) -> 
             .is_some_and(|token| cookies.valid_csrf(headers, token))
 }
 
-async fn authorized_actor(
+async fn actor(
     state: &FreeGrantState,
     headers: &HeaderMap,
 ) -> Result<PositiveId, StatusCode> {
@@ -46,9 +46,9 @@ async fn authorized_actor(
 /// Signed SINGLE is only possible for a verified frozen edition backed by
 /// precisely the author-written S3 object. Neither the browser nor a
 /// storefront version selects the object, bucket or publication version.
-async fn source(
-    state: &FreeGrantState,
+async fn authorized_free_source(
     actor: PositiveId,
+    state: &FreeGrantState,
     chapter: PositiveId,
 ) -> Result<Option<FreeS3Ref>, StatusCode> {
     let Some(version) = state
@@ -140,11 +140,11 @@ pub(super) async fn page(
     let Ok(chapter) = PositiveId::new(id) else {
         return deny(StatusCode::NOT_FOUND);
     };
-    let actor = match authorized_actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    match source(&state, actor, chapter).await {
+    match authorized_free_source(actor, &state, chapter).await {
         Ok(Some(_)) => {}
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(status) => return deny(status),
@@ -178,18 +178,18 @@ pub(super) async fn grant(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    let actor = match authorized_actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if !trusted_grant_request(&state.cookies, &headers) {
+    if !csrf_valid(&state.cookies, &headers) {
         return deny(StatusCode::FORBIDDEN);
     }
     let Ok(chapter) = PositiveId::new(id) else {
         return deny(StatusCode::NOT_FOUND);
     };
     let result = verified_grant::issue(
-        || source(&state, actor, chapter),
+        || authorized_free_source(actor, &state, chapter),
         |record| sign(&state, record),
     )
     .await;
@@ -264,18 +264,18 @@ mod tests {
             header::COOKIE,
             format!("tor-dev-csrf={token}").parse().unwrap(),
         );
-        assert!(trusted_grant_request(&cookies, &headers));
+        assert!(csrf_valid(&cookies, &headers));
 
         headers.insert(header::ORIGIN, "https://foreign.example.test".parse().unwrap());
-        assert!(!trusted_grant_request(&cookies, &headers));
+        assert!(!csrf_valid(&cookies, &headers));
         headers.insert(header::ORIGIN, "https://tor.example.test".parse().unwrap());
         headers.insert("x-csrf-token", "B".repeat(43).parse().unwrap());
-        assert!(!trusted_grant_request(&cookies, &headers));
+        assert!(!csrf_valid(&cookies, &headers));
         headers.insert("x-csrf-token", token.parse().unwrap());
         headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
-        assert!(!trusted_grant_request(&cookies, &headers));
+        assert!(!csrf_valid(&cookies, &headers));
         headers.remove("sec-fetch-site");
         headers.remove(header::ORIGIN);
-        assert!(!trusted_grant_request(&cookies, &headers));
+        assert!(!csrf_valid(&cookies, &headers));
     }
 }
