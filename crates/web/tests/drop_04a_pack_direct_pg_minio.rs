@@ -610,6 +610,25 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     .unwrap();
 
     for (index, frame) in receipt.frames.iter().enumerate() {
+        // DROP-06b: the browser receives a verified plan, not a whole-PACK URL.
+        let plan = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/chapters/{}/free-source-plan", frame.chapter_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(plan.status(), StatusCode::OK);
+        let body = to_bytes(plan.into_body(), 4096).await.unwrap();
+        let plan: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(plan["schema"], "tor.free-source-plan.v1");
+        assert_eq!(plan["transport"], "gateway");
+        assert_eq!(plan["version_id"], frame.version_id.to_string());
+        assert_eq!(plan["size_bytes"], chapters[index].body.len() as u64);
+        assert!(plan.get("url").is_none(), "never disclose S3 capability");
         let uri = format!("/api/v1/chapters/{}/free-pack-source", frame.chapter_id);
         let response = app
             .clone()
@@ -659,6 +678,21 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         StatusCode::NOT_FOUND,
         "a client-selected V1 without saved pin cannot grant any packed frame"
     );
+    let denied_plan = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/chapters/{}/free-source-plan?mode=saved&version_id={}",
+                    receipt.frames[0].chapter_id, receipt.frames[0].version_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied_plan.status(), StatusCode::NOT_FOUND);
+
 
     let arbitrary_range = app
         .clone()
