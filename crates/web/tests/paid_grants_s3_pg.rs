@@ -479,18 +479,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    // D-06: the issuer may commit first-grant evidence even when the client
-    // never receives its HTTP body or retrieves ciphertext from MinIO.
-    let lost_ack = d06_lost_ack::discard_first_response(
-        &app,
-        &url,
-        buyer,
-        chapter,
-        purchase_id,
-        &buyer_cookie,
-        &csrf,
-    )
-    .await;
+    // D-06: independently purchased V1 for a dedicated buyer, so the
+    // discarded response/retry cannot consume the main buyer's signing quota.
+    d06_lost_ack::verify_isolated_buyer(&app, &url, &accounts, chapter, v1, &csrf).await;
     let purchased = post_grant(
         &app,
         chapter,
@@ -500,7 +491,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         "{}",
     )
     .await;
-    d06_lost_ack::assert_retry_preserves_evidence(&url, buyer, purchase_id, &lost_ack);
     assert_eq!(purchased.status(), StatusCode::OK);
     assert_eq!(
         purchased.headers()[header::CACHE_CONTROL],
