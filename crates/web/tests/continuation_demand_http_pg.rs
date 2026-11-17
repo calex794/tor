@@ -798,6 +798,46 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "0",
         "B's actual reading must not forge A's Follow receipt"
     );
+
+    // The age gate is evaluated at *read and completion time*. Past progress
+    // and Follow cannot act as a durable CanRead grant when the book changes
+    // from basic to adult. Restore the fixture afterwards for paid regression.
+    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
+    for cookie in [&reader_cookie, &observer_cookie] {
+        assert_eq!(
+            call(
+                &app,
+                "GET",
+                &format!("/read/{released}"),
+                cookie,
+                ORIGIN,
+                ""
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND,
+            "a previous completion or Follow must not bypass current age policy"
+        );
+        assert_eq!(
+            call(&app, "POST", &finish_path, cookie, ORIGIN, &observer_finish)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "age denial must precede optimistic completion revision checks"
+        );
+    }
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE chapter_id={released} AND user_id IN ({reader},{observer})"
+            )
+        ),
+        "2",
+        "age denial does not revoke or fabricate historical completion facts"
+    );
+    pg(&url, &format!("UPDATE books SET access_level='basic' WHERE id={book}"));
     // A separate synthetic paid release remains as the old non-leak regression.
 
     let next: i64 = pg(
