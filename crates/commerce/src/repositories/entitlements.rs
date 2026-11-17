@@ -397,6 +397,7 @@ impl EntitlementPort for PgDirectEntitlements {
             "SELECT l.active_version_id AS version_id,
                     (r.purchase_id IS NOT NULL) AS revoked,
                     (b.admin_hold OR c.admin_hold) AS admin_hold,
+                    (b.visibility_status='blocked') AS legal_blocked,
                     (b.is_deleted OR c.is_deleted) AS hard_deleted,
                     tor_purchase_version_readable(
                         $1, p.id, p.chapter_id, p.version_id
@@ -449,6 +450,9 @@ impl EntitlementPort for PgDirectEntitlements {
                         .map_err(|_| DeliveryError::Unavailable)?,
                     admin_hold: row
                         .try_get("admin_hold")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                    legal_blocked: row
+                        .try_get("legal_blocked")
                         .map_err(|_| DeliveryError::Unavailable)?,
                     hard_deleted: row
                         .try_get("hard_deleted")
