@@ -117,6 +117,9 @@ async fn drop_04d_100k_bounded_worker_import() {
     assert!((1..=100_000).contains(&total));
     let f = Fixture::new("Bounded 100k PACK load").await;
     let worker = f.worker(true);
+    let rss_before = linux_rss("VmRSS:");
+    let cpu_before = linux_cpu_ticks();
+    let mut worker_durations = Vec::new();
     let started = Instant::now();
     let mut batches = 0;
     let body = "Синтетический текст испытания хранилища 😀 中文. ".repeat(11);
@@ -130,11 +133,13 @@ async fn drop_04d_100k_bounded_worker_import() {
         }
         assert!(source.len() <= MAX_IMPORT_BYTES);
         let (job, _) = f.enqueue(&source).await;
+        let batch_started = Instant::now();
         assert_eq!(
             worker.run_one().await.unwrap(),
             ChapterImportWorkerResult::Completed,
             "batch {batches}"
         );
+        worker_durations.push(batch_started.elapsed().as_secs_f64());
         assert_eq!(
             pg(
                 &f.url,
@@ -165,6 +170,23 @@ async fn drop_04d_100k_bounded_worker_import() {
         "DROP04D_LOAD_PASS chapters={total} batches={batches} seconds={:.3}",
         started.elapsed().as_secs_f64()
     );
+    worker_durations.sort_by(f64::total_cmp);
+    let p95 = worker_durations[(worker_durations.len() * 95).div_ceil(100) - 1];
+    let p99 = worker_durations[(worker_durations.len() * 99).div_ceil(100) - 1];
+    let ticks_per_second = std::process::Command::new("getconf")
+        .arg("CLK_TCK")
+        .output()
+        .unwrap();
+    assert!(ticks_per_second.status.success());
+    let ticks_per_second: f64 = String::from_utf8(ticks_per_second.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let cpu_seconds = (linux_cpu_ticks() - cpu_before) as f64 / ticks_per_second;
+    println!("DROP04E_TIMING_PASS worker_batch_p95_s={p95:.6} worker_batch_p99_s={p99:.6} client_cpu_s={cpu_seconds:.3}");
+    let peak = linux_rss("VmHWM:");
+    println!("DROP04E_RESOURCE_PASS client_peak_rss_kib={peak} before_kib={rss_before} peak_growth_kib={}", peak.saturating_sub(rss_before));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -306,4 +328,25 @@ async fn drop_04d_legacy_single_checkpoint_survives_pack_rollout() {
     println!(
         "DROP04D_LEGACY_SINGLE_PASS: real verified checkpoint resumes SINGLE after PACK rollout"
     );
+}
+
+// Linux CI measurement of the actual worker process. Includes runtime and
+// shared-client overhead; not a claim about total PostgreSQL/MinIO/VPS memory.
+fn linux_rss(field: &str) -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix(field))
+        .and_then(|value| value.split_whitespace().next())
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+fn linux_cpu_ticks() -> u64 {
+    let status = std::fs::read_to_string("/proc/self/stat").unwrap();
+    let mut fields = status.rsplit_once(") ").unwrap().1.split_whitespace();
+    let user: u64 = fields.nth(11).unwrap().parse().unwrap();
+    let system: u64 = fields.next().unwrap().parse().unwrap();
+    user + system
 }
