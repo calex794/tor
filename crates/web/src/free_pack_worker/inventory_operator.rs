@@ -7,7 +7,7 @@ use std::time::Duration;
 use aws_sdk_s3::Client;
 use tor_books::repositories::{
     free_inventory_cycles::{
-        InventoryCheckpointError, InventoryCycleLease, InventoryDirection, InventoryNamespace,
+        InventoryCheckpointError, InventoryDirection, InventoryNamespace,
         InventoryPageCounts, PgFreeInventoryCheckpoints,
     },
     PgCatalog,
@@ -146,7 +146,7 @@ impl OperatorObservedScanner {
             InventoryNamespace::Single => FreeListNamespace::Single,
             InventoryNamespace::Pack => FreeListNamespace::Pack,
         };
-        let Some(mut lease): Option<InventoryCycleLease> = self
+        let Some(mut lease) = self
             .checkpoints
             .claim(
                 &self.bucket,
