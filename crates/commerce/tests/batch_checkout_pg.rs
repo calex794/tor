@@ -520,9 +520,7 @@ async fn h_ui_21_batch_mixed_registration_cannot_partially_debit() {
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     use std::time::Duration;
-    use tor_commerce::repositories::direct_exposure::{
-        DirectGrantKind, PgDirectFirstExposure,
-    };
+    use tor_commerce::repositories::direct_exposure::{DirectGrantKind, PgDirectFirstExposure};
     use tor_contracts::paid_delivery::DeliveryError;
 
     let f = fixture("first-grant-fence", 1_000).await;
@@ -597,13 +595,12 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     // committed while holding this lock; the blocked recorder must recheck
     // the canonical paid entitlement in a fresh READ COMMITTED statement.
     let mut reversing = f.pool.begin().await.unwrap();
-    let locked: i64 = sqlx::query_scalar(
-        "SELECT id FROM chapter_purchase_facts WHERE id=$1 FOR UPDATE",
-    )
-    .bind(second_purchase.get())
-    .fetch_one(&mut *reversing)
-    .await
-    .unwrap();
+    let locked: i64 =
+        sqlx::query_scalar("SELECT id FROM chapter_purchase_facts WHERE id=$1 FOR UPDATE")
+            .bind(second_purchase.get())
+            .fetch_one(&mut *reversing)
+            .await
+            .unwrap();
     assert_eq!(locked, second_purchase.get());
 
     let buyer = f.buyer;
@@ -659,17 +656,19 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     .fetch_one(&f.pool)
     .await
     .unwrap();
-    assert!(!second_opened, "a revoked batch item cannot gain first-use evidence");
-    let second_readable: bool = sqlx::query_scalar(
-        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
-    )
-    .bind(f.buyer)
-    .bind(second_purchase.get())
-    .bind(second.chapter_id.get())
-    .bind(second.version_id.get())
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    assert!(
+        !second_opened,
+        "a revoked batch item cannot gain first-use evidence"
+    );
+    let second_readable: bool =
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(f.buyer)
+            .bind(second_purchase.get())
+            .bind(second.chapter_id.get())
+            .bind(second.version_id.get())
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert!(!second_readable);
     assert_eq!(balance(&f.pool, f.buyer).await, 700);
     assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
