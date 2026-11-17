@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 439)  # Includes S034 checkout recovery and DROP-06 private Range source policies.
-        self.assertEqual(report["route_pairs"], 435)  # Exact route+method pairs, including the new owner-only cover-choice endpoint.
+        self.assertEqual(report["route_pairs"], 436)  # Exact route+method pairs, including DROP-06a private PACK source.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
