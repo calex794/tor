@@ -226,7 +226,10 @@ impl PgFreePackCatalog {
                     f.content_sha256,
                     size,
                 ));
-            } else if current == pack_generation.checked_add(1).ok_or(AuthorError::Conflict)?
+            } else if current
+                == pack_generation
+                    .checked_add(1)
+                    .ok_or(AuthorError::Conflict)?
                 && kind == "single"
                 && active_pack.is_none()
             {
