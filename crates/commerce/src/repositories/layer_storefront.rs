@@ -345,9 +345,9 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
            WHERE r.term_id IS NULL
              AND t.started_at<=now()
              AND (t.expires_at IS NULL OR t.expires_at>now())
-             AND (b.visibility='public' OR
+             AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' OR
                   (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL))
-             AND (b.lifecycle_status<>'ordinary_deleted' OR
+             AND (b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') OR
                   EXISTS (
                       SELECT 1 FROM commerce_layer_terms legacy
                       WHERE legacy.user_id=t.user_id
@@ -357,14 +357,18 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
                             SELECT req.requested_at
                             FROM book_ordinary_deletion_requests req
                             WHERE req.book_id=b.id
-                              AND req.request_revision=b.lifecycle_revision-1
+                              AND req.request_revision=b.lifecycle_revision
+                              - CASE WHEN b.lifecycle_status='pending_deletion'
+                                     THEN 0 ELSE 1 END
                         ),b.ordinary_deleted_at)
                         AND (legacy.expires_at IS NULL OR
                              legacy.expires_at>COALESCE((
                                  SELECT req.requested_at
                                  FROM book_ordinary_deletion_requests req
                                  WHERE req.book_id=b.id
-                                   AND req.request_revision=b.lifecycle_revision-1
+                                   AND req.request_revision=b.lifecycle_revision
+                              - CASE WHEN b.lifecycle_status='pending_deletion'
+                                     THEN 0 ELSE 1 END
                              ),b.ordinary_deleted_at))
                   ))
              AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
@@ -391,12 +395,14 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
                JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
                     AND vb.book_id=b.id
                WHERE origin.id=t.access_origin_version_id AND origin.layer_id=t.layer_id
-                 AND (b.lifecycle_status<>'ordinary_deleted'
+                 AND (b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                       OR v.created_at<COALESCE((
                           SELECT req.requested_at
                           FROM book_ordinary_deletion_requests req
                           WHERE req.book_id=b.id
-                            AND req.request_revision=b.lifecycle_revision-1
+                            AND req.request_revision=b.lifecycle_revision
+                              - CASE WHEN b.lifecycle_status='pending_deletion'
+                                     THEN 0 ELSE 1 END
                       ),b.ordinary_deleted_at))
              )
            ORDER BY c.id LIMIT 1
