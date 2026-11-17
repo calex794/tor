@@ -360,9 +360,7 @@ fn saved_free_reader_internal(
     }
 
     let s3 = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
-    let pack_attr = if s3
-        && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1")
-    {
+    let pack_attr = if s3 && std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1") {
         " data-free-pack-reader=\"1\""
     } else {
         ""
