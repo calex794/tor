@@ -72,7 +72,6 @@ pub async fn upload_one_approved_pack(
         .await
 }
 
-
 /// DROP-05a: internal-only, independently reverified activation of an
 /// already succeeded candidate. Never called by HTTP or a startup loop.
 /// The full G proof and B all-member CAS are deliberately separate; failure
