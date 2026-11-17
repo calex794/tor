@@ -165,6 +165,14 @@ pub(super) async fn read_pack(
     if final_plan != initial {
         return deny(StatusCode::CONFLICT);
     }
+    // A term can remain valid after a browser session is revoked during S3
+    // I/O. Revalidate the original signed-in session itself, not just D's
+    // actor ID and the immutable Layer origin, before returning plaintext.
+    match actor(&state, &headers).await {
+        Ok(current) if current == actor => {}
+        Ok(_) | Err(StatusCode::UNAUTHORIZED) => return deny(StatusCode::NOT_FOUND),
+        Err(status) => return deny(status),
+    }
     let Some(frame) = final_plan.pack_frame() else {
         return deny(StatusCode::CONFLICT);
     };
