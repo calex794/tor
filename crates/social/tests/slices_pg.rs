@@ -775,17 +775,8 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
     let (a, b, c) = (users[0], users[1], users[2]);
     let notifications = PgNotifications::new(pool.clone());
     let initial = notifications.preferences(b).await.unwrap();
-    assert_eq!(
-        initial.len(),
-        23,
-        "RET-01b adds the chapter_updated bell preference"
-    );
-    assert!(
-        initial
-            .iter()
-            .any(|pref| pref.kind == "chapter_updated" && pref.enabled),
-        "updated chapters must be independently configurable and enabled by default"
-    );
+    assert_eq!(initial.len(), 23);
+    assert!(initial.iter().any(|p| p.kind == "chapter_updated" && p.enabled));
     assert!(initial.iter().all(|pref| pref.enabled));
     assert_eq!(notifications.preferences(0).await, Err(MailError::Invalid));
     assert_eq!(
