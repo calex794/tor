@@ -105,6 +105,7 @@ class SelectionTests(unittest.TestCase):
             "tools/paid_reader_browser_smoke.cjs": {"reader_browser"},
             "tools/paid_reader_minio_chromium_e2e.cjs": {"paid_e2e"},
             "crates/web/tests/drop_04d_worker_pg_minio.rs": {"rust", "paid_e2e"},
+            "crates/books/tests/free_import_transport_pg.rs": {"rust", "paid_e2e"},
             "tools/drop_04d_worker_ci.sh": {"paid_e2e"},
             "tools/paid_grant_webcrypto_e2e.mjs": {"paid_e2e", "purchased_recovery"},
             "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},

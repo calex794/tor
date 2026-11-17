@@ -39,15 +39,28 @@ pub fn import_enabled(demo: bool, worker: bool) -> Result<bool, &'static str> {
 pub async fn configure_import(
     writer: Option<tor_web::free_author_publish::S3FreeAuthor>,
     enabled: bool,
+    worker_enabled: bool,
 ) -> Result<Option<tor_web::free_author_publish::S3FreeAuthor>, Box<dyn Error>> {
-    if !enabled {
+    if worker_enabled {
+        writer
+            .as_ref()
+            .ok_or("S023 import requires FREE S3 publisher")?
+            .probe_queued_import_schema()
+            .await
+            .map_err(|_| "DROP queued import transport migration not applied")?;
+    }
+    if !enabled && env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() != Ok("1") {
         return Ok(writer);
+    }
+    if writer.is_none() && !enabled {
+        return Ok(None);
     }
     let writer = writer.ok_or("PACK-direct import requires FREE S3 publisher")?;
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    Ok(Some(
-        writer.with_direct_pack_import(aws_sdk_s3::Client::new(&config)),
-    ))
+    Ok(Some(writer.with_pack_import_policy(
+        aws_sdk_s3::Client::new(&config),
+        enabled,
+    )))
 }
 
 #[cfg(feature = "s3-free")]

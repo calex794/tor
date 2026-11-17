@@ -400,6 +400,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     pending_free_import_author = drop_pack_bootstrap::configure_import(
                         free_author.clone(),
                         pack_direct_import_enabled,
+                        chapter_import_worker_enabled,
                     )
                     .await?;
                 }

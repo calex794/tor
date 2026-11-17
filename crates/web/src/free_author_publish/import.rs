@@ -1,7 +1,9 @@
 //! B reserves hidden IDs; G verifies all objects; B commits the whole batch.
 use super::*;
 use tor_books::{
-    repositories::free_s3_publish::VerifiedFreeImportEdition,
+    repositories::free_s3_publish::{
+        FreeImportTransport, ImportTransportRequest, VerifiedFreeImportEdition,
+    },
     services::chapter_file_import::{ImportedChapter, MAX_IMPORT_CHAPTERS},
 };
 
@@ -24,6 +26,21 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         claim: &tor_imports::domain::ChapterImportClaim,
         chapters: &[ImportedChapter],
     ) -> Result<usize, AuthorError> {
+        if self
+            .repository
+            .select_import_transport(ImportTransportRequest {
+                job: (claim.job_id, claim.epoch),
+                actor: claim.actor_id,
+                book: claim.book_id,
+                command_key: &claim.command_key,
+                chapters,
+                prefer_pack: false,
+            })
+            .await?
+            != FreeImportTransport::Single
+        {
+            return Err(AuthorError::Conflict);
+        }
         let editions = self
             .prepare_import(claim.actor_id, claim.book_id, &claim.command_key, chapters)
             .await?;

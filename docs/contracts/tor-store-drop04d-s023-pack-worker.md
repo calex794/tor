@@ -13,6 +13,18 @@ private import storage, configured FREE publisher, the S023 worker and
 `TOR_FREE_PACK_READER_ENABLED=1`. Invalid values fail startup. Interactive
 create/edit and synchronous imports retain their SINGLE contract.
 
+Before destination reservation or upload, B locks the exact live job epoch
+and persists `free_chapter_import_transports`: approved identity/fingerprint,
+count and SINGLE/PACK choice. The row is immutable. Concurrent choices converge;
+a flag change only affects new jobs. Legacy SINGLE reservations/checkpoints stay
+SINGLE; an existing PACK stage stays PACK. SQL guards reject checkpoints for
+the opposite transport. This additive migration is repository-only.
+
+With the reader configured, disabling PACK rollout still retains a client for
+previously selected PACK jobs. Without that client the job retries without
+publishing SINGLE or deleting its source. Startup probes the transport schema
+before enabling the queued worker; it never applies migrations.
+
 The worker verifies the approved private source and its fingerprint using
 existing S023 bounds (700,000 UTF-8 bytes and 500 chapters per job). B reserves
 immutable IDs; G creates one independent-frame PACK and sidecar, performs
@@ -50,11 +62,16 @@ the reader is not a rollback for published PACK-only data.
   readback, final exact chapter/version/publication/active-placement counts,
   zero SINGLEs or PostgreSQL plaintext. Prints elapsed time and progress.
   This is not a real-book compression ratio or real-cloud cost measurement.
+- `free_import_transport_pg`: real PostgreSQL concurrent choice, immutable row,
+  stale epoch, flag flip, legacy SINGLE checkpoint and SQL mixed-mode guards.
+- Worker policy regressions: staged PACK resumes after rollout OFF; pre-upload
+  PACK choice refuses missing reader, preserves source and resumes with rollout
+  still OFF; a real legacy SINGLE S3 checkpoint remains SINGLE after rollout ON.
 - Existing real Chromium PACK editor adds deterministic owner/revision/hold
   changes immediately after an actual MinIO Range read, before B reauthorization.
 - Existing reader/SINGLE/paid tests remain mandatory. Both S3 workflows execute
   the new worker profile and 100k exercise in a separate, freshly migrated
-  `tor_drop_worker_ci` database, so abandoned leases from older profiles cannot
+  `tor_test` database, so abandoned leases from older profiles cannot
   enter the new worker queue. Exact-head full CI and post-merge
   evidence are required before accepting this slice.
 

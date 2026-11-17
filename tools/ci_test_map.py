@@ -133,6 +133,7 @@ TEST_SUITES = {
     "tools/drop_06b_pack_chromium.cjs": {"paid_e2e"},
     "crates/web/tests/drop_04a_pack_direct_pg_minio.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio.rs": {"rust", "paid_e2e"},
+    "crates/books/tests/free_import_transport_pg.rs": {"rust", "paid_e2e"},
     "tools/drop_04d_worker_ci.sh": {"paid_e2e"},
     "tools/paid_grant_webcrypto_e2e.mjs": {"paid_e2e", "purchased_recovery"},
     "tools/checkout_http_pg_smoke.py": {"postgres"},

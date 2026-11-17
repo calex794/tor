@@ -21,7 +21,7 @@ use tor_web::{
 
 pub const BUCKET: &str = "tor-drop-worker-ci";
 pub fn pg(url: &str, sql: &str) -> String {
-    assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_drop_worker_ci"));
+    assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_test"));
     let output = Command::new("psql")
         .args([
             "-X",
@@ -56,7 +56,7 @@ pub struct Fixture {
 impl Fixture {
     pub async fn new(label: &str) -> Self {
         let url = env::var("TEST_DATABASE_URL").unwrap();
-        assert!(url.ends_with("/tor_drop_worker_ci"));
+        assert!(url.ends_with("/tor_test"));
         assert_eq!(
             env::var("TOR_TEST_S3_ENDPOINT").unwrap(),
             "http://127.0.0.1:9000"
@@ -105,11 +105,7 @@ impl Fixture {
     }
     pub fn worker(&self, packed: bool) -> ChapterImportWorker {
         let author = self.author();
-        let author = if packed {
-            author.with_direct_pack_import(self.client.clone())
-        } else {
-            author
-        };
+        let author = author.with_pack_import_policy(self.client.clone(), packed);
         ChapterImportWorker::new(&self.catalog, self.source.clone()).with_free_s3(author)
     }
     pub async fn enqueue(&self, source: &str) -> (i64, String) {
