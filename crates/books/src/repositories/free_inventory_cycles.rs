@@ -4,6 +4,7 @@
 //! cross-system snapshot, orphan proof, backup proof or GC authorization.
 use sqlx::{PgPool, Row};
 
+pub use super::free_expected_inventory::InventoryNamespace;
 use super::free_expected_inventory::{valid_bucket, valid_cursor};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,21 +18,6 @@ impl InventoryDirection {
         match self {
             Self::ExpectedToS3 => "pg_to_s3",
             Self::ObservedToPg => "s3_to_pg",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InventoryNamespace {
-    Single,
-    Pack,
-}
-
-impl InventoryNamespace {
-    fn as_db(self) -> &'static str {
-        match self {
-            Self::Single => "single",
-            Self::Pack => "pack",
         }
     }
 }
@@ -72,6 +58,19 @@ impl InventoryPageCounts {
     }
 }
 
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct CompletedInventoryReport {
+    pub id: i64,
+    pub page_index: i64,
+    pub inspected_count: i64,
+    pub matched_count: i64,
+    pub protected_count: i64,
+    pub unknown_count: i64,
+    pub mismatch_count: i64,
+    pub unverifiable_count: i64,
+    pub completed_unix: i64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InventoryCheckpointError {
     Invalid,
@@ -95,11 +94,7 @@ fn valid_token(
         return false;
     }
     if direction == InventoryDirection::ExpectedToS3 {
-        valid_cursor(token)
-            && token.starts_with(match namespace {
-                InventoryNamespace::Single => "private/free-chapters/",
-                InventoryNamespace::Pack => "private/free-packs/",
-            })
+        valid_cursor(token) && token.starts_with(namespace.prefix())
     } else {
         // S3's continuation token is opaque. It is persisted *only* inside
         // this bucket+namespace+direction cycle, never a public input.
@@ -334,6 +329,33 @@ impl PgFreeInventoryCheckpoints {
         lease.page_index += 1;
         lease.continuation = next_cursor.map(str::to_owned);
         Ok(true)
+    }
+
+    /// Two independently completed same-scope runs, newest first. These
+    /// aggregate counters do not establish equality of the object sets.
+    pub async fn completed_reports(
+        &self,
+        bucket: &str,
+        direction: InventoryDirection,
+        namespace: InventoryNamespace,
+    ) -> Result<Vec<CompletedInventoryReport>, InventoryCheckpointError> {
+        if !valid_bucket(bucket) {
+            return Err(InventoryCheckpointError::Invalid);
+        }
+        sqlx::query_as(
+            "SELECT id,page_index,inspected_count,matched_count,protected_count,
+                    unknown_count,mismatch_count,unverifiable_count,
+                    extract(epoch FROM completed_at)::bigint AS completed_unix
+             FROM free_storage_inventory_cycles
+             WHERE bucket=$1 AND direction=$2 AND namespace=$3 AND status='completed'
+             ORDER BY id DESC LIMIT 2",
+        )
+        .bind(bucket)
+        .bind(direction.as_db())
+        .bind(namespace.as_db())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| InventoryCheckpointError::Unavailable)
     }
 
     /// Do not silently mark an interrupted provider scan complete.
