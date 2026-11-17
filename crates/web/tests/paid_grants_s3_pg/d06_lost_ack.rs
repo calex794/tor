@@ -138,8 +138,7 @@ pub(super) async fn verify_isolated_buyer(
 
     // Isolate all successful signing from the existing main buyer, which
     // deliberately runs close to the 12/min rate limit in later 403 checks.
-    let (buyer, cookie) =
-        user(accounts, "s034-minio-d06-lost-ack@tor-ci.example").await;
+    let (buyer, cookie) = user(accounts, "s034-minio-d06-lost-ack@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -169,7 +168,8 @@ pub(super) async fn verify_isolated_buyer(
 
     // Axum returns 200; the client discards the entire body and never issues
     // a signed S3 GET. The issuer marker is nevertheless durable.
-    let original = discard_first_response(app, url, buyer, chapter, purchase_id, &cookie, csrf).await;
+    let original =
+        discard_first_response(app, url, buyer, chapter, purchase_id, &cookie, csrf).await;
     let response = post_grant(app, chapter, Some(&cookie), Some(csrf), ORIGIN, "{}").await;
     assert_eq!(response.status(), StatusCode::OK);
     let grant = decode(response).await;
