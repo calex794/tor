@@ -68,7 +68,10 @@ impl S3FreeInventoryLister {
         if let Some(token) = continuation {
             request = request.continuation_token(token);
         }
-        let response = request.send().await.map_err(|_| StorageError::Unavailable)?;
+        let response = request
+            .send()
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
         let contents = response.contents();
         if contents.len() > limit as usize {
             return Err(StorageError::Corrupt);
@@ -83,9 +86,9 @@ impl S3FreeInventoryLister {
                 || key
                     .split('/')
                     .any(|segment| segment == "." || segment == "..")
-                || key
-                    .bytes()
-                    .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.')))
+                || key.bytes().any(|byte| {
+                    !(byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.'))
+                })
                 || previous.is_some_and(|last| key <= last)
             {
                 return Err(StorageError::Corrupt);
