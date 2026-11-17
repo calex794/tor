@@ -450,6 +450,36 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
 
+    // A missing original SINGLE must block cutover even though the PACK was
+    // already proved. Restore exact immutable source before trying again.
+    let first_source =
+        FreeChapterObject::for_markdown(editions[0].0, editions[0].1, &editions[0].2).unwrap();
+    client
+        .delete_object()
+        .bucket(BUCKET)
+        .key(first_source.key())
+        .send()
+        .await
+        .unwrap();
+    assert!(matches!(
+        activate_one_verified_pack(&catalog, &proof, &single, &claim).await,
+        Err(AuthorError::Unavailable)
+    ));
+    let still_zero: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_edition_active_storage
+             WHERE chapter_id IN ({},{})",
+            editions[0].0, editions[1].0
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(still_zero, 0);
+    upload_and_verify(&single, &first_source, &editions[0].2)
+        .await
+        .unwrap();
+
     let (one, two) = tokio::join!(
         activate_one_verified_pack(&catalog, &proof, &single, &claim),
         activate_one_verified_pack(&catalog, &proof, &single, &claim),
