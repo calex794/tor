@@ -157,8 +157,14 @@ pub(super) async fn verify(
         .create_layer(id(owner), "Historical PACK snapshot")
         .await
         .unwrap();
-    let version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
-    let offer = layers.publish_offer(id(owner), id(layer), 90, true).await.unwrap();
+    let version = layers
+        .add_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
+    let offer = layers
+        .publish_offer(id(owner), id(layer), 90, true)
+        .await
+        .unwrap();
     pg(
         url,
         &format!(
@@ -187,14 +193,7 @@ pub(super) async fn verify(
         .unwrap()
         .revision;
     let pending = author
-        .advance_ordinary_deletion(
-            owner,
-            book,
-            rev,
-            "start",
-            &owner_token_hash,
-            &owner_hash,
-        )
+        .advance_ordinary_deletion(owner, book, rev, "start", &owner_token_hash, &owner_hash)
         .await
         .unwrap();
     accounts
@@ -291,7 +290,11 @@ pub(super) async fn verify(
     );
     assert!(!response.headers().contains_key(header::LOCATION));
     let bytes = to_bytes(response.into_body(), 200_001).await.unwrap();
-    assert_eq!(bytes.as_ref(), expected, "one archived PACK frame, no neighbor");
+    assert_eq!(
+        bytes.as_ref(),
+        expected,
+        "one archived PACK frame, no neighbor"
+    );
 
     pg(
         url,
