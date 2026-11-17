@@ -32,10 +32,7 @@ fn csrf_valid(cookies: &super::CookiePolicy, headers: &HeaderMap) -> bool {
             .is_some_and(|value| cookies.valid_csrf(headers, value))
 }
 
-async fn actor(
-    state: &PackHttpState,
-    headers: &HeaderMap,
-) -> Result<PositiveId, StatusCode> {
+async fn actor(state: &PackHttpState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
     let token = state
         .cookies
         .session_token(headers)
