@@ -234,7 +234,7 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-      - name: DROP-08b: compile restored-PG historical pin export and refuse empty evidence
+      - name: DROP-08b compile restored-PG historical pin export and refuse empty evidence
         if: ${{ matrix.shard == 'foundation' }}
         run: |
           set -euo pipefail
