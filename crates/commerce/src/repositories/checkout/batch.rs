@@ -209,6 +209,7 @@ impl PgCheckout {
         // prevents an unrelated Book's terms being sold accidentally.
         let mut books_and_revisions = Vec::with_capacity(command.offers().len());
         let mut one_book = None;
+        let mut first_age_tier: Option<String> = None;
         for offer in command.offers() {
             let row = sqlx::query(
                 "SELECT p.version_id,c.price_amount,b.id AS book_id,
@@ -245,13 +246,10 @@ impl PgCheckout {
                 return Err(BatchCheckoutError::MixedBooks);
             }
             if one_book.is_none() {
-                // All items share this Book, and its SHARE lock remains held
-                // through COMMIT. Lock the buyer/age grant only once, before
-                // the wallet; an age revocation cannot overtake the debit.
-                let tier: String = row.try_get("book_age_tier").map_err(unavailable)?;
-                super::age::require_purchase_tier(&mut tx, actor, &tier)
-                    .await
-                    .map_err(BatchCheckoutError::from)?;
+                // All items share the same locked Book. Defer buyer/grant
+                // locking until after the wallet so D-06/S038 uses the same
+                // wallet -> user order during competing swaps.
+                first_age_tier = Some(row.try_get("book_age_tier").map_err(unavailable)?);
             }
             one_book = Some(book);
             let sum: i64 = sqlx::query_scalar(
@@ -288,6 +286,14 @@ impl PgCheckout {
         .await
         .map_err(unavailable)?
         .unwrap_or(0);
+
+        // The wallet lock must precede the A-owned buyer and pro-grant locks,
+        // but all of them remain held until COMMIT or rollback. No debit can
+        // occur after an age revocation that committed before this fence.
+        let age_tier = first_age_tier.ok_or(BatchCheckoutError::InvalidBatch)?;
+        super::age::require_purchase_tier(&mut tx, actor, &age_tier)
+            .await
+            .map_err(BatchCheckoutError::from)?;
         for offer in command.offers() {
             let already_owned = sqlx::query(
                 "SELECT l.purchase_id,
