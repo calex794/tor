@@ -15,6 +15,32 @@ use tor_storage::{
 };
 
 impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
+    /// Configure only the leased importer. Author saves and synchronous
+    /// previews keep their SINGLE contract. Startup separately requires the
+    /// accepted PACK reader; this builder is also used by disposable tests.
+    pub fn with_direct_pack_import(mut self, client: aws_sdk_s3::Client) -> Self {
+        self.direct_pack_client = Some(client);
+        self
+    }
+
+    pub(super) async fn import_queued_direct_pack(
+        &self,
+        claim: &tor_imports::domain::ChapterImportClaim,
+        chapters: &[ImportedChapter],
+        client: &aws_sdk_s3::Client,
+    ) -> Result<usize, AuthorError> {
+        let receipt = self
+            .stage_direct_pack_only(claim, chapters, &S3FreePackWriter::new(client.clone()))
+            .await?;
+        self.finalize_direct_pack_after_reproof(
+            claim,
+            chapters,
+            &receipt,
+            &S3PackProofStore::new(client.clone()),
+        )
+        .await
+    }
+
     /// This offline entrypoint is NOT called by the existing live import
     /// worker. It can only stage a verified result; the old S349 route stays
     /// unchanged until finalizer and reader acceptance are complete.

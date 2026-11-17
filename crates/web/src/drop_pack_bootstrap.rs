@@ -3,6 +3,69 @@ use std::env;
 #[cfg(feature = "s3-free")]
 use std::error::Error;
 
+pub fn chapter_import_enabled(demo: bool, storage: bool) -> Result<bool, &'static str> {
+    let setting = match env::var("TOR_CHAPTER_IMPORT_WORKER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("Invalid S023 worker setting"),
+    };
+    tor_web::chapter_import_worker::worker_opt_in(
+        setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+        storage,
+    )
+}
+
+/// DROP-04d: publishing PACK-only chapters requires its reader as well as
+/// the existing authenticated, private S023 worker. Default OFF.
+pub fn import_enabled(demo: bool, worker: bool) -> Result<bool, &'static str> {
+    let setting = match env::var("TOR_CHAPTER_IMPORT_PACK_DIRECT_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("Invalid PACK-direct import setting"),
+    };
+    tor_web::chapter_import_worker::direct_pack_opt_in(
+        setting.as_deref(),
+        demo,
+        worker,
+        env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1"),
+        env::var_os("TOR_FREE_S3_BUCKET").is_some(),
+    )
+}
+
+#[cfg(feature = "s3-free")]
+pub async fn configure_import(
+    writer: Option<tor_web::free_author_publish::S3FreeAuthor>,
+    enabled: bool,
+) -> Result<Option<tor_web::free_author_publish::S3FreeAuthor>, Box<dyn Error>> {
+    if !enabled {
+        return Ok(writer);
+    }
+    let writer = writer.ok_or("PACK-direct import requires FREE S3 publisher")?;
+    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    Ok(Some(
+        writer.with_direct_pack_import(aws_sdk_s3::Client::new(&config)),
+    ))
+}
+
+#[cfg(feature = "s3-free")]
+pub fn start_import(
+    catalog: tor_books::repositories::PgCatalog,
+    storage: std::sync::Arc<dyn tor_imports::services::ChapterImportObjectStore>,
+    writer: Option<tor_web::free_author_publish::S3FreeAuthor>,
+) -> tokio::task::JoinHandle<()> {
+    match writer {
+        Some(writer) => tor_web::chapter_import_worker::start_chapter_import_worker_with_free(
+            catalog, storage, writer,
+        ),
+        None => {
+            tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
+        }
+    }
+}
+
 pub fn enabled(demo: bool) -> Result<bool, &'static str> {
     let setting = match env::var("TOR_DROP_PACK_WORKER_ENABLED") {
         Ok(value) => Some(value),

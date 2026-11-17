@@ -24,6 +24,7 @@ pub struct PgFreeAuthorPublisher<S> {
     store: S,
     bucket: String,
     references: tor_reading::repositories::free_s3_ref::PgFreeS3Ref,
+    direct_pack_client: Option<aws_sdk_s3::Client>,
 }
 
 impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
@@ -42,6 +43,7 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
             repository,
             store,
             bucket,
+            direct_pack_client: None,
         })
     }
 
@@ -129,6 +131,11 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
         claim: &tor_imports::domain::ChapterImportClaim,
         chapters: &[tor_books::services::chapter_file_import::ImportedChapter],
     ) -> Result<usize, AuthorError> {
+        if let Some(client) = &self.direct_pack_client {
+            return self
+                .import_queued_direct_pack(claim, chapters, client)
+                .await;
+        }
         self.import_queued_batch(claim, chapters).await
     }
     async fn source_for_session(
