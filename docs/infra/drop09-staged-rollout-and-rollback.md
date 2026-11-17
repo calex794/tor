@@ -59,9 +59,17 @@ it. Capture both reader paths and publish counters before declaring
 recovery. Hold physical cleanup pending a separate retention, provider
 and write-fencing decision.
 
-S349 remains the SINGLE authority for interactive work. Reuse the merged
-S023/DROP transport, placement and reader contracts; keep older overlap
-experiments out of release branches unless their distinct evidence is
-reviewed. Required evidence for completion is the actual staged reversal,
-provider results and the independent restore run, each tied to an exact
-commit and environment.
+## Release branch contents
+
+[PR #947](https://github.com/calex794/tor/pull/947), merged as
+`c4985fa0f43fcbaf17710ca2140ad4a19b49fdf9`, is the S349 starting point for
+interactive SINGLE writes and exact-version reading. Its predecessor
+[#763](https://github.com/calex794/tor/pull/763) is closed as superseded.
+Keep it closed and build on the merged S349 contract plus the accepted
+S023/DROP transport and placement commits. Leave the broader
+[#349 tracker](https://github.com/calex794/tor/issues/349) open for its own
+acceptance. Use experiment [#950](https://github.com/calex794/tor/pull/950)
+as benchmark evidence only.
+
+Record the actual staged reversal, provider results and independent restore
+run with their exact commits and environments before signing off.

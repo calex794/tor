@@ -32,6 +32,37 @@ pub(crate) async fn enqueue_chapter_first_release(
     Ok(())
 }
 
+/// A new immutable version of an already public FREE chapter is not a first
+/// release. Do not give this event to the first-release-only social fanout:
+/// that consumer would acknowledge the event without delivering the revision.
+/// Keep the revision durable for its dedicated, version-aware projection.
+pub(crate) async fn enqueue_chapter_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    book_id: i64,
+    chapter_id: i64,
+    version_id: i64,
+) -> Result<(), AuthorError> {
+    sqlx::query(
+        "INSERT INTO outbox_events
+           (event_type,schema_version,aggregate_kind,aggregate_id,
+            dedupe_key,payload,required_consumers)
+         VALUES('ChapterPublished',1,'chapter',$1,
+                'chapter-published:' || $1::text || ':' || $2::text,
+                jsonb_build_object(
+                    'chapter_id',$1,'book_id',$3,'version_id',$2,
+                    'published_at',clock_timestamp(),'first_release',false),
+                ARRAY['chapter_revision_fanout_v1']::text[])
+         ON CONFLICT(dedupe_key) DO NOTHING",
+    )
+    .bind(chapter_id)
+    .bind(version_id)
+    .bind(book_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
+    Ok(())
+}
+
 /// First release of a draft book: insert each first-release fact, with its
 /// creator, and its event in one bulk statement. Existing facts are untouched.
 pub(super) async fn enqueue_book_first_releases(
