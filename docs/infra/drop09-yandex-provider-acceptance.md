@@ -1,7 +1,8 @@
 # DROP-09a — disposable Yandex Object Storage acceptance probe
 
 Run the ignored `drop_yandex_provider` test from an approved isolated host
-against a precreated private bucket named `tor-drop-probe-<unique suffix>`.
+against a precreated private bucket named `tor-drop-probe-<unique suffix>`
+with versioning enabled.
 Use a dedicated identity limited to this disposable bucket and supply its
 credentials as `TOR_DROP_PROVIDER_ACCESS_KEY` and
 `TOR_DROP_PROVIDER_SECRET_KEY` through the operator's secret store. Set
@@ -23,14 +24,15 @@ region, network location, exact SHA, class, request counters and the actual
 provider charges. Retain or expire synthetic probe objects using the
 disposable bucket lifecycle.
 
-The dedicated DELETE probe sends a wrong ETag against its own freshly
-written synthetic object. The result is observational. Both a 412 and a
-subsequent successful HEAD are necessary evidence for the negative case.
-When both pass, the probe tries the exact ETag and supplies the exact version
-if present. It then checks that its synthetic object is absent. A 403, another error, an unconditional success or a missing object
-does not demonstrate conditional protection. Physical GC remains off
-until all DELETE probe checks including the version-ID check, retention, reference
-fencing and independent recovery are accepted separately.
+The DELETE probe creates two synthetic versions under one unique key. A
+wrong ETag on an explicit request for the older version must yield 412 and
+leave the old bytes readable. It then sends the correct ETag for that same
+version, checks for `404 NoSuchVersion` on a version-specific GET and reads
+the newer version as current. A key-only 404 can also mean a delete marker,
+so it provides no evidence of version removal. The `accepted` field is the
+DELETE result independently of the read probe. Physical GC remains off
+pending provider evidence, retention, reference fencing and independent
+recovery.
 
 Source references: [PutObject](https://yandex.cloud/en/docs/storage/s3/api-ref/object/upload),
 [GetObject](https://yandex.cloud/en/docs/storage/s3/api-ref/object/get),

@@ -3,6 +3,7 @@
 
 use aws_sdk_s3::{
     config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Credentials, Region},
+    error::ProvideErrorMetadata,
     primitives::ByteStream,
     Client,
 };
@@ -11,6 +12,7 @@ use std::{
     process::Command,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tokio::io::AsyncReadExt;
 use tor_storage::{
     repositories::{free_pack_range_s3::S3PackFrameStore, free_pack_write_s3::S3FreePackWriter},
     services::{
@@ -162,64 +164,120 @@ async fn drop_09_yandex_private_pack_provider_acceptance() {
         range_bytes + prepared.pack_bytes().len() + prepared.manifest_bytes().len()
     );
 
-    // The documented Yandex DELETE API does not list an If-Match condition.
-    // Probe only a newly written synthetic object in this run's own prefix.
     let delete_key = format!("private/free-packs/provider-probe/run-{token}-delete.zst");
-    assert!(
-        client
-            .put_object()
-            .bucket(&bucket)
-            .key(&delete_key)
-            .if_none_match("*")
-            .body(ByteStream::from_static(b"synthetic delete test object"))
-            .send()
-            .await
-            .is_ok(),
-        "delete probe fixture upload failed"
-    );
+    probe_version_deletion(&client, &bucket, &delete_key).await;
+}
+
+async fn fixture_present(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    version: Option<&str>,
+    expected_version: &str,
+    fixture: &[u8],
+) -> bool {
+    let result = client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .set_version_id(version.map(str::to_owned))
+        .send()
+        .await;
+    let Ok(object) = result else {
+        return false;
+    };
+    if object.version_id() != Some(expected_version)
+        || object.content_length() != Some(fixture.len() as i64)
+    {
+        return false;
+    }
+    let mut bytes = Vec::with_capacity(fixture.len());
+    let read = object
+        .body
+        .into_async_read()
+        .take(fixture.len() as u64 + 1)
+        .read_to_end(&mut bytes)
+        .await;
+    read.is_ok() && bytes == fixture
+}
+
+async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
+    const OLD: &[u8] = b"synthetic old delete fixture";
+    const NEW: &[u8] = b"synthetic newer delete fixture";
+    // These writes and both DELETE attempts use one unique fixture key.
+    let old = client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .if_none_match("*")
+        .body(ByteStream::from_static(OLD))
+        .send()
+        .await
+        .expect("first delete probe fixture upload");
+    let Some((version, etag)) = old.version_id().zip(old.e_tag()) else {
+        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
+        return;
+    };
+    if version.is_empty() || version == "null" || etag.is_empty() {
+        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
+        return;
+    }
+    let new = client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .if_match(etag)
+        .body(ByteStream::from_static(NEW))
+        .send()
+        .await
+        .expect("second delete probe fixture upload");
+    let Some(new_version) = new
+        .version_id()
+        .filter(|new| !new.is_empty() && *new != "null" && *new != version)
+    else {
+        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=no_distinct_newer_version");
+        return;
+    };
     let result = client
         .delete_object()
-        .bucket(&bucket)
-        .key(&delete_key)
+        .bucket(bucket)
+        .key(key)
+        .version_id(version)
         .if_match("\"00000000000000000000000000000000\"")
         .send()
         .await;
     let wrong_etag_rejected = result
         .err()
         .is_some_and(|e| e.raw_response().is_some_and(|r| r.status().as_u16() == 412));
-    let head = client
-        .head_object()
-        .bucket(&bucket)
-        .key(&delete_key)
-        .send()
-        .await;
-    let preserved = head.is_ok();
-    let (mut exact_etag_deleted, mut version_bound) = (false, false);
-    if let (true, Ok(proof)) = (wrong_etag_rejected, head) {
-        if let Some(etag) = proof.e_tag() {
-            version_bound = proof.version_id().is_some_and(|version| version != "null");
-            let deleted = client
-                .delete_object()
-                .bucket(&bucket)
-                .key(&delete_key)
-                .if_match(etag)
-                .set_version_id(proof.version_id().map(str::to_owned))
-                .send()
-                .await;
-            let absent = client
-                .head_object()
-                .bucket(&bucket)
-                .key(&delete_key)
-                .send()
-                .await
-                .err()
-                .is_some_and(|e| e.raw_response().is_some_and(|r| r.status().as_u16() == 404));
-            exact_etag_deleted = deleted.is_ok() && absent;
-        }
+    let old_preserved = fixture_present(client, bucket, key, Some(version), version, OLD).await;
+    let (mut old_removed, mut newer_preserved) = (false, false);
+    if wrong_etag_rejected && old_preserved {
+        let deleted = client
+            .delete_object()
+            .bucket(bucket)
+            .key(key)
+            .version_id(version)
+            .if_match(etag)
+            .send()
+            .await;
+        let absence = client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .version_id(version)
+            .send()
+            .await;
+        old_removed = deleted.is_ok()
+            && absence.err().is_some_and(|e| {
+                e.as_service_error().and_then(|e| e.code()) == Some("NoSuchVersion")
+                    && e.raw_response().is_some_and(|r| r.status().as_u16() == 404)
+            });
+        newer_preserved = fixture_present(client, bucket, key, None, new_version, NEW).await;
     }
+    let accepted = wrong_etag_rejected && old_preserved && old_removed && newer_preserved;
     println!(
-        "DROP09_PROVIDER_DELETE_PROBE wrong_etag_412={} object_preserved={} \
-         exact_etag_removed={} version_bound={}",
-        wrong_etag_rejected, preserved, exact_etag_deleted, version_bound
+        "DROP09_PROVIDER_DELETE_PROBE accepted={accepted} wrong_etag_412={wrong_etag_rejected} \
+         old_version_preserved={old_preserved} exact_old_version_removed={old_removed} \
+         current_newer_version_preserved={newer_preserved}"
     );
 }

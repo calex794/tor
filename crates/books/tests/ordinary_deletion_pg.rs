@@ -191,6 +191,17 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
             .await,
         Err(AuthorError::Conflict)
     );
+    // The owner request freezes published FREE V1 in the same transaction
+    // as the public deindexing; replay never inserts another archive row.
+    let frozen: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT chapter_id,version_id,request_revision
+         FROM book_layer_free_archive_versions WHERE book_id=$1",
+    )
+    .bind(book)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(frozen, vec![(chapter, edition, 2)]);
     let pending = repo
         .ordinary_deletion_view(owner, book)
         .await
