@@ -1,8 +1,8 @@
 //! DROP-07a: bounded, read-only expected FREE object registry.
- //!
- //! This is NOT an orphan detector or a GC permission. A missing registry row
- //! cannot prove an object unreferenced: staged PACKs, in-flight uploads,
- //! retained V1s, backups and provider uncertainty require separate evidence.
+//!
+//! This is NOT an orphan detector or a GC permission. A missing registry row
+//! cannot prove an object unreferenced: staged PACKs, in-flight uploads,
+//! retained V1s, backups and provider uncertainty require separate evidence.
 use sqlx::{PgPool, Row};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,7 +150,15 @@ mod tests {
 
     #[test]
     fn fail_closed_bucket_cursor_and_boundaries() {
-        for value in ["public-staging", "Aab", "ab", "a/../b", "a..x", "a_b", "a-b-"] {
+        for value in [
+            "public-staging",
+            "Aab",
+            "ab",
+            "a/../b",
+            "a..x",
+            "a_b",
+            "a-b-",
+        ] {
             assert!(!valid_bucket(value), "{value}");
         }
         for value in ["tor-private-free-ci", "tor-private-a2", "abc"] {
