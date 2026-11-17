@@ -232,9 +232,9 @@ impl PgFreeS3Ref {
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND u.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (
-                   SELECT 1 FROM user_level_grants grant
-                   WHERE grant.user_id=u.id AND grant.level='pro_adult'
-                     AND grant.is_active)))",
+                   SELECT 1 FROM user_level_grants ug
+                   WHERE ug.user_id=u.id AND ug.level='pro_adult'
+                     AND ug.is_active)))",
         )
         .bind(chapter)
         .bind(version)
