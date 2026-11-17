@@ -49,7 +49,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         // No direct purchase fact is inferred from Layer membership.
         let record: Option<(Option<i64>, bool, bool, bool)> = sqlx::query_as(
             "SELECT cp.version_id,
-                    ((b.visibility='public' OR
+                    ((b.visibility='public' OR b.lifecycle_status='pending_deletion' OR
                        (b.lifecycle_status='ordinary_deleted'
                         AND b.ordinary_deleted_at IS NOT NULL))
                      AND c.visibility='public'
@@ -82,16 +82,17 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                         JOIN commerce_layer_version_books vb
                           ON vb.layer_version_id=v.id
                         WHERE t.user_id=$1 AND vb.book_id=c.book_id
-                          AND (b.lifecycle_status<>'ordinary_deleted'
+                          AND (b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                                OR v.created_at < COALESCE((
                                    SELECT req.requested_at
                                    FROM book_ordinary_deletion_requests req
                                    WHERE req.book_id=b.id
-                                     AND req.request_revision=b.lifecycle_revision-1
+                                     AND req.request_revision=b.lifecycle_revision
+                                       - CASE WHEN b.lifecycle_status='pending_deletion'
+                                              THEN 0 ELSE 1 END
                                ),b.ordinary_deleted_at))
-                          AND (b.lifecycle_status<>'ordinary_deleted'
-                               OR (b.ordinary_deleted_at IS NOT NULL
-                                   AND EXISTS (
+                          AND (b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+                               OR (EXISTS (
                                        SELECT 1 FROM commerce_layer_terms legacy
                                        WHERE legacy.user_id=t.user_id
                                          AND legacy.layer_id=t.layer_id
@@ -100,14 +101,18 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                                              SELECT req.requested_at
                                              FROM book_ordinary_deletion_requests req
                                              WHERE req.book_id=b.id
-                                               AND req.request_revision=b.lifecycle_revision-1
+                                               AND req.request_revision=b.lifecycle_revision
+                                       - CASE WHEN b.lifecycle_status='pending_deletion'
+                                              THEN 0 ELSE 1 END
                                          ),b.ordinary_deleted_at)
                                          AND (legacy.expires_at IS NULL
                                               OR legacy.expires_at>COALESCE((
                                                   SELECT req.requested_at
                                                   FROM book_ordinary_deletion_requests req
                                                   WHERE req.book_id=b.id
-                                                    AND req.request_revision=b.lifecycle_revision-1
+                                                    AND req.request_revision=b.lifecycle_revision
+                                       - CASE WHEN b.lifecycle_status='pending_deletion'
+                                              THEN 0 ELSE 1 END
                                               ),b.ordinary_deleted_at))
                                    )))
                           AND t.started_at<=now()
