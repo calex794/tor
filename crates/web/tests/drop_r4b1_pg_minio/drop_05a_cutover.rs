@@ -1,9 +1,12 @@
 //! DROP-05a: real G independent proof + B atomic PG activation.
 //! Extracted from R4b1 to keep integration test modules below layout limits.
 use super::*;
+use tor_books::repositories::free_pack_activation::PackActivationClaim;
 use tor_books::repositories::free_pack_rollback::PackRollback;
 use tor_books::repositories::{free_pack_cutover::PackActivation, free_pack_jobs::PackJobClaim};
-use tor_web::free_pack_worker::{activate_one_verified_pack, rollback_one_verified_pack};
+use tor_web::free_pack_worker::{
+    activate_one_queued_verified_pack, activate_one_verified_pack, rollback_one_verified_pack,
+};
 
 pub(super) async fn verify(
     url: &str,
@@ -74,8 +77,41 @@ pub(super) async fn verify(
         .await
         .unwrap();
 
+    // The R4a commit enqueues a durable activation in the same PG transaction.
+    // Test the queued B/G cutover against the independent manual path.
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT status FROM free_pack_activation_jobs WHERE pack_job_id={}",
+                claim.job_id
+            )
+        ),
+        "pending"
+    );
+    pg(
+        url,
+        &format!(
+            "UPDATE free_pack_activation_jobs
+             SET status='running',lease_epoch=1,attempts=1,
+                 locked_until=clock_timestamp()+interval '2 minutes'
+             WHERE pack_job_id={}",
+            claim.job_id
+        ),
+    );
+    let queued = PackActivationClaim {
+        pack: claim.clone(),
+        activation_epoch: 1,
+        attempts: 1,
+    };
+    let mut stale = queued.clone();
+    stale.activation_epoch += 1;
+    assert!(matches!(
+        activate_one_queued_verified_pack(catalog, proof, single, &stale).await,
+        Err(AuthorError::Conflict)
+    ));
     let (one, two) = tokio::join!(
-        activate_one_verified_pack(catalog, proof, single, claim),
+        activate_one_queued_verified_pack(catalog, proof, single, &queued),
         activate_one_verified_pack(catalog, proof, single, claim),
     );
     assert!(matches!(
@@ -89,6 +125,17 @@ pub(super) async fn verify(
             .unwrap(),
         PackActivation::AlreadyActive,
         "lost COMMIT ACK cannot create another activation"
+    );
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT status FROM free_pack_activation_jobs WHERE pack_job_id={}",
+                claim.job_id
+            )
+        ),
+        "succeeded",
+        "the lease and full-member active CAS must commit together"
     );
     let active_pack: i64 = pg(
         url,
