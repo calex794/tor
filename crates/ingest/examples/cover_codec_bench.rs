@@ -1,24 +1,25 @@
 //! Read-only, offline G-05 benchmark of the ACTUAL TOR Rust cover recipes.
- //!
- //! Run with a flat directory of legitimately obtained source images:
- //!   cargo run -p tor-ingest --example cover_codec_bench -- /path/to/covers 100 > /tmp/covers.csv
- //! Optional third argument: local preview output directory.
- //!
- //! This tool makes no network/S3/PG calls and never changes input files.
- //! It prints only truncated SHA-256 IDs, not source paths or book titles.
+//!
+//! Run with a flat directory of legitimately obtained source images:
+//!   cargo run -p tor-ingest --example cover_codec_bench -- /path/to/covers 100 > /tmp/covers.csv
+//! Optional third argument: local preview output directory.
+//!
+//! This tool makes no network/S3/PG calls and never changes input files.
+//! It prints only truncated SHA-256 IDs, not source paths or book titles.
 
 use image::ImageFormat;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
-    env, error::Error, fs,
+    env,
+    error::Error,
+    fs,
     io::{self, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
 use tor_ingest::services::image_pipeline::{
-    process_cover_with_recipe, ImageVariant, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES,
-    RECIPE_VERSION,
+    process_cover_with_recipe, ImageVariant, LEGACY_RECIPE_VERSION, MAX_SOURCE_BYTES, RECIPE_VERSION,
 };
 
 const MAX_SAMPLES: usize = 500;
@@ -134,7 +135,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !(1..=MAX_SAMPLES).contains(&limit) {
         return Err(io::Error::other("max-files must be 1..=500").into());
     }
-    let preview = args.get(3).map(PathBuf::from);
+    let preview = args.get(3).map(|value| PathBuf::from(value.as_str()));
     if let Some(out) = &preview {
         fs::create_dir_all(out)?;
     }
@@ -176,7 +177,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             skipped += 1;
             continue;
         }
-        let id: String = sha256[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+        let id = sha256[..6]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         match compare_one(&id, &original, mime, preview.as_deref()) {
             Ok((old, new)) => {
                 old_bytes += old;
