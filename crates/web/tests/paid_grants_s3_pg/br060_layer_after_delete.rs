@@ -271,10 +271,8 @@ pub(super) async fn after_deletion(
         StatusCode::OK,
         "old Layer reader keeps a private paged archive TOC"
     );
-    let old_library = html_body(
-        private_get(app, "/me/library/layers", Some(&active.cookie)).await,
-    )
-    .await;
+    let old_library =
+        html_body(private_get(app, "/me/library/layers", Some(&active.cookie)).await).await;
     assert!(old_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
     assert!(old_library.contains("Удалена с сайта"));
 
@@ -315,17 +313,18 @@ pub(super) async fn after_deletion(
     )
     .await;
     assert_eq!(late_grant.status(), StatusCode::NOT_FOUND);
-    assert!(to_bytes(late_grant.into_body(), 8192).await.unwrap().is_empty());
+    assert!(to_bytes(late_grant.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         private_get(app, &format!("/read/layer/{chapter}"), Some(&late_cookie))
             .await
             .status(),
         StatusCode::NOT_FOUND
     );
-    let late_library = html_body(
-        private_get(app, "/me/library/layers", Some(&late_cookie)).await,
-    )
-    .await;
+    let late_library =
+        html_body(private_get(app, "/me/library/layers", Some(&late_cookie)).await).await;
     assert!(!late_library.contains(&format!("data-layer-archived-book-id=\"{book}\"")));
     assert_surviving_book_entitlement(
         &active.accounts,
@@ -337,7 +336,10 @@ pub(super) async fn after_deletion(
 
     // A site/legal block is stronger than both historical rights and age
     // eligibility. Lifting that block restores the same original term.
-    pg(url, &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"),
+    );
     assert_eq!(
         post_grant(
             app,
@@ -351,7 +353,10 @@ pub(super) async fn after_deletion(
         .status(),
         StatusCode::NOT_FOUND
     );
-    pg(url, &format!("UPDATE books SET visibility_status='active' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET visibility_status='active' WHERE id={book}"),
+    );
     assert_eq!(
         private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie))
             .await
