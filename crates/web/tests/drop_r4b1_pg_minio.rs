@@ -32,6 +32,9 @@ use tor_web::free_pack_planner::DropPackPlanner;
 use tor_web::free_pack_worker::runner::{DropPackWorker, PackWorkerResult};
 use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
+#[path = "drop_r4b1_pg_minio/drop_05a_cutover.rs"]
+mod drop_05a_cutover;
+
 const BUCKET: &str = "tor-drop-r4b1-private-ci";
 
 fn pg(url: &str, sql: &str) -> String {
@@ -418,6 +421,16 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         finalize_one_verified_pack(&catalog, &proof, &cancel_claim).await,
         Err(AuthorError::Conflict)
     ));
+    drop_05a_cutover::verify(
+        &url,
+        &client,
+        &catalog,
+        &proof,
+        &single,
+        &claim,
+        (book, pack_id, &editions),
+    )
+    .await;
     pool.close().await;
 }
 

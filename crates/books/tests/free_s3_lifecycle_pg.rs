@@ -696,3 +696,211 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
     assert_eq!(status, "succeeded");
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL18 /tor_ci; no production activation"]
+async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay() {
+    use tor_books::repositories::{
+        free_pack_attach::PgFreePackCatalog, free_pack_cutover::PackActivation,
+    };
+    use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
+
+    let (pool, actor, book, author) = fixture("drop-05a-first", "public").await;
+    let texts = ["Первый будущий SINGLE 😀", "Второй будущий SINGLE 中文"];
+    let mut frames = Vec::new();
+    for (index, body) in texts.into_iter().enumerate() {
+        let command = request(
+            book,
+            None,
+            0,
+            (index + 1) as i32,
+            (b'k' + index as u8) as char,
+            body,
+        );
+        let ids = author.prepare_new(actor, &command).await.unwrap();
+        author
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (ids.chapter_id, ids.version_id),
+                metadata(body),
+            )
+            .await
+            .unwrap();
+        frames.push(PackPlacementFrame {
+            chapter_id: ids.chapter_id,
+            version_id: ids.version_id,
+            content_sha256: metadata(body).1,
+            size_bytes: body.len() as u64,
+            frame_offset: (index * 1_000) as u64,
+            frame_bytes: 500,
+        });
+    }
+    let key = format!("private/free-packs/ci/drop-05a-first-{book}.zst");
+    let receipt = PackPlacementReceipt {
+        target: PackPlacementTarget {
+            bucket: "tor-private-s349-ci".into(),
+            pack_key: key.clone(),
+            manifest_key: key.replace(".zst", ".manifest.json"),
+            pack_sha256: [38; 32],
+            manifest_sha256: [49; 32],
+            pack_bytes: 16_000,
+            manifest_bytes: 512,
+            seek_table_start: 15_000,
+        },
+        frames,
+    };
+    let repo = PgFreePackCatalog::new(pool.clone());
+    let zero: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_active_storage a
+         JOIN chapters c ON c.id=a.chapter_id WHERE c.book_id=$1",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(zero, 0, "ordinary SINGLE publication has no active pointer");
+
+    let job = repo.schedule_pack_job(actor, book, &receipt).await.unwrap();
+    // Use this precise job, not global SKIP LOCKED admission from another
+    // concurrently running PG fixture in the shared disposable database.
+    let epoch = 1_i64;
+    sqlx::query(
+        "UPDATE free_pack_jobs
+         SET status='running',lease_epoch=$2,
+             locked_until=clock_timestamp()+interval '2 minutes'
+         WHERE id=$1 AND status='pending'",
+    )
+    .bind(job)
+    .bind(epoch)
+    .execute(&pool)
+    .await
+    .unwrap();
+    repo.finish_pack_job(job, epoch, &receipt).await.unwrap();
+
+    // Every member must be permitted. Deny after the first has been checked;
+    // no pointer is allowed to be committed for any member.
+    sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
+        .bind(receipt.frames[1].chapter_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.activate_verified_pack(job, epoch, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    let empty: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_active_storage a
+         JOIN chapters c ON c.id=a.chapter_id WHERE c.book_id=$1",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        empty, 0,
+        "late member failure cannot partially activate a PACK"
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
+        .bind(receipt.frames[1].chapter_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        repo.activate_verified_pack(job, epoch + 1, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    let mut fake = receipt.clone();
+    fake.target.pack_sha256[0] ^= 1;
+    assert!(matches!(
+        repo.activate_verified_pack(job, epoch, &fake).await,
+        Err(AuthorError::Conflict)
+    ));
+
+    // Same-job competing callers must serialize and perform one logical CAS.
+    let (left, right) = tokio::join!(
+        repo.activate_verified_pack(job, epoch, &receipt),
+        repo.activate_verified_pack(job, epoch, &receipt)
+    );
+    assert!(matches!(
+        (left.unwrap(), right.unwrap()),
+        (PackActivation::Activated, PackActivation::AlreadyActive)
+            | (PackActivation::AlreadyActive, PackActivation::Activated)
+    ));
+    assert_eq!(
+        repo.activate_verified_pack(job, epoch, &receipt)
+            .await
+            .unwrap(),
+        PackActivation::AlreadyActive
+    );
+
+    for f in &receipt.frames {
+        let active_kind: String = sqlx::query_scalar(
+            "SELECT g.placement_kind
+             FROM free_edition_active_storage a
+             JOIN free_edition_storage_generations g
+               ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+              AND g.generation=a.generation
+             WHERE a.chapter_id=$1 AND a.version_id=$2",
+        )
+        .bind(f.chapter_id)
+        .bind(f.version_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(active_kind, "pack");
+        let source: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM free_chapter_storage_objects
+             WHERE chapter_id=$1 AND version_id=$2",
+        )
+        .bind(f.chapter_id)
+        .bind(f.version_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(source, 1, "original SINGLE retained for verified rollback");
+    }
+
+    // A separately advanced generation for one edition invalidates the
+    // whole replay. Never reset PACK/SINGLE pointers backwards.
+    let first = &receipt.frames[0];
+    sqlx::query(
+        "INSERT INTO free_edition_storage_generations
+           (chapter_id,version_id,generation,placement_kind,content_sha256,size_bytes)
+         VALUES($1,$2,2,'single',$3,$4)",
+    )
+    .bind(first.chapter_id)
+    .bind(first.version_id)
+    .bind(first.content_sha256.as_slice())
+    .bind(first.size_bytes as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let switched: bool = sqlx::query_scalar("SELECT promote_free_edition_storage($1,$2,1,2)")
+        .bind(first.chapter_id)
+        .bind(first.version_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(switched);
+    assert!(matches!(
+        repo.activate_verified_pack(job, epoch, &receipt).await,
+        Err(AuthorError::Conflict)
+    ));
+    let second_generation: i64 = sqlx::query_scalar(
+        "SELECT generation FROM free_edition_active_storage
+         WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(receipt.frames[1].chapter_id)
+    .bind(receipt.frames[1].version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        second_generation, 1,
+        "mixed state cannot trigger a new cutover"
+    );
+    println!("DROP05A_ATOMIC_PG_PASS: implicit SINGLE, all-member hold, epoch, replay, race, retained source, no pointer rewind");
+    pool.close().await;
+}
