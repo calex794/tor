@@ -32,6 +32,20 @@ async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
     assert_eq!(lease.page_index, 0);
     assert_eq!(lease.epoch, 1);
     assert!(lease.continuation.is_none());
+    // The immutable scope cannot be swapped onto another bucket or
+    // namespace by a concurrent operator. Audit history is never deleted.
+    assert!(sqlx::query(
+        "UPDATE free_storage_inventory_cycles SET namespace='pack' WHERE id=$1",
+    )
+    .bind(lease.id)
+    .execute(&pool)
+    .await
+    .is_err());
+    assert!(sqlx::query("DELETE FROM free_storage_inventory_cycles WHERE id=$1")
+        .bind(lease.id)
+        .execute(&pool)
+        .await
+        .is_err());
     assert!(repo
         .claim(
             &bucket,
