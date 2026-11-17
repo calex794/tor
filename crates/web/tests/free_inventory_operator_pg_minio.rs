@@ -6,6 +6,7 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
 };
+use sha2::{Digest, Sha256};
 use std::{
     env,
     process::Command,
@@ -94,30 +95,14 @@ async fn drop_07d_observed_pages_resume_and_commit_unknown_counts_without_gc() {
         }
         other => panic!("expected completion of the same cycle: {other:?}"),
     }
-    // Use the same psql fixture boundary as the other tor-web integration tests.
-    let query = format!(
-        "SELECT status,page_index,inspected_count,unknown_count
-         FROM free_storage_inventory_cycles WHERE id={cycle_id}"
-    );
-    let counted = Command::new("psql")
-        .args([
-            "-XAt",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "--dbname",
-            &url,
-            "-c",
-            &query,
-        ])
-        .output()
-        .expect("psql client for the disposable database");
-    assert!(
-        counted.status.success(),
-        "checkpoint query failed: {}",
-        String::from_utf8_lossy(&counted.stderr)
-    );
     assert_eq!(
-        String::from_utf8(counted.stdout).unwrap().trim(),
+        fixture_sql(
+            &url,
+            &format!(
+                "SELECT status,page_index,inspected_count,unknown_count
+                 FROM free_storage_inventory_cycles WHERE id={cycle_id}"
+            ),
+        ),
         "completed|2|65|65"
     );
     assert!(
@@ -129,5 +114,78 @@ async fn drop_07d_observed_pages_resume_and_commit_unknown_counts_without_gc() {
             .is_ok(),
         "operator evidence must preserve source bytes"
     );
+    // Stage one exact archive in MinIO and deliberately omit the registered
+    // manifest. The expected scan must account for both PostgreSQL receipts.
+    const PACK_KEY: &str = "private/free-packs/ci/drop07e-expected-immutable.zst";
+    const MANIFEST_KEY: &str = "private/free-packs/ci/drop07e-expected-immutable.manifest.json";
+    let body = b"synthetic bytes for a registered PACK receipt";
+    let digest = hex::encode(Sha256::digest(body));
+    fixture_sql(
+        &url,
+        &format!(
+            "INSERT INTO free_storage_packs
+             (bucket,object_key,pack_sha256,manifest_key,manifest_sha256,
+              pack_bytes,manifest_bytes,seek_table_start)
+             VALUES ('{BUCKET}','{PACK_KEY}',decode('{digest}','hex'),'{MANIFEST_KEY}',
+                     decode(repeat('11',32),'hex'),{},1,1)",
+            body.len(),
+        ),
+    );
+    s3.put_object()
+        .bucket(BUCKET)
+        .key(PACK_KEY)
+        .body(ByteStream::from(body.to_vec()))
+        .send()
+        .await
+        .unwrap();
+    let expected_id = match resumed
+        .run_expected_one(InventoryNamespace::Pack)
+        .await
+        .unwrap()
+    {
+        OperatorScanStep::Completed {
+            cycle_id,
+            page_index,
+            counters,
+        } => {
+            assert_eq!(page_index, 1);
+            assert_eq!(counters.inspected, 2);
+            assert_eq!(counters.verified, 1);
+            assert_eq!(counters.unverifiable, 1);
+            cycle_id
+        }
+        other => panic!("expected one completed PACK receipt page: {other:?}"),
+    };
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!(
+                "SELECT direction,namespace,status,inspected_count,matched_count,unverifiable_count
+                 FROM free_storage_inventory_cycles WHERE id={expected_id}"
+            ),
+        ),
+        "pg_to_s3|pack|completed|2|1|1"
+    );
     println!("DROP07D_PG_MINIO_OPERATOR_PASS: bounded LIST+PG classification across two pages, fenced checkpoint, unknown never GC");
+}
+
+fn fixture_sql(url: &str, query: &str) -> String {
+    let output = Command::new("psql")
+        .args([
+            "-XAt",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "-c",
+            query,
+        ])
+        .output()
+        .expect("psql client for the disposable database");
+    assert!(
+        output.status.success(),
+        "fixture SQL failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }

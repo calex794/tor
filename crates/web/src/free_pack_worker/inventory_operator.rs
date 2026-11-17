@@ -7,16 +7,20 @@ use std::time::Duration;
 use aws_sdk_s3::Client;
 use tor_books::repositories::{
     free_inventory_cycles::{
-        InventoryCheckpointError, InventoryDirection, InventoryNamespace, InventoryPageCounts,
-        PgFreeInventoryCheckpoints,
+        InventoryCheckpointError, InventoryCycleLease, InventoryDirection, InventoryNamespace,
+        InventoryPageCounts, PgFreeInventoryCheckpoints,
     },
     PgCatalog,
 };
 use tor_storage::repositories::free_inventory_list_s3::FreeListNamespace;
 
-use super::inventory_dry_run::{FreeDryRunError, FreeInventoryDryRun, ObservedCounters};
+use super::inventory_dry_run::{
+    ExpectedCounters, FreeDryRunError, FreeInventoryDryRun, ObservedCounters,
+};
 
 const PAGE_LIMIT: u32 = 64;
+// At most four bounded 16-MiB byte probes per expected page.
+const EXPECTED_PAGE_LIMIT: u32 = 4;
 const LEASE_SECONDS: i32 = 120;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,6 +55,9 @@ pub struct OperatorScanCounters {
     pub registered: u32,
     pub protected_pending: u32,
     pub unknown: u32,
+    pub verified: u32,
+    pub mismatch: u32,
+    pub unverifiable: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -111,8 +118,24 @@ fn page_counts(
             registered,
             protected_pending,
             unknown,
+            ..Default::default()
         },
     ))
+}
+
+fn expected_counts(counts: ExpectedCounters) -> InventoryPageCounts {
+    // Exactly one outcome is recorded per receipt in expected_page_in_namespace.
+    // There are at most EXPECTED_PAGE_LIMIT receipts in this call.
+    let matched = counts.verified as u32;
+    let mismatch = (counts.hash_mismatch + counts.size_mismatch) as u32;
+    let unverifiable = counts.unverifiable as u32;
+    InventoryPageCounts {
+        inspected: matched + mismatch + unverifiable,
+        matched,
+        mismatch,
+        unverifiable,
+        ..Default::default()
+    }
 }
 
 impl OperatorObservedScanner {
@@ -145,7 +168,7 @@ impl OperatorObservedScanner {
             InventoryNamespace::Single => FreeListNamespace::Single,
             InventoryNamespace::Pack => FreeListNamespace::Pack,
         };
-        let Some(mut lease) = self
+        let Some(lease) = self
             .checkpoints
             .claim(
                 &self.bucket,
@@ -172,10 +195,61 @@ impl OperatorObservedScanner {
         .await
         .map_err(|_| OperatorScanError::Unavailable)??;
         let (counts, public_counters) = page_counts(page.counts)?;
-        let complete = page.next_token.is_none();
+        self.commit_page(lease, page.next_token, counts, public_counters)
+            .await
+    }
+
+    /// Follow one namespace's exact PG receipts and verify actual private S3
+    /// bytes. An unverifiable GET contributes to the audit uncertainty count.
+    pub async fn run_expected_one(
+        &self,
+        namespace: InventoryNamespace,
+    ) -> Result<OperatorScanStep, OperatorScanError> {
+        let Some(lease) = self
+            .checkpoints
+            .claim(
+                &self.bucket,
+                InventoryDirection::ExpectedToS3,
+                namespace,
+                LEASE_SECONDS,
+            )
+            .await?
+        else {
+            return Ok(OperatorScanStep::Busy);
+        };
+        let page = tokio::time::timeout(
+            Duration::from_secs((LEASE_SECONDS / 2) as u64),
+            self.audit.expected_page_in_namespace(
+                namespace,
+                lease.continuation.as_deref(),
+                EXPECTED_PAGE_LIMIT,
+            ),
+        )
+        .await
+        .map_err(|_| OperatorScanError::Unavailable)??;
+        let counts = expected_counts(page.counts);
+        let public = OperatorScanCounters {
+            inspected: counts.inspected,
+            verified: counts.matched,
+            mismatch: counts.mismatch,
+            unverifiable: counts.unverifiable,
+            ..Default::default()
+        };
+        self.commit_page(lease, page.next_after_key, counts, public)
+            .await
+    }
+
+    async fn commit_page(
+        &self,
+        mut lease: InventoryCycleLease,
+        next: Option<String>,
+        counts: InventoryPageCounts,
+        counters: OperatorScanCounters,
+    ) -> Result<OperatorScanStep, OperatorScanError> {
+        let complete = next.is_none();
         if !self
             .checkpoints
-            .acknowledge_page(&mut lease, page.next_token.as_deref(), counts)
+            .acknowledge_page(&mut lease, next.as_deref(), counts)
             .await?
         {
             return Err(OperatorScanError::StaleLease);
@@ -184,13 +258,13 @@ impl OperatorObservedScanner {
             OperatorScanStep::Completed {
                 cycle_id: lease.id,
                 page_index: lease.page_index,
-                counters: public_counters,
+                counters,
             }
         } else {
             OperatorScanStep::Advanced {
                 cycle_id: lease.id,
                 page_index: lease.page_index,
-                counters: public_counters,
+                counters,
             }
         })
     }

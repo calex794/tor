@@ -32,6 +32,28 @@ pub enum FreeInventoryError {
     Unavailable,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InventoryNamespace {
+    Single,
+    Pack,
+}
+
+impl InventoryNamespace {
+    pub(super) fn as_db(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Pack => "pack",
+        }
+    }
+
+    pub(super) fn prefix(self) -> &'static str {
+        match self {
+            Self::Single => "private/free-chapters/",
+            Self::Pack => "private/free-packs/",
+        }
+    }
+}
+
 pub struct PgFreeExpectedInventory {
     pool: PgPool,
 }
@@ -71,22 +93,50 @@ impl PgFreeExpectedInventory {
         after_key: Option<&str>,
         limit: u32,
     ) -> Result<FreeInventoryPage, FreeInventoryError> {
+        self.page(bucket, None, after_key, limit).await
+    }
+
+    /// An immutable-receipt page for one checkpoint namespace. PACK
+    /// includes both the archive and its separately verified manifest.
+    pub async fn expected_page_in_namespace(
+        &self,
+        bucket: &str,
+        namespace: InventoryNamespace,
+        after_key: Option<&str>,
+        limit: u32,
+    ) -> Result<FreeInventoryPage, FreeInventoryError> {
+        self.page(bucket, Some(namespace), after_key, limit).await
+    }
+
+    async fn page(
+        &self,
+        bucket: &str,
+        namespace: Option<InventoryNamespace>,
+        after_key: Option<&str>,
+        limit: u32,
+    ) -> Result<FreeInventoryPage, FreeInventoryError> {
         if !valid_bucket(bucket)
             || !(1..=128).contains(&limit)
-            || after_key.is_some_and(|cursor| !valid_cursor(cursor))
+            || after_key.is_some_and(|cursor| {
+                !valid_cursor(cursor)
+                    || namespace.is_some_and(|scope| !cursor.starts_with(scope.prefix()))
+            })
         {
             return Err(FreeInventoryError::Invalid);
         }
         let rows = sqlx::query(
             "SELECT object_key,kind,sha256,size_bytes FROM (
                 SELECT object_key,'single'::text AS kind,sha256,size_bytes
-                  FROM free_chapter_storage_objects WHERE bucket=$1
+                  FROM free_chapter_storage_objects
+                 WHERE bucket=$1 AND $4::text IS DISTINCT FROM 'pack'
                 UNION ALL
                 SELECT object_key,'pack'::text,pack_sha256,pack_bytes
-                  FROM free_storage_packs WHERE bucket=$1
+                  FROM free_storage_packs
+                 WHERE bucket=$1 AND $4::text IS DISTINCT FROM 'single'
                 UNION ALL
                 SELECT manifest_key,'manifest'::text,manifest_sha256,manifest_bytes
-                  FROM free_storage_packs WHERE bucket=$1
+                  FROM free_storage_packs
+                 WHERE bucket=$1 AND $4::text IS DISTINCT FROM 'single'
              ) expected
              WHERE ($2::text IS NULL OR object_key>$2::text)
              ORDER BY object_key LIMIT $3",
@@ -94,6 +144,7 @@ impl PgFreeExpectedInventory {
         .bind(bucket)
         .bind(after_key)
         .bind(i64::from(limit))
+        .bind(namespace.map(InventoryNamespace::as_db))
         .fetch_all(&self.pool)
         .await
         .map_err(|_| FreeInventoryError::Unavailable)?;
