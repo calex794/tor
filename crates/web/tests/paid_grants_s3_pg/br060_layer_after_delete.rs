@@ -301,7 +301,10 @@ pub(super) async fn after_deletion(
         })
         .await;
     assert!(
-        matches!(stale_checkout, Err(tor_commerce::domain::layers::LayerError::Inaccessible)),
+        matches!(
+            stale_checkout,
+            Err(tor_commerce::domain::layers::LayerError::Inaccessible)
+        ),
         "stale Layer composition must not debit a new buyer after Book deletion"
     );
     assert_eq!(
