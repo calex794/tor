@@ -808,7 +808,7 @@ async fn drop_05a_atomic_pack_cutover_adopts_implicit_single_and_fences_replay()
         .unwrap();
 
     assert!(matches!(
-        repo.activate_verified_pack(job, epoch - 1, &receipt).await,
+        repo.activate_verified_pack(job, epoch + 1, &receipt).await,
         Err(AuthorError::Conflict)
     ));
     let mut fake = receipt.clone();
