@@ -1,6 +1,6 @@
 //! Loop 1 / C: tested against disposable PostgreSQL 18 only.
 use sqlx::PgPool;
-use tor_reading::repositories::demand::{DemandState, PgContinuationDemand};
+use tor_reading::repositories::demand::{DemandError, DemandState, PgContinuationDemand};
 
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL tor_ci"]
@@ -48,6 +48,42 @@ async fn c_14_demand_is_explicit_deduplicated_and_bound_to_released_frontier() {
         .unwrap();
     demand
         .record_verified_continuation(99401, 99410, 99411)
+        .await
+        .unwrap();
+    assert_eq!(
+        demand.state(99401, 99410, 99411).await.unwrap(),
+        DemandState::Recorded
+    );
+    assert_eq!(demand.current_count(99410).await.unwrap(), 1);
+
+    // A completed book has no expected continuation, even if the last
+    // published free chapter was already finished and its demand persisted.
+    // Completion of the BOOK never erases historical reading/demand rows.
+    sqlx::query("UPDATE books SET lifecycle_status='completed' WHERE id=99410")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        demand.state(99401, 99410, 99411).await.unwrap(),
+        DemandState::NotEligible
+    );
+    assert_eq!(demand.current_count(99410).await.unwrap(), 0);
+    assert_eq!(
+        demand.record_verified_continuation(99401, 99410, 99411).await,
+        Err(DemandError::NotEligible),
+        "completed title cannot solicit a phantom chapter"
+    );
+    let preserved_demand: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_continuation_demand
+         WHERE user_id=99401 AND book_id=99410 AND frontier_chapter_id=99411",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(preserved_demand, 1, "retain prior intent as history");
+
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=99410")
+        .execute(&pool)
         .await
         .unwrap();
     assert_eq!(
