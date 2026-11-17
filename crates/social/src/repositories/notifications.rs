@@ -407,10 +407,10 @@ impl PgNotifications {
                  AND (
                    $4::text='notifications'
                    OR ($4='releases' AND n.kind IN (
-                     'chapter_created','project_news','author_new_book',
+                     'chapter_created','chapter_updated','project_news','author_new_book',
                      'author_new_layer','author_new_collection'))
                    OR ($4='system' AND n.kind NOT IN (
-                     'chapter_created','project_news','author_new_book',
+                     'chapter_created','chapter_updated','project_news','author_new_book',
                      'author_new_layer','author_new_collection',
                      'comment','comment_reply','comment_mention'))
                  )
