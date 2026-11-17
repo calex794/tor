@@ -161,9 +161,8 @@ impl FreeChapterStore for S3FreeChapterStore {
     ) -> Result<Vec<u8>, StorageError> {
         // No presigned PACK URL: only the authoritative B range and a bounded
         // Zstd decoder. The caller checks owner rights again after this GET.
-        let range = crate::repositories::free_pack_range_s3::S3PackFrameStore::new(
-            self.client.clone(),
-        );
+        let range =
+            crate::repositories::free_pack_range_s3::S3PackFrameStore::new(self.client.clone());
         let compressed = range.fetch_frame(frame).await?;
         decode_exact_frame(frame, &compressed)
     }
