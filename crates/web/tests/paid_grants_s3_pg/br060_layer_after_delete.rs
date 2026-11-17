@@ -53,7 +53,7 @@ pub(super) async fn before_deletion(
         .create_layer(PositiveId::new(owner).unwrap(), "BR060 Active Layer")
         .await
         .unwrap();
-    let layer_version = repo
+    let first_layer_version = repo
         .add_book(
             PositiveId::new(owner).unwrap(),
             PositiveId::new(layer).unwrap(),
@@ -101,6 +101,10 @@ pub(super) async fn before_deletion(
         )
         .await
         .unwrap();
+    assert_ne!(
+        layer_version, first_layer_version,
+        "adding another Book must advance Layer composition version"
+    );
     let offer = repo
         .publish_offer(
             PositiveId::new(owner).unwrap(),
