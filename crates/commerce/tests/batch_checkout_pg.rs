@@ -54,8 +54,8 @@ async fn chapter(pool: &PgPool, book: i64, no: i32, price: i64) -> BatchChapterO
 
 async fn book(pool: &PgPool, owner: i64, source: &str) -> i64 {
     sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','S035 пакет','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','S035 пакет','public',$2,'basic') RETURNING id",
     )
     .bind(source)
     .bind(owner)
@@ -524,14 +524,6 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     use tor_contracts::paid_delivery::DeliveryError;
 
     let f = fixture("first-grant-fence", 1_000).await;
-    // A legacy Book without an attested S020 age tier is intentionally not
-    // readable. The old checkout-only fixture leaves access_level NULL;
-    // this reader-grant case needs an explicitly public-basic Book.
-    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
-        .bind(f.book)
-        .execute(&f.pool)
-        .await
-        .unwrap();
     let quote = command(f.buyer, &f.offers[..2], 'K');
     let bought = PgCheckout::new(f.pool.clone())
         .checkout_batch_once(&quote)
@@ -695,4 +687,51 @@ async fn d_s035_first_grant_per_chapter_and_revocation_wins_lock_wait() {
     assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
     assert_eq!(count(&f.pool, f.buyer, "rights").await, 2);
     assert_eq!(count(&f.pool, f.buyer, "journal").await, 2);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_s035_unknown_book_age_tier_cannot_charge_and_recovers_after_attestation() {
+    let f = fixture("unknown-book-age", 1_000).await;
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+
+    let store = PgCheckout::new(f.pool.clone());
+    assert!(
+        store
+            .selectable_batch_offers(f.buyer, f.book)
+            .await
+            .unwrap()
+            .is_empty(),
+        "unknown age cannot be offered for purchase"
+    );
+    let quote = command(f.buyer, &f.offers[..2], 'N');
+    assert_eq!(
+        store.checkout_batch_once(&quote).await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible)),
+    );
+    no_partial(&f, 1_000).await;
+
+    // An authoritative B update restores eligibility. A rejected command
+    // cannot reserve the key or create an unrefundable debit.
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(f.book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.selectable_batch_offers(f.buyer, f.book).await.unwrap().len(),
+        3
+    );
+    let receipt = store.checkout_batch_once(&quote).await.unwrap();
+    assert!(!receipt.replayed);
+    assert_eq!(receipt.purchases.len(), 2);
+    assert_eq!(balance(&f.pool, f.buyer).await, 700);
+    assert_eq!(count(&f.pool, f.buyer, "purchase").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "rights").await, 2);
+    assert_eq!(count(&f.pool, f.buyer, "journal").await, 2);
+    f.pool.close().await;
 }
