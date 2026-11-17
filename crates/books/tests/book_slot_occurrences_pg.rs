@@ -13,7 +13,12 @@ async fn disable_abandoned_due_slots(pool: &PgPool) {
     // Never consume occurrences or touch other tests' or user schedules.
     let disabled: Vec<i64> = sqlx::query_scalar(
         r#"UPDATE book_delayed_publication_settings s
-           SET enabled=FALSE
+           SET enabled=FALSE,
+               anchor_date=NULL,
+               next_slot_at=NULL,
+               next_slot_index=NULL,
+               schedule_revision=s.schedule_revision+1,
+               updated_at=clock_timestamp()
            FROM books b
            WHERE b.id=s.book_id AND s.enabled
              AND s.next_slot_at<=clock_timestamp()
