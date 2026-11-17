@@ -9,6 +9,7 @@ use aws_sdk_s3::{
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{env, process::Command};
+use tor_books::repositories::free_pack_cutover::PackActivation;
 use tor_books::repositories::free_pack_planner::PackPlannerPolicy;
 use tor_books::{
     repositories::{
@@ -30,7 +31,9 @@ use tor_storage::{
 use tor_web::free_pack_gateway::{read_authorized_candidate, FreePackReadMode};
 use tor_web::free_pack_planner::DropPackPlanner;
 use tor_web::free_pack_worker::runner::{DropPackWorker, PackWorkerResult};
-use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
+use tor_web::free_pack_worker::{
+    activate_one_verified_pack, finalize_one_verified_pack, upload_one_approved_pack,
+};
 
 const BUCKET: &str = "tor-drop-r4b1-private-ci";
 
@@ -418,6 +421,68 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         finalize_one_verified_pack(&catalog, &proof, &cancel_claim).await,
         Err(AuthorError::Conflict)
     ));
+    // DROP-05a: no startup activation. Explicit trusted G proof must precede
+    // the all-or-none B promotion, and legal hold always wins.
+    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    assert!(matches!(
+        activate_one_verified_pack(&catalog, &proof, &claim).await,
+        Err(AuthorError::Conflict)
+    ));
+    let no_active: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_edition_active_storage
+             WHERE chapter_id IN ({},{})",
+            editions[0].0, editions[1].0
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(no_active, 0, "moderation hold cannot partially activate PACK");
+    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+
+    let (one, two) = tokio::join!(
+        activate_one_verified_pack(&catalog, &proof, &claim),
+        activate_one_verified_pack(&catalog, &proof, &claim),
+    );
+    assert!(matches!(
+        (one.unwrap(), two.unwrap()),
+        (PackActivation::Activated, PackActivation::AlreadyActive)
+            | (PackActivation::AlreadyActive, PackActivation::Activated)
+    ));
+    assert_eq!(
+        activate_one_verified_pack(&catalog, &proof, &claim)
+            .await
+            .unwrap(),
+        PackActivation::AlreadyActive,
+        "lost COMMIT ACK cannot create another activation"
+    );
+    let active_pack: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_edition_active_storage a
+             JOIN free_edition_storage_generations g
+               ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+              AND g.generation=a.generation
+             WHERE g.pack_id={pack_id} AND g.placement_kind='pack'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(active_pack, 2, "both editions activate in one PG transaction");
+    for (chapter, version, _) in &editions {
+        let original_single: i64 = pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects
+                 WHERE chapter_id={chapter} AND version_id={version}"
+            ),
+        )
+        .parse()
+        .unwrap();
+        assert_eq!(original_single, 1, "no original SINGLE was removed");
+    }
+    println!("DROP05A_G_REPROOF_CAS_PASS: real PG18/MinIO, 2 frames, hold, race, replay, retained SINGLE");
     pool.close().await;
 }
 
