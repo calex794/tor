@@ -6,7 +6,7 @@
 //! No historic catalogue backfill exists for greenfield TOR.
 use super::free_pack_attach::PgFreePackCatalog;
 use crate::services::authoring::AuthorError;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{postgres::PgRow, Row};
 use std::collections::HashSet;
 use tor_contracts::drop_pack::PackPlacementReceipt;
 
@@ -155,7 +155,12 @@ impl PgFreePackCatalog {
         .map_err(db_error)?;
         let members: HashSet<(i64, i64)> = member_rows
             .iter()
-            .map(|r| Ok((column::<i64>(r, "chapter_id")?, column::<i64>(r, "version_id")?)))
+            .map(|r| {
+                Ok((
+                    column::<i64>(r, "chapter_id")?,
+                    column::<i64>(r, "version_id")?,
+                ))
+            })
             .collect::<Result<_, AuthorError>>()?;
         if members != seen || member_rows.len() != verified.frames.len() {
             return Err(AuthorError::Conflict);
