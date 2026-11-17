@@ -24,17 +24,19 @@ def verify(rows):
     missing = 0
     csv.field_size_limit(128)
     for count, row in enumerate(csv.reader(rows, strict=True), 1):
-        if count > MAX_ROWS or len(row) != 6:
+        if count > MAX_ROWS or len(row) != 7:
             raise Refused("invalid or oversized PostgreSQL export")
-        kind, chapter, version, pg_body, single, pack = row
+        kind, chapter, version, valid_member, pg_body, single, pack = row
         if kind not in counts or not POSITIVE_ID.fullmatch(chapter) or not POSITIVE_ID.fullmatch(version):
             raise Refused("invalid historical edition identity")
         current = (kind, int(chapter), int(version))
         if previous is not None and current <= previous:
             raise Refused("duplicate or unsorted historical edition export")
         previous = current
-        if any(flag not in {"0", "1"} for flag in (pg_body, single, pack)):
+        if any(flag not in {"0", "1"} for flag in (valid_member, pg_body, single, pack)):
             raise Refused("invalid physical source evidence")
+        if valid_member != "1":
+            raise Refused("invalid historical chapter-version or Layer book membership")
         counts[kind] += 1
         if not (pg_body == "1" or single == "1" or pack == "1"):
             missing += 1
