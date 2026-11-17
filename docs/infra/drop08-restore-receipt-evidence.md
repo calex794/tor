@@ -57,11 +57,13 @@ psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
   python3 tools/drop08_verify_historical_free_pins.py
 ```
 
-The SQL exports only historical `(kind, chapter_id, version_id)` identities
-and whether their exact immutable version has a PostgreSQL inline body, a
+The SQL exports historical `(kind, chapter_id, version_id)` identities,
+verifies that the chapter-version exists and a Layer archive belongs to its
+recorded book, then checks for a PostgreSQL inline body, a
 registered S349 SINGLE receipt, or a registered PACK generation whose pack
 metadata exists. The Python check rejects an unbacked pinned edition, malformed,
-duplicate or unsorted exports, and a missing saved/Layer fixture. Results expose
+duplicate or unsorted exports, a wrong Layer book membership, and a missing
+saved/Layer fixture. Results expose
 only aggregate counts. The pipe includes private version IDs: never persist it
 to public logs or CI artifacts.
 
