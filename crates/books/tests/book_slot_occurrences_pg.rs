@@ -6,6 +6,40 @@ use tor_books::{
     services::authoring::{new_book, AuthorError},
 };
 
+async fn disable_abandoned_due_slots(pool: &PgPool) {
+    // Interrupted tests can leave an enabled, overdue schedule behind. The
+    // production worker has a GLOBAL queue: a later test must not accidentally
+    // claim that orphan and mistake it for its own newly created Book.
+    // Never consume occurrences or touch other tests' or user schedules.
+    let disabled: Vec<i64> = sqlx::query_scalar(
+        r#"UPDATE book_delayed_publication_settings s
+           SET enabled=FALSE,
+               anchor_date=NULL,
+               next_slot_at=NULL,
+               next_slot_index=NULL,
+               schedule_revision=s.schedule_revision+1,
+               updated_at=clock_timestamp()
+           FROM books b
+           WHERE b.id=s.book_id AND s.enabled
+             AND s.next_slot_at<=clock_timestamp()
+             AND b.source_identity LIKE ANY (ARRAY[
+                 'tor-ci:s058-release:%',
+                 'tor-ci:s058-frontier:%',
+                 'tor-ci:s058-occurrence:%',
+                 'tor-ci:s058-queue-stress:%',
+                 'ci:s058-paid:%',
+                 'ci:s058-paid-block:%'
+             ])
+           RETURNING s.book_id"#,
+    )
+    .fetch_all(pool)
+    .await
+    .expect("clean disposable S058 test fixtures");
+    if !disabled.is_empty() {
+        eprintln!("S058 cleaned abandoned due test books: {disabled:?}");
+    }
+}
+
 fn slots() -> Vec<String> {
     vec!["09:00".to_owned(), "18:00".to_owned()]
 }
@@ -23,6 +57,7 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.expect("disposable postgres");
+    disable_abandoned_due_slots(&pool).await;
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES('s058-occurrence-owner@tor-ci.example','S058 Owner','$argon2id$test')
@@ -160,18 +195,8 @@ async fn s058_global_queue_skips_locked_book_then_claims_it_after_rollback() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    disable_abandoned_due_slots(&pool).await;
 
-    // A previous interrupted run may have left only this test's fixtures due.
-    // Clean up our own namespace, never other tests' or production schedules.
-    sqlx::query(
-        "UPDATE book_delayed_publication_settings s
-         SET enabled=FALSE FROM books b
-         WHERE b.id=s.book_id AND b.source_identity
-           LIKE 'tor-ci:s058-queue-stress:%' AND s.enabled",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES('s058-queue-stress@tor-ci.example','S058 queue','$argon2id$test')

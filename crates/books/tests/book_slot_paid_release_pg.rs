@@ -14,6 +14,40 @@ use tor_books::{
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 
+async fn disable_abandoned_due_slots(pool: &PgPool) {
+    // Interrupted tests can leave an enabled, overdue schedule behind. The
+    // production worker has a GLOBAL queue: a later test must not accidentally
+    // claim that orphan and mistake it for its own newly created Book.
+    // Never consume occurrences or touch other tests' or user schedules.
+    let disabled: Vec<i64> = sqlx::query_scalar(
+        r#"UPDATE book_delayed_publication_settings s
+           SET enabled=FALSE,
+               anchor_date=NULL,
+               next_slot_at=NULL,
+               next_slot_index=NULL,
+               schedule_revision=s.schedule_revision+1,
+               updated_at=clock_timestamp()
+           FROM books b
+           WHERE b.id=s.book_id AND s.enabled
+             AND s.next_slot_at<=clock_timestamp()
+             AND b.source_identity LIKE ANY (ARRAY[
+                 'tor-ci:s058-release:%',
+                 'tor-ci:s058-frontier:%',
+                 'tor-ci:s058-occurrence:%',
+                 'tor-ci:s058-queue-stress:%',
+                 'ci:s058-paid:%',
+                 'ci:s058-paid-block:%'
+             ])
+           RETURNING s.book_id"#,
+    )
+    .fetch_all(pool)
+    .await
+    .expect("clean disposable S058 test fixtures");
+    if !disabled.is_empty() {
+        eprintln!("S058 cleaned abandoned due test books: {disabled:?}");
+    }
+}
+
 async fn test_pool() -> (PgPool, sqlx::PgConnection) {
     let url = std::env::var("TEST_DATABASE_URL").expect("test PostgreSQL");
     assert!(url.ends_with("/tor_ci"), "never touch production");
@@ -22,7 +56,9 @@ async fn test_pool() -> (PgPool, sqlx::PgConnection) {
         .execute(&mut lock)
         .await
         .unwrap();
-    (PgPool::connect(&url).await.unwrap(), lock)
+    let pool = PgPool::connect(&url).await.unwrap();
+    disable_abandoned_due_slots(&pool).await;
+    (pool, lock)
 }
 
 async fn ready_object(
