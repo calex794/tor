@@ -27,7 +27,9 @@ fn valid_key(value: &str) -> bool {
     (free_single || free_pack)
         && (32..=260).contains(&value.len())
         && !value.contains("//")
-        && !value.split('/').any(|segment| segment == ".." || segment == ".")
+        && !value
+            .split('/')
+            .any(|segment| segment == ".." || segment == ".")
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'))
@@ -117,7 +119,9 @@ mod tests {
 
     #[test]
     fn only_exact_private_free_object_names_are_probeable() {
-        assert!(valid_key("private/free-packs/import/abc1234567890.manifest.json"));
+        assert!(valid_key(
+            "private/free-packs/import/abc1234567890.manifest.json"
+        ));
         assert!(valid_key("private/free-chapters/123456789/123456789.md"));
         for name in [
             "public/free-packs/import/1234567890.zst",
