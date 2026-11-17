@@ -27,7 +27,10 @@ impl PgLayerChapterEntitlements {
             EntitlementDecision::Denied { .. } => return Err(DeliveryError::Denied),
         }
         let row = sqlx::query(
-            "SELECT c.book_id, c.chapter_no, c.title AS chapter_title, b.title AS book_title
+            "SELECT c.book_id, c.chapter_no, c.title AS chapter_title,
+                    b.title AS book_title,
+                    (b.lifecycle_status='ordinary_deleted'
+                     AND b.ordinary_deleted_at IS NOT NULL) AS ordinary_deleted
              FROM chapters c JOIN books b ON b.id=c.book_id WHERE c.id=$1",
         )
         .bind(chapter_id.get())
@@ -48,6 +51,9 @@ impl PgLayerChapterEntitlements {
                 .map_err(|_| DeliveryError::Unavailable)?,
             book_title: row
                 .try_get("book_title")
+                .map_err(|_| DeliveryError::Unavailable)?,
+            ordinary_deleted: row
+                .try_get("ordinary_deleted")
                 .map_err(|_| DeliveryError::Unavailable)?,
         })
     }
@@ -95,8 +101,11 @@ impl PgLayerChapterEntitlements {
              JOIN chapters c ON c.book_id=anchor.book_id
              JOIN books b ON b.id=c.book_id
              JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
-             WHERE anchor.id=$2 AND b.visibility='public'
-               AND b.visibility_status<>'blocked'
+             WHERE anchor.id=$2
+               AND (b.visibility='public' OR
+                    (b.lifecycle_status='ordinary_deleted'
+                     AND b.ordinary_deleted_at IS NOT NULL))
+               AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
