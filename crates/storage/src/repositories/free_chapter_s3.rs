@@ -11,6 +11,8 @@ use crate::{
     services::{
         crypto::sha256_bytes,
         free_chapter::{FreeChapterObject, FreeChapterStore, FREE_MARKDOWN_CONTENT_TYPE},
+        free_pack_read::{decode_exact_frame, PackFrameStore},
+        free_placement::ValidatedPackReference,
     },
 };
 
@@ -151,6 +153,18 @@ impl FreeChapterStore for S3FreeChapterStore {
             return Err(StorageError::Corrupt);
         }
         Ok(bytes)
+    }
+
+    async fn get_verified_pack(
+        &self,
+        frame: &ValidatedPackReference,
+    ) -> Result<Vec<u8>, StorageError> {
+        // No presigned PACK URL: only the authoritative B range and a bounded
+        // Zstd decoder. The caller checks owner rights again after this GET.
+        let range =
+            crate::repositories::free_pack_range_s3::S3PackFrameStore::new(self.client.clone());
+        let compressed = range.fetch_frame(frame).await?;
+        decode_exact_frame(frame, &compressed)
     }
 
     async fn presign_verified(

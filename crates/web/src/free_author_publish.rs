@@ -12,6 +12,7 @@ use tor_storage::{
 };
 mod admin;
 mod import;
+mod owner_pack;
 mod pack_direct;
 
 pub type S3FreeAuthor =
@@ -222,18 +223,35 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
         if owned.bucket != self.bucket {
             return Err(AuthorError::Unavailable);
         }
-        let object = FreeChapterObject::from_metadata(
-            chapter,
-            owned.version_id,
-            owned.sha256,
-            owned.size_bytes,
-        )
-        .map_err(map_storage)?;
-        let bytes = self
-            .store
-            .get_verified(&object)
-            .await
+        // A PACK-only import has no SINGLE object. Resolve only a verified,
+        // active B placement and fetch its exact Range, then check the owner,
+        // edition, revision and physical placement again after S3 I/O.
+        let frame_before = if owned.stored_in_pack {
+            Some(
+                self.owned_pack_reference(actor, book, chapter, &owned)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let bytes = if let Some(frame) = frame_before.as_ref() {
+            self.store
+                .get_verified_pack(frame)
+                .await
+                .map_err(map_storage)?
+        } else {
+            let object = FreeChapterObject::from_metadata(
+                chapter,
+                owned.version_id,
+                owned.sha256,
+                owned.size_bytes,
+            )
             .map_err(map_storage)?;
+            self.store
+                .get_verified(&object)
+                .await
+                .map_err(map_storage)?
+        };
         let current = self
             .repository
             .owned(actor, book, chapter)
@@ -241,8 +259,21 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
             .ok_or(AuthorError::Missing)?;
         if current.version_id != owned.version_id
             || current.chapter.revision != owned.chapter.revision
+            || current.chapter.title != owned.chapter.title
+            || current.sha256 != owned.sha256
+            || current.size_bytes != owned.size_bytes
+            || current.bucket != owned.bucket
+            || current.stored_in_pack != owned.stored_in_pack
         {
             return Err(AuthorError::Conflict);
+        }
+        if let Some(before) = frame_before {
+            let after = self
+                .owned_pack_reference(actor, book, chapter, &current)
+                .await?;
+            if after != before {
+                return Err(AuthorError::Conflict);
+            }
         }
         owned.chapter.body = String::from_utf8(bytes).map_err(|_| AuthorError::Unavailable)?;
         Ok(Some(owned))

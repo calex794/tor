@@ -96,6 +96,16 @@ pub trait FreeChapterStore: Send + Sync {
     /// Checks actual bounded GET bytes, not just a possibly forged HEAD.
     async fn get_verified(&self, object: &FreeChapterObject) -> Result<Vec<u8>, StorageError>;
 
+    /// Owner/editor-only PACK source. The caller must independently
+    /// authorize the exact edition and recheck it after external I/O.
+    /// Providers without a real, bounded Range decoder fail closed.
+    async fn get_verified_pack(
+        &self,
+        _frame: &crate::services::free_placement::ValidatedPackReference,
+    ) -> Result<Vec<u8>, StorageError> {
+        Err(StorageError::Unavailable)
+    }
+
     /// Only trusted, reauthorized B/C readers may request a short URL.
     /// The browser must check the expected SHA256 before rendering.
     async fn presign_verified(
