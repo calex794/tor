@@ -95,7 +95,10 @@ async fn post(
         .header(header::COOKIE, cookie)
         .header(header::ORIGIN, ORIGIN)
         .header("x-csrf-token", csrf)
-        .header("idempotency-key", format!("{}8", key.to_string().repeat(42)))
+        .header(
+            "idempotency-key",
+            format!("{}8", key.to_string().repeat(42)),
+        )
         .body(Body::from(body.to_string()))
         .unwrap();
     app.clone().oneshot(request).await.unwrap()
@@ -137,7 +140,10 @@ async fn finance(pool: &PgPool, buyer: i64) -> (i64, i64, i64, i64) {
 #[tokio::test]
 #[ignore = "requires disposable tor_ci and TOR_PAID_CHECKOUT_ENABLED=1"]
 async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_debits() {
-    assert_eq!(std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(),
+        Ok("1")
+    );
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated database");
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
 
@@ -157,11 +163,23 @@ async fn s020_age_checkout_http_denies_and_restores_single_batch_without_false_d
     .await
     .unwrap();
 
-    let adult = book(&pool, owner, &format!("ci:s020:http:adult:{buyer}"), "adult").await;
+    let adult = book(
+        &pool,
+        owner,
+        &format!("ci:s020:http:adult:{buyer}"),
+        "adult",
+    )
+    .await;
     let a = chapter(&pool, adult, 1).await;
     let b = chapter(&pool, adult, 2).await;
     let c = chapter(&pool, adult, 3).await;
-    let pro = book(&pool, owner, &format!("ci:s020:http:pro:{buyer}"), "pro_adult").await;
+    let pro = book(
+        &pool,
+        owner,
+        &format!("ci:s020:http:pro:{buyer}"),
+        "pro_adult",
+    )
+    .await;
     let d = chapter(&pool, pro, 1).await;
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
