@@ -263,7 +263,7 @@
       };
       const parsePlan = async response => {
         if (response.status !== 200 || response.redirected ||
-            !/^application\\/json\\b/i.test(response.headers.get("content-type") || "")) {
+            !/^application\/json\b/i.test(response.headers.get("content-type") || "")) {
           throw Error("source plan denied");
         }
         const plan = JSON.parse(new TextDecoder("utf-8", { fatal: true })
@@ -287,7 +287,7 @@
           "/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-pack-source" + query,
           { ...common, headers: { "Accept": "text/plain" } });
         if (response.status !== 200 || response.redirected ||
-            !/^text\\/plain\\b/i.test(response.headers.get("content-type") || "") ||
+            !/^text\/plain\b/i.test(response.headers.get("content-type") || "") ||
             response.headers.get("x-tor-free-version-id") !== version ||
             response.headers.get("x-tor-free-sha256") !== plan.sha256 ||
             response.headers.get("x-tor-free-size") !== String(plan.size_bytes)) {
@@ -323,7 +323,7 @@
             !target.pathname.endsWith("/private/free-chapters/" + chapter + "/" + version + ".md") ||
             target.searchParams.getAll("X-Amz-Signature").length !== 1 ||
             !/^[a-f0-9]{64}$/.test(target.searchParams.get("X-Amz-Signature") || "") ||
-            !/^\\d+$/.test(expires || "") || Number(expires) < 30 || Number(expires) > 120) {
+            !/^\d+$/.test(expires || "") || Number(expires) < 30 || Number(expires) > 120) {
           throw Error("unsafe storage capability");
         }
         const response = await fetch(target, {
