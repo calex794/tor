@@ -15,8 +15,7 @@ use tor_books::{
     services::authoring::AuthorError,
 };
 use tor_storage::{
-    domain::provider::valid_private_bucket,
-    repositories::free_pack_proof_s3::S3PackProofStore,
+    domain::provider::valid_private_bucket, repositories::free_pack_proof_s3::S3PackProofStore,
     services::free_chapter::FreeChapterStore,
 };
 
@@ -64,7 +63,11 @@ impl<S: FreeChapterStore> DropPackActivationWorker<S> {
     /// B effects; after a lost PG commit ACK, B has already atomically marked
     /// both the active pointers and this activation succeeded.
     pub async fn run_one(&self) -> Result<ActivationWorkerResult, AuthorError> {
-        let Some(claim) = self.catalog.claim_pack_activation(self.lease_seconds).await? else {
+        let Some(claim) = self
+            .catalog
+            .claim_pack_activation(self.lease_seconds)
+            .await?
+        else {
             return Ok(ActivationWorkerResult::Idle);
         };
         if claim.pack.receipt.target.bucket != self.bucket {
@@ -74,12 +77,8 @@ impl<S: FreeChapterStore> DropPackActivationWorker<S> {
         let interval = Duration::from_secs((self.lease_seconds as u64 / 3).max(1));
         let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
         heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let work = activate_one_queued_verified_pack(
-            &self.catalog,
-            &self.proof,
-            &self.single,
-            &claim,
-        );
+        let work =
+            activate_one_queued_verified_pack(&self.catalog, &self.proof, &self.single, &claim);
         tokio::pin!(work);
         let outcome = loop {
             tokio::select! {
@@ -151,12 +150,12 @@ pub fn cutover_opt_in(
 ) -> Result<bool, &'static str> {
     match setting {
         None | Some("0") => Ok(false),
-        Some("1")
-            if !demo && postgres && auth && private_s3 && pack_reader && pack_worker =>
-        {
+        Some("1") if !demo && postgres && auth && private_s3 && pack_reader && pack_worker => {
             Ok(true)
         }
-        Some("1") => Err("DROP cutover requires authenticated PG, private S3, PACK worker and reader"),
+        Some("1") => {
+            Err("DROP cutover requires authenticated PG, private S3, PACK worker and reader")
+        }
         Some(_) => Err("TOR_DROP_PACK_CUTOVER_ENABLED must be 0 or 1"),
     }
 }
@@ -172,8 +171,11 @@ pub fn start_background<S: FreeChapterStore + 'static>(
         loop {
             ticker.tick().await;
             match tokio::time::timeout(Duration::from_secs(300), worker.run_one()).await {
-                Ok(Ok(ActivationWorkerResult::Idle | ActivationWorkerResult::Activated
-                    | ActivationWorkerResult::AlreadyActive)) => (),
+                Ok(Ok(
+                    ActivationWorkerResult::Idle
+                    | ActivationWorkerResult::Activated
+                    | ActivationWorkerResult::AlreadyActive,
+                )) => (),
                 Ok(Ok(other)) => tracing::warn!(?other, "DROP activation attempt not completed"),
                 Ok(Err(error)) => tracing::warn!(?error, "DROP activation worker PG unavailable"),
                 Err(_) => tracing::warn!("DROP activation proof timed out; lease retry pending"),
@@ -188,9 +190,18 @@ mod tests {
 
     #[test]
     fn cutover_is_separate_and_fails_closed_without_every_dependency() {
-        assert_eq!(cutover_opt_in(None, false, true, true, true, true, true), Ok(false));
-        assert_eq!(cutover_opt_in(Some("0"), false, true, true, true, true, true), Ok(false));
-        assert_eq!(cutover_opt_in(Some("1"), false, true, true, true, true, true), Ok(true));
+        assert_eq!(
+            cutover_opt_in(None, false, true, true, true, true, true),
+            Ok(false)
+        );
+        assert_eq!(
+            cutover_opt_in(Some("0"), false, true, true, true, true, true),
+            Ok(false)
+        );
+        assert_eq!(
+            cutover_opt_in(Some("1"), false, true, true, true, true, true),
+            Ok(true)
+        );
         for args in [
             (true, true, true, true, true, true),
             (false, false, true, true, true, true),
@@ -199,10 +210,9 @@ mod tests {
             (false, true, true, true, false, true),
             (false, true, true, true, true, false),
         ] {
-            assert!(cutover_opt_in(
-                Some("1"), args.0, args.1, args.2, args.3, args.4, args.5
-            )
-            .is_err());
+            assert!(
+                cutover_opt_in(Some("1"), args.0, args.1, args.2, args.3, args.4, args.5).is_err()
+            );
         }
         assert!(cutover_opt_in(Some("yes"), false, true, true, true, true, true).is_err());
     }
