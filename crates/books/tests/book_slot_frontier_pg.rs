@@ -1,13 +1,39 @@
 //! S058: first invisible chapter wins; terminal blocked/empty are durable.
 //! Only disposable /tor_ci PostgreSQL may be modified.
-#[path = "support/s058_fixture_guard.rs"]
-mod s058_fixture_guard;
-
 use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::{book_delayed_schedule::BookSlotFrontier, PgAuthoring},
     services::authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
 };
+
+async fn disable_abandoned_due_slots(pool: &PgPool) {
+    // Interrupted tests can leave an enabled, overdue schedule behind. The
+    // production worker has a GLOBAL queue: a later test must not accidentally
+    // claim that orphan and mistake it for its own newly created Book.
+    // Never consume occurrences or touch other tests' or user schedules.
+    let disabled: Vec<i64> = sqlx::query_scalar(
+        r#"UPDATE book_delayed_publication_settings s
+           SET enabled=FALSE
+           FROM books b
+           WHERE b.id=s.book_id AND s.enabled
+             AND s.next_slot_at<=clock_timestamp()
+             AND b.source_identity LIKE ANY (ARRAY[
+                 'tor-ci:s058-release:%',
+                 'tor-ci:s058-frontier:%',
+                 'tor-ci:s058-occurrence:%',
+                 'tor-ci:s058-queue-stress:%',
+                 'ci:s058-paid:%',
+                 'ci:s058-paid-block:%'
+             ])
+           RETURNING s.book_id"#,
+    )
+    .fetch_all(pool)
+    .await
+    .expect("clean disposable S058 test fixtures");
+    if !disabled.is_empty() {
+        eprintln!("S058 cleaned abandoned due test books: {disabled:?}");
+    }
+}
 
 // Browser commands are scoped by (user, key), not by book. Repeated
 // disposable fixtures for the same owner therefore need distinct keys.
@@ -102,7 +128,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
+    disable_abandoned_due_slots(&pool).await;
     let (author, owner, book) = owner_and_book(&pool, "blocked").await;
     let two = author
         .create_pending_free_chapter(owner, &chapter(book, 2, "Вторая", &fixture_key(book, 2)))
@@ -254,7 +280,7 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    s058_fixture_guard::disable_abandoned_due_slots(&pool).await;
+    disable_abandoned_due_slots(&pool).await;
     let (author, owner, book) = owner_and_book(&pool, "empty").await;
     author
         .replace_book_delayed_schedule(
