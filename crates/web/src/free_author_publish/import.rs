@@ -71,14 +71,27 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
             .repository
             .prepare_import(actor, book, key, chapters)
             .await?;
+        let destinations = chapters
+            .iter()
+            .zip(pending)
+            .map(|(chapter, pending)| {
+                FreeChapterObject::for_markdown(
+                    pending.chapter_id,
+                    pending.version_id,
+                    &chapter.body,
+                )
+                .map(|object| (chapter, pending, object))
+                .map_err(map_storage)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let keys: Vec<_> = destinations
+            .iter()
+            .map(|(_, _, object)| object.key())
+            .collect();
+        let keys: Vec<_> = keys.iter().map(String::as_str).collect();
+        self.reserve_s3_keys(&keys).await?;
         let mut editions = Vec::with_capacity(chapters.len());
-        for (chapter, pending) in chapters.iter().zip(pending) {
-            let object = FreeChapterObject::for_markdown(
-                pending.chapter_id,
-                pending.version_id,
-                &chapter.body,
-            )
-            .map_err(map_storage)?;
+        for (chapter, pending, object) in destinations {
             if pending.verified {
                 // A durable checkpoint is not proof that the object still
                 // exists. Recheck bytes before committing any live pointer.

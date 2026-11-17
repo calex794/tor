@@ -73,6 +73,9 @@ pub async fn upload_one_approved_pack(
     if *prepared.receipt() != claim.receipt {
         return Err(AuthorError::Conflict);
     }
+    catalog
+        .reserve_pack_destination(&claim.receipt.target)
+        .await?;
     let verified = writer
         .upload_and_verify(prepared)
         .await

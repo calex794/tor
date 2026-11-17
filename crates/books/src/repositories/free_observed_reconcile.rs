@@ -3,7 +3,7 @@
 //! not create a physical reclamation decision or authorize S3 deletion.
 use std::collections::HashSet;
 
-use sqlx::{PgPool, Row};
+use sqlx::{Executor, PgPool, Postgres, Row};
 
 use super::free_expected_inventory::{valid_bucket, valid_cursor, FreeInventoryError};
 
@@ -96,6 +96,14 @@ impl PgFreeObservedClassifier {
         bucket: &str,
         keys: &[String],
     ) -> Result<Vec<FreeReferenceEvidence>, FreeInventoryError> {
+        Self::classify_in(&self.pool, bucket, keys).await
+    }
+
+    pub(super) async fn classify_in<'e>(
+        executor: impl Executor<'e, Database = Postgres>,
+        bucket: &str,
+        keys: &[String],
+    ) -> Result<Vec<FreeReferenceEvidence>, FreeInventoryError> {
         if !valid_bucket(bucket)
             || keys.is_empty()
             || keys.len() > 128
@@ -129,6 +137,10 @@ impl PgFreeObservedClassifier {
                          OR p.manifest_key=listed.object_key)
                    ) THEN 'registered'
                    WHEN EXISTS (
+                     SELECT 1 FROM free_storage_key_fences f
+                     WHERE f.bucket=$1 AND f.object_key=listed.object_key
+                       AND f.purpose='publisher'
+                   ) OR EXISTS (
                      SELECT 1 FROM free_pack_direct_import_stages st
                      WHERE st.bucket=$1 AND
                        (st.object_key=listed.object_key
@@ -171,7 +183,7 @@ impl PgFreeObservedClassifier {
         .bind(chapters)
         .bind(versions)
         .bind(direct_books)
-        .fetch_all(&self.pool)
+        .fetch_all(executor)
         .await
         .map_err(|_| FreeInventoryError::Unavailable)?;
 

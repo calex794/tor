@@ -194,6 +194,10 @@ impl<S: FreeChapterStore> DropPackWorker<S> {
             Ok(false) => return Err(WorkerFault::Terminal),
             Err(_) => return Err(WorkerFault::Retryable),
         }
+        self.catalog
+            .reserve_pack_destination(&claim.receipt.target)
+            .await
+            .map_err(WorkerFault::from_author)?;
         let verified = self
             .writer
             .upload_and_verify(&prepared)

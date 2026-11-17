@@ -283,3 +283,159 @@ async fn drop_07a_registered_single_pack_and_manifest_are_paginated_read_only() 
     println!("DROP07A_PG_READONLY_PASS: SINGLE + PACK + manifest, strict cursor, no mutation");
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 /tor_ci"]
+async fn drop_07h_quarantine_and_publication_share_a_durable_key_fence() {
+    use tor_books::repositories::free_key_quarantine::{
+        FreeQuarantineError as Error, PgFreeKeyQuarantine, QuarantineBackup, QuarantineObservation,
+        QuarantineOutcome as Outcome,
+    };
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.contains("@127.0.0.1:") && url.ends_with("/tor_ci"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let mut writer = pool.begin().await.unwrap();
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let bucket = format!("tor-private-gc-test-{unique}");
+    let key = "private/free-chapters/70001/100.md";
+    let other_key = "private/free-chapters/70001/101.md";
+    let packed_key = "private/free-packs/quarantine/orphan-sample-266.zst";
+    let manifest_key = "private/free-packs/quarantine/orphan-sample-266.manifest.json";
+    let sample = QuarantineObservation {
+        bucket: &bucket,
+        key,
+        version: "synthetic-version-v1",
+        etag: "\"synthetic-etag\"",
+        sha256: [66; 32],
+        size: 4096,
+    };
+    let audit = PgFreeKeyQuarantine::new(pool.clone());
+
+    sqlx::query("SELECT reserve_free_storage_publication($1,$2)")
+        .bind(&bucket)
+        .bind(key)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let competing = audit.enter(&sample);
+    tokio::pin!(competing);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(75), &mut competing)
+            .await
+            .is_err()
+    );
+    writer.commit().await.unwrap();
+    assert_eq!(competing.await, Err(Error::Protected));
+
+    let packed = QuarantineObservation {
+        key: packed_key,
+        ..sample
+    };
+    assert_eq!(audit.enter(&packed).await, Ok(Outcome::Recorded));
+    assert_eq!(audit.enter(&packed).await, Ok(Outcome::AlreadyRecorded));
+    assert_eq!(
+        audit
+            .enter(&QuarantineObservation {
+                version: "synthetic-v2",
+                ..packed
+            })
+            .await,
+        Err(Error::Protected)
+    );
+    assert_eq!(
+        audit
+            .reserve_publication(&bucket, &[other_key, packed_key])
+            .await,
+        Err(Error::Protected)
+    );
+    let partial: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_storage_key_fences WHERE bucket=$1 AND object_key=$2",
+    )
+    .bind(&bucket)
+    .bind(other_key)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(partial, 0, "multi-key write reservation is atomic");
+
+    // Legacy receipt path cannot attach bytes even if the writer bypassed
+    // the pre-PUT check. Reserving the sidecar must roll back too.
+    let blocked = sqlx::query(
+        "INSERT INTO free_storage_packs
+         (bucket,object_key,manifest_key,pack_sha256,manifest_sha256,pack_bytes,manifest_bytes,seek_table_start)
+         VALUES ($1,$2,$3,$4,$4,4096,512,64)",
+    ).bind(&bucket).bind(packed_key).bind(manifest_key).bind(packed.sha256.as_slice())
+        .execute(&pool).await.unwrap_err();
+    assert_eq!(
+        blocked.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
+    let untouched: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_storage_key_fences WHERE bucket=$1 AND object_key=$2",
+    )
+    .bind(&bucket)
+    .bind(manifest_key)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(untouched, 0);
+
+    let backup = QuarantineBackup {
+        bucket: "tor-independent-archive",
+        key: "v1/snapshot",
+        version: "external-version",
+    };
+    assert_eq!(audit.recheck(&packed, &backup).await, Err(Error::Protected));
+
+    // Fast-forward by seeding an already aged fixture. The normal path uses
+    // the database clock and cannot alter existing quarantine timestamps.
+    sqlx::query(
+        "INSERT INTO free_storage_key_fences VALUES
+         ($1,$2,'quarantine',$3,$4,$5,$6,clock_timestamp() - interval '25 hours')",
+    )
+    .bind(&bucket)
+    .bind(other_key)
+    .bind(sample.version)
+    .bind(sample.etag)
+    .bind(sample.sha256.as_slice())
+    .bind(sample.size as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let aged = QuarantineObservation {
+        key: other_key,
+        ..sample
+    };
+    assert_eq!(
+        audit.reserve_publication(&bucket, &[other_key]).await,
+        Err(Error::Protected)
+    );
+    assert_eq!(audit.recheck(&aged, &backup).await, Ok(Outcome::Recorded));
+    assert_eq!(
+        audit.recheck(&aged, &backup).await,
+        Ok(Outcome::AlreadyRecorded)
+    );
+    assert_eq!(
+        audit
+            .recheck(
+                &aged,
+                &QuarantineBackup {
+                    version: "replaced-archive",
+                    ..backup
+                }
+            )
+            .await,
+        Err(Error::Protected)
+    );
+    assert!(sqlx::query(
+        "UPDATE free_storage_key_fences SET recorded_at=clock_timestamp() WHERE bucket=$1",
+    )
+    .bind(&bucket)
+    .execute(&pool)
+    .await
+    .is_err());
+    pool.close().await;
+}

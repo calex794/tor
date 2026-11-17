@@ -3,7 +3,10 @@
 use crate::author_chapter_http::FreeChapterPublisher;
 use async_trait::async_trait;
 use tor_books::{
-    repositories::free_s3_publish::PgFreeS3Publication,
+    repositories::{
+        free_key_quarantine::{FreeQuarantineError, PgFreeKeyQuarantine},
+        free_s3_publish::PgFreeS3Publication,
+    },
     services::authoring::{AuthorError, SaveChapter},
 };
 use tor_storage::{
@@ -56,6 +59,14 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         (self.store.clone(), self.bucket.clone())
     }
 
+    async fn reserve_s3_keys(&self, keys: &[&str]) -> Result<(), AuthorError> {
+        PgFreeKeyQuarantine::new(self.repository.pool().clone())
+            .reserve_publication(&self.bucket, keys)
+            .await
+            .map_err(FreeQuarantineError::into_author)?;
+        Ok(())
+    }
+
     pub async fn publish(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         self.save_new(actor, request, false).await
     }
@@ -77,6 +88,8 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         let object =
             FreeChapterObject::for_markdown(pending.chapter_id, pending.version_id, &request.body)
                 .map_err(map_storage)?;
+        let key = object.key();
+        self.reserve_s3_keys(&[&key]).await?;
         let verified = upload_and_verify(&self.store, &object, &request.body)
             .await
             .map_err(map_storage)?;
@@ -224,6 +237,8 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
             &request.body,
         )
         .map_err(map_storage)?;
+        let key = object.key();
+        self.reserve_s3_keys(&[&key]).await?;
         let verified = upload_and_verify(&self.store, &object, &request.body)
             .await
             .map_err(map_storage)?;
