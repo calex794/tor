@@ -65,13 +65,12 @@ async fn d_05_new_layer_sale_waits_for_clean_offer_after_ordinary_deletion() {
             .await,
         Err(LayerError::Inaccessible)
     );
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(late)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(late)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 1500);
     let late_finance: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id=$1")
