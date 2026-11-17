@@ -2,9 +2,7 @@
 //! The separate B test checks the owner-request snapshot transaction.
 use super::*;
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
-use tor_commerce::services::reader_views::{
-    LayerTocAccess, MixedTocCursor, MixedTocSide,
-};
+use tor_commerce::services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide};
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
