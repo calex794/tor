@@ -51,13 +51,11 @@ async fn d_s035_wallet_row_precedes_age_row_for_swap_compatibility() {
     assert!(waiting, "batch checkout did not reach its wallet lock");
 
     let mut age_probe = f.pool.begin().await.unwrap();
-    let user: i64 = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT",
-    )
-    .bind(f.buyer)
-    .fetch_one(&mut *age_probe)
-    .await
-    .expect("batch checkout must not lock age before wallet");
+    let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT")
+        .bind(f.buyer)
+        .fetch_one(&mut *age_probe)
+        .await
+        .expect("batch checkout must not lock age before wallet");
     assert_eq!(user, f.buyer);
     age_probe.rollback().await.unwrap();
 
