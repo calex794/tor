@@ -32,8 +32,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("isolated PostgreSQL requires psql");
@@ -68,8 +76,13 @@ async fn http(
         .await
         .unwrap();
     let status = reply.status();
-    let body = String::from_utf8(to_bytes(reply.into_body(), 1024 * 1024).await.unwrap().to_vec())
-        .unwrap();
+    let body = String::from_utf8(
+        to_bytes(reply.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     (status, body)
 }
 
@@ -83,7 +96,10 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     let accounts = PgAccounts::from_pool(pool.clone());
     let author = PgAuthoring::new(pool.clone());
     let updates = PgFollowUpdates::new(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let hashed = hash_password("RET01HistoricalImport2026").unwrap();
     let owner_token = generate_session_token();
     let reader_token = generate_session_token();
@@ -138,11 +154,15 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     assert_eq!(source.len(), 2);
     let import_key = "b".repeat(43);
     assert_eq!(
-        author.import_draft_chapter_batch(owner, book, &import_key, &source).await,
+        author
+            .import_draft_chapter_batch(owner, book, &import_key, &source)
+            .await,
         Ok(2)
     );
     assert_eq!(
-        author.import_draft_chapter_batch(owner, book, &import_key, &source).await,
+        author
+            .import_draft_chapter_batch(owner, book, &import_key, &source)
+            .await,
         Ok(2),
         "idempotent import must not create another edition"
     );
@@ -212,7 +232,11 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
         ),
     );
     let old_ids: Vec<i64> = historical.lines().map(|x| x.parse().unwrap()).collect();
-    assert_eq!(old_ids.len(), 2, "public release records both historical chapters");
+    assert_eq!(
+        old_ids.len(),
+        2,
+        "public release records both historical chapters"
+    );
     assert_eq!(
         pg(
             &url,
@@ -238,21 +262,38 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     let follow_url = format!("/me/books/{book}/follow");
     let follow_form = format!("csrf_token={csrf}");
     assert_eq!(
-        http(&app, "POST", &follow_url, &reader_cookie, &follow_form, ORIGIN)
-            .await
-            .0,
+        http(
+            &app,
+            "POST",
+            &follow_url,
+            &reader_cookie,
+            &follow_form,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER
     );
     assert!(updates.latest(reader, None).await.unwrap().items.is_empty());
     assert_eq!(updates.unread_count_capped(reader).await.unwrap(), 0);
     for chapter in &old_ids {
         assert!(
-            !updates.set_read_state(reader, *chapter, true).await.unwrap(),
+            !updates
+                .set_read_state(reader, *chapter, true)
+                .await
+                .unwrap(),
             "historic pre-follow release cannot be acknowledged as new"
         );
     }
-    let initial_updates = http(&app, "GET", "/me/library?view=updates", &reader_cookie, "", ORIGIN)
-        .await;
+    let initial_updates = http(
+        &app,
+        "GET",
+        "/me/library?view=updates",
+        &reader_cookie,
+        "",
+        ORIGIN,
+    )
+    .await;
     assert_eq!(initial_updates.0, StatusCode::OK);
     assert!(!initial_updates.1.contains("RET01 New chapter"));
     assert!(!initial_updates.1.contains("История первая"));
@@ -265,23 +306,29 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
         "number=3&title=RET01+New+chapter&body=RET01%20future%20text&access=free\
          &price_amount=0&command_key={command_key}&csrf_token={csrf}"
     );
-    let denied = http(&app, "POST", &create_url, &reader_cookie, &body, ORIGIN).await.0;
+    let denied = http(&app, "POST", &create_url, &reader_cookie, &body, ORIGIN)
+        .await
+        .0;
     assert!(
         matches!(denied, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
         "non-owner Save must be denied: {denied}"
     );
     assert_eq!(
-        http(&app, "POST", &create_url, &owner_cookie, &body, ORIGIN).await.0,
+        http(&app, "POST", &create_url, &owner_cookie, &body, ORIGIN)
+            .await
+            .0,
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        http(&app, "POST", &create_url, &owner_cookie, &body, ORIGIN).await.0,
+        http(&app, "POST", &create_url, &owner_cookie, &body, ORIGIN)
+            .await
+            .0,
         StatusCode::SEE_OTHER,
         "Save replay creates no second notification or chapter"
     );
     let fresh: i64 = pg(
         &url,
-        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=3")
+        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=3"),
     )
     .parse()
     .unwrap();
@@ -325,10 +372,22 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     assert!(!latest.items[0].is_paid);
     assert!(!latest.items[0].is_read);
     assert_eq!(updates.unread_count_capped(reader).await.unwrap(), 1);
-    assert!(updates.latest(moderator, None).await.unwrap().items.is_empty());
+    assert!(updates
+        .latest(moderator, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
 
-    let page = http(&app, "GET", "/me/library?view=updates", &reader_cookie, "", ORIGIN)
-        .await;
+    let page = http(
+        &app,
+        "GET",
+        "/me/library?view=updates",
+        &reader_cookie,
+        "",
+        ORIGIN,
+    )
+    .await;
     assert_eq!(page.0, StatusCode::OK);
     assert!(page.1.contains("RET01 New chapter"));
     assert!(page.1.contains(&format!("href=\"/read/{fresh}\"")));
@@ -341,9 +400,16 @@ async fn ret01_historical_import_then_follow_sees_only_future_first_release_once
     // The history stays historical on re-follow as well: only fresh release
     // is present. A completed unfollow clears all private update visibility.
     assert_eq!(
-        http(&app, "POST", &follow_url, &reader_cookie, &follow_form, ORIGIN)
-            .await
-            .0,
+        http(
+            &app,
+            "POST",
+            &follow_url,
+            &reader_cookie,
+            &follow_form,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER
     );
     assert_eq!(updates.latest(reader, None).await.unwrap().items.len(), 1);
