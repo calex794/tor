@@ -472,7 +472,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     #[cfg(feature = "s3-free")]
                     free_author,
                 }
-                .router().await?
+                .router()
+                .await?
             } else {
                 if let Some(store) = cover_store {
                     tor_web::router_with_postgres_reading_covers(catalog, reader, store)
@@ -501,8 +502,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             app.merge(tor_web::instrument_additional_routes(routes))
         });
     let listener = tokio::net::TcpListener::bind(address).await?;
-    // Exactly one bounded background task for this process. PostgreSQL's
-    // SKIP LOCKED and lease_epoch fence competing processes and restarts.
+    // Bounded background task, fenced by PostgreSQL SKIP LOCKED and lease_epoch.
     let _cover_worker = if let Some((catalog, storage)) = pending_cover_worker {
         let started = tor_web::cover_worker::start_cover_worker_background(catalog, storage)
             .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
