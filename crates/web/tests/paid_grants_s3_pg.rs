@@ -44,6 +44,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/asset_fixture.rs"]
 mod asset_fixture;
+#[path = "paid_grants_s3_pg/br060_layer_after_delete.rs"]
+mod br060_layer_after_delete;
 #[path = "paid_grants_s3_pg/br060_legal_gates.rs"]
 mod br060_legal_gates;
 #[path = "paid_grants_s3_pg/br060_ordinary_deleted.rs"]
