@@ -66,9 +66,24 @@ impl PgFreeS3Publication {
             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
             LEFT JOIN chapter_publications p ON p.chapter_id=c.id
             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=COALESCE(d.version_id,p.version_id)
-            JOIN free_chapter_storage_objects f ON f.chapter_id=c.id AND f.version_id=v.id
             WHERE c.id=$1 AND c.book_id=$2 AND c.access_level='free' AND c.price_amount=0
-              AND NOT c.admin_hold AND NOT c.is_deleted FOR UPDATE OF c")
+              AND NOT c.admin_hold AND NOT c.is_deleted
+              AND (
+                EXISTS (
+                  SELECT 1 FROM free_chapter_storage_objects f
+                  WHERE f.chapter_id=v.chapter_id AND f.version_id=v.id
+                    AND f.sha256=v.content_sha256
+                )
+                OR EXISTS (
+                  SELECT 1 FROM free_edition_active_storage a
+                  JOIN free_edition_storage_generations g
+                    ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+                   AND g.generation=a.generation AND g.placement_kind='pack'
+                  JOIN free_storage_packs pack ON pack.id=g.pack_id
+                  WHERE a.chapter_id=v.chapter_id AND a.version_id=v.id
+                    AND g.content_sha256=v.content_sha256
+                )
+              ) FOR UPDATE OF c")
             .bind(chapter).bind(input.book_id).fetch_optional(&mut *tx).await
             .map_err(write_error)?.ok_or(AuthorError::Missing)?;
         let current: i64 = row.try_get("version_id").map_err(write_error)?;
