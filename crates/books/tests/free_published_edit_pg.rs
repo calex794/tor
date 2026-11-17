@@ -262,7 +262,7 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
         initial.chapter_id,
         2,
         "Уточнённый заголовок",
-        "Новый текст V2\\n文 😀",
+        "Новый текст V2\n文 😀",
         &"e".repeat(43),
     );
     let renamed = author
