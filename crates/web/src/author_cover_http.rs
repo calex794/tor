@@ -207,7 +207,9 @@ async fn upload_cover(
             actor,
             expected_revision,
             cover_recipe_for_flag(
-                std::env::var("TOR_COVER_LOSSY_WEBP_ENABLED").ok().as_deref(),
+                std::env::var("TOR_COVER_LOSSY_WEBP_ENABLED")
+                    .ok()
+                    .as_deref(),
             ),
         )
         .await
