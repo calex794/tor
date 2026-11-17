@@ -145,7 +145,10 @@ async fn d_05_new_layer_sale_waits_for_clean_offer_after_ordinary_deletion() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(inherited, "continuous prepaid renewal retains the original Layer origin");
+    assert!(
+        inherited,
+        "continuous prepaid renewal retains the original Layer origin"
+    );
     let mut old_renewed_books: Vec<i64> = sqlx::query_scalar(
         "SELECT book_id FROM commerce_layer_term_share_snapshots
          WHERE term_id=$1 ORDER BY book_id",
