@@ -46,6 +46,8 @@ use tower::ServiceExt;
 mod asset_fixture;
 #[path = "paid_grants_s3_pg/br060_ordinary_deleted.rs"]
 mod br060_ordinary_deleted;
+#[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
+mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/completion_helpers.rs"]
 mod completion_helpers;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -503,6 +505,12 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    // D-06: the issuer may commit first-grant evidence even when the client
+    // never receives its HTTP body or retrieves ciphertext from MinIO.
+    let lost_ack = d06_lost_ack::discard_first_response(
+        &app, &url, buyer, chapter, purchase_id, &buyer_cookie, &csrf,
+    )
+    .await;
     let purchased = post_grant(
         &app,
         chapter,
@@ -512,6 +520,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         "{}",
     )
     .await;
+    d06_lost_ack::assert_retry_preserves_evidence(&url, buyer, purchase_id, &lost_ack);
     assert_eq!(purchased.status(), StatusCode::OK);
     assert_eq!(
         purchased.headers()[header::CACHE_CONTROL],
