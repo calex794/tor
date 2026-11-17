@@ -24,6 +24,5 @@ DATABASE_URL="${MIGRATOR_URL%/tor_ci}/tor_test" cargo run -p tor-migrations --bi
 export TEST_DATABASE_URL="${TEST_DATABASE_URL%/tor_ci}/tor_test"
 cargo test -p tor-books --test free_import_transport_pg -- --ignored --test-threads=1 --show-output
 cargo test -p tor-web --features s3-free,s3-chapter-import --test drop_04d_worker_pg_minio -- --ignored --test-threads=1 --show-output --skip drop_04d_100k_bounded_worker_import
-TOR_DROP_LOAD_CHAPTERS=100000 cargo test -p tor-web --features s3-free,s3-chapter-import --test drop_04d_worker_pg_minio drop_04d_100k_bounded_worker_import -- --ignored --test-threads=1 --show-output
-
 cargo test -p tor-web --features s3-free,s3-chapter-import --test drop_04e_worker_faults -- --ignored --test-threads=1 --show-output
+TOR_DROP_LOAD_CHAPTERS=100000 cargo test -p tor-web --features s3-free,s3-chapter-import --test drop_04d_worker_pg_minio drop_04d_100k_bounded_worker_import -- --ignored --test-threads=1 --show-output

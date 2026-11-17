@@ -23,7 +23,8 @@ fn worker(f: &Fixture, relay: &Relay) -> ChapterImportWorker {
         .with_free_s3(f.author().with_direct_pack_import(client))
 }
 fn retry_now(f: &Fixture, job: i64) {
-    pg(&f.url,&format!("UPDATE chapter_import_jobs SET locked_until=clock_timestamp()-interval '1 second',run_after=clock_timestamp()-interval '1 second' WHERE id={job}"));
+    // A queued retry has no lease; only a stolen running lease may expire.
+    pg(&f.url,&format!("UPDATE chapter_import_jobs SET locked_until=CASE WHEN status='running' THEN clock_timestamp()-interval '1 second' ELSE NULL END,run_after=clock_timestamp()-interval '1 second' WHERE id={job}"));
 }
 fn unchanged(f: &Fixture) {
     assert_eq!(f.count("chapters"), 0);
@@ -71,6 +72,7 @@ async fn drop_04e_real_pack_io_faults_never_publish_partial_editions() {
                     ),
                     "failed"
                 );
+                println!("DROP04E_PACK_FAULT_PASS {fault:?}");
                 continue;
             }
             assert_eq!(
