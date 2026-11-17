@@ -6,6 +6,7 @@ pub mod cover_publications;
 pub mod cover_review;
 pub mod cover_slots;
 pub mod cover_source_cleanup;
+pub mod free_expected_inventory;
 pub mod free_pack_activation;
 pub mod free_pack_attach;
 pub mod free_pack_cutover;
