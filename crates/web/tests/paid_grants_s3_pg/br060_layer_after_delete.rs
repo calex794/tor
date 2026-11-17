@@ -8,10 +8,7 @@ use tor_commerce::{
         layers::LayerCheckoutCommand,
         money::{IdempotencyKey, MoneyMinor, WalletId},
     },
-    repositories::{
-        layer_entitlements::PgLayerChapterEntitlements,
-        layers::PgLayers,
-    },
+    repositories::{layer_entitlements::PgLayerChapterEntitlements, layers::PgLayers},
 };
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort};
 
@@ -127,13 +124,7 @@ pub(super) async fn before_deletion(
         .unwrap();
     assert!(!receipt.replayed);
     assert_eq!(receipt.balance_after_minor, 210);
-    assert_surviving_book_entitlement(
-        accounts,
-        subscriber,
-        sibling_chapter,
-        sibling_version,
-    )
-    .await;
+    assert_surviving_book_entitlement(accounts, subscriber, sibling_chapter, sibling_version).await;
 
     assert_eq!(
         scalar(
