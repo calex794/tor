@@ -46,10 +46,10 @@ use tower::ServiceExt;
 mod asset_fixture;
 #[path = "paid_grants_s3_pg/br060_ordinary_deleted.rs"]
 mod br060_ordinary_deleted;
-#[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
-mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/completion_helpers.rs"]
 mod completion_helpers;
+#[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
+mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
@@ -458,28 +458,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(!second_html.contains("<script>опасно</script>"));
 
     d06_lost_ack::assert_purchase_list_bound_to_buyer(
-        &app, chapter, purchase_id, &buyer_cookie, &stranger_cookie,
+        &app,
+        chapter,
+        purchase_id,
+        &buyer_cookie,
+        &stranger_cookie,
+        &csrf,
     )
     .await;
-    let ordinary_library = private_get(&app, "/me/library", Some(&buyer_cookie)).await;
-    assert_eq!(ordinary_library.status(), StatusCode::OK);
-    assert!(html_body(ordinary_library)
-        .await
-        .contains("href=\"/me/purchases\""));
-    assert_eq!(
-        post_grant(
-            &app,
-            chapter,
-            Some(&stranger_cookie),
-            Some(&csrf),
-            ORIGIN,
-            &json!({"purchase_id":purchase_id.to_string()}).to_string(),
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN,
-        "another actor cannot reuse the buyer's purchase ID"
-    );
     assert_eq!(
         post_grant(
             &app,
@@ -496,7 +482,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // D-06: the issuer may commit first-grant evidence even when the client
     // never receives its HTTP body or retrieves ciphertext from MinIO.
     let lost_ack = d06_lost_ack::discard_first_response(
-        &app, &url, buyer, chapter, purchase_id, &buyer_cookie, &csrf,
+        &app,
+        &url,
+        buyer,
+        chapter,
+        purchase_id,
+        &buyer_cookie,
+        &csrf,
     )
     .await;
     let purchased = post_grant(
