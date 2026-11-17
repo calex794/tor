@@ -230,8 +230,24 @@ pub(super) async fn verify(
         url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
+    assert!(matches!(
+        catalog
+            .load_pack_rollback_job(claim.job_id, claim.epoch + 1, BUCKET)
+            .await,
+        Err(AuthorError::Conflict)
+    ));
+    assert!(matches!(
+        catalog
+            .load_pack_rollback_job(claim.job_id, claim.epoch, "tor-rollback-drill-other")
+            .await,
+        Err(AuthorError::Conflict)
+    ));
+    let exact_job = catalog
+        .load_pack_rollback_job(claim.job_id, claim.epoch, BUCKET)
+        .await
+        .unwrap();
     let (one, two) = tokio::join!(
-        rollback_one_verified_pack(catalog, single, claim),
+        rollback_one_verified_pack(catalog, single, &exact_job),
         rollback_one_verified_pack(catalog, single, claim),
     );
     assert!(matches!(
@@ -245,6 +261,19 @@ pub(super) async fn verify(
             .unwrap(),
         PackRollback::AlreadyRolledBack,
         "lost rollback commit ACK must not create extra generations"
+    );
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT count(*) FROM free_pack_rollback_receipts
+                 WHERE job_id={} AND pack_id={pack_id} AND build_epoch={}
+                   AND operator_role=session_user",
+                claim.job_id, claim.epoch
+            ),
+        ),
+        "1",
+        "concurrent replay preserves one committed rollback receipt"
     );
     let new_single: i64 = pg(
         url,

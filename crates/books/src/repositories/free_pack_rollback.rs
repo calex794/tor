@@ -3,7 +3,7 @@
 //! G must independently reread ALL immutable original SINGLE objects before
 //! invoking this B transaction. No automatic fallback on PACK read failure.
 //! No S3 DELETE, HTTP route, new grant, or publication change occurs here.
-use super::free_pack_attach::PgFreePackCatalog;
+use super::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use crate::services::authoring::AuthorError;
 use sqlx::Row;
 use std::collections::HashSet;
@@ -25,6 +25,53 @@ fn write_error(error: sqlx::Error) -> AuthorError {
 }
 
 impl PgFreePackCatalog {
+    /// Load only the exact completed SINGLE-to-PACK job approved for the
+    /// rollback drill. Direct PACK imports have no R4a job or SINGLE sources.
+    pub async fn load_pack_rollback_job(
+        &self,
+        job_id: i64,
+        expected_epoch: i64,
+        bucket: &str,
+    ) -> Result<PackJobClaim, AuthorError> {
+        if job_id <= 0 || expected_epoch <= 0 {
+            return Err(AuthorError::Invalid);
+        }
+        let row = sqlx::query(
+            "SELECT j.actor_user_id,j.book_id,j.expected_chapter_count,
+                    j.approved_fingerprint,s.spec_text
+             FROM free_pack_jobs j
+             JOIN free_pack_job_specs s ON s.job_id=j.id
+             JOIN free_storage_packs p ON p.id=j.pack_id
+             WHERE j.id=$1 AND j.lease_epoch=$2 AND j.status='succeeded' AND p.bucket=$3",
+        )
+        .bind(job_id)
+        .bind(expected_epoch)
+        .bind(bucket)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(write_error)?
+        .ok_or(AuthorError::Conflict)?;
+        let spec: String = row.try_get("spec_text").map_err(write_error)?;
+        let receipt: PackPlacementReceipt =
+            serde_json::from_str(&spec).map_err(|_| AuthorError::Conflict)?;
+        let count: i32 = row.try_get("expected_chapter_count").map_err(write_error)?;
+        let fingerprint: Vec<u8> = row.try_get("approved_fingerprint").map_err(write_error)?;
+        if !(1..=4096).contains(&count)
+            || receipt.target.bucket != bucket
+            || receipt.frames.len() != count as usize
+            || Self::fingerprint(&receipt).as_slice() != fingerprint.as_slice()
+        {
+            return Err(AuthorError::Conflict);
+        }
+        Ok(PackJobClaim {
+            job_id,
+            epoch: expected_epoch,
+            actor_user_id: row.try_get("actor_user_id").map_err(write_error)?,
+            book_id: row.try_get("book_id").map_err(write_error)?,
+            receipt,
+        })
+    }
+
     /// Atomic rollback of all immutable editions of one previously succeeded
     /// R4a PACK. Each new SINGLE generation is strictly larger than every
     /// prior PACK/SINGLE generation; rewinding a pointer is never allowed.
@@ -296,6 +343,16 @@ impl PgFreePackCatalog {
                 return Err(AuthorError::Conflict);
             }
         }
+        sqlx::query(
+            "INSERT INTO free_pack_rollback_receipts(job_id,pack_id,build_epoch)
+             VALUES($1,$2,$3)",
+        )
+        .bind(job_id)
+        .bind(pack_id)
+        .bind(expected_epoch)
+        .execute(&mut *tx)
+        .await
+        .map_err(write_error)?;
         tx.commit().await.map_err(write_error)?;
         Ok(PackRollback::RolledBack)
     }
