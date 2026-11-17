@@ -5,16 +5,16 @@
 use aws_sdk_s3::Client;
 use tor_books::repositories::{
     free_expected_inventory::{FreeInventoryError, PgFreeExpectedInventory},
-    free_observed_reconcile::{FreeReferenceEvidence, FreeReferenceState, PgFreeObservedClassifier},
+    free_observed_reconcile::{
+        FreeReferenceEvidence, FreeReferenceState, PgFreeObservedClassifier,
+    },
     PgCatalog,
 };
 use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
     repositories::{
         free_expected_inventory_s3::{FreeObjectEvidence, S3FreeExpectedObjectVerifier},
-        free_inventory_list_s3::{
-            FreeListNamespace, ListedFreeObject, S3FreeInventoryLister,
-        },
+        free_inventory_list_s3::{FreeListNamespace, ListedFreeObject, S3FreeInventoryLister},
     },
 };
 
@@ -119,7 +119,12 @@ impl FreeInventoryDryRun {
         for entry in page.expected {
             match self
                 .verifier
-                .verify_exact(&self.bucket, &entry.object_key, entry.sha256, entry.size_bytes)
+                .verify_exact(
+                    &self.bucket,
+                    &entry.object_key,
+                    entry.sha256,
+                    entry.size_bytes,
+                )
                 .await
             {
                 Ok(FreeObjectEvidence::Verified) => counts.verified += 1,
@@ -211,8 +216,16 @@ mod tests {
     fn unknown_timestamps_and_old_objects_stay_undecidable_without_gc_rights() {
         let now = 1_900_000_000;
         let keys = [
-            ("private/free-chapters/1/1.md", FreeReferenceState::Registered, None),
-            ("private/free-chapters/2/2.md", FreeReferenceState::ProtectedPending, None),
+            (
+                "private/free-chapters/1/1.md",
+                FreeReferenceState::Registered,
+                None,
+            ),
+            (
+                "private/free-chapters/2/2.md",
+                FreeReferenceState::ProtectedPending,
+                None,
+            ),
             (
                 "private/free-chapters/3/3.md",
                 FreeReferenceState::Unknown,
@@ -228,7 +241,11 @@ mod tests {
                 FreeReferenceState::Unknown,
                 Some(now + 100),
             ),
-            ("private/free-chapters/6/6.md", FreeReferenceState::Unknown, None),
+            (
+                "private/free-chapters/6/6.md",
+                FreeReferenceState::Unknown,
+                None,
+            ),
         ];
         let listed: Vec<_> = keys
             .iter()
