@@ -79,7 +79,14 @@ async fn chapter(pool: &PgPool, book: i64, number: i32) -> (i64, i64) {
     (id, version)
 }
 
-async fn post(app: &Router, session: &str, csrf: &str, key: char, url: &str, body: Value) -> Response {
+async fn post(
+    app: &Router,
+    session: &str,
+    csrf: &str,
+    key: char,
+    url: &str,
+    body: Value,
+) -> Response {
     let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
     let request = Request::builder()
         .method("POST")
