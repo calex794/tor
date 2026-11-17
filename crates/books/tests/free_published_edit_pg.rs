@@ -155,6 +155,36 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
     .await
     .unwrap();
     assert_eq!(first, (initial.chapter_id, initial.version_id));
+    let release_events: Vec<(i64, bool, bool)> = sqlx::query_as(
+        "SELECT (payload->>'version_id')::bigint,
+                (payload->>'first_release')::boolean,
+                required_consumers @> ARRAY['chapter_revision_fanout_v1']::text[]
+         FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+         ORDER BY (payload->>'version_id')::bigint",
+    )
+    .bind(initial.chapter_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        release_events,
+        vec![
+            (initial.version_id, true, false),
+            (saved.version_id, false, true)
+        ],
+        "V2 is durable but is not falsely sent through the V1-only fanout"
+    );
+    let private_text_leaks: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND (payload ? 'body_markdown' OR payload::text LIKE '%Новый текст%')",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(private_text_leaks, 0, "outbox contains metadata only");
     let unchanged_working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(initial.chapter_id)
@@ -225,6 +255,67 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
             .await
             .unwrap();
     assert_eq!(version_count, 2);
+    // Changing the title only changes edit_revision, not the immutable
+    // content version and not the chapter-update event stream.
+    let title_only = update(
+        book,
+        initial.chapter_id,
+        2,
+        "Уточнённый заголовок",
+        "Новый текст V2\n文 😀",
+        &"e".repeat(43),
+    );
+    let renamed = author
+        .edit_published_free_chapter(owner, &title_only)
+        .await
+        .unwrap();
+    assert_eq!(renamed.version_id, saved.version_id);
+    assert_eq!(renamed.revision, 3);
+    let event_count_after_title: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(event_count_after_title, 2);
+
+    let v3 = update(
+        book,
+        initial.chapter_id,
+        3,
+        "Третья редакция",
+        "Текст V3",
+        &"f".repeat(43),
+    );
+    let third = author
+        .edit_published_free_chapter(owner, &v3)
+        .await
+        .unwrap();
+    assert_eq!(third.revision, 4);
+    assert_ne!(third.version_id, saved.version_id);
+    let latest_event: (bool, bool) = sqlx::query_as(
+        "SELECT (payload->>'first_release')::boolean,
+                required_consumers @> ARRAY['chapter_revision_fanout_v1']::text[]
+         FROM outbox_events WHERE event_type='ChapterPublished'
+           AND aggregate_id=$1 AND payload->>'version_id'=$2::text",
+    )
+    .bind(initial.chapter_id)
+    .bind(third.version_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(latest_event, (false, true));
+    let total_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(total_events, 3, "one root per genuinely new version");
     pool.close().await;
 }
 
@@ -298,6 +389,19 @@ async fn bkr96_two_edit_tabs_conflict_and_reverted_text_reuses_old_version() {
     .await
     .unwrap();
     assert_eq!(first_release, initial.version_id);
+    let revision_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND payload->>'first_release'='false'",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        revision_events, 1,
+        "the concurrent loser and a revert to already-published V1 add no events"
+    );
     pool.close().await;
 }
 
@@ -341,5 +445,17 @@ async fn bkr96_legacy_published_free_revision_zero_is_editable_without_second_re
             .await
             .unwrap();
     assert_eq!(original, "Оригинальный текст V1 😀");
+    let revision_event_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND payload->>'first_release'='false'
+           AND payload->>'version_id'=$2::text",
+    )
+    .bind(initial.chapter_id)
+    .bind(changed.version_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(revision_event_count, 1);
     pool.close().await;
 }
