@@ -62,7 +62,7 @@ fn opaque_book_art_uses_lossy_v2_while_existing_jobs_keep_lossless_v1() {
         Rgb([n as u8, (n >> 8) as u8, (n >> 16) as u8])
     });
     let original = encode(&DynamicImage::ImageRgb8(pixels), ImageFormat::Png);
-    let lossy = process_cover(&original, "image/png").unwrap();
+    let lossy = process_cover_with_recipe(&original, "image/png", RECIPE_VERSION).unwrap();
     let legacy = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
     assert_eq!(lossy.len(), 2);
     for (new, old) in lossy.iter().zip(legacy.iter()) {
@@ -82,6 +82,7 @@ fn opaque_book_art_uses_lossy_v2_while_existing_jobs_keep_lossless_v1() {
     // This also verifies the old recipe has not silently changed on upgrade.
     let replay = process_cover_with_recipe(&original, "image/png", LEGACY_RECIPE_VERSION).unwrap();
     assert_eq!(legacy, replay);
+    assert_eq!(legacy, process_cover(&original, "image/png").unwrap());
 }
 
 #[test]
