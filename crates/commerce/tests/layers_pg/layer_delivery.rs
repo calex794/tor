@@ -180,6 +180,13 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         allow(chapter, published_v1),
         "pending deletion unlists a Book without deleting an already paid Layer term"
     );
+    assert_eq!(
+        decision(&resolver, owner, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        },
+        "a private pending Book must not be enumerable by a non-buyer"
+    );
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)
