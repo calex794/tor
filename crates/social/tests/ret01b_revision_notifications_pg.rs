@@ -161,5 +161,40 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
     .await
     .unwrap();
     assert_eq!(unexpected_first, 0, "V2 must not masquerade as V1");
+    let releases = notifications
+        .list_section(reader, None, 10, "releases")
+        .await
+        .unwrap();
+    assert_eq!(releases.len(), 1);
+    assert_eq!(releases[0].kind, "chapter_updated");
+    assert!(notifications
+        .list_section(reader, None, 10, "system")
+        .await
+        .unwrap()
+        .is_empty());
+
+    // A queued or already projected V2 is never a perpetual visibility grant.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(notifications.list(reader, None, 10).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(notifications.list(reader, None, 10).await.unwrap().len(), 1);
+    sqlx::query("DELETE FROM reader_book_follows WHERE user_id=$1 AND book_id=$2")
+        .bind(reader)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        notifications.list(reader, None, 10).await.unwrap().is_empty(),
+        "an unfollow hides the private V2 notice immediately"
+    );
     pool.close().await;
 }
