@@ -47,7 +47,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         // An ordinary Book deletion is different: historical Layer terms
         // remain valid until expiry, while new buyers never gain that Book.
         // No direct purchase fact is inferred from Layer membership.
-        let record: Option<(Option<i64>, bool, bool)> = sqlx::query_as(
+        let record: Option<(Option<i64>, bool, bool, bool)> = sqlx::query_as(
             "SELECT cp.version_id,
                     ((b.visibility='public' OR
                        (b.lifecycle_status='ordinary_deleted'
@@ -103,7 +103,8 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                               SELECT 1 FROM commerce_layer_term_revocations r
                               WHERE r.term_id=t.id
                           )
-                    ) AS entitled
+                    ) AS entitled,
+                    (b.lifecycle_status='ordinary_deleted') AS archived
              FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN users AS viewer ON viewer.id=$1
@@ -116,7 +117,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
 
-        let Some((version, readable, entitled)) = record else {
+        let Some((version, readable, entitled, archived)) = record else {
             return Ok(EntitlementDecision::Denied {
                 reason: DenialReason::Hidden,
             });
@@ -128,7 +129,13 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         }
         if !entitled {
             return Ok(EntitlementDecision::Denied {
-                reason: DenialReason::NotPurchased,
+                // Do not let late buyers enumerate a privately retained
+                // Book via different 403/404 responses after ordinary delete.
+                reason: if archived {
+                    DenialReason::Hidden
+                } else {
+                    DenialReason::NotPurchased
+                },
             });
         }
         let version_id = version
