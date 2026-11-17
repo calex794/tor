@@ -132,6 +132,8 @@ pub struct LayerTocAnchor {
     pub chapter_no: i32,
     pub chapter_title: String,
     pub book_title: String,
+    /// This historical Book is available only through a previously paid Layer.
+    pub ordinary_deleted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
