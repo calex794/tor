@@ -140,6 +140,8 @@ pub struct LayerTocAnchor {
 pub enum LayerTocAccess {
     Subscription,
     PublicFree,
+    /// Actor has a frozen pre-deletion FREE edition through a paid Layer term.
+    ArchivedFree,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

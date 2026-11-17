@@ -3088,6 +3088,27 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::free_s3_reader_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/read/layer/free/{id}",
+      "source": "crates/web/src/free_reader_http.rs",
+      "handler": "layer_archive::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/layer/free/{id}/grant",
+      "source": "crates/web/src/free_reader_http.rs",
+      "handler": "layer_archive::grant",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-layer-free-reader.mjs",
+      "source": "crates/web/src/free_reader_http.rs",
+      "handler": "layer_archive::script",
+      "policy": "public"
     }
   ]
 }

@@ -8,12 +8,13 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::Response,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
 use tor_contracts::paid_delivery::SecretValue;
 use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
 use tor_storage::{
@@ -21,10 +22,13 @@ use tor_storage::{
     services::free_chapter::{FreeChapterObject, FreeChapterStore},
 };
 
+mod layer_archive;
 mod verified_grant;
 
 #[derive(Clone)]
 struct FreeGrantState {
+    accounts: PgAccounts,
+    layer: PgLayerChapterEntitlements,
     references: PgFreeS3Ref,
     cookies: CookiePolicy,
     store: S3FreeChapterStore,
@@ -63,8 +67,18 @@ pub fn router(
     if !valid_reader_s3_origin(&s3_origin) {
         return Err("Invalid TOR_FREE_S3_PUBLIC_ORIGIN");
     }
+    // A private historical FREE route is opt-in, independently from the
+    // ordinary public S349 grant and the paid Layer reader.
+    let archive_enabled = match std::env::var("TOR_LAYER_FREE_ARCHIVE_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(std::env::VarError::NotPresent) => false,
+        _ => return Err("TOR_LAYER_FREE_ARCHIVE_ENABLED must be 0 or 1"),
+    };
     let state = FreeGrantState {
+        layer: PgLayerChapterEntitlements::new(accounts.pool().clone()),
         references: PgFreeS3Ref::new(accounts.pool().clone()),
+        accounts,
         cookies: CookiePolicy {
             secure,
             origin: public_origin,
@@ -73,9 +87,20 @@ pub fn router(
         bucket,
         s3_origin,
     };
-    Ok(Router::new()
-        .route("/api/v1/chapters/{id}/free-grant", get(grant))
-        .with_state(state))
+    let mut routes = Router::new().route("/api/v1/chapters/{id}/free-grant", get(grant));
+    if archive_enabled {
+        routes = routes
+            .route("/read/layer/free/{id}", get(layer_archive::page))
+            .route(
+                "/api/v1/reader/layer/free/{id}/grant",
+                post(layer_archive::grant),
+            )
+            .route(
+                "/assets/newboo-layer-free-reader.mjs",
+                get(layer_archive::script),
+            );
+    }
+    Ok(routes.with_state(state))
 }
 
 async fn grant(

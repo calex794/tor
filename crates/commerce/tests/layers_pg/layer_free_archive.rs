@@ -2,6 +2,7 @@
 //! The separate B test checks the owner-request snapshot transaction.
 use super::*;
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
+use tor_commerce::services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide};
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
@@ -27,6 +28,30 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
         .bind(free)
         .bind(v1)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // A real PAID anchor is needed to page the Layer TOC. The FREE row
+    // must retain its historical snapshot even if the public V2 later moves.
+    let paid_chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,2,'Paid anchor','public','paid',50) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'Paid chapter V1') RETURNING id",
+    )
+    .bind(paid_chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(paid_chapter)
+        .bind(paid_version)
         .execute(&pool)
         .await
         .unwrap();
@@ -139,6 +164,47 @@ async fn d_05_deleted_book_free_version_requires_old_term_and_frozen_publication
             .await
             .unwrap(),
         Some(id(v1))
+    );
+
+    // The visible CURRENT publication is not archival authority. The TOC
+    // still resolves the frozen FREE V1 and routes it to private reading,
+    // even after the public chapter publication pointer disappears.
+    sqlx::query("DELETE FROM chapter_publications WHERE chapter_id=$1")
+        .bind(free)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let window = resolver
+        .layer_toc_window(
+            id(buyer),
+            id(paid_chapter),
+            MixedTocCursor {
+                chapter_no: 2,
+                chapter_id: paid_chapter,
+            },
+            MixedTocSide::Before,
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(window.chapters.len(), 1);
+    assert_eq!(window.chapters[0].chapter_id, free);
+    assert_eq!(window.chapters[0].access, LayerTocAccess::ArchivedFree);
+    assert!(
+        resolver
+            .layer_toc_window(
+                id(owner),
+                id(paid_chapter),
+                MixedTocCursor {
+                    chapter_no: 2,
+                    chapter_id: paid_chapter,
+                },
+                MixedTocSide::Before,
+                10,
+            )
+            .await
+            .is_err(),
+        "book owner without a paid Layer term cannot list private archive"
     );
 
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")

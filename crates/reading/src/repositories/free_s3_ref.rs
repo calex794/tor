@@ -21,6 +21,44 @@ impl PgFreeS3Ref {
         Self { pool }
     }
 
+    /// D-05: a read-only physical SINGLE identity for a frozen FREE edition.
+    /// CAUTION: this is NOT a reader authorization. HTTP callers must first
+    /// require D's actor-owned historic Layer term, then repeat both D and
+    /// this exact storage lookup after signing the short-lived capability.
+    /// Neither client-selected versions nor a withdrawn PACK may be served
+    /// by falling back to a previous SINGLE receipt.
+    pub async fn archived_free_single_metadata_only(
+        &self,
+        chapter: i64,
+        version: i64,
+    ) -> Result<Option<FreeS3Ref>, sqlx::Error> {
+        if chapter <= 0 || version <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT f.chapter_id,f.version_id,f.sha256,f.size_bytes,f.bucket
+             FROM free_chapter_storage_objects f
+             JOIN chapter_versions v ON v.id=f.version_id
+               AND v.chapter_id=f.chapter_id AND v.content_sha256=f.sha256
+             WHERE f.chapter_id=$1 AND f.version_id=$2
+               AND NOT EXISTS (
+                    SELECT 1 FROM free_edition_active_storage a
+                    JOIN free_edition_storage_generations g
+                      ON g.chapter_id=a.chapter_id
+                     AND g.version_id=a.version_id
+                     AND g.generation=a.generation
+                    WHERE a.chapter_id=f.chapter_id
+                      AND a.version_id=f.version_id
+                      AND g.placement_kind='pack'
+               ) LIMIT 1",
+        )
+        .bind(chapter)
+        .bind(version)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(decode).transpose()
+    }
+
     /// Exact historical free file for an independently authenticated site
     /// administrator. A moderator or browser-selected role is insufficient.
     pub async fn for_administrator(

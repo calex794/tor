@@ -96,7 +96,9 @@ impl PgLayerChapterEntitlements {
         // B publication/age/visibility guards; no preview or unpublished text.
         // All paid rows below receive a second independent D CURRENT check.
         let sql = format!(
-            "SELECT c.id AS chapter_id, c.chapter_no, c.title, c.access_level
+            "SELECT c.id AS chapter_id, c.chapter_no, c.title, c.access_level,
+                    (b.visibility<>'public' AND
+                     b.lifecycle_status IN ('pending_deletion','ordinary_deleted')) AS archived_free
              FROM chapters anchor
              JOIN chapters c ON c.book_id=anchor.book_id
              JOIN books b ON b.id=c.book_id
@@ -117,11 +119,33 @@ impl PgLayerChapterEntitlements {
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                AND (c.access_level='free' OR
                     (c.access_level='paid' AND c.price_amount>0))
-               AND EXISTS (
-                   SELECT 1 FROM chapter_publications publication
-                   JOIN chapter_versions v ON v.id=publication.version_id
-                       AND v.chapter_id=c.id
-                   WHERE publication.chapter_id=c.id
+               AND (
+                   EXISTS (
+                       SELECT 1 FROM chapter_publications publication
+                       JOIN chapter_versions v ON v.id=publication.version_id
+                           AND v.chapter_id=c.id
+                       WHERE publication.chapter_id=c.id
+                         AND (c.access_level='paid' OR b.visibility='public')
+                   )
+                   OR (
+                       c.access_level='free' AND b.visibility<>'public'
+                       AND b.lifecycle_status IN ('pending_deletion','ordinary_deleted')
+                       AND EXISTS (
+                           SELECT 1 FROM book_layer_free_archive_versions frozen
+                           JOIN book_ordinary_deletion_requests request
+                             ON request.book_id=frozen.book_id
+                            AND request.request_revision=frozen.request_revision
+                           WHERE frozen.book_id=b.id AND frozen.chapter_id=c.id
+                             AND (
+                                 (b.lifecycle_status='pending_deletion'
+                                  AND b.lifecycle_revision=frozen.request_revision)
+                                 OR
+                                 (b.lifecycle_status='ordinary_deleted'
+                                  AND b.ordinary_deleted_at IS NOT NULL
+                                  AND b.lifecycle_revision=frozen.request_revision+1)
+                             )
+                       )
+                   )
                )
                AND (c.chapter_no,c.id) {comparison} ($3,$4)
              ORDER BY c.chapter_no {order},c.id {order} LIMIT $5"
@@ -150,7 +174,18 @@ impl PgLayerChapterEntitlements {
             let kind: String = row
                 .try_get("access_level")
                 .map_err(|_| DeliveryError::Unavailable)?;
-            let access = if kind == "free" {
+            let archived_free: bool = row
+                .try_get("archived_free")
+                .map_err(|_| DeliveryError::Unavailable)?;
+            let access = if kind == "free" && archived_free {
+                let chapter = PositiveId::new(id).map_err(|_| DeliveryError::Unavailable)?;
+                // A stored publication snapshot alone does not grant access.
+                // Reuse the exact historic term authority of the FREE signer.
+                match self.archived_free_version(actor, chapter).await? {
+                    Some(_) => LayerTocAccess::ArchivedFree,
+                    None => return Err(DeliveryError::Denied),
+                }
+            } else if kind == "free" {
                 LayerTocAccess::PublicFree
             } else if kind == "paid" {
                 let chapter = PositiveId::new(id).map_err(|_| DeliveryError::Unavailable)?;
