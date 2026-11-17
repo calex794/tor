@@ -165,8 +165,8 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     let version: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
-             VALUES({chapter},1,'Layer historical FREE V1 глава',decode('{}','hex')) RETURNING id",
+            "INSERT INTO chapter_versions(chapter_id,version_no,content_sha256)
+             VALUES({chapter},1,decode('{}','hex')) RETURNING id",
             hex::encode(digest),
         ),
     )
