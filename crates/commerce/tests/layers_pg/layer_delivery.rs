@@ -149,10 +149,29 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
             reason: DenialReason::Hidden
         }
     );
-    sqlx::query(
-        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    // Mirror the actual owner request, including its immutable revision and
+    // timestamp. Synthetic pending_deletion without a request must not be
+    // treated as evidence of a historical Layer entitlement.
+    let pending_revision: i64 = sqlx::query_scalar(
+        "UPDATE books SET access_level='basic',
+                lifecycle_status='pending_deletion',
+                lifecycle_revision=lifecycle_revision+1,
+                visibility='draft'
+         WHERE id=$1 RETURNING lifecycle_revision",
     )
     .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_ordinary_deletion_requests
+            (book_id,request_revision,owner_user_id,
+             previous_lifecycle_status,previous_visibility)
+         VALUES($1,$2,$3,'in_progress','public')",
+    )
+    .bind(book)
+    .bind(pending_revision)
+    .bind(owner)
     .execute(&pool)
     .await
     .unwrap();
@@ -173,7 +192,8 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         }
     );
     sqlx::query(
-        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1",
+        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress',
+                visibility='public' WHERE id=$1",
     )
     .bind(book)
     .execute(&pool)
