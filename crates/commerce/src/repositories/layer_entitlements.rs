@@ -122,7 +122,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                               WHERE r.term_id=t.id
                           )
                     ) AS entitled,
-                    (b.lifecycle_status='ordinary_deleted') AS archived
+                    (b.lifecycle_status IN ('pending_deletion','ordinary_deleted')) AS archived
              FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN users AS viewer ON viewer.id=$1
