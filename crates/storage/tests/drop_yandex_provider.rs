@@ -233,8 +233,7 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
         .version_id()
         .filter(|new| !new.is_empty() && *new != "null" && *new != version)
     else {
-        println!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=no_distinct_newer_version");
-        return;
+        panic!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=no_distinct_newer_version");
     };
     let result = client
         .delete_object()
