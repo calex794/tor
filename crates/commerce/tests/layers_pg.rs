@@ -13,6 +13,8 @@ mod layer_covers;
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
+#[path = "layers_pg/layer_deleted_checkout.rs"]
+mod layer_deleted_checkout;
 #[path = "layers_pg/layer_lost_ack.rs"]
 mod layer_lost_ack;
 #[path = "layers_pg/layer_offer.rs"]
