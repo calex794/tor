@@ -1,9 +1,7 @@
 //! DROP-05a: real G independent proof + B atomic PG activation.
 //! Extracted from R4b1 to keep integration test modules below layout limits.
 use super::*;
-use tor_books::repositories::{
-    free_pack_cutover::PackActivation, free_pack_jobs::PackJobClaim,
-};
+use tor_books::repositories::{free_pack_cutover::PackActivation, free_pack_jobs::PackJobClaim};
 use tor_web::free_pack_worker::activate_one_verified_pack;
 
 pub(super) async fn verify(
