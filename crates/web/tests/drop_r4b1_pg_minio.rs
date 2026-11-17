@@ -422,7 +422,13 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
         Err(AuthorError::Conflict)
     ));
     drop_05a_cutover::verify(
-        &url, &client, &catalog, &proof, &single, &claim, book, pack_id, &editions,
+        &url,
+        &client,
+        &catalog,
+        &proof,
+        &single,
+        &claim,
+        (book, pack_id, &editions),
     )
     .await;
     pool.close().await;
