@@ -52,8 +52,19 @@ pub(super) async fn verify(
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool().clone();
     let repository = PgFreeS3Publication::new(pool.clone());
-    assert!(repository.owned(actor, book, chapter).await.unwrap().unwrap().stored_in_pack);
-    assert!(repository.owned(actor + 999_999, book, chapter).await.unwrap().is_none());
+    assert!(
+        repository
+            .owned(actor, book, chapter)
+            .await
+            .unwrap()
+            .unwrap()
+            .stored_in_pack
+    );
+    assert!(repository
+        .owned(actor + 999_999, book, chapter)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         pg(
             url,
@@ -182,7 +193,9 @@ pub(super) async fn verify(
         .unwrap();
     assert_eq!(saved.version_id, version);
     assert_eq!(saved.sha256, Sha256::digest(original.as_bytes()).into());
-    println!("DROP04C_PACK_EDITOR_PASS: owner browser V1 PACK -> V2 SINGLE, replay, pin preservation");
+    println!(
+        "DROP04C_PACK_EDITOR_PASS: owner browser V1 PACK -> V2 SINGLE, replay, pin preservation"
+    );
     server.abort();
     let _ = server.await;
     pool.close().await;
