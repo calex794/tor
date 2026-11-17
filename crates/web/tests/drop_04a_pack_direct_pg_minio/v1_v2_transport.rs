@@ -74,8 +74,8 @@ pub(super) async fn assert_cross_transport_v1_v2(
     let v2_object = FreeChapterObject::for_markdown(chapter_id, v2_id, &v2_body).unwrap();
     let single_store = S3FreeChapterStore::new((*client).clone(), BUCKET.into()).unwrap();
     upload_and_verify(&single_store, &v2_object, &v2_body)
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     pg(
         url,
         &format!(
@@ -100,10 +100,7 @@ pub(super) async fn assert_cross_transport_v1_v2(
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!(
-                    "/api/v1/chapters/{}/free-source-plan",
-                    chapter_id
-                ))
+                .uri(format!("/api/v1/chapters/{}/free-source-plan", chapter_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -111,8 +108,7 @@ pub(super) async fn assert_cross_transport_v1_v2(
         .unwrap();
     assert_eq!(current_plan.status(), StatusCode::OK);
     let current_json: serde_json::Value =
-        serde_json::from_slice(&to_bytes(current_plan.into_body(), 4096).await.unwrap())
-            .unwrap();
+        serde_json::from_slice(&to_bytes(current_plan.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(current_json["transport"], "signed-single");
     assert_eq!(current_json["version_id"], v2_id.to_string());
     assert_eq!(current_json["sha256"], v2_hash_hex);
@@ -137,10 +133,7 @@ pub(super) async fn assert_cross_transport_v1_v2(
     assert_eq!(current_no_js.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         current_no_js.headers()["location"].to_str().unwrap(),
-        format!(
-            "/api/v1/chapters/{}/free-grant?format=source",
-            chapter_id
-        )
+        format!("/api/v1/chapters/{}/free-grant?format=source", chapter_id)
     );
 
     let saved_uri = format!(
@@ -173,5 +166,4 @@ pub(super) async fn assert_cross_transport_v1_v2(
             .is_some(),
         "a new SINGLE V2 publication cannot revoke a reader's pinned PACK V1"
     );
-
 }
