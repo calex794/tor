@@ -1,5 +1,8 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
+#[path = "support/ret02_return_chromium.rs"]
+mod ret02_return_chromium;
+
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -805,20 +808,19 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         ),
         "0"
     );
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            &finish_path,
-            &observer_cookie,
-            ORIGIN,
-            &observer_finish
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER,
-        "B can meaningfully finish a public FREE chapter without Follow"
-    );
+    // The second verified completion must be performed through Chromium's
+    // real 390px mobile form, not synthesized by an HTTP test helper.
+    // Desktop also proves that A returned to the proper new chapter.
+    ret02_return_chromium::verify(
+        &app,
+        ORIGIN,
+        &reader_session,
+        &observer_session,
+        &csrf,
+        released,
+        released_version,
+    )
+    .await;
     assert_eq!(
         pg(
             &url,
