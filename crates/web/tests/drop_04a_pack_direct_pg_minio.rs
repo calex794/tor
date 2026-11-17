@@ -657,6 +657,23 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         );
         let actual: [u8; 32] = Sha256::digest(&bytes).into();
         assert_eq!(actual, frame.content_sha256);
+        // A browser with scripts disabled must receive the same exact frame
+        // through one same-origin link, never the complete PACK.
+        let plain = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/chapters/{}/free-source", frame.chapter_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(plain.status(), StatusCode::OK);
+        assert_eq!(plain.headers()["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(plain.headers()["cache-control"], "no-store");
+        let bytes = to_bytes(plain.into_body(), 200_001).await.unwrap();
+        assert_eq!(bytes.as_ref(), chapters[index].body.as_bytes());
     }
 
     let uri = format!(
@@ -695,6 +712,20 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         .await
         .unwrap();
     assert_eq!(denied_plan.status(), StatusCode::NOT_FOUND);
+    let denied_plain = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/chapters/{}/free-source?mode=saved&version_id={}",
+                    receipt.frames[0].chapter_id, receipt.frames[0].version_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied_plain.status(), StatusCode::NOT_FOUND);
 
     let arbitrary_range = app
         .clone()
