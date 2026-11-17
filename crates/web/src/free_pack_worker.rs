@@ -79,8 +79,26 @@ pub async fn upload_one_approved_pack(
 pub async fn activate_one_verified_pack(
     catalog: &PgFreePackCatalog,
     proof: &S3PackProofStore,
+    original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &PackJobClaim,
 ) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
+    // A preserved SINGLE is not a usable rollback unless its physical bytes
+    // still exist and match the immutable edition. Recheck every exact source
+    // via bounded private S3 GET before activating any candidate. Do not
+    // retain bodies in memory across frames.
+    for frame in &claim.receipt.frames {
+        let exact = FreeChapterObject::from_metadata(
+            frame.chapter_id,
+            frame.version_id,
+            frame.content_sha256,
+            frame.size_bytes,
+        )
+        .map_err(|_| AuthorError::Invalid)?;
+        original_single
+            .get_verified(&exact)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+    }
     // Reuse the exact R4b1 proof path, including full PACK + manifest readback,
     // manifest/frame matching and the immutable approved receipt comparison.
     // For a succeeded R4a job finish_pack_job is an idempotent readback;
