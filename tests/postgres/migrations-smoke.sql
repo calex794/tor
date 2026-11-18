@@ -209,3 +209,7 @@ BEGIN
     DELETE FROM flow_observation_hourly WHERE book_id = 987654321;
 END
 $promo_home_slot$;
+
+-- FND-00: both fresh and upgraded PG18 must reject unsafe bodyless paid
+-- publication but allow an exact verified S3 receipt and immutable manifest.
+\ir fnd00-bodyless-paid.sql
