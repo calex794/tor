@@ -133,6 +133,7 @@ jobs:
           node --check tools/s035_contiguous_paid_browser.cjs
           node --check tools/paid_reader_private_media_browser.cjs
           node --check tools/drop_06b_pack_chromium.cjs
+          node --check tools/d05_layer_free_live_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
