@@ -83,9 +83,7 @@ pub(crate) fn open_registered_paid_chapter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::crypto::{
-        seal_chapter_with_keyring, ContentKek, EncryptedChapter,
-    };
+    use crate::services::crypto::{seal_chapter_with_keyring, ContentKek, EncryptedChapter};
     use std::sync::Arc;
     use tor_contracts::paid_delivery::PositiveId;
 
@@ -117,8 +115,8 @@ mod tests {
         let id = ObjectId::parse("c0a00000-0001-4000-8000-000000000001").unwrap();
         let source = "# Платная V1\nСтрока 😀";
         let sealed = seal_chapter_with_keyring(version(), id, source, &ring).unwrap();
-        let opened = open_registered_paid_chapter(metadata(&sealed), &sealed.ciphertext, &ring)
-            .unwrap();
+        let opened =
+            open_registered_paid_chapter(metadata(&sealed), &sealed.ciphertext, &ring).unwrap();
         assert_eq!(opened.as_str(), source);
 
         let mut tampered = sealed.ciphertext.clone();
