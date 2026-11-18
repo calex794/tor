@@ -220,7 +220,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
     };
-    assert!(PgPaidStorage::new(pool)
+    assert!(PgPaidStorage::new(pool.clone())
         .encrypted_chapter(first)
         .await
         .unwrap()
@@ -229,4 +229,108 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
+
+    // FND-00h: the same explicitly enabled HTTP publisher accepts a private
+    // PNG without ever using the legacy paid Markdown column.
+    let illustrated_command = generate_session_token();
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1,
+        1,
+        image::Rgba([255, 0, 0, 255]),
+    ));
+    let mut png = Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let png = png.into_inner();
+    let boundary = "tor-fnd00h-illustrated";
+    let mut multipart = Vec::new();
+    for (name, value) in [
+        ("csrf_token", csrf.as_str()),
+        ("command_key", illustrated_command.as_str()),
+        ("number", "3"),
+        ("title", "S3 illustrated paid"),
+        ("price_amount", "125"),
+        ("body", "Illustrated paid private body"),
+    ] {
+        multipart.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+    multipart.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"illustration\"; filename=\"img.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    multipart.extend_from_slice(&png);
+    multipart.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    for (actor_cookie, origin, expected) in [
+        (buyer_session.as_str(), ORIGIN, StatusCode::NOT_FOUND),
+        (session.as_str(), "https://evil.invalid", StatusCode::FORBIDDEN),
+        (session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+        (session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/me/books/{book}/chapters/illustrated"))
+                    .method("POST")
+                    .header(header::ORIGIN, origin)
+                    .header(
+                        header::CONTENT_TYPE,
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .header(header::COOKIE, cookie(actor_cookie, &csrf))
+                    .body(Body::from(multipart.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let illustrated = pg(
+        &url,
+        &format!(
+            "SELECT c.id || '|' || p.version_id || '|' ||
+                    count(v.body_markdown) || '|' ||
+                    count(a.storage_object_id) || '|' || min(a.storage_object_id::text)
+             FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             JOIN chapter_version_assets a
+               ON a.chapter_id=c.id AND a.version_id=v.id
+             WHERE c.book_id={book} AND c.chapter_no=3
+             GROUP BY c.id,p.version_id"
+        ),
+    );
+    let parts = illustrated.split('|').collect::<Vec<_>>();
+    assert_eq!(parts.len(), 5);
+    assert_eq!(parts[2], "0", "illustrated paid V1 may not write PG Markdown");
+    assert_eq!(parts[3], "1", "replayed HTTP must attach exactly one image");
+    let illustration_chapter: i64 = parts[0].parse().unwrap();
+    let illustration_version: i64 = parts[1].parse().unwrap();
+    let asset_id = tor_contracts::paid_delivery::ObjectId::parse(parts[4]).unwrap();
+    let attached = PgPaidAssets::new(pool.clone())
+        .encrypted_for_pinned(
+            ChapterVersionRef {
+                chapter_id: PositiveId::new(illustration_chapter).unwrap(),
+                version_id: PositiveId::new(illustration_version).unwrap(),
+            },
+            &asset_id,
+        )
+        .await
+        .unwrap()
+        .expect("illustrated bodyless paid V1 must have its pinned encrypted asset");
+    assert!(store.get_verified(&attached.object).await.is_ok());
+    let illustrated_route = format!("/me/books/{book}/chapters/{illustration_chapter}/edit");
+    let (status, owner_page) = browse(&app, &illustrated_route, &session, &csrf).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(owner_page.contains("Illustrated paid private body"));
+    assert!(owner_page.contains(&format!("asset:{}", asset_id.as_str())));
+    let (status, _) = browse(&app, &illustrated_route, &buyer_session, &csrf).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
