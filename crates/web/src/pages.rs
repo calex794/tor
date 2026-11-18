@@ -16,7 +16,7 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, account_navigation, login_form, login_form_with_next, my_account,
+    account_error_page, account_navigation, account_resume_cards, login_form, login_form_with_next, my_account,
     my_account_with_achievements, my_account_with_achievements_and_swap,
     my_account_with_achievements_refunds_and_swap, my_account_with_follow_updates,
     password_change_form, private_account_layout, registration_form, registration_form_with_error,
