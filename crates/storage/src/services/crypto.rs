@@ -14,8 +14,12 @@ use std::{fmt, io::Write};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 mod asset;
 #[cfg(any(feature = "pg", test))]
+mod open;
+#[cfg(any(feature = "pg", test))]
 pub use asset::seal_asset_with_keyring;
 pub use asset::{asset_aad, seal_asset, EncryptedAsset};
+#[cfg(feature = "pg")]
+pub(crate) use open::{open_registered_paid_chapter, RegisteredPaidChapter};
 
 use zeroize::Zeroizing;
 
