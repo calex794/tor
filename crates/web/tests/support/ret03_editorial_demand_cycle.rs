@@ -13,42 +13,28 @@ pub(super) async fn verify_owner_choice(
 ) {
     let author_path = format!("/me/books/{book}");
     let status_path = format!("/me/books/{book}/settings/project-status");
-    let owner_page = super::html(
-        super::call(app, "GET", &author_path, owner_cookie, super::ORIGIN, "").await,
-    )
-    .await;
+    let owner_page =
+        super::html(super::call(app, "GET", &author_path, owner_cookie, super::ORIGIN, "").await)
+            .await;
     assert!(
         owner_page.contains(&format!("href=\"{status_path}\"")),
         "qualified demand must lead to the existing editorial state editor"
     );
-    assert!(owner_page.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
+    assert!(
+        owner_page.contains("Запросов после последней опубликованной главы: <strong>1</strong>")
+    );
     assert!(
         !owner_page.contains("c15-reader-"),
         "editorial demand is bounded and aggregated, never a reader list"
     );
-    let unauthorized = super::call(
-        app,
-        "GET",
-        &status_path,
-        reader_cookie,
-        super::ORIGIN,
-        "",
-    )
-    .await;
+    let unauthorized =
+        super::call(app, "GET", &status_path, reader_cookie, super::ORIGIN, "").await;
     assert_eq!(
         unauthorized.status(),
         StatusCode::NOT_FOUND,
         "a reader cannot view the owner's editorial state"
     );
-    let editable = super::call(
-        app,
-        "GET",
-        &status_path,
-        owner_cookie,
-        super::ORIGIN,
-        "",
-    )
-    .await;
+    let editable = super::call(app, "GET", &status_path, owner_cookie, super::ORIGIN, "").await;
     assert_eq!(editable.status(), StatusCode::OK);
     assert!(
         super::html(editable).await.contains("Состояние работы"),
@@ -61,9 +47,7 @@ pub(super) async fn verify_owner_choice(
     .parse()
     .unwrap();
     assert!(revision > 0);
-    let form = format!(
-        "project_status=ongoing&expected_revision={revision}&csrf_token={csrf}"
-    );
+    let form = format!("project_status=ongoing&expected_revision={revision}&csrf_token={csrf}");
     assert_eq!(
         super::call(
             app,
@@ -117,9 +101,7 @@ pub(super) async fn verify_owner_choice(
     assert_eq!(
         super::pg(
             url,
-            &format!(
-                "SELECT count(*) FROM chapters WHERE book_id={book} AND chapter_no>1"
-            )
+            &format!("SELECT count(*) FROM chapters WHERE book_id={book} AND chapter_no>1")
         ),
         "0",
         "a status decision must never silently publish text"

@@ -322,7 +322,12 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
     assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
     ret03_editorial_demand_cycle::verify_owner_choice(
-        &app, &url, book, &owner_cookie, &reader_cookie, &csrf,
+        &app,
+        &url,
+        book,
+        &owner_cookie,
+        &reader_cookie,
+        &csrf,
     )
     .await;
 
@@ -790,9 +795,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(owner_fulfilled
         .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
-    ret03_editorial_demand_cycle::verify_release_outcome(
-        &url, book, chapter, released, reader,
-    );
+    ret03_editorial_demand_cycle::verify_release_outcome(&url, book, chapter, released, reader);
 
     // RET-02: Follow controls personal notifications, never the ability to
     // confirm a genuine completion of an otherwise public FREE chapter.
