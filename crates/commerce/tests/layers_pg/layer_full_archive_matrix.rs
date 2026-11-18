@@ -149,7 +149,7 @@ async fn assert_old_four(rights: &PgLayerChapterEntitlements, old: i64, editions
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
+async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     let (pool, layer_repo, owner, old, deleted_book) = setup("four-chapter-term-matrix").await;
     let editions = four_published_chapters(&pool, deleted_book).await;
     let surviving_book: i64 = sqlx::query_scalar(
