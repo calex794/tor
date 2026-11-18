@@ -162,12 +162,12 @@ pub(super) async fn verify(
     url: &str,
     book: i64,
     purchased: (i64, i64, i64, i64),
-    chapters: (i64, i64, i64),
+    chapters: (i64, i64, i64, [i64; 2]),
     sessions: (&str, &str, &str, &PgAccounts),
     csrf: &str,
 ) -> Value {
     let (chapter, purchase_id, v1, second_paid_chapter) = purchased;
-    let (free_chapter, locked_chapter, draft_chapter) = chapters;
+    let (free_chapter, locked_chapter, draft_chapter, extra_free) = chapters;
     let (buyer_cookie, stranger_cookie, author_cookie, accounts) = sessions;
     // The reviewer is an independent real account on disposable tor_ci, not
     // a fabricated role claim from the buyer or the Book owner.
@@ -502,7 +502,15 @@ pub(super) async fn verify(
         &fresh.session,
     )
     .await;
-    super::br060_layer_after_delete::after_deletion(app, url, book, chapter, active_layer).await;
+    super::br060_layer_after_delete::after_deletion(
+        app,
+        url,
+        book,
+        chapter,
+        active_layer,
+        extra_free,
+    )
+    .await;
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
     assert_eq!(archived_reader.status(), StatusCode::OK);
     let archived_html = html_body(archived_reader).await;
