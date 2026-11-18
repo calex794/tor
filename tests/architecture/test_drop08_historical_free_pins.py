@@ -18,6 +18,13 @@ class HistoricalFreePins(unittest.TestCase):
         s = "layer,11,1,1,1,0,0\nsaved,12,2,1,0,1,0\n"
         self.assertEqual(verify(io.StringIO(s)), {"layer": 1, "saved": 1})
 
+    def test_export_requires_active_checksum_matched_pack(self):
+        sql = (Path(__file__).resolve().parents[2] / "tools/drop08_export_historical_free_pins.sql").read_text()
+        self.assertIn("FROM free_edition_active_storage a", sql)
+        self.assertIn("AND g.generation=a.generation AND g.placement_kind='pack'", sql)
+        self.assertIn("AND g.content_sha256=v.content_sha256", sql)
+        self.assertIn("AND a.version_id=p.version_id", sql)
+
     def test_missing_receipt_refused(self):
         with self.assertRaisesRegex(Refused, "missing_source_receipts=1"):
             verify(io.StringIO("layer,11,1,1,0,0,0\nsaved,12,2,1,0,1,0\n"))
