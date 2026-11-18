@@ -124,6 +124,32 @@ pub(super) async fn verify(
         .unwrap()
         .expect("real active PACK physical generation is present");
     assert_eq!(pack.sha256, frame.content_sha256);
+    // The same verified two-frame PACK must keep BOTH pre-deletion FREE
+    // publications, with independent version/hash identities.
+    let first = &receipt.frames[0];
+    let first_expected = chapters[0].body.as_bytes();
+    assert_eq!(
+        <[u8; 32]>::from(Sha256::digest(first_expected)),
+        first.content_sha256
+    );
+    let first_pack = tor_reading::repositories::free_s3_ref::PgFreeS3Ref::new(pool.clone())
+        .archived_free_active_pack_metadata_only(first.chapter_id, first.version_id)
+        .await
+        .unwrap()
+        .expect("the first FREE V1 is an independently verified active PACK frame");
+    assert_eq!(first_pack.sha256, first.content_sha256);
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects
+                 WHERE chapter_id={} AND version_id={}",
+                first.chapter_id, first.version_id
+            ),
+        ),
+        "0",
+        "the first FREE V1 must also be PACK-only, without a SINGLE receipt"
+    );
 
     let owner_hash = hash_password("D05 real owner deletion password").unwrap();
     // The DROP import fixture created an account without a usable password;
@@ -217,6 +243,18 @@ pub(super) async fn verify(
         ),
         frame.version_id.to_string()
     );
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT version_id FROM book_layer_free_archive_versions
+                 WHERE book_id={book} AND chapter_id={}",
+                first.chapter_id
+            ),
+        ),
+        first.version_id.to_string(),
+        "moderator approval freezes both independent FREE V1 editions"
+    );
 
     // Actor-scoped HTTP route, exact FRAME only; all transport keys and
     // Range offsets stay inside the service.
@@ -296,6 +334,35 @@ pub(super) async fn verify(
         "one archived PACK frame, no neighbor"
     );
 
+    let first_path = format!("/api/v1/reader/layer/free/{}/pack", first.chapter_id);
+    let first_response = post(
+        &app,
+        &first_path,
+        Some(&buyer_session),
+        Some(&csrf),
+        Some("http://127.0.0.1:3098"),
+        false,
+    )
+    .await;
+    assert_eq!(first_response.status(), StatusCode::OK);
+    assert_eq!(
+        first_response.headers()["x-tor-free-version-id"],
+        first.version_id.to_string()
+    );
+    assert_eq!(
+        first_response.headers()["x-tor-free-sha256"],
+        hex::encode(first.content_sha256)
+    );
+    assert_eq!(first_response.headers()["cache-control"], "no-store");
+    assert!(!first_response.headers().contains_key(header::LOCATION));
+    let first_bytes = to_bytes(first_response.into_body(), 200_001).await.unwrap();
+    assert_eq!(
+        first_bytes.as_ref(),
+        first_expected,
+        "the first FREE frame cannot expose the neighboring FREE frame"
+    );
+    assert_ne!(first_bytes.as_ref(), expected, "distinct FREE frame contents");
+
     pg(
         url,
         &format!(
@@ -317,6 +384,20 @@ pub(super) async fn verify(
         .status(),
         StatusCode::NOT_FOUND,
         "revoked paid Layer term cannot read any archived PACK frame"
+    );
+    assert_eq!(
+        post(
+            &app,
+            &first_path,
+            Some(&buyer_session),
+            Some(&csrf),
+            Some("http://127.0.0.1:3098"),
+            false
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "revocation must also close the other chapter in the same PACK"
     );
     super::retained_layer_pack::verify(url, client, book, receipt).await;
     pool.close().await;
