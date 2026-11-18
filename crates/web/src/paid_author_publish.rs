@@ -319,7 +319,7 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         {
             return Err(AuthorError::Invalid);
         }
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?;
         let pinned = ChapterVersionRef {
             chapter_id: PositiveId::new(pending.chapter_id)
                 .map_err(|_| AuthorError::Unavailable)?,
@@ -349,7 +349,7 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         uploader
             .upload_to_draft_with_id(actor, request, 1, bytes, mime, object_id)
             .await?;
-        self.publish(actor, request).await
+        self.publish_bodyless(actor, request).await
     }
 }
 
