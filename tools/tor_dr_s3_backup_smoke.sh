@@ -19,6 +19,7 @@ fi
 : "${PGPASSWORD:?missing disposable CI PG admin password}"
 : "${RUNNER_TEMP:?missing disposable CI work directory}"
 : "${GITHUB_SHA:?missing exact CI source SHA}"
+source tools/drop07_pack_restore_ci.sh
 
 binary="${TOR_DR_WEB_BINARY:-./target/debug/tor-web}"
 bucket=tor-private-backup-ci
@@ -50,6 +51,7 @@ cleanup() {
     admin -c "DROP DATABASE $restore_db WITH (FORCE)" >/dev/null || status=1
   fi
   # No artifact uploads: all plaintext and ciphertext are CI fixture only.
+  rm -rf -- "$work/pack-fixture"
   rm -f -- "$work"/*
   rmdir -- "$work" || status=1
   exit "$status"
@@ -81,6 +83,7 @@ INSERT INTO books(source_identity,target_language,title,visibility)
 VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
+drop07_seed_pack "$work/pack-fixture"
 history="$(psql "$MIGRATOR_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
@@ -109,6 +112,7 @@ node tools/tor_dr_archive_crypto.cjs seal "$work/offline.key" \
 digest="$(sha256sum "$work/archive.enc" | cut -d ' ' -f 1)"
 [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
 s3 --request PUT --output /dev/null "$endpoint/$bucket"
+drop07_archive_pack "$work/pack-fixture" "$endpoint/$bucket"
 s3 --upload-file "$work/archive.enc" \
   --header 'If-None-Match: *' \
   --header 'Content-Type: application/octet-stream' \
@@ -182,6 +186,7 @@ pub_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
 hidden_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
   -c "SELECT id FROM books WHERE source_identity='ci:dr:hidden' AND visibility='draft'")"
 [[ "$pub_id" =~ ^[0-9]+$ && "$hidden_id" =~ ^[0-9]+$ ]]
+drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3095 \
