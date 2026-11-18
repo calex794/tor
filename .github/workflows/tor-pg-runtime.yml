@@ -142,6 +142,7 @@ jobs:
           set -e
           test "$code" -eq 2
           grep -q 'requires exercised saved and Layer' "$RUNNER_TEMP/drop08-result"
+          bash tools/drop08_pg_fixture_ci.sh
       - name: Native HTML quality on the fresh schema
         if: ${{ matrix.shard == 'foundation' }}
         env:
