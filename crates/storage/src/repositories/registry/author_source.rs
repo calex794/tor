@@ -3,7 +3,7 @@
 //! checks and never uses a client-supplied bucket, object key or DEK.
 use super::{PgStorageRegistry, RegistryError};
 use crate::{
-    domain::provider::valid_private_bucket,
+    domain::provider::{valid_ciphertext_size, valid_private_bucket},
     services::{
         crypto::{open_registered_paid_chapter, ContentKeyring, RegisteredPaidChapter},
         provider::PrivateObjectStore,
@@ -125,6 +125,9 @@ impl PgStorageRegistry {
             size.try_into().map_err(|_| RegistryError::Unavailable)?,
         )
         .map_err(|_| RegistryError::Unavailable)?;
+        if !valid_ciphertext_size(&object) {
+            return Err(RegistryError::Unavailable);
+        }
 
         // A freshly downloaded object must match the immutable PG receipt;
         // HEAD alone, a signed URL and a caller-supplied hash are insufficient.
