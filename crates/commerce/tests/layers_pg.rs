@@ -17,6 +17,8 @@ mod layer_deleted_checkout;
 mod layer_delivery;
 #[path = "layers_pg/layer_free_archive.rs"]
 mod layer_free_archive;
+#[path = "layers_pg/layer_full_archive_matrix.rs"]
+mod layer_full_archive_matrix;
 #[path = "layers_pg/layer_lost_ack.rs"]
 mod layer_lost_ack;
 #[path = "layers_pg/layer_offer.rs"]
