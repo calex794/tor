@@ -1,25 +1,23 @@
 //! DROP-07 / D-05: a purchased historical Layer book remains a protected
 //! physical FREE PACK and sidecar after ordinary owner deletion.
 //! No deletion/mutation or cleanup is performed by this acceptance probe.
-use super::{BUCKET, pg};
+use super::{pg, BUCKET};
 use aws_sdk_s3::Client;
 use sha2::{Digest, Sha256};
+use tor_books::repositories::PgCatalog;
 use tor_books::repositories::{
     free_expected_inventory::{InventoryNamespace, PgFreeExpectedInventory},
     free_observed_reconcile::{FreeReferenceState, PgFreeObservedClassifier},
 };
 use tor_contracts::drop_pack::PackPlacementReceipt;
-use tor_books::repositories::PgCatalog;
 
-pub(super) async fn verify(
-    url: &str,
-    client: &Client,
-    book: i64,
-    receipt: &PackPlacementReceipt,
-) {
+pub(super) async fn verify(url: &str, client: &Client, book: i64, receipt: &PackPlacementReceipt) {
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
     assert_eq!(
-        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        pg(
+            url,
+            &format!("SELECT lifecycle_status FROM books WHERE id={book}")
+        ),
         "ordinary_deleted",
         "verify physical archive only after confirmed deletion"
     );
@@ -35,9 +33,10 @@ pub(super) async fn verify(
     assert_eq!(classification.len(), 2);
     for key in &keys {
         assert!(
-            classification.iter().any(|entry|
-                entry.object_key == *key && entry.state == FreeReferenceState::Registered
-            ),
+            classification
+                .iter()
+                .any(|entry| entry.object_key == *key
+                    && entry.state == FreeReferenceState::Registered),
             "archived physical PACK/manifest must never be quarantined as unreferenced: {key}"
         );
     }
@@ -47,9 +46,7 @@ pub(super) async fn verify(
     let mut seen_manifest = false;
     for _ in 0..16 {
         let page = index
-            .expected_page_in_namespace(
-                BUCKET, InventoryNamespace::Pack, cursor.as_deref(), 128,
-            )
+            .expected_page_in_namespace(BUCKET, InventoryNamespace::Pack, cursor.as_deref(), 128)
             .await
             .unwrap();
         for item in &page.expected {
@@ -69,7 +66,10 @@ pub(super) async fn verify(
             break;
         }
     }
-    assert!(seen_pack && seen_manifest, "both immutable PACK and sidecar remain expected");
+    assert!(
+        seen_pack && seen_manifest,
+        "both immutable PACK and sidecar remain expected"
+    );
 
     // Inventory alone is not byte evidence. Probe private MinIO after
     // ordinary deletion; do not infer retention from SQL receipts only.
@@ -80,7 +80,10 @@ pub(super) async fn verify(
         .send()
         .await
         .unwrap();
-    assert_eq!(pack.content_length(), Some(receipt.target.pack_bytes as i64));
+    assert_eq!(
+        pack.content_length(),
+        Some(receipt.target.pack_bytes as i64)
+    );
     let manifest = client
         .get_object()
         .bucket(BUCKET)
@@ -95,6 +98,9 @@ pub(super) async fn verify(
         .into_bytes();
     assert_eq!(manifest.len() as u64, receipt.target.manifest_bytes);
     let actual: [u8; 32] = Sha256::digest(&manifest).into();
-    assert_eq!(actual, receipt.target.manifest_sha256, "archived sidecar is byte-perfect");
+    assert_eq!(
+        actual, receipt.target.manifest_sha256,
+        "archived sidecar is byte-perfect"
+    );
     pool.close().await;
 }
