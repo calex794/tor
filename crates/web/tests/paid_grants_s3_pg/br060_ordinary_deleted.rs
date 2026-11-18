@@ -165,6 +165,7 @@ pub(super) async fn verify(
     chapters: (i64, i64, i64),
     sessions: (&str, &str, &str, &PgAccounts),
     csrf: &str,
+    extra_free: [i64; 2],
 ) -> Value {
     let (chapter, purchase_id, v1, second_paid_chapter) = purchased;
     let (free_chapter, locked_chapter, draft_chapter) = chapters;
@@ -502,7 +503,15 @@ pub(super) async fn verify(
         &fresh.session,
     )
     .await;
-    super::br060_layer_after_delete::after_deletion(app, url, book, chapter, active_layer).await;
+    super::br060_layer_after_delete::after_deletion(
+        app,
+        url,
+        book,
+        chapter,
+        active_layer,
+        extra_free,
+    )
+    .await;
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
     assert_eq!(archived_reader.status(), StatusCode::OK);
     let archived_html = html_body(archived_reader).await;

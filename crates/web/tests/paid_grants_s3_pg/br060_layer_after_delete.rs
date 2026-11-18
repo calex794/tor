@@ -234,6 +234,7 @@ pub(super) async fn after_deletion(
     book: i64,
     chapter: i64,
     active: ActiveLayerProbe,
+    extra_free: [i64; 2],
 ) {
     assert_eq!(
         pg(
@@ -549,6 +550,16 @@ pub(super) async fn after_deletion(
         active.subscriber,
         active.surviving_chapter,
         active.surviving_version,
+    )
+    .await;
+    // All four chapters now share the SAME original Layer term and real
+    // immutable archive; Chromium must read each without public fallbacks.
+    super::d05_four_chapter_browser::verify(
+        app,
+        &active.cookie,
+        &late_cookie,
+        extra_free,
+        [chapter, active.second_paid_chapter],
     )
     .await;
 }

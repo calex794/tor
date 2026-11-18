@@ -52,6 +52,10 @@ mod br060_legal_gates;
 mod br060_ordinary_deleted;
 #[path = "paid_grants_s3_pg/completion_helpers.rs"]
 mod completion_helpers;
+#[path = "paid_grants_s3_pg/d05_four_chapter_browser.rs"]
+mod d05_four_chapter_browser;
+#[path = "paid_grants_s3_pg/d05_four_chapter_free.rs"]
+mod d05_four_chapter_free;
 #[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
 mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -75,6 +79,7 @@ mod toc_fixtures;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
+const FREE_BUCKET: &str = "tor-d05-four-chapter-free-ci";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
@@ -229,6 +234,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .send()
         .await
         .expect("only a new isolated MinIO bucket");
+    client
+        .create_bucket()
+        .bucket(FREE_BUCKET)
+        .send()
+        .await
+        .expect("separate disposable FREE S3 bucket");
+    let free_store = tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(
+        client.clone(),
+        FREE_BUCKET.to_owned(),
+    )
+    .unwrap();
     let s3 = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
 
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -328,6 +344,19 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         None,
     )
     .unwrap();
+    // A single real Rust app must serve both archival FREE and PAID paths.
+    env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
+    let free_router = tor_web::free_reader_http::router(
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        free_store.clone(),
+        FREE_BUCKET.to_owned(),
+        ENDPOINT.to_owned(),
+    )
+    .unwrap();
+    env::remove_var("TOR_LAYER_FREE_ARCHIVE_ENABLED");
+    let app = app.merge(free_router);
     assert_eq!(
         post_grant(
             &app,
@@ -870,6 +899,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (&layer_cookie, &csrf),
     )
     .await;
+    // Freeze TWO extra verified S3 FREE publications in the same Book as
+    // the two paid ciphertext editions, before the real deletion workflow.
+    let unified_free = d05_four_chapter_free::publish(&url, book, &free_store).await;
     let archived_v1 = br060_ordinary_deleted::verify(
         &app,
         &url,
@@ -878,6 +910,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (free_chapter, locked_chapter, draft_chapter),
         (&buyer_cookie, &stranger_cookie, &author_cookie, &accounts),
         &csrf,
+        unified_free,
     )
     .await;
     fixture_writer::save_ephemeral_fixture(
