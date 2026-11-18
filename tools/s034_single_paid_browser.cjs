@@ -78,8 +78,8 @@ async function verify(browser, buyer, viewport) {
     const purchases = () => number("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=" + buyer.id);
     assert.equal(balance(), 600);
     assert.equal(purchases(), 0);
-    assert.equal((await post({ ...form, csrf_token: "invalid" })).status(), 403);
-    assert.equal((await post(form, "https://foreign.example")).status(), 403);
+    assert.equal((await post({ ...form, csrf_token: "invalid" })).status(), 403, "S034 invalid CSRF");
+    assert.equal((await post(form, "https://foreign.example")).status(), 403, "S034 foreign Origin");
     assert.equal((await post({ ...form, actor_id: String(buyer.id) })).status(), 422);
     assert.equal((await post({ ...form, expected_price_minor: price + 1 })).status(), 409);
     assert.equal((await post({ ...form, expected_version_id: String(chapter.version + 1) })).status(), 409);
@@ -342,7 +342,7 @@ async function verify(browser, buyer, viewport) {
       const secret = "Оплаченная V1: кириллица";
       const privateUrl = SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
       const denied = await outsider.request.get(privateUrl);
-      assert.equal(denied.status(), 403);
+      assert.equal(denied.status(), 403, "S034 outsider private paid reader");
       assert(!(await denied.text()).includes(secret));
       const foreignComments = await outsider.request.get(
         SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
@@ -361,14 +361,14 @@ async function verify(browser, buyer, viewport) {
         SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
         { data: { purchase_id: String(purchase) },
           headers: { origin: SITE, "x-csrf-token": csrf } });
-      assert.equal(deniedGrant.status(), 403);
+      assert.equal(deniedGrant.status(), 403, "S034 outsider paid delivery grant");
       assert.equal(deniedGrant.headers()["cache-control"], "no-store");
       assert.equal((await deniedGrant.body()).length, 0);
       const deniedAsset = await outsider.request.post(SITE + assetGrantPath, {
         data: { purchase_id: String(purchase) },
         headers: { origin: SITE, "x-csrf-token": csrf },
       });
-      assert.equal(deniedAsset.status(), 403);
+      assert.equal(deniedAsset.status(), 403, "S034 outsider paid asset grant");
       assert.equal(deniedAsset.headers()["cache-control"], "no-store");
       assert.equal((await deniedAsset.body()).length, 0);
       // /me/purchases is a real entitlement-backed route. Neither an outsider
@@ -508,7 +508,7 @@ async function verify(browser, buyer, viewport) {
     pg("INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason) VALUES(" +
       purchase + ",'ci:s034-single:" + buyer.id + "','refund')");
     const reader = await page.goto(SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase);
-    assert.equal(reader.status(), 403);
+    assert.equal(reader.status(), 403, "S034 revoked reader after refund");
     const commentsDenied = await context.request.get(
       SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
       new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
@@ -521,12 +521,12 @@ async function verify(browser, buyer, viewport) {
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
-    assert.equal(grant.status(), 403);
+    assert.equal(grant.status(), 403, "S034 revoked paid delivery grant");
     const revokedAsset = await context.request.post(SITE + assetGrantPath, {
       data: { purchase_id: String(purchase) },
       headers: { origin: SITE, "x-csrf-token": csrf },
     });
-    assert.equal(revokedAsset.status(), 403);
+    assert.equal(revokedAsset.status(), 403, "S034 revoked paid asset grant");
     assert.equal(revokedAsset.headers()["cache-control"], "no-store");
     assert.equal((await revokedAsset.body()).length, 0);
     await assertAlternateSurfacesClosed();
@@ -540,7 +540,7 @@ async function verify(browser, buyer, viewport) {
         },
         headers: { origin: SITE, "x-csrf-token": csrf },
       });
-    assert.equal(rejectedIssue.status(), 403);
+    assert.equal(rejectedIssue.status(), 403, "S034 revoked text issue submission");
     assert.equal(issueCount(), 1, "revoked purchase must not create a new text issue");
     // A revoked entitlement must leave the purchased library immediately;
     // keeping a historical purchase fact must not create a navigable link.
