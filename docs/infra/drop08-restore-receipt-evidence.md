@@ -76,3 +76,24 @@ archived Layer V1 and saved FREE V1, plus revoked access and failure scenarios.
 A green unit test or `TOR_DROP08_HISTORICAL_PINS_METADATA_OK` is not an
 independent offsite DR acceptance, RPO/RTO measurement or release approval.
 The CLI never writes PostgreSQL or S3; no VPS/deploy/migration is performed.
+
+### Disposable PostgreSQL acceptance fixtures
+
+The mandatory `postgres-runtime (foundation)` job also executes
+`bash tools/drop08_pg_fixture_ci.sh` on its temporary PostgreSQL 18 instance,
+after SQLx migrations. The script refuses every database URL except the fixed
+loopback `tor_ci` migrator fixture and creates **temporary session-local
+tables only**. It drives the **same** export SQL and verifier used in the DR
+procedure, covering:
+
+- Both saved SINGLE V1 and historical Layer V1 in an active PACK, accepted.
+- Layer archive associated with the wrong book, refused.
+- S349 SINGLE with a different immutable edition SHA-256, refused.
+- PACK generation with a different edition SHA-256, refused.
+- PACK candidate not activated for the reader, refused.
+
+This fixture verifies query shape and source-classification logic on real
+PostgreSQL syntax. It does not model live FK constraints, decryption, S3
+availability, reader authorization, or independence of backups. Those remain
+mandatory operator acceptance gates.
+
