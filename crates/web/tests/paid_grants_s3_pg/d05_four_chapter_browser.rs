@@ -27,7 +27,10 @@ pub(super) async fn verify(
     let temp = env::var("RUNNER_TEMP").expect("disposable CI temp directory");
     let configured_url = env::var("TEST_DATABASE_URL").expect("disposable PG URL");
     assert!(configured_url.ends_with("/tor_ci") && configured_url.contains("@127.0.0.1:5432/"));
-    assert_eq!(configured_url, url, "browser must use the same disposable PG connection");
+    assert_eq!(
+        configured_url, url,
+        "browser must use the same disposable PG connection"
+    );
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").as_deref(), Ok(ENDPOINT));
     assert_eq!(ORIGIN, "http://127.0.0.1:3098");
     let path = Path::new(&temp).join("d05-four-archived-chromium-private.json");
