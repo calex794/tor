@@ -27,3 +27,25 @@ a crash after the exact-version DELETE but before the PostgreSQL receipt.
 The newer version, another object and the archive copy must survive. A
 separate Yandex probe and independent off-site recovery are prerequisites
 before making a real provider deletion path available.
+
+## Registered PACK placement gate
+
+The catalog owner can freeze a replaced PACK against new placement writes
+with `seal_replaced_free_pack_placements(pack_id)`. It requires a nonempty
+bounded membership. Every source edition must have an active placement in
+a different open PACK in the same bucket with the same content digest and
+size. This also preserves editions with no saved or Layer pin yet, since
+future pins refer to the edition rather than its former PACK.
+
+The seal uses `READ COMMITTED` and locks the source gate and current
+edition pointers with `NOWAIT`. A competing placement write yields a
+retryable lock error; a missing or different replacement yields `false`.
+A committed seal remains in PostgreSQL and a repeated call returns `true`.
+Afterward the normal placement triggers reject both new source members
+and promotion of old source candidates. The runtime role has no direct
+write access to a gate or permission to call the seal.
+
+This catalog operation keeps both registered source receipts and has no
+provider side effects. The separate retirement process still needs exact
+replacement bytes, independent recovery evidence, read-grant drainage,
+and provider acceptance before either source key can be deleted.

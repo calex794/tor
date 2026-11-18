@@ -6,6 +6,9 @@ use tor_books::repositories::free_inventory_cycles::{
     PgFreeInventoryCheckpoints,
 };
 
+#[path = "free_inventory_cycles_pg/pack_placement_gate.rs"]
+mod pack_placement_gate;
+
 #[tokio::test]
 #[ignore = "requires isolated disposable PostgreSQL18 tor_ci"]
 async fn drop_07c_reclaimable_checkpoint_is_exact_once_and_stale_lease_safe() {
