@@ -7,7 +7,7 @@ use tor_commerce::{
     repositories::layer_entitlements::PgLayerChapterEntitlements,
     services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide},
 };
-use tor_contracts::paid_delivery::{Actor, EntitlementDecision};
+use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort};
 
 async fn buyer(pool: &PgPool, suffix: &str) -> i64 {
     let id: i64 = sqlx::query_scalar(
