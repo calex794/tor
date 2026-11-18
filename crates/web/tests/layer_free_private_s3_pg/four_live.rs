@@ -35,10 +35,11 @@ pub(super) async fn install(
     url: &str,
     owner: i64,
     book: i64,
-    pool: &sqlx::PgPool,
+    accounts: &PgAccounts,
     free: &S3FreeChapterStore,
     client: &Client,
 ) -> [(i64, i64); 3] {
+    let pool = accounts.pool().clone();
     let registry = PgStorageRegistry::new(pool.clone());
     let paid_store = S3PrivateStore::new(client.clone(), BUCKET.to_owned()).unwrap();
     let kek = Arc::new(ContentKek::from_bytes(KEK));
