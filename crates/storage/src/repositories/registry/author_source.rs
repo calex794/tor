@@ -10,9 +10,7 @@ use crate::{
     },
 };
 use sqlx::Row;
-use tor_contracts::paid_delivery::{
-    ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef,
-};
+use tor_contracts::paid_delivery::{ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef};
 use zeroize::Zeroizing;
 
 impl PgStorageRegistry {
