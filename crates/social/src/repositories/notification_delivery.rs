@@ -108,7 +108,7 @@ pub(super) async fn pending(pool: &PgPool, limit: u16) -> Result<usize, MailErro
             .map_err(unavailable)?;
             status.as_deref() == Some("active")
         } else if kind == "reader.chapter.released" || kind == "reader.chapter.updated" {
-            super::chapter_notifications::eligible_recipient(
+            super::super::chapter_notifications::eligible_recipient(
                 &mut tx, object_id, actor, recipient, &event_id,
             )
             .await?
