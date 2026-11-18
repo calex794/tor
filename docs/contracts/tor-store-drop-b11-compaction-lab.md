@@ -55,3 +55,27 @@ it when advancing placements and before any source retirement. Retain old
 placements through quarantine and prove version-specific DELETE on the
 actual provider. Matching aggregate inventory counts provide no substitute
 for these object-specific checks.
+
+## PostgreSQL cutover race fixture
+
+`drop_07k_pack_row_lock_misses_new_pins_bounded_fence_rechecks_before_cas`
+uses the TOR schema and separate sessions on disposable PostgreSQL 18.
+An archive writer commits a new Layer pin while another session holds a
+lock on the source PACK row. A second read in the original repeatable-read
+transaction still returns the old evidence.
+
+The fixture then acquires table locks with `NOWAIT` before reading fresh
+evidence in a new transaction. It refuses to start while a saved-FREE
+write is in progress. Once the writer commits, the fresh check detects the
+changed evidence and leaves the source pointer in place. With matching
+evidence, the fixture advances the exact active generation through the
+existing compare-and-swap. A competing pin deletion times out while the
+transaction holds the locks. Readers still see the committed generation.
+After commit, both protected pins and the old immutable placement remain.
+
+The test uses catalog fixtures for PACK receipts. Table locks cover the
+exporter's current data sources and can block writes for unrelated books.
+They are confined to the fixture. Before an operator path is introduced,
+write coordination must cover all retention inputs and preserve future
+grants after commit. Retirement needs a separate durable decision before
+any external object deletion.

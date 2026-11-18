@@ -21,6 +21,8 @@ use tor_books::{
     services::authoring::{save_chapter, SaveChapterRequest},
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
+#[path = "free_expected_inventory_pg/retention_race.rs"]
+mod retention_race;
 
 #[tokio::test]
 #[ignore = "requires isolated disposable PostgreSQL18 /tor_ci"]
