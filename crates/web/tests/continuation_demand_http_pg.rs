@@ -4,6 +4,8 @@
 mod ret02_notification_retries;
 #[path = "support/ret02_return_chromium.rs"]
 mod ret02_return_chromium;
+#[path = "support/ret03_editorial_demand_cycle.rs"]
+mod ret03_editorial_demand_cycle;
 
 use axum::{
     body::{to_bytes, Body},
@@ -319,6 +321,10 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let author = html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
     assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
+    ret03_editorial_demand_cycle::verify_owner_choice(
+        &app, &url, book, &owner_cookie, &reader_cookie, &csrf,
+    )
+    .await;
 
     // C-15/B-06: close the minimal on-site loop via the actual author Save,
     // rather than only fixture SQL. External email/push is out of scope.
@@ -784,6 +790,9 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(owner_fulfilled
         .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    ret03_editorial_demand_cycle::verify_release_outcome(
+        &url, book, chapter, released, reader,
+    );
 
     // RET-02: Follow controls personal notifications, never the ability to
     // confirm a genuine completion of an otherwise public FREE chapter.

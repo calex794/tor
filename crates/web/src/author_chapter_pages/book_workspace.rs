@@ -64,7 +64,12 @@ pub fn detail_with_covers_with_demand_page(
             cover_status(latest_job), book.id).expect("write String");
     }
     if published {
-        write!(extras, "<section class=\"author-book-workspace__panel\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"author-book-workspace__hint\">Только подтверждённые читатели текущей границы книги.</p></section>").expect("write String");
+        write!(
+            extras,
+            "<section class=\"author-book-workspace__panel\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"author-book-workspace__hint\">Только подтверждённые читатели текущей границы книги.</p><p><a class=\"ui-button ui-button--ghost\" href=\"/me/books/{}/settings/project-status\">Выбрать редакционное состояние</a></p><p class=\"author-book-workspace__hint\">Решение о работе над продолжением не публикует главу и не обещает дату выпуска.</p></section>",
+            book.id
+        )
+        .expect("write String");
     }
     let (state, note) = if published {
         (
