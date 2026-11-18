@@ -31,3 +31,27 @@ pub(super) async fn assert_owner_editor(
     let (status, _) = browse(app, &route, other_session, csrf).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// Read the immutable illustration binding, verifying the paid text is S3-only.
+pub(super) fn illustrated_identity(url: &str, book: i64) -> (i64, tor_contracts::paid_delivery::ObjectId) {
+    let published: String = pg(
+        url,
+        &format!(
+            "SELECT v.id || '|' || coalesce(v.body_markdown,'<NULL>') || '|' || a.storage_object_id::text
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             JOIN chapter_version_assets a ON a.chapter_id=c.id AND a.version_id=v.id
+             WHERE c.book_id={book} AND c.chapter_no=2"
+        ),
+    );
+    let parts = published.split('|').collect::<Vec<_>>();
+    assert_eq!(parts.len(), 3);
+    assert_eq!(
+        parts[1], "<NULL>",
+        "illustrated paid edition must also be S3-only without a PostgreSQL body"
+    );
+    (
+        parts[0].parse().expect("valid paid version"),
+        tor_contracts::paid_delivery::ObjectId::parse(parts[2]).expect("valid asset identity"),
+    )
+}
