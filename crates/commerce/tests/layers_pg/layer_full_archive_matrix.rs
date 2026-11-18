@@ -199,6 +199,42 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .buy(&purchase(expiring, layer, offer, original_version, 'K'))
         .await
         .unwrap();
+    // Lifetime uses an independent, non-exclusive Layer offer. A hard expiry
+    // on the 30-day actors must not erase its permanent historic origin.
+    let lifetime_buyer = buyer(&pool, "lifetime").await;
+    let lifetime_layer = layer_repo
+        .create_layer(id(owner), "Four chapter lifetime archive")
+        .await
+        .unwrap();
+    layer_repo
+        .add_book(id(owner), id(lifetime_layer), id(deleted_book))
+        .await
+        .unwrap();
+    let lifetime_version = layer_repo
+        .add_book(id(owner), id(lifetime_layer), id(surviving_book))
+        .await
+        .unwrap();
+    let lifetime_offer = layer_repo
+        .publish_offer(id(owner), id(lifetime_layer), 90, true)
+        .await
+        .unwrap();
+    let lifetime = layer_repo
+        .buy(&purchase(
+            lifetime_buyer,
+            lifetime_layer,
+            lifetime_offer,
+            lifetime_version,
+            'P',
+        ))
+        .await
+        .unwrap();
+    assert!(sqlx::query_scalar::<_, bool>(
+        "SELECT expires_at IS NULL FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(lifetime.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap());
 
     // This PG fixture models the verified SQL state of the actual owner
     // request. A separate test uses the real password/session/moderator API.
@@ -250,6 +286,7 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
 
     let rights = PgLayerChapterEntitlements::new(pool.clone());
     assert_old_four(&rights, old, &editions).await;
+    assert_old_four(&rights, lifetime_buyer, &editions).await;
     // New checkout must never sell stale composition or include deleted book
     // in economics, even though a surviving Book remains in the same Layer.
     let late = buyer(&pool, "late").await;
@@ -347,5 +384,6 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         ));
     }
     assert_old_four(&rights, old, &editions).await;
+    assert_old_four(&rights, lifetime_buyer, &editions).await;
     pool.close().await;
 }
