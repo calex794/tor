@@ -160,7 +160,7 @@ impl PgNotifications {
         let sql = format!(
             r#"SELECT n.id,n.kind,n.title,
                       CASE WHEN n.kind='continuation_demand' THEN
-                        (SELECT format('Книга «%s»: продолжения ждут %s читателей. Подробнее — в статистике.',
+                        (SELECT format('Книга «%s». Запросов на продолжение: %s. Подробнее — в статистике.',
                                        left(book.title,110),
                                        (SELECT count(*) FROM reader_continuation_demand demand
                                         WHERE demand.book_id=book.id
