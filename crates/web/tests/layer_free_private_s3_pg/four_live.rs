@@ -99,3 +99,79 @@ pub(super) async fn paid_router(url: &str, accounts: &PgAccounts, client: &Clien
     env::remove_var("TOR_LAYER_READER_ENABLED");
     result
 }
+
+pub(super) async fn verify(
+    app: &Router,
+    first: (i64, i64),
+    more: [(i64, i64); 3],
+    buyer: &str,
+    outsider: &str,
+) {
+    assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").as_deref(), Ok(ENDPOINT));
+    let temp = env::var("RUNNER_TEMP").expect("disposable CI runner temp");
+    let path = Path::new(&temp).join("d05-four-live-layer.json");
+    let chapters: Vec<_> = [first, more[0], more[1], more[2]]
+        .iter()
+        .enumerate()
+        .map(|(index, (chapter, version))| {
+            let text = [TEXT, FREE_TWO, PAID_ONE, PAID_TWO][index];
+            serde_json::json!({
+                "id": chapter, "version": version, "expected_text": text,
+                "kind": if index < 2 { "free" } else { "paid" },
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "historical_session": buyer,
+        "outsider_session": outsider,
+        "chapters": chapters,
+    });
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&path).expect("create ephemeral private fixture");
+    file.write_all(payload.to_string().as_bytes()).unwrap();
+    file.sync_all().unwrap();
+    drop(file);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
+        .await
+        .expect("isolated browser HTTP loopback port");
+    let app = app.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .expect("live four-chapter Axum router");
+    });
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/d05_four_live_layer_chromium.cjs");
+    assert!(script.is_file());
+    let child_file = path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new("timeout")
+            .args(["-k", "5s", "220s", "node"])
+            .arg(script)
+            .env("TOR_D05_FOUR_LIVE_FIXTURE", child_file)
+            .output()
+    })
+    .await
+    .expect("blocking Chromium process");
+    server.abort();
+    let _ = server.await;
+    fs::remove_file(&path).expect("delete private browser fixture");
+    let output = output.expect("Node, timeout and Chromium installed");
+    assert!(
+        output.status.success(),
+        "D05 four live Chromium failed (exit {:?}); private diagnostics withheld",
+        output.status.code()
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("D05 FOUR LIVE PASS: desktop")
+            && stdout.contains("D05 FOUR LIVE PASS: mobile"),
+        "historical Layer buyer must open all 4 chapters on two viewports"
+    );
+}
