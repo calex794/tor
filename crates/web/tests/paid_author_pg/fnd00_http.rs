@@ -63,7 +63,8 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         ring.clone(),
         BUCKET_BODYLESS_HTTP.to_owned(),
     )
-    .unwrap();
+    .unwrap()
+    .with_bodyless_http();
     let initial_body = "Paid bodyless V1 source";
     let initial_key = generate_session_token();
     let v1_request = save_chapter(SaveChapterRequest {
@@ -120,6 +121,41 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     )
     .unwrap();
     let csrf = generate_session_token();
+    // Author HTTP creates new paid V1 directly in private S3 when the
+    // explicitly selected bodyless mode is active. Same command is idempotent.
+    let http_command = generate_session_token();
+    let http_form = format!(
+        "number=2&title=Browser%20paid&body=Browser%20bodyless%20V1&access=paid&price_amount=100&command_key={http_command}&csrf_token={csrf}"
+    );
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/me/books/{book}/chapters"))
+                    .method("POST")
+                    .header(header::ORIGIN, ORIGIN)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, cookie(&session, &csrf))
+                    .body(Body::from(http_form.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+    let http_body = pg(
+        &url,
+        &format!(
+            "SELECT count(v.id) || '|' || count(v.body_markdown)
+             FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             WHERE c.book_id={book} AND c.chapter_no=2"
+        ),
+    );
+    assert_eq!(http_body, "1|0", "browser-created V1 must have no PG plaintext");
+
     let edit_path = format!("/me/books/{book}/chapters/{chapter}/edit");
     let (denied, denied_page) = browse(&app, &edit_path, &buyer_session, &csrf).await;
     assert_eq!(denied, StatusCode::NOT_FOUND);
@@ -138,7 +174,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(&edit_path)
+                    .uri(edit_path.as_str())
                     .method("POST")
                     .header(header::ORIGIN, ORIGIN)
                     .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
