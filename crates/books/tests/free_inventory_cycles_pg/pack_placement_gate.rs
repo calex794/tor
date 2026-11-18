@@ -1,7 +1,11 @@
 //! DROP-07: the real catalog cannot reuse a sealed source PACK.
 use sqlx::{PgConnection, PgPool};
 use tor_books::{
-    repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim},
+    repositories::{
+        free_expected_inventory::{FreeInventoryError, PackInventoryRead, PgFreeExpectedInventory},
+        free_pack_attach::PgFreePackCatalog,
+        free_pack_jobs::PackJobClaim,
+    },
     services::authoring::AuthorError,
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
@@ -383,4 +387,68 @@ async fn drop_07_background_reproof_hold_survives_terminal_queue_state() {
     assert_sqlstate(sqlx::query(
         "UPDATE free_pack_activation_jobs SET status='pending',completed_at=NULL WHERE pack_job_id=$1",
     ).bind(job).execute(&mut *writer).await.unwrap_err(), "23514");
+}
+
+#[tokio::test]
+#[ignore = "requires separate app and migrator roles on disposable PostgreSQL18 tor_ci"]
+async fn drop_07_inventory_read_reserves_exact_pack_pair_and_seal_refuses_it() {
+    let app_url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let owner_url = std::env::var("MIGRATOR_URL").unwrap();
+    for url in [&app_url, &owner_url] {
+        assert!(url.contains("@127.0.0.1:") && url.ends_with("/tor_ci"));
+    }
+    let app = PgPool::connect(&app_url).await.unwrap();
+    let owner_pool = PgPool::connect(&owner_url).await.unwrap();
+    let mut owner = owner_pool.acquire().await.unwrap();
+    let (_, book, editions) = seed(&app).await;
+    let edition = editions[0];
+    let bucket = "tor-ci-drop07-inventory-gate";
+    let source = register(&app, book, bucket, "inventory-source").await;
+    let target = register(&app, book, bucket, "inventory-target").await;
+    edition.attach(&app, 1, source, 0).await.unwrap();
+    edition.attach(&app, 2, target, 0).await.unwrap();
+    assert!(edition
+        .promote(&mut app.acquire().await.unwrap(), 0, 2)
+        .await
+        .unwrap());
+
+    let inventory = PgFreeExpectedInventory::new(app);
+    let page = inventory.expected_page(bucket, None, 8).await.unwrap();
+    let keys: Vec<_> = page
+        .expected
+        .iter()
+        .filter(|entry| entry.object_key.contains("inventory-source"))
+        .map(|entry| entry.object_key.as_str())
+        .collect();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(
+        inventory
+            .reserve_pack_read("tor-ci-wrong-bucket", keys[0])
+            .await,
+        Err(FreeInventoryError::Unavailable)
+    );
+    assert_eq!(
+        inventory.reserve_pack_read(bucket, keys[0]).await,
+        Ok(PackInventoryRead::Admitted)
+    );
+    assert_eq!(
+        inventory.reserve_pack_read(bucket, keys[1]).await,
+        Ok(PackInventoryRead::Admitted)
+    );
+    assert_sqlstate(seal(&mut owner, source).await.unwrap_err(), "23514");
+    sqlx::query("UPDATE free_pack_placement_gates SET reproof_until=clock_timestamp()-interval '1 second' WHERE pack_id=$1")
+        .bind(source).execute(&mut *owner).await.unwrap();
+    assert!(seal(&mut owner, source).await.unwrap());
+    // The original page still contains both expected receipts. Admission is
+    // checked again at the actual read boundary, for both keys.
+    for key in keys {
+        assert_eq!(
+            inventory.reserve_pack_read(bucket, key).await,
+            Ok(PackInventoryRead::Sealed)
+        );
+    }
+    assert_eq!(
+        inventory.expected_page(bucket, None, 8).await.unwrap(),
+        page
+    );
 }

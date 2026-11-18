@@ -12,6 +12,12 @@ pub enum FreeObjectKind {
     Manifest,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackInventoryRead {
+    Admitted,
+    Sealed,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpectedFreeObject {
     pub object_key: String,
@@ -81,6 +87,33 @@ pub(super) fn valid_cursor(value: &str) -> bool {
 impl PgFreeExpectedInventory {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Fresh admission at the I/O boundary. A previously enumerated PACK
+    /// receipt can have been sealed since the page query.
+    pub async fn reserve_pack_read(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<PackInventoryRead, FreeInventoryError> {
+        if !valid_bucket(bucket)
+            || !valid_cursor(key)
+            || !key.starts_with(InventoryNamespace::Pack.prefix())
+        {
+            return Err(FreeInventoryError::Invalid);
+        }
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT public.reserve_free_pack_inventory_read($1,$2)")
+                .bind(bucket)
+                .bind(key)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|_| FreeInventoryError::Unavailable)?;
+        match status.as_deref() {
+            Some("admitted") => Ok(PackInventoryRead::Admitted),
+            Some("sealed") => Ok(PackInventoryRead::Sealed),
+            _ => Err(FreeInventoryError::Unavailable),
+        }
     }
 
     /// A page of *registered* immutable objects only, not a snapshot of S3.

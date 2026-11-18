@@ -3,9 +3,12 @@
 //! UNKNOWN is NEVER a deletion candidate; output contains aggregate counts,
 //! not private object names, hashes or chapter text.
 use aws_sdk_s3::Client;
+use std::time::Duration;
+use tokio::time::{timeout_at, Instant};
 use tor_books::repositories::{
     free_expected_inventory::{
-        FreeInventoryError, FreeInventoryPage, InventoryNamespace, PgFreeExpectedInventory,
+        FreeInventoryError, FreeInventoryPage, FreeObjectKind, InventoryNamespace,
+        PackInventoryRead, PgFreeExpectedInventory,
     },
     free_observed_reconcile::{
         FreeReferenceEvidence, FreeReferenceState, PgFreeObservedClassifier,
@@ -21,6 +24,7 @@ use tor_storage::{
 };
 
 const UNKNOWN_GRACE_SECONDS: i64 = 24 * 60 * 60;
+const PACK_INVENTORY_READ_BUDGET: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ObservedCounters {
@@ -37,6 +41,7 @@ pub struct ExpectedCounters {
     pub size_mismatch: u64,
     pub hash_mismatch: u64,
     pub unverifiable: u64,
+    pub sealed: u64,
 }
 
 pub struct ObservedDryRunPage {
@@ -105,9 +110,8 @@ impl FreeInventoryDryRun {
         })
     }
 
-    /// B->G: each exact PG immutable receipt receives its own independent,
-    /// bounded private S3 full GET + SHA check. No S3 404 or timeout is ever
-    /// converted into "confirmed missing" or a deletion decision.
+    /// B->G: independently check exact admitted receipts with a bounded
+    /// private GET. Sealed PACK receipts are counted without touching S3.
     pub async fn expected_page(
         &self,
         after_key: Option<&str>,
@@ -136,19 +140,38 @@ impl FreeInventoryDryRun {
     async fn verify_expected(&self, page: FreeInventoryPage) -> ExpectedDryRunPage {
         let mut counts = ExpectedCounters::default();
         for entry in page.expected {
-            match self
-                .verifier
-                .verify_exact(
-                    &self.bucket,
-                    &entry.object_key,
-                    entry.sha256,
-                    entry.size_bytes,
-                )
+            let verify = self.verifier.verify_exact(
+                &self.bucket,
+                &entry.object_key,
+                entry.sha256,
+                entry.size_bytes,
+            );
+            let evidence = if entry.kind == FreeObjectKind::Single {
+                verify.await.map(Some).map_err(FreeDryRunError::from)
+            } else {
+                let deadline = Instant::now() + PACK_INVENTORY_READ_BUDGET;
+                timeout_at(deadline, async {
+                    if self
+                        .expected
+                        .reserve_pack_read(&self.bucket, &entry.object_key)
+                        .await?
+                        == PackInventoryRead::Sealed
+                    {
+                        return Ok(None);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(FreeDryRunError::Unavailable);
+                    }
+                    verify.await.map(Some).map_err(FreeDryRunError::from)
+                })
                 .await
-            {
-                Ok(FreeObjectEvidence::Verified) => counts.verified += 1,
-                Ok(FreeObjectEvidence::SizeMismatch) => counts.size_mismatch += 1,
-                Ok(FreeObjectEvidence::HashMismatch) => counts.hash_mismatch += 1,
+                .unwrap_or(Err(FreeDryRunError::Unavailable))
+            };
+            match evidence {
+                Ok(None) => counts.sealed += 1,
+                Ok(Some(FreeObjectEvidence::Verified)) => counts.verified += 1,
+                Ok(Some(FreeObjectEvidence::SizeMismatch)) => counts.size_mismatch += 1,
+                Ok(Some(FreeObjectEvidence::HashMismatch)) => counts.hash_mismatch += 1,
                 Err(_) => counts.unverifiable += 1,
             }
         }
