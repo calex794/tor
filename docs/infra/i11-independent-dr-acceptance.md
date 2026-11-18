@@ -91,7 +91,7 @@ Store the completed report and any raw/private supporting material in the approv
 
 ~~~json
 {
-  "scope": "independent_offsite_restore",
+  "schema_version": 1,
   "status": "NOT_ACCEPTED",
   "source_sha": null,
   "postgres_version": null,
@@ -99,15 +99,27 @@ Store the completed report and any raw/private supporting material in the approv
   "restore_host_separate": false,
   "production_untouched": null,
   "backup_set_ref_redacted": null,
+  "pg_wal_evidence_ref": null,
+  "object_inventory_evidence_ref": null,
+  "kek_recovery_evidence_ref": null,
+  "reader_acl_evidence_ref": null,
+  "negative_controls_evidence_ref": null,
+  "external_alert_evidence_ref": null,
   "source_inventory_manifest_sha256": null,
   "database_pitr_t1_present_t2_absent": null,
   "wal_post_base_backup_replay_verified": null,
+  "controlled_wal_witness_verified": null,
   "external_s3_and_iam_separation_verified": null,
+  "no_live_s3_fallback_verified": null,
   "object_lock_and_retention_verified": null,
   "full_s3_inventory_verified": null,
+  "historical_free_receipts_verified": null,
   "private_v1_hash_and_offline_kek_verified": null,
   "purchased_v1_after_v2_verified": null,
+  "saved_free_v1_after_v2_verified": null,
+  "layer_free_v1_after_deletion_verified": null,
   "refund_and_unauthorized_acl_denials_verified": null,
+  "layer_revocation_denial_verified": null,
   "negative_controls_failed_safely": null,
   "external_alert_delivery_verified": null,
   "t_loss_utc": null,
@@ -121,6 +133,39 @@ Store the completed report and any raw/private supporting material in the approv
 ~~~
 
 **Acceptance rule:** Every applicable affirmative control must be supported by *independent* archived evidence; observed negative cases must fail safely; RPO/RTO must be measured from the recorded timestamps; all secrets remain off public systems. A report with missing evidence, merely green CI, a successful local MinIO fixture or a single V1 checksum is **NOT ACCEPTED**. Only after manual review and operator sign-off may #739 and S061 be reassessed. This runbook creates no scheduled jobs, no new live backup, and no automatic approval.
+
+
+### DROP-08c: optional machine-checkable REVIEW_READY evidence gate
+
+On the **approved offline operator workstation**, after completing the independent
+offsite DR drill and retaining the supporting evidence in the encrypted operator
+vault, prepare a **separate redacted JSON file** matching the exact fields above.
+Use \`schema_version: 1\`, \`status: "REVIEW_READY"\`, all applicable independent
+control flags as JSON \`true\`, and nonsecret redacted identifiers for every
+\`*_evidence_ref\`. The command runs offline and never retrieves those references:
+
+```bash
+python3 tools/i11_dr_evidence_gate.py --report /secure/operator/redacted-dr-review.json
+```
+
+The gate **refuses** missing/extra/duplicate fields; any absent saved FREE V1,
+historical Layer V1, Layer revocation, independent KEK/S3/WAL or offsite
+isolation evidence; false/unknown controls; malformed references; and non-UTC
+or inconsistent timestamps. It recomputes RPO and RTO from the four recorded
+UTC witnesses and enforces the current **operator targets** RPO <=900 seconds
+and RTO <=14400 seconds, including a controlled WAL witness so an idle
+database is not mistaken for zero data loss.
+
+A successful \`TOR_I11_DR_EVIDENCE_REVIEW_READY\` is **not** a declaration of
+successful disaster recovery. It only means the self-reported redacted fields
+are structurally consistent, that the reported timings fit the targets, and
+that the report is ready for **independent manual source verification**.
+The script cannot establish that an evidence reference is genuine, that the
+backup account is truly independent, that a recovered KEK decrypts the V1,
+or that Layer access was correctly tested. The operator must inspect the
+protected offsite artifacts and sign off separately. Never set \`ACCEPTED\`
+as a self-declared status to bypass review. The default template deliberately
+remains \`NOT_ACCEPTED\` and must fail this gate.
 
 ## 5. What is already demonstrated, and what is not
 
