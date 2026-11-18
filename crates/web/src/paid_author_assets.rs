@@ -103,7 +103,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         mime: &str,
         object_id: &ObjectId,
     ) -> Result<ObjectId, AuthorError> {
-        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, mime, object_id, false)
+        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, (mime, object_id), false)
             .await
     }
 
@@ -118,7 +118,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         mime: &str,
         object_id: &ObjectId,
     ) -> Result<ObjectId, AuthorError> {
-        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, mime, object_id, true)
+        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, (mime, object_id), true)
             .await
     }
 
@@ -128,10 +128,10 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         request: &SaveChapter,
         ordinal: i16,
         bytes: &[u8],
-        mime: &str,
-        object_id: &ObjectId,
+        image: (&str, &ObjectId),
         bodyless: bool,
     ) -> Result<ObjectId, AuthorError> {
+        let (mime, object_id) = image;
         if !(1..=64).contains(&ordinal) {
             return Err(AuthorError::Invalid);
         }
