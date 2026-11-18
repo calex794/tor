@@ -148,5 +148,4 @@ mod tests {
         assert!(!html.contains("purchase_id="));
         assert!(account_resume_cards(&[], &[]).is_empty());
     }
-
 }

@@ -58,12 +58,13 @@ mod d06_lost_ack;
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/ret03_paid_home.rs"]
+mod ret03_paid_home;
 #[path = "paid_grants_s3_pg/s020_paid_completion_age.rs"]
 mod s020_paid_completion_age;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
-mod ret03_paid_home;
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
@@ -425,15 +426,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         MARKDOWN,
     )
     .await;
-    ret03_paid_home::verify(
-        &app,
-        &url,
-        buyer,
-        book,
-        &buyer_cookie,
-        &stranger_cookie,
-    )
-    .await;
+    ret03_paid_home::verify(&app, &url, buyer, book, &buyer_cookie, &stranger_cookie).await;
     s035_live_chromium::verify(
         &app,
         s035_live_chromium::Fixture {
