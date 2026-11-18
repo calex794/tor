@@ -496,6 +496,64 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     );
     assert_old_four(&rights, old, &editions).await;
     assert_old_four(&rights, lifetime_buyer, &editions).await;
+
+    // Administrative hold and logical hard-delete are stronger than historic
+    // paid origin, including an uninterrupted renewed term and lifetime term.
+    // Toggle only isolated B security flags; never rewrite purchase facts.
+    for restricted_sql in [
+        "UPDATE books SET admin_hold=TRUE WHERE id=$1",
+        "UPDATE books SET is_deleted=TRUE WHERE id=$1",
+    ] {
+        sqlx::query(restricted_sql)
+            .bind(deleted_book)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for actor in [old, lifetime_buyer] {
+            for &(chapter, _) in &editions[..2] {
+                assert_eq!(
+                    rights
+                        .archived_free_version(id(actor), id(chapter))
+                        .await
+                        .unwrap(),
+                    None,
+                    "book-wide B restriction must deny archived FREE"
+                );
+            }
+            for &(chapter, _) in &editions[2..] {
+                assert!(matches!(
+                    rights
+                        .resolve_entitlement(Actor { user_id: id(actor) }, id(chapter), None)
+                        .await
+                        .unwrap(),
+                    EntitlementDecision::Denied { .. }
+                ), "book-wide B restriction must deny historical PAID");
+            }
+            assert!(
+                rights
+                    .layer_toc_window(
+                        id(actor),
+                        id(archive_anchor),
+                        MixedTocCursor {
+                            chapter_no: 3,
+                            chapter_id: archive_anchor,
+                        },
+                        MixedTocSide::Before,
+                        10,
+                    )
+                    .await
+                    .is_err(),
+                "restricted historic Layer cannot enumerate deleted Book titles"
+            );
+        }
+        sqlx::query("UPDATE books SET admin_hold=FALSE, is_deleted=FALSE WHERE id=$1")
+            .bind(deleted_book)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_old_four(&rights, old, &editions).await;
+        assert_old_four(&rights, lifetime_buyer, &editions).await;
+    }
     pool.close().await;
 }
 
