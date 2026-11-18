@@ -702,7 +702,8 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
         .unwrap();
     assert!(!prepared.published);
     assert_eq!(
-        b.prepare_new_paid_chapter_bodyless(owner, &new_chapter).await,
+        b.prepare_new_paid_chapter_bodyless(owner, &new_chapter)
+            .await,
         Ok(prepared),
         "same command must reuse the same invisible bodyless version"
     );
@@ -712,7 +713,10 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert!(initial_body.is_none(), "not even a draft may store paid Markdown in PG");
+    assert!(
+        initial_body.is_none(),
+        "not even a draft may store paid Markdown in PG"
+    );
 
     let object_v1 = ready_object(
         &pool,
@@ -727,25 +731,42 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
     let edition_v1 = pinned(prepared.chapter_id, prepared.version_id);
     assert_eq!(
         b.attach_verified_and_publish(
-            owner, book, edition_v1, &object_v1,
-            PaidPublication::Publish { expected_current: None }
-        ).await,
+            owner,
+            book,
+            edition_v1,
+            &object_v1,
+            PaidPublication::Publish {
+                expected_current: None
+            }
+        )
+        .await,
         Err(AuthorError::Conflict),
         "legacy attach must not silently read a NULL S3-only body"
     );
     assert_eq!(
         b.attach_verified_and_publish_bodyless(
-            owner, book, edition_v1, &object_v1,
-            PaidPublication::Publish { expected_current: None },
+            owner,
+            book,
+            edition_v1,
+            &object_v1,
+            PaidPublication::Publish {
+                expected_current: None
+            },
             "different text of equal status"
-        ).await,
+        )
+        .await,
         Err(AuthorError::Conflict),
         "mismatched request body cannot create a reader manifest"
     );
     assert_eq!(object_state(&pool, &object_v1).await, "ready");
     b.attach_verified_and_publish_bodyless(
-        owner, book, edition_v1, &object_v1,
-        PaidPublication::Publish { expected_current: None },
+        owner,
+        book,
+        edition_v1,
+        &object_v1,
+        PaidPublication::Publish {
+            expected_current: None,
+        },
         text_v1,
     )
     .await
@@ -759,19 +780,23 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
             .unwrap();
     assert_eq!(published_v1, prepared.version_id);
     b.attach_verified_and_publish_bodyless(
-        owner, book, edition_v1, &object_v1,
-        PaidPublication::Publish { expected_current: None },
+        owner,
+        book,
+        edition_v1,
+        &object_v1,
+        PaidPublication::Publish {
+            expected_current: None,
+        },
         text_v1,
     )
     .await
     .unwrap();
-    let v1_manifests: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_reader_manifests WHERE version_id=$1",
-    )
-    .bind(prepared.version_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let v1_manifests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_reader_manifests WHERE version_id=$1")
+            .bind(prepared.version_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(v1_manifests, 1);
 
     let text_v2 = "Paid bodyless V2 — старая редакция остаётся";
@@ -799,7 +824,10 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert!(edited_body.is_none(), "paid V2 must never enter PostgreSQL plaintext");
+    assert!(
+        edited_body.is_none(),
+        "paid V2 must never enter PostgreSQL plaintext"
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
@@ -822,7 +850,9 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
     )
     .await;
     b.attach_verified_and_publish_bodyless(
-        owner, book, pinned(prepared.chapter_id, edited.version_id),
+        owner,
+        book,
+        pinned(prepared.chapter_id, edited.version_id),
         &object_v2,
         PaidPublication::PublishEdit {
             expected_current: prepared.version_id,
@@ -832,23 +862,30 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
     )
     .await
     .unwrap();
-    let final_current: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let final_current: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(final_current, edited.version_id);
     assert_eq!(
         b.encrypted_chapter(edition_v1)
-            .await.unwrap().unwrap().object.object_id,
+            .await
+            .unwrap()
+            .unwrap()
+            .object
+            .object_id,
         object_v1,
         "historical V1 still resolves to exact ciphertext after V2"
     );
     assert_eq!(
         b.encrypted_chapter(pinned(prepared.chapter_id, edited.version_id))
-            .await.unwrap().unwrap().object.object_id,
+            .await
+            .unwrap()
+            .unwrap()
+            .object
+            .object_id,
         object_v2,
     );
     let bodies: i64 = sqlx::query_scalar(
@@ -859,14 +896,16 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(bodies, 0, "paid V1 and V2 are stored only as private S3 ciphertext");
-    let manifests: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    assert_eq!(
+        bodies, 0,
+        "paid V1 and V2 are stored only as private S3 ciphertext"
+    );
+    let manifests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(manifests, 2);
     pool.close().await;
 }
