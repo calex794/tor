@@ -20,8 +20,8 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    // DROP-06b adds a separately reviewed, C-authorized source-plan route.
-    assert_eq!(unique.len(), 442);
+    // RET-R03 adds two independent, protected continuation-statistics routes.
+    assert_eq!(unique.len(), 444);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
@@ -593,3 +593,16 @@ fn s039_admin_post_is_exact_internal_wallet_write() {
 
 #[path = "tests/s349.rs"]
 mod s349;
+
+#[test]
+fn ret_r03_continuation_stats_have_independent_owner_and_admin_passports() {
+    let owner = classify(Some("/me/stats/continuations"), "GET");
+    let admin = classify(Some("/admin/audience/continuations"), "GET");
+    assert!(owner.route_known && admin.route_known);
+    assert_eq!(owner.product_area, ProductArea::Dashboard);
+    assert_eq!(admin.product_area, ProductArea::Admin);
+    assert_eq!(admin.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(owner.cost_class, CostClass::ExpensiveRead);
+    assert_eq!(admin.cost_class, CostClass::ExpensiveRead);
+    assert!(!classify(Some("/admin/audience/continuations"), "POST").route_known);
+}
