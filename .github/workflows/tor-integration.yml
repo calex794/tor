@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       s061_previous_sha:
-        description: 'Optional 40-char old TOR SHA for real two-binary rollback test'
+        description: 'Optional previous TOR SHA for the populated-schema upgrade and rollback drill'
         required: false
         type: string
 permissions:
@@ -671,14 +671,18 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"
           CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
             cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
-            -p tor-web --bin tor-web
+            -p tor-web --bin tor-web -p tor-migrations --bin tor-migrate
           install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
             "$RUNNER_TEMP/s061-previous-tor-web"
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-migrate" \
+            "$RUNNER_TEMP/s061-previous-tor-migrate"
+          test -x ./target/debug/tor-migrate
       - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
         if: ${{ matrix.shard == 'foundation' }}
         env:
           GITHUB_ACTIONS: 'true'
           TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
+          TOR_S061_PREVIOUS_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha || '' }}
         run: |
           # Reuse this job's accepted binary; build a second only for manual two-SHA tests.
           test -x ./target/debug/tor-web
