@@ -181,7 +181,7 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     // Sitewide totals can include unrelated fixtures from earlier PG tests.
     // Verify this exact book row without assuming a globally empty database.
     let row = admin_page
-        .split(&format!("href=\\"/books/{book}\\""))
+        .split(&format!(r#"href="/books/{book}""#))
         .nth(1)
         .expect("the book must appear in the administrator report")
         .split("</tr>")
