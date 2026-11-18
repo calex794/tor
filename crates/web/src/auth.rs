@@ -66,6 +66,7 @@ mod checkout_browser;
 mod collections;
 mod complete_chapter;
 mod continuation_demand;
+mod continuation_stats;
 mod creator_finance;
 mod creator_follows;
 mod direct_swap_browser;
@@ -387,6 +388,8 @@ fn router_inner(
             "/api/v1/me/library/{id}",
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
+        .route("/me/stats/continuations", get(continuation_stats::owner))
+        .route("/admin/audience/continuations", get(continuation_stats::administrator))
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(book_registration_http::new_page))
         .route(
