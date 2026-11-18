@@ -242,7 +242,10 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     );
     let fields = picture.split('|').collect::<Vec<_>>();
     assert_eq!(fields.len(), 4);
-    assert_eq!(fields[2], "NULL", "illustrated V1 must never store PG Markdown");
+    assert_eq!(
+        fields[2], "NULL",
+        "illustrated V1 must never store PG Markdown"
+    );
     let image_chapter: i64 = fields[0].parse().unwrap();
     let image_version: i64 = fields[1].parse().unwrap();
     let object_id = tor_contracts::paid_delivery::ObjectId::parse(fields[3]).unwrap();
