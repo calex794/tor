@@ -88,23 +88,25 @@ pub(super) async fn verify(
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
 
-    // The preceding DROP-04c test edited chapter two from PACK V1 into
-    // SINGLE V2. Re-publish the still-verified immutable PACK V1 as the
-    // deliberate current publication for this *isolated* archive fixture.
-    // The archive must freeze the currently published edition, not select an
-    // old V1 merely because an S3 object happens to remain.
+    // Earlier transport and author-edit checks published SINGLE V2 for both
+    // chapters. Restore both verified PACK V1 publications in this disposable
+    // fixture before the owner takes the archive snapshot.
+    assert_eq!(receipt.frames.len(), 2);
+    for restored in &receipt.frames {
+        let result =
+            sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
+                .bind(restored.version_id)
+                .bind(restored.chapter_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        assert_eq!(result.rows_affected(), 1);
+    }
     let frame = &receipt.frames[1];
     let expected = chapters[1].body.as_bytes();
     assert_eq!(
         <[u8; 32]>::from(Sha256::digest(expected)),
         frame.content_sha256
-    );
-    pg(
-        url,
-        &format!(
-            "UPDATE chapter_publications SET version_id={} WHERE chapter_id={}",
-            frame.version_id, frame.chapter_id,
-        ),
     );
     assert_eq!(
         pg(
@@ -253,7 +255,7 @@ pub(super) async fn verify(
             ),
         ),
         first.version_id.to_string(),
-        "moderator approval freezes both independent FREE V1 editions"
+        "the approved archive must retain both FREE V1 publications"
     );
 
     // Actor-scoped HTTP route, exact FRAME only; all transport keys and
