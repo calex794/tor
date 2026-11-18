@@ -2,6 +2,8 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
+#[path = "paid_author_pg/fnd00_assets.rs"]
+mod fnd00_assets;
 #[path = "paid_author_pg/s048_browser.rs"]
 mod s048_browser;
 
