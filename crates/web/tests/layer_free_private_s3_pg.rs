@@ -32,11 +32,11 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
-#[path = "layer_free_private_s3_pg/live_chromium.rs"]
-mod live_chromium;
 #[cfg(feature = "s3-paid")]
 #[path = "layer_free_private_s3_pg/four_live.rs"]
 mod four_live;
+#[path = "layer_free_private_s3_pg/live_chromium.rs"]
+mod live_chromium;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "http://127.0.0.1:9000";
