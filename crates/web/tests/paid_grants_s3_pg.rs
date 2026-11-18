@@ -887,10 +887,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         book,
         (chapter, purchase_id, v1, chapter_two),
-        (free_chapter, locked_chapter, draft_chapter),
+        (free_chapter, locked_chapter, draft_chapter, unified_free),
         (&buyer_cookie, &stranger_cookie, &author_cookie, &accounts),
         &csrf,
-        unified_free,
     )
     .await;
     fixture_writer::save_ephemeral_fixture(

@@ -162,13 +162,12 @@ pub(super) async fn verify(
     url: &str,
     book: i64,
     purchased: (i64, i64, i64, i64),
-    chapters: (i64, i64, i64),
+    chapters: (i64, i64, i64, [i64; 2]),
     sessions: (&str, &str, &str, &PgAccounts),
     csrf: &str,
-    extra_free: [i64; 2],
 ) -> Value {
     let (chapter, purchase_id, v1, second_paid_chapter) = purchased;
-    let (free_chapter, locked_chapter, draft_chapter) = chapters;
+    let (free_chapter, locked_chapter, draft_chapter, extra_free) = chapters;
     let (buyer_cookie, stranger_cookie, author_cookie, accounts) = sessions;
     // The reviewer is an independent real account on disposable tor_ci, not
     // a fabricated role claim from the buyer or the Book owner.
