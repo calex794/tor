@@ -24,6 +24,7 @@ use tor_commerce::{
 use tor_contracts::paid_delivery::PositiveId;
 use tower::ServiceExt;
 
+#[path = "layer_archive/live_pack_chromium.rs"]
 mod live_pack_chromium;
 
 fn id(raw: i64) -> PositiveId {
