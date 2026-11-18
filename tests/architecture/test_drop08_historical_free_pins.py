@@ -25,6 +25,7 @@ class HistoricalFreePins(unittest.TestCase):
         self.assertIn("AND g.content_sha256=v.content_sha256", sql)
         self.assertIn("AND s.sha256=v.content_sha256", sql)
         self.assertIn("AND a.version_id=p.version_id", sql)
+        self.assertIn("AND c.access_level='free' AND c.price_amount=0", sql)
 
     def test_missing_receipt_refused(self):
         with self.assertRaisesRegex(Refused, "missing_source_receipts=1"):
