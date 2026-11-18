@@ -44,7 +44,9 @@ def root_directory(value: str) -> Path:
     return root.resolve(strict=True)
 
 
-def inventory(root: Path) -> list[dict[str, object]]:
+def inventory(
+    root: Path, *, expected_sizes: dict[str, int] | None = None
+) -> list[dict[str, object]]:
     items = []
     def reject_scan_error(error: OSError) -> None:
         raise Refused("incomplete or unreadable object tree") from error
@@ -58,6 +60,8 @@ def inventory(root: Path) -> list[dict[str, object]]:
         for name in files:
             path = Path(parent) / name
             rel = safe_key(path.relative_to(root).as_posix())
+            if expected_sizes is not None and rel not in expected_sizes:
+                raise Refused("unexpected object in restored tree")
             try:
                 if not stat.S_ISREG(path.lstat().st_mode):
                     raise Refused("non-regular object refused")
@@ -66,11 +70,15 @@ def inventory(root: Path) -> list[dict[str, object]]:
                     before = os.fstat(file.fileno())
                     if not stat.S_ISREG(before.st_mode):
                         raise Refused("non-regular object refused")
+                    if expected_sizes is not None and before.st_size != expected_sizes[rel]:
+                        raise Refused("restored object length mismatch")
                     sha = hashlib.sha256()
                     count = 0
                     for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                        sha.update(chunk)
                         count += len(chunk)
+                        if count > before.st_size:
+                            raise Refused("object grew during scan")
+                        sha.update(chunk)
                     after = os.fstat(file.fileno())
                     if (count != before.st_size or before.st_size != after.st_size
                             or before.st_mtime_ns != after.st_mtime_ns):
