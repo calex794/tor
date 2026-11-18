@@ -366,7 +366,15 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     // Browser executes the exact Rust router, actual PG entitlement and
     // actual signed MinIO GET. No synthetic response replay is accepted.
     // Both viewports must render literal <script> text without executing it.
-    live_chromium::verify(&app, chapter, version, &buyer_session, &unrelated_session, TEXT).await;
+    live_chromium::verify(
+        &app,
+        chapter,
+        version,
+        &buyer_session,
+        &unrelated_session,
+        TEXT,
+    )
+    .await;
 
     pg(
         &url,
