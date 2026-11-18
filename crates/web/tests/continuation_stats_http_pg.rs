@@ -15,7 +15,8 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::PgReader;
+use tor_reading::repositories::{demand::PgContinuationDemand, PgReader};
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -82,7 +83,7 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
         .as_nanos();
     let mut actors = Vec::new();
     let mut tokens = Vec::new();
-    for role in ["owner", "other", "administrator"] {
+    for role in ["owner", "other", "administrator", "another"] {
         let token = generate_session_token();
         let actor = accounts
             .register_with_session(
@@ -136,13 +137,16 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
         "INSERT INTO reader_chapter_completions(user_id,book_id,chapter_id,first_version_id,source_event_id)
          VALUES({stranger},{book},{chapter},{version},gen_random_uuid())"
     ));
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO reader_continuation_demand(user_id,book_id,frontier_chapter_id)
-         VALUES({stranger},{book},{chapter}) ON CONFLICT DO NOTHING"
-        ),
-    );
+    let demand = PgContinuationDemand::new(pool.clone());
+    demand
+        .record_verified_continuation(stranger, book, chapter)
+        .await
+        .expect("verified request");
+    // Repeated requests do not enqueue a second event.
+    demand
+        .record_verified_continuation(stranger, book, chapter)
+        .await
+        .expect("duplicate is idempotent");
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -204,6 +208,66 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
         .status(),
         StatusCode::BAD_REQUEST
     );
+    // One system notification per book/frontier; no reader identity is shown.
+    let bell = PgNotifications::new(pool.clone());
+    for _ in 0..8 {
+        bell.deliver_pending(100).await.expect("in-app delivery");
+        if bell
+            .list_section(owner, None, 50, "system")
+            .await
+            .unwrap()
+            .iter()
+            .any(|n| n.kind == "continuation_demand")
+        {
+            break;
+        }
+    }
+    let owner_bell = bell.list_section(owner, None, 50, "system").await.unwrap();
+    let notice = owner_bell
+        .iter()
+        .find(|n| n.kind == "continuation_demand")
+        .expect("single owner demand notice");
+    assert_eq!(notice.url, "/me/stats/continuations");
+    assert!(notice.body.contains("Запросов на продолжение: 1"));
+    assert!(!notice.body.contains("stats-other"));
+    assert_eq!(
+        owner_bell
+            .iter()
+            .filter(|n| n.kind == "continuation_demand")
+            .count(),
+        1
+    );
+    assert!(bell
+        .list_section(stranger, None, 50, "system")
+        .await
+        .unwrap()
+        .iter()
+        .all(|n| n.kind != "continuation_demand"));
+    assert!(bell.mark_read(owner, notice.id).await.unwrap());
+    let another = actors[3];
+    pg(&url,&format!(
+        "INSERT INTO reader_chapter_completions(user_id,book_id,chapter_id,first_version_id,source_event_id)
+         VALUES({another},{book},{chapter},{version},gen_random_uuid())"
+    ));
+    demand
+        .record_verified_continuation(another, book, chapter)
+        .await
+        .expect("second verified reader");
+    bell.deliver_pending(100).await.unwrap();
+    let updated = bell.list_section(owner, None, 50, "system").await.unwrap();
+    let updated = updated
+        .iter()
+        .filter(|n| n.kind == "continuation_demand")
+        .collect::<Vec<_>>();
+    assert_eq!(updated.len(), 1, "no per-click bell spam");
+    assert!(
+        updated[0].body.contains("Запросов на продолжение: 2"),
+        "live count updates"
+    );
+    assert!(
+        updated[0].is_read,
+        "new request does not mark the same bell unread"
+    );
     // A new published frontier changes current waiting but never deletes history.
     let next: i64 = pg(
         &url,
@@ -231,7 +295,15 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     );
     let after = html(get(&app, owner_path, &tokens[0]).await).await;
     assert!(after.contains("data-metric=\"waiting\">0"));
-    assert!(after.contains("data-metric=\"historical\">1"));
+    assert!(after.contains("data-metric=\"historical\">2"));
+    assert!(
+        bell.list_section(owner, None, 50, "system")
+            .await
+            .unwrap()
+            .iter()
+            .all(|n| n.kind != "continuation_demand"),
+        "fulfilled frontier must not remain a current owner bell"
+    );
     assert!(after.contains("<td>2</td><td>0</td>"));
     pool.close().await;
 }
