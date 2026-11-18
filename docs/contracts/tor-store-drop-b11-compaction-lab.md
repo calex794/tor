@@ -25,6 +25,30 @@ gives no economic reason to proceed. The estimate covers bytes and the
 recorded read/write charges; separately account for cross-provider
 transfer, minimum object billing and compute where they apply.
 
+## PostgreSQL reference evidence
+
+Export one registered PACK from the repository root with a read-only
+operator database connection. The CSV is ordered by frame offset and
+contains the PACK and manifest digests, exact edition identities and
+each observed protection.
+
+```sh
+psql -Xq --dbname "$TOR_INVENTORY_DATABASE_URL" -v pack_id=123 \
+  -f tools/drop07_export_pack_retention.sql > pack-123-retention.csv
+```
+
+Use the CSV only if `psql` exits successfully. A missing PACK, an empty
+membership list, duplicate editions or more than 4,096 registered members
+prevents export. Verify completeness by comparing every emitted identity,
+offset, size and digest with the full independent PACK and manifest readback.
+
+`RETAIN` records at least one protection from the same database snapshot.
+The report includes an exact active placement, a current publication,
+a reader-saved FREE pin, a Layer FREE archive pin, an administrative hold,
+or pending PACK work. Rows without any of these protections are
+`UNKNOWN`. Keep them `Unknown` in the simulator until there is positive
+evidence for retention or expiry from the applicable policy and backups.
+
 Before wiring the operator path, derive the complete retention inventory
 from a fenced PostgreSQL snapshot and verified backup evidence. Revalidate
 it when advancing placements and before any source retirement. Retain old
