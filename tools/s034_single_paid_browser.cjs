@@ -151,6 +151,53 @@ async function verify(browser, buyer, viewport) {
     assert.equal(number("SELECT count(*) FROM reader_wallet_entries WHERE user_id=" + buyer.id +
       " AND kind='chapter_purchase'"), 1);
 
+    // RET-03d: the exact bought V1 cursor must survive leaving and reopening
+    // the real encrypted reader. This is a deliberate user click, not a grant
+    // or a visit silently counted as a finished chapter.
+    const progressUrl = SITE + "/api/v1/me/progress/purchased?" +
+      new URLSearchParams({
+        purchase_id: String(purchase),
+        chapter_id: String(chapter.id),
+        version_id: String(chapter.version),
+      });
+    const firstSave = page.locator("#p-1 .reader-save-button");
+    await firstSave.click();
+    await page.waitForFunction(
+      () => document.querySelector("[data-paid-resume]")?.textContent?.includes("Место сохранено."),
+      null, { timeout: 30000 }
+    );
+    const positionBefore = await context.request.get(progressUrl);
+    assert.equal(positionBefore.status(), 200);
+    assert.equal(positionBefore.headers()["cache-control"], "no-store");
+    const savedV1 = await positionBefore.json();
+    assert.equal(savedV1.chapter_id, String(chapter.id));
+    assert.equal(savedV1.version_id, String(chapter.version));
+    assert.equal(savedV1.block_id, 1);
+    assert(savedV1.char_offset > 0, "saved V1 cursor has a real UTF-16 offset");
+    assert.equal(savedV1.revision, 1);
+    assert(!JSON.stringify(savedV1).includes("ciphertext_url"));
+    assert(!JSON.stringify(savedV1).includes("X-Amz-Signature"));
+
+    const reopenedV1 = await page.reload({ waitUntil: "domcontentloaded" });
+    assert.equal(reopenedV1.status(), 200);
+    await page.waitForFunction(
+      () => Boolean(document.querySelector('[data-paid-resume] a[href="#p-1"]')),
+      null, { timeout: 30000 }
+    );
+    const savedLink = page.locator('[data-paid-resume] a[href="#p-1"]');
+    assert.equal(await savedLink.textContent(), "К сохранённому месту");
+    await savedLink.click();
+    assert.equal(new URL(page.url()).hash, "#p-1");
+    const positionAfter = await context.request.get(progressUrl);
+    assert.equal(positionAfter.status(), 200);
+    const restoredV1 = await positionAfter.json();
+    assert.deepEqual(
+      [restoredV1.version_id, restoredV1.block_id, restoredV1.char_offset, restoredV1.revision],
+      [savedV1.version_id, savedV1.block_id, savedV1.char_offset, savedV1.revision],
+      "re-entry must not silently advance or replace the purchased V1 cursor"
+    );
+    assert.equal(purchases(), 1, "resuming a paid chapter must not buy it twice");
+
     // E-12/S047: a REAL reader selection from decrypted private S3 content.
     const issues = page.locator("[data-paid-issues] form");
     await issues.waitFor({ state: "visible" });
