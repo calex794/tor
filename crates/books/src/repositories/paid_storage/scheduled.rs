@@ -12,7 +12,17 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
-        self.prepare_new_paid_chapter_with_mode(actor, request, true)
+        self.prepare_new_paid_chapter_with_mode(actor, request, true, false)
+            .await
+    }
+
+    /// FND-00: stage a private paid edition without keeping Markdown in PG.
+    pub async fn prepare_scheduled_paid_chapter_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
+        self.prepare_new_paid_chapter_with_mode(actor, request, true, true)
             .await
     }
 
