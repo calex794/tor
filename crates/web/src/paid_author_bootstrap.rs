@@ -34,9 +34,7 @@ fn validate(
     if flags.author && !compiled_s3_paid {
         return Err("Paid author publication requires a build with --features s3-paid");
     }
-    if flags.grants
-        && (demo || !has_database || !auth_enabled)
-    {
+    if flags.grants && (demo || !has_database || !auth_enabled) {
         return Err("Paid grants require PostgreSQL and enabled cookie authentication");
     }
     if flags.grants && !compiled_s3_paid {
@@ -47,7 +45,10 @@ fn validate(
 
 pub(super) fn from_environment(demo: bool) -> Result<PaidFlags, &'static str> {
     let flags = PaidFlags {
-        grants: flag("TOR_PAID_GRANTS_ENABLED", "TOR_PAID_GRANTS_ENABLED must be 0 or 1")?,
+        grants: flag(
+            "TOR_PAID_GRANTS_ENABLED",
+            "TOR_PAID_GRANTS_ENABLED must be 0 or 1",
+        )?,
         author: flag(
             "TOR_PAID_AUTHOR_PUBLISH_ENABLED",
             "TOR_PAID_AUTHOR_PUBLISH_ENABLED must be 0 or 1",
@@ -116,9 +117,7 @@ mod tests {
             (false, true, false, true),
             (false, true, true, false),
         ] {
-            assert!(
-                validate(flags(true, true, true), demo, database, auth, compiled).is_err()
-            );
+            assert!(validate(flags(true, true, true), demo, database, auth, compiled).is_err());
         }
     }
 
