@@ -56,6 +56,12 @@ pub(super) async fn page(
         Ok(achievements) => achievements,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    // The existing Library resolver is the sole source of Home resume links.
+    // Failure is unavailable, never a fallback URL that could bypass access.
+    let resumes = match state.progress.continue_reading(user_id).await {
+        Ok(items) => items,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut page = pages::my_account_with_achievements_refunds_and_swap(
         &name,
@@ -72,6 +78,7 @@ pub(super) async fn page(
         ""
     };
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
+    page.0 = page.0.replace("<!--RET_RESUME_CARDS-->", &pages::account_resume_cards(&resumes));
     let changed = if revisions == 0 {
         String::new()
     } else {
