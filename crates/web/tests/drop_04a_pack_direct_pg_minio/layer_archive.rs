@@ -361,7 +361,11 @@ pub(super) async fn verify(
         first_expected,
         "the first FREE frame cannot expose the neighboring FREE frame"
     );
-    assert_ne!(first_bytes.as_ref(), expected, "distinct FREE frame contents");
+    assert_ne!(
+        first_bytes.as_ref(),
+        expected,
+        "distinct FREE frame contents"
+    );
 
     pg(
         url,
