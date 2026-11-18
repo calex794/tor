@@ -128,7 +128,7 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
         .get_verified(&encrypted_v1.object)
         .await
         .unwrap()
-        .windows(body_v1.as_bytes().len())
+        .windows(body_v1.len())
         .any(|bytes| bytes == body_v1.as_bytes()));
 
     let body_v2 = "Paid V2: покупатель V1 сохраняет историю";
