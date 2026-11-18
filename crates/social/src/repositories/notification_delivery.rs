@@ -1,7 +1,7 @@
 //! E-08/RET-R03: durable in-app projection of shared outbox events.
 //! Keeping the consumer separate preserves the notification reader's size cap.
-use super::{continuation, profile_url::encode_segment};
 use super::super::mail::{blocked, pair_lock, unavailable};
+use super::{continuation, profile_url::encode_segment};
 use crate::domain::MailError;
 use sqlx::PgPool;
 
@@ -161,12 +161,7 @@ pub(super) async fn pending(pool: &PgPool, limit: u16) -> Result<usize, MailErro
         let allowed = if kind == "reader.continuation.requested" {
             owner_demand.is_some() && recipient > 0 && member
         } else {
-            user_exists
-                && !is_blocked
-                && actor > 0
-                && recipient > 0
-                && actor != recipient
-                && member
+            user_exists && !is_blocked && actor > 0 && recipient > 0 && actor != recipient && member
         };
         if allowed {
             let name: String = if kind == "reader.continuation.requested" {
