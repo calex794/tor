@@ -89,6 +89,13 @@ fn key() -> Arc<ContentKek> {
 }
 
 fn client() -> Client {
+    client_at(ENDPOINT)
+}
+
+// The second endpoint is a deliberately unbound loopback port. Never probe
+// arbitrary hosts or use production credentials in the outage regression.
+fn client_at(endpoint: &str) -> Client {
+    assert!(endpoint == ENDPOINT || endpoint == "http://127.0.0.1:1");
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
@@ -99,7 +106,7 @@ fn client() -> Client {
             None,
             "s334-loopback-only",
         ))
-        .endpoint_url(ENDPOINT)
+        .endpoint_url(endpoint)
         .force_path_style(true)
         .retry_config(RetryConfig::standard().with_max_attempts(1))
         .build();
@@ -444,6 +451,33 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         .await
         .unwrap();
     assert!(store.get_verified(&reference).await.is_ok());
+
+    // RET-02c: simulate a transport-level S3 outage *after* restoring the
+    // exact purchased V1. A live purchase and intact KEK must not bypass HEAD;
+    // once the provider returns, the same buyer must regain V1, never V2.
+    let unavailable = app(url, client_at("http://127.0.0.1:1"), key()).await;
+    let denied = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        grant(&unavailable, chapter, Some(buyer), Some(csrf), "{}"),
+    )
+    .await
+    .expect("a refused loopback provider must fail within the bounded timeout");
+    assert_eq!(
+        denied.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "an unreachable S3 endpoint cannot produce a historical paid V1 grant"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_revocations
+                 WHERE purchase_id={purchase_id}"
+            )
+        ),
+        0,
+        "provider outage does not revoke or refund a durable purchase"
+    );
 
     // The external recovery KEK must be supplied independently of the DB
     // and S3 data. Missing/wrong KEK fails closed, never exposes a V1 grant.
