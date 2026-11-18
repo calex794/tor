@@ -69,9 +69,7 @@ impl PgPaidStorage {
                 number: row
                     .try_get("chapter_no")
                     .map_err(|_| AuthorError::Unavailable)?,
-                title: row
-                    .try_get("title")
-                    .map_err(|_| AuthorError::Unavailable)?,
+                title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                 price_amount: row
                     .try_get("price_amount")
                     .map_err(|_| AuthorError::Unavailable)?,
