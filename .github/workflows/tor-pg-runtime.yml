@@ -128,6 +128,20 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: DROP-08b compile restored-PG historical pin export and refuse empty evidence
+        if: ${{ matrix.shard == 'foundation' }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/drop08-pins.csv"
+          psql -Xq --no-password --dbname "$TEST_DATABASE_URL" \
+            -f tools/drop08_export_historical_free_pins.sql > "$out"
+          test ! -s "$out"
+          set +e
+          python3 tools/drop08_verify_historical_free_pins.py < "$out" > "$RUNNER_TEMP/drop08-result" 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'requires exercised saved and Layer' "$RUNNER_TEMP/drop08-result"
       - name: Native HTML quality on the fresh schema
         if: ${{ matrix.shard == 'foundation' }}
         env:
