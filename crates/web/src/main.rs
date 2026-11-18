@@ -4,6 +4,7 @@ mod drop_pack_bootstrap;
 mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
+mod paid_author_bootstrap;
 mod social_notification_consumer;
 mod support_cleanup;
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
@@ -30,23 +31,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         drop_pack_bootstrap::cutover_enabled(demo, drop_pack_worker_enabled)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
-    let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
-        Ok(value) if value == "1" => true,
-        Ok(value) if value == "0" => false,
-        Err(env::VarError::NotPresent) => false,
-        _ => return Err("TOR_PAID_GRANTS_ENABLED must be 0 or 1".into()),
-    };
-    // Creating paid ciphertext is a separate explicit operator opt-in:
-    // enabling signed reads must never silently enable an author S3 writer.
-    let paid_author_enabled = match env::var("TOR_PAID_AUTHOR_PUBLISH_ENABLED") {
-        Ok(value) if value == "1" => true,
-        Ok(value) if value == "0" => false,
-        Err(env::VarError::NotPresent) => false,
-        _ => return Err("TOR_PAID_AUTHOR_PUBLISH_ENABLED must be 0 or 1".into()),
-    };
-    if paid_author_enabled && !paid_grants_enabled {
-        return Err("Paid author publication requires enabled paid grants".into());
-    }
+    let paid_grants_enabled = paid_author_bootstrap::grants_enabled()?;
+    // Enabling paid reader grants never implicitly enables author writes.
+    let paid_author_enabled = paid_author_bootstrap::publish_enabled(paid_grants_enabled)?;
+    // Independent and default-OFF: only explicit operator opt-in selects
+    // bodyless paid HTTP; a missing prerequisite aborts startup.
+    let paid_author_s3_only_enabled =
+        paid_author_bootstrap::s3_only_enabled(paid_grants_enabled, paid_author_enabled, demo)?;
+    #[cfg(not(feature = "s3-paid"))]
+    let _ = paid_author_s3_only_enabled;
     let g09_operator_enabled = g09_bootstrap::enabled(demo)?;
     #[cfg(not(feature = "s3-paid"))]
     if paid_author_enabled {
@@ -436,15 +429,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         tor_storage::repositories::s3::S3PrivateStore::new(client, bucket.clone())
                             .map_err(|_| "Invalid TOR_PAID_S3_BUCKET")?;
                     let author = if paid_author_enabled {
-                        Some(
-                            tor_web::PgPaidAuthorPublisher::new(
-                                catalog.clone(),
-                                store.clone(),
-                                keyring.clone(),
-                                bucket.clone(),
-                            )
-                            .map_err(|_| "Invalid paid author publisher configuration")?,
+                        let publisher = tor_web::PgPaidAuthorPublisher::new(
+                            catalog.clone(),
+                            store.clone(),
+                            keyring.clone(),
+                            bucket.clone(),
                         )
+                        .map_err(|_| "Invalid paid author publisher configuration")?;
+                        Some(if paid_author_s3_only_enabled {
+                            publisher.with_bodyless_http()
+                        } else {
+                            publisher
+                        })
                     } else {
                         None
                     };
