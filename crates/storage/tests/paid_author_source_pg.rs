@@ -244,7 +244,15 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
         .unwrap()
         .is_none());
     assert!(registry
-        .owned_current_paid_markdown(owner, book, chapter, version, "other-private-ci", &store, &ring)
+        .owned_current_paid_markdown(
+            owner,
+            book,
+            chapter,
+            version,
+            "other-private-ci",
+            &store,
+            &ring
+        )
         .await
         .unwrap()
         .is_none());
