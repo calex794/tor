@@ -3,6 +3,8 @@ use super::{escape_html, layout};
 use axum::response::Html;
 use tor_discussions::repositories::public_book_comments::ReceivedReply;
 use tor_recommendations::repositories::ReaderAchievements;
+mod account_resume;
+pub use account_resume::account_resume_cards;
 
 fn auth_next_markup(next: Option<&str>) -> (String, String) {
     let Some(next) = next else {

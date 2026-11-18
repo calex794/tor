@@ -26,10 +26,11 @@ use tor_storage::{
 const ENDPOINT: &str = "https://storage.yandexcloud.net";
 const SAMPLES: usize = 24;
 
-#[tokio::test]
-#[ignore = "requires explicit operator intent and a dedicated private Yandex test bucket"]
-async fn drop_09_yandex_private_pack_provider_acceptance() {
-    assert_eq!(env::var("TOR_DROP_PROVIDER_PROBE").as_deref(), Ok("YES"));
+fn probe_bucket(mode: &str) -> String {
+    assert!(
+        env::var("TOR_DROP_PROVIDER_PROBE").as_deref() == Ok(mode),
+        "set TOR_DROP_PROVIDER_PROBE={mode} to run this probe"
+    );
     let bucket = env::var("TOR_DROP_PROVIDER_BUCKET").expect("disposable test bucket required");
     assert!(
         bucket
@@ -42,12 +43,16 @@ async fn drop_09_yandex_private_pack_provider_acceptance() {
             }),
         "bucket must use the dedicated tor-drop-probe- scope"
     );
+    bucket
+}
+
+fn probe_client(access_key: String, secret_key_var: &str) -> Client {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("ru-central1"))
         .credentials_provider(Credentials::new(
-            env::var("TOR_DROP_PROVIDER_ACCESS_KEY").expect("probe credentials required"),
-            env::var("TOR_DROP_PROVIDER_SECRET_KEY").expect("probe credentials required"),
+            access_key,
+            env::var(secret_key_var).expect("probe secret key required"),
             None,
             None,
             "drop09-isolated",
@@ -61,12 +66,26 @@ async fn drop_09_yandex_private_pack_provider_acceptance() {
                 .build(),
         )
         .build();
-    let client = Client::from_conf(config);
+    Client::from_conf(config)
+}
+
+fn fixture_key(suffix: &str) -> String {
     let token = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let key = format!("private/free-packs/provider-probe/run-{token}.zst");
+    format!("private/free-packs/provider-probe/run-{token}-{suffix}.zst")
+}
+
+#[tokio::test]
+#[ignore = "requires explicit operator intent and a dedicated private Yandex test bucket"]
+async fn drop_09_yandex_private_pack_read_write_acceptance() {
+    let bucket = probe_bucket("READ_WRITE");
+    let client = probe_client(
+        env::var("TOR_DROP_PROVIDER_ACCESS_KEY").expect("probe access key required"),
+        "TOR_DROP_PROVIDER_SECRET_KEY",
+    );
+    let key = fixture_key("read-write");
     let sources: Vec<_> = ["Chapter one 😀\n\nsynthetic", "第二章\n\nsynthetic"]
         .into_iter()
         .enumerate()
@@ -101,29 +120,41 @@ async fn drop_09_yandex_private_pack_provider_acceptance() {
             .is_some_and(|e| { e.raw_response().is_some_and(|r| r.status().as_u16() == 412) }),
         "provider must reject a different conditional PUT for the same key"
     );
-    let anonymous = Command::new("curl")
-        .args([
-            "--silent",
-            "--max-time",
-            "10",
-            "--output",
-            "/dev/null",
-            "--write-out",
-            "%{http_code}",
-            &format!("{ENDPOINT}/{bucket}/{key}"),
-        ])
-        .output()
-        .expect("curl required for the anonymous request");
-    assert!(anonymous.status.success());
-    assert_eq!(
-        anonymous.stdout, b"403",
-        "anonymous PACK read must be denied"
-    );
+    let target = prepared.target();
+    for object_key in [&target.pack_key, &target.manifest_key] {
+        let stored = client
+            .head_object()
+            .bucket(&bucket)
+            .key(object_key)
+            .send()
+            .await
+            .expect("versioned probe object metadata");
+        assert!(
+            stored
+                .version_id()
+                .is_some_and(|version| !version.is_empty() && version != "null"),
+            "PACK and manifest must have non-null version IDs"
+        );
+        let anonymous = Command::new("curl")
+            .args([
+                "--silent",
+                "--max-time",
+                "10",
+                "--output",
+                "/dev/null",
+                "--write-out",
+                "%{http_code}",
+                &format!("{ENDPOINT}/{bucket}/{object_key}"),
+            ])
+            .output()
+            .expect("curl required for the anonymous request");
+        assert!(anonymous.status.success());
+        assert_eq!(anonymous.stdout, b"403", "anonymous read must be denied");
+    }
 
     let store = S3PackFrameStore::new(client.clone());
     let mut latencies = Vec::with_capacity(SAMPLES);
     let mut range_bytes = 0;
-    let target = prepared.target();
     for i in 0..SAMPLES {
         let member = i % sources.len();
         let frame = &prepared.receipt().frames[member];
@@ -163,9 +194,22 @@ async fn drop_09_yandex_private_pack_provider_acceptance() {
         latencies[(SAMPLES * 95).div_ceil(100) - 1],
         range_bytes + prepared.pack_bytes().len() + prepared.manifest_bytes().len()
     );
+}
 
-    let delete_key = format!("private/free-packs/provider-probe/run-{token}-delete.zst");
-    probe_version_deletion(&client, &bucket, &delete_key).await;
+#[tokio::test]
+#[ignore = "uses DELETE on explicitly opted-in synthetic versions in a private Yandex test bucket"]
+async fn drop_09_yandex_exact_version_delete_acceptance() {
+    let bucket = probe_bucket("DELETE");
+    let writer_key = env::var("TOR_DROP_PROVIDER_ACCESS_KEY").expect("probe access key required");
+    let delete_key = env::var("TOR_DROP_PROVIDER_DELETE_ACCESS_KEY")
+        .expect("separate delete access key required");
+    assert!(
+        writer_key != delete_key,
+        "read/write and retirement must use separate credentials"
+    );
+    let writer = probe_client(writer_key, "TOR_DROP_PROVIDER_SECRET_KEY");
+    let deleter = probe_client(delete_key, "TOR_DROP_PROVIDER_DELETE_SECRET_KEY");
+    probe_version_deletion(&writer, &deleter, &bucket, &fixture_key("delete")).await;
 }
 
 async fn fixture_present(
@@ -201,11 +245,11 @@ async fn fixture_present(
     read.is_ok() && bytes == fixture
 }
 
-async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
+async fn probe_version_deletion(writer: &Client, deleter: &Client, bucket: &str, key: &str) {
     const OLD: &[u8] = b"synthetic old delete fixture";
     const NEW: &[u8] = b"synthetic newer delete fixture";
     // These writes and both DELETE attempts use one unique fixture key.
-    let old = client
+    let old = writer
         .put_object()
         .bucket(bucket)
         .key(key)
@@ -220,7 +264,7 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
     if version.is_empty() || version == "null" || etag.is_empty() {
         panic!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=missing_version_or_etag");
     }
-    let new = client
+    let new = writer
         .put_object()
         .bucket(bucket)
         .key(key)
@@ -235,7 +279,24 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
     else {
         panic!("DROP09_PROVIDER_DELETE_PROBE accepted=false reason=no_distinct_newer_version");
     };
-    let result = client
+    let writer_delete = writer
+        .delete_object()
+        .bucket(bucket)
+        .key(key)
+        .version_id(version)
+        .if_match(etag)
+        .send()
+        .await;
+    assert!(
+        writer_delete.err().is_some_and(|error| {
+            error.as_service_error().and_then(|e| e.code()) == Some("AccessDenied")
+                && error
+                    .raw_response()
+                    .is_some_and(|r| r.status().as_u16() == 403)
+        }) && fixture_present(writer, bucket, key, Some(version), version, OLD).await,
+        "read/write identity must receive AccessDenied and preserve the old version"
+    );
+    let result = deleter
         .delete_object()
         .bucket(bucket)
         .key(key)
@@ -246,10 +307,10 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
     let wrong_etag_rejected = result
         .err()
         .is_some_and(|e| e.raw_response().is_some_and(|r| r.status().as_u16() == 412));
-    let old_preserved = fixture_present(client, bucket, key, Some(version), version, OLD).await;
+    let old_preserved = fixture_present(writer, bucket, key, Some(version), version, OLD).await;
     let (mut old_removed, mut newer_preserved) = (false, false);
     if wrong_etag_rejected && old_preserved {
-        let deleted = client
+        let deleted = deleter
             .delete_object()
             .bucket(bucket)
             .key(key)
@@ -257,7 +318,7 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
             .if_match(etag)
             .send()
             .await;
-        let absence = client
+        let absence = writer
             .get_object()
             .bucket(bucket)
             .key(key)
@@ -269,12 +330,13 @@ async fn probe_version_deletion(client: &Client, bucket: &str, key: &str) {
                 e.as_service_error().and_then(|e| e.code()) == Some("NoSuchVersion")
                     && e.raw_response().is_some_and(|r| r.status().as_u16() == 404)
             });
-        newer_preserved = fixture_present(client, bucket, key, None, new_version, NEW).await;
+        newer_preserved = fixture_present(writer, bucket, key, None, new_version, NEW).await;
     }
     let accepted = wrong_etag_rejected && old_preserved && old_removed && newer_preserved;
     println!(
-        "DROP09_PROVIDER_DELETE_PROBE accepted={accepted} wrong_etag_412={wrong_etag_rejected} \
-         old_version_preserved={old_preserved} exact_old_version_removed={old_removed} \
+        "DROP09_PROVIDER_DELETE_PROBE accepted={accepted} writer_delete_denied=true \
+         wrong_etag_412={wrong_etag_rejected} old_version_preserved={old_preserved} \
+         exact_old_version_removed={old_removed} \
          current_newer_version_preserved={newer_preserved}"
     );
     assert!(

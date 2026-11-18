@@ -135,6 +135,7 @@ jobs:
           node --check tools/drop_06b_pack_chromium.cjs
           node --check tools/d05_layer_toc_chromium.cjs
           node --check tools/d05_layer_free_live_chromium.cjs
+          node --check tools/d05_four_live_layer_chromium.cjs
           node --check tools/d05_four_archived_layer_live_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
@@ -153,7 +154,7 @@ jobs:
           TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
           # D-05/#1022: a real old Layer buyer opens immutable FREE V1
           # from private SINGLE after owner deletion and moderator approval.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
+          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free,s3-paid --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
           # DROP-07a: actual-byte evidence only, on this disposable PG/MinIO.
           # These checks cannot authorize orphan classification or S3 DELETE.
           cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output
