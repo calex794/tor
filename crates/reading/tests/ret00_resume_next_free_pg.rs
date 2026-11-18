@@ -280,5 +280,90 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
     let new_next = progress.continue_reading(reader).await.unwrap();
     assert_eq!(new_next[0].chapter_id, third);
     assert_eq!(new_next[0].block_index, 0);
+    // RET-03: one actor may read two unrelated books. Progress is keyed
+    // by Book, not a global "last chapter"; one completion must never move
+    // the other Book's saved place, nor grant reading access to a stranger.
+    let other_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','RET03 second book','public',$2,'basic') RETURNING id",
+    )
+    .bind(format!("ci:ret03:second-book:{nonce}"))
+    .bind(reader)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (other_first, other_first_version) =
+        chapter(&pool, other_book, 1, "Другая первая", "public", "Первый текст").await;
+    let (other_second, _) =
+        chapter(&pool, other_book, 2, "Другая вторая", "public", "Второй текст").await;
+    assert_eq!(
+        progress.continue_reading(reader).await.unwrap().len(),
+        1,
+        "an unstarted book must not invent a reading place"
+    );
+    let other_position = sync
+        .save_free(
+            reader,
+            other_first,
+            other_first_version,
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 2,
+            },
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(other_position.revision, 1);
+    let two_books = progress.continue_reading(reader).await.unwrap();
+    assert_eq!(two_books.len(), 2);
+    let existing = two_books.iter().find(|item| item.book_id == book).unwrap();
+    let other_card = two_books
+        .iter()
+        .find(|item| item.book_id == other_book)
+        .unwrap();
+    assert_eq!(existing.chapter_id, third);
+    assert_eq!(other_card.chapter_id, other_first);
+    assert_eq!(other_card.block_index, 1);
+
+    // Completing a chapter in the second Book advances only its own card.
+    sync.save_free(
+        reader,
+        other_first,
+        other_first_version,
+        ReadingPlace {
+            block_index: 1,
+            char_offset: "Первый текст".encode_utf16().count() as i32,
+        },
+        1,
+    )
+    .await
+    .unwrap();
+    let continued = progress.continue_reading(reader).await.unwrap();
+    assert_eq!(continued.len(), 2);
+    assert_eq!(
+        continued.iter().find(|item| item.book_id == book).unwrap().chapter_id,
+        third,
+        "a second-book completion must not mutate the first Book"
+    );
+    let other_next = continued
+        .iter()
+        .find(|item| item.book_id == other_book)
+        .unwrap();
+    assert_eq!(other_next.chapter_id, other_second);
+    assert_eq!(other_next.block_index, 0);
+    let positions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_book_positions
+         WHERE user_id=$1 AND book_id IN ($2,$3)",
+    )
+    .bind(reader)
+    .bind(book)
+    .bind(other_book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(positions, 2, "one independent durable cursor per Book");
+    assert!(progress.continue_reading(other).await.unwrap().is_empty());
+
     pool.close().await;
 }
