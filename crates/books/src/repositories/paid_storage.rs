@@ -67,7 +67,19 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
-        self.prepare_new_paid_chapter_with_mode(actor, request, false)
+        self.prepare_new_paid_chapter_with_mode(actor, request, false, false)
+            .await
+    }
+
+    /// FND-00: reserve a paid edition without persisting its Markdown in PG.
+    /// The caller must seal and verify its exact bytes in private G/S3 before
+    /// invoking attach_verified_and_publish_bodyless.
+    pub async fn prepare_new_paid_chapter_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
+        self.prepare_new_paid_chapter_with_mode(actor, request, false, true)
             .await
     }
 
@@ -76,6 +88,7 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
         delayed: bool,
+        bodyless: bool,
     ) -> Result<PreparedPaidChapter, AuthorError> {
         if actor <= 0
             || request.book_id <= 0
@@ -207,7 +220,7 @@ impl PgPaidStorage {
              VALUES($1,1,$2,$3) RETURNING id",
         )
         .bind(chapter_id)
-        .bind(&request.body)
+        .bind(if bodyless { None } else { Some(request.body.as_str()) })
         .bind(content_hash.as_slice())
         .fetch_one(&mut *tx)
         .await
@@ -243,6 +256,38 @@ impl PgPaidStorage {
         version: ChapterVersionRef,
         object_id: &ObjectId,
         publication: PaidPublication,
+    ) -> Result<(), AuthorError> {
+        self.attach_verified_internal(actor, book_id, version, object_id, publication, None)
+            .await
+    }
+
+    /// FND-00: the request body is used only within this transaction to
+    /// validate the pre-reserved digest, assets and immutable reader manifest.
+    /// It must already have passed G's exact S3 PUT/GET/hash before this call.
+    /// This API rejects PG-body editions rather than silently mixing modes.
+    pub async fn attach_verified_and_publish_bodyless(
+        &self,
+        actor: i64,
+        book_id: i64,
+        version: ChapterVersionRef,
+        object_id: &ObjectId,
+        publication: PaidPublication,
+        markdown: &str,
+    ) -> Result<(), AuthorError> {
+        self.attach_verified_internal(
+            actor, book_id, version, object_id, publication, Some(markdown),
+        )
+        .await
+    }
+
+    async fn attach_verified_internal(
+        &self,
+        actor: i64,
+        book_id: i64,
+        version: ChapterVersionRef,
+        object_id: &ObjectId,
+        publication: PaidPublication,
+        bodyless_markdown: Option<&str>,
     ) -> Result<(), AuthorError> {
         let chapter_id = version.chapter_id.get();
         let version_id = version.version_id.get();
@@ -303,17 +348,35 @@ impl PgPaidStorage {
         };
 
         // For historical V1, allow attachment without moving a newer V2.
-        let existing: Option<Option<String>> = sqlx::query_scalar(
-            "SELECT storage_object_id::text FROM chapter_versions
-             WHERE id=$1 AND chapter_id=$2 FOR UPDATE",
-        )
-        .bind(version_id)
-        .bind(chapter_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(map_write)?;
-        let Some(previous_object) = existing else {
+        let existing: Option<(Option<String>, Option<String>, Option<Vec<u8>>)> =
+            sqlx::query_as(
+                "SELECT storage_object_id::text,body_markdown,content_sha256
+                 FROM chapter_versions
+                 WHERE id=$1 AND chapter_id=$2 FOR UPDATE",
+            )
+            .bind(version_id)
+            .bind(chapter_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_write)?;
+        let Some((previous_object, persisted_body, persisted_digest)) = existing else {
             return Err(AuthorError::Missing);
+        };
+        let body = match (persisted_body, bodyless_markdown) {
+            (Some(legacy_body), None) => legacy_body,
+            (None, Some(markdown)) => {
+                if markdown.is_empty() || markdown.contains('\r') || markdown.contains('\0') {
+                    return Err(AuthorError::Invalid);
+                }
+                let digest: [u8; 32] = Sha256::digest(markdown.as_bytes()).into();
+                if persisted_digest.as_deref() != Some(digest.as_slice()) {
+                    return Err(AuthorError::Conflict);
+                }
+                markdown.to_owned()
+            }
+            // No PG plaintext fallback. A legacy attach cannot process a
+            // bodyless edition, and a bodyless attach must not use PG content.
+            _ => return Err(AuthorError::Conflict),
         };
         if previous_object
             .as_deref()
@@ -407,15 +470,8 @@ impl PgPaidStorage {
         // the already-verified object attachment. C can later validate a
         // paid cursor without fetching or decrypting the S3 ciphertext.
         // Never copy plaintext, signed URLs or user data to this table.
-        let body: String = sqlx::query_scalar(
-            "SELECT body_markdown FROM chapter_versions
-             WHERE chapter_id=$1 AND id=$2",
-        )
-        .bind(chapter_id)
-        .bind(version_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_write)?;
+        // The exact body was validated against the immutable B SHA above;
+        // no bodyless Markdown is ever read back from or persisted in PG.
         // A stored Markdown reference is not itself permission to read media.
         // At B's publication boundary, every H-renderable asset marker must
         // belong to this exact immutable version and be G-attached. A V2
