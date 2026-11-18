@@ -37,21 +37,21 @@ fn canonical_id(text: &str) -> Option<i64> {
         .then_some(value)
 }
 
+pub(super) fn single_edition(key: &str) -> Option<(i64, i64)> {
+    let (chapter, version) = key
+        .strip_prefix("private/free-chapters/")?
+        .strip_suffix(".md")?
+        .split_once('/')?;
+    Some((canonical_id(chapter)?, canonical_id(version)?))
+}
+
 fn pending_locator(key: &str) -> PendingLocator {
-    if let Some((chapter, file)) = key
-        .strip_prefix("private/free-chapters/")
-        .and_then(|suffix| suffix.split_once('/'))
-    {
-        if let (Some(chapter), Some(version)) = (
-            canonical_id(chapter),
-            file.strip_suffix(".md").and_then(canonical_id),
-        ) {
-            return PendingLocator {
-                chapter,
-                version,
-                ..Default::default()
-            };
-        }
+    if let Some((chapter, version)) = single_edition(key) {
+        return PendingLocator {
+            chapter,
+            version,
+            ..Default::default()
+        };
     } else if let Some((book, file)) = key
         .strip_prefix("private/free-packs/import/")
         .and_then(|suffix| suffix.split_once('/'))
