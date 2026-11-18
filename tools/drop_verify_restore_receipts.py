@@ -5,6 +5,7 @@ import argparse
 import csv
 import hashlib
 import hmac
+from itertools import islice
 from pathlib import Path
 import re
 import sys
@@ -13,22 +14,25 @@ from i11_object_manifest import (
     HEX_SHA256,
     MAX_OBJECTS,
     Refused,
+    inventory,
     manifest_bytes,
+    root_directory,
     safe_key,
     validate_manifest,
 )
 
 
-def compare(manifest, expected_digest, receipts):
+def load_retained_manifest(manifest, expected_digest):
     if not HEX_SHA256.fullmatch(expected_digest):
         raise Refused("independent manifest SHA-256 required")
     raw = manifest_bytes(manifest)
     if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), expected_digest):
         raise Refused("independent manifest digest mismatch")
-    objects = validate_manifest(raw)
-    index = 0
+    return validate_manifest(raw)
+
+
+def receipt_rows(receipts):
     previous = ""
-    unbacked = undeclared = changed = 0
     csv.field_size_limit(1024)
     for count, row in enumerate(csv.reader(receipts, strict=True), 1):
         if count > MAX_OBJECTS or len(row) != 3:
@@ -42,13 +46,21 @@ def compare(manifest, expected_digest, receipts):
                 or not HEX_SHA256.fullmatch(digest)
                 or digest == "0" * 64):
             raise Refused("invalid PostgreSQL size or SHA-256")
+        yield key, int(size), digest
+
+
+def compare(manifest, expected_digest, receipts):
+    objects = load_retained_manifest(manifest, expected_digest)
+    index = 0
+    unbacked = undeclared = changed = 0
+    for key, size, digest in receipt_rows(receipts):
         while index < len(objects) and objects[index]["key"] < key:
             undeclared += 1
             index += 1
         if index == len(objects) or objects[index]["key"] > key:
             unbacked += 1
             continue
-        if objects[index]["size"] != int(size) or objects[index]["sha256"] != digest:
+        if objects[index]["size"] != size or objects[index]["sha256"] != digest:
             changed += 1
         index += 1
     undeclared += len(objects) - index
@@ -59,18 +71,53 @@ def compare(manifest, expected_digest, receipts):
     return len(objects)
 
 
+def compare_restored_pack(manifest, expected_digest, receipts, restored_root):
+    rows = list(islice(receipt_rows(receipts), 3))
+    if len(rows) != 2:
+        raise Refused("expected exactly two PACK receipts")
+    (sidecar_key, sidecar_size, _), (pack_key, pack_size, _) = rows
+    stem = pack_key.removesuffix(".zst")
+    if (not pack_key.startswith("private/free-packs/")
+            or stem == pack_key or stem.endswith("/") or sidecar_key != stem + ".manifest.json"
+            or not 26 <= pack_size <= 16 * 1024 * 1024 or not 1 <= sidecar_size <= 1024 * 1024):
+        raise Refused("invalid PACK or manifest pair")
+
+    expected = {key: (size, digest) for key, size, digest in rows}
+    retained = load_retained_manifest(manifest, expected_digest)
+    backed = {obj["key"]: (obj["size"], obj["sha256"]) for obj in retained
+              if obj["key"] in expected}
+    if backed != expected:
+        raise Refused("PACK receipts differ from the retained manifest")
+    actual = inventory(restored_root, expected_sizes={key: size for key, size, _ in rows})
+    if {obj["key"]: (obj["size"], obj["sha256"]) for obj in actual} != expected:
+        raise Refused("restored PACK or manifest bytes mismatch")
+    return len(rows)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--expected-manifest-sha256", required=True)
+    parser.add_argument(
+        "--restored-pack-root",
+        help="verify only the exact PACK and sidecar staged under this directory",
+    )
     args = parser.parse_args()
     try:
-        total = compare(args.manifest, args.expected_manifest_sha256, sys.stdin)
+        if args.restored_pack_root is None:
+            total = compare(args.manifest, args.expected_manifest_sha256, sys.stdin)
+            result = "TOR_DROP_RESTORE_RECEIPTS_VERIFIED"
+        else:
+            total = compare_restored_pack(
+                args.manifest, args.expected_manifest_sha256, sys.stdin,
+                root_directory(args.restored_pack_root),
+            )
+            result = "TOR_DROP_PACK_BACKUP_VERIFIED"
     except (Refused, OSError, UnicodeError, csv.Error) as error:
         reason = str(error) if isinstance(error, Refused) else "unreadable or invalid input"
         print(f"TOR_DROP_RESTORE_RECEIPTS_REFUSED: {reason}", file=sys.stderr)
         return 2
-    print(f"TOR_DROP_RESTORE_RECEIPTS_VERIFIED objects={total}")
+    print(f"{result} objects={total}")
     return 0
 
 
