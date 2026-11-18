@@ -64,6 +64,8 @@ Verify at least:
 - A buyer can read the **purchased immutable V1** even after a V2 publication, using the matching historical key generation.
 - An eligible purchased/privileged image remains private and is served only through authorized access.
 - A refunded purchase and a blocked/unauthorized account **cannot** get a new paid-content grant; a public reader cannot access private ciphertext or a KEK.
+- A reader-saved FREE V1 remains readable as its exact historical edition after V2, through an independently restored SINGLE or activated PACK, with no reliance on the current/public version.
+- A previously purchased Layer retains its captured historical FREE V1 after ordinary owner-approved deletion of the book; unrelated users and an expired/revoked Layer cannot fetch its text. Test both allowed and denied authenticated HTTP reads against isolated restored storage.
 - Book/library identities, SQLx history and snapshot timestamps match the intended recovery point, including relevant user rights.
 
 If only PostgreSQL tables pass but the restored reader cannot fetch/decrypt the purchased chapter, the drill **fails**.
@@ -140,9 +142,9 @@ Store the completed report and any raw/private supporting material in the approv
 On the **approved offline operator workstation**, after completing the independent
 offsite DR drill and retaining the supporting evidence in the encrypted operator
 vault, prepare a **separate redacted JSON file** matching the exact fields above.
-Use \`schema_version: 1\`, \`status: "REVIEW_READY"\`, all applicable independent
-control flags as JSON \`true\`, and nonsecret redacted identifiers for every
-\`*_evidence_ref\`. The command runs offline and never retrieves those references:
+Use `schema_version: 1`, `status: "REVIEW_READY"`, all applicable independent
+control flags as JSON `true`, and nonsecret redacted identifiers for every
+`*_evidence_ref`. The command runs offline and never retrieves those references:
 
 ```bash
 python3 tools/i11_dr_evidence_gate.py --report /secure/operator/redacted-dr-review.json
@@ -156,16 +158,16 @@ UTC witnesses and enforces the current **operator targets** RPO <=900 seconds
 and RTO <=14400 seconds, including a controlled WAL witness so an idle
 database is not mistaken for zero data loss.
 
-A successful \`TOR_I11_DR_EVIDENCE_REVIEW_READY\` is **not** a declaration of
+A successful `TOR_I11_DR_EVIDENCE_REVIEW_READY` is **not** a declaration of
 successful disaster recovery. It only means the self-reported redacted fields
 are structurally consistent, that the reported timings fit the targets, and
 that the report is ready for **independent manual source verification**.
 The script cannot establish that an evidence reference is genuine, that the
 backup account is truly independent, that a recovered KEK decrypts the V1,
 or that Layer access was correctly tested. The operator must inspect the
-protected offsite artifacts and sign off separately. Never set \`ACCEPTED\`
+protected offsite artifacts and sign off separately. Never set `ACCEPTED`
 as a self-declared status to bypass review. The default template deliberately
-remains \`NOT_ACCEPTED\` and must fail this gate.
+remains `NOT_ACCEPTED` and must fail this gate.
 
 ## 5. What is already demonstrated, and what is not
 
