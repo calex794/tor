@@ -112,8 +112,7 @@ pub(super) async fn verify(
     let revoked = revoked.expect("positive browser phase must pass before legal revocation");
     assert!(
         revoked.status.success()
-            && String::from_utf8_lossy(&revoked.stdout)
-                .contains("D05 FOUR REVOKED Chromium PASS"),
+            && String::from_utf8_lossy(&revoked.stdout).contains("D05 FOUR REVOKED Chromium PASS"),
         "revoked term must deny all four private browsers"
     );
 }
