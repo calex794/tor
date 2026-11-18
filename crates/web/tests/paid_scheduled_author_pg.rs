@@ -215,7 +215,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         .unwrap(),
     );
     let publisher =
-        PgPaidAuthorPublisher::new(catalog.clone(), store, keyring, BUCKET.to_owned()).unwrap();
+        PgPaidAuthorPublisher::new(catalog.clone(), store, keyring, BUCKET.to_owned())
+            .unwrap()
+            .with_bodyless_http();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
         PgReader::new(pool.clone()),
@@ -262,6 +264,14 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let chapter: i64 = columns[0].parse().unwrap();
     let version: i64 = columns[1].parse().unwrap();
     assert_eq!((&columns[2..]), &["draft", "paid", "175", "attached"]);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"),
+        ),
+        "0",
+        "the scheduled paid author path must keep staged Markdown out of PG"
+    );
     let count_before: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
