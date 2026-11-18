@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { chromium } = require("playwright");
+const verifyHomePaidResume = require("./s034_paid_home_resume.cjs");
 const SITE = "http://127.0.0.1:3098";
 const temp = process.env.RUNNER_TEMP || "";
 const file = process.env.TOR_S034_REAL_BROWSER_FIXTURE || "";
@@ -197,6 +198,13 @@ async function verify(browser, buyer, viewport) {
       "re-entry must not silently advance or replace the purchased V1 cursor"
     );
     assert.equal(purchases(), 1, "resuming a paid chapter must not buy it twice");
+
+    // RET-03e: navigate from the real private Home through the canonical
+    // D-authorized Book archive to the SAME paid V1 and saved text offset.
+    await verifyHomePaidResume({
+      page, context, base: SITE, book: fixture.book_id, chapter,
+      purchasedHref, progressUrl, savedV1, purchases,
+    });
 
     // E-12/S047: a REAL reader selection from decrypted private S3 content.
     const issues = page.locator("[data-paid-issues] form");
