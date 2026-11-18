@@ -1,14 +1,21 @@
 //! D-05: extend the accepted FREE SINGLE test with two verified paid editions
 //! and another FREE version, all in the SAME ordinarily deleted Layer Book.
 use super::*;
-use std::{fs::{self, OpenOptions}, io::Write, path::Path, sync::Arc};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::{
+    fs::{self, OpenOptions},
+    io::Write,
+    path::Path,
+    sync::Arc,
+};
 use tor_books::repositories::paid_storage::{PaidPublication, PgPaidStorage};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
-    repositories::{paid_delivery::PgPrivateDelivery, registry::PgStorageRegistry, s3::S3PrivateStore},
+    repositories::{
+        paid_delivery::PgPrivateDelivery, registry::PgStorageRegistry, s3::S3PrivateStore,
+    },
     services::{
         crypto::{seal_chapter, ContentKek},
         provider::upload_and_verify as upload_paid,
@@ -46,39 +53,71 @@ pub(super) async fn install(
         )).parse().unwrap();
         let version = if n == 0 {
             let hash: [u8; 32] = Sha256::digest(text.as_bytes()).into();
-            pg(url, &format!(
-                "INSERT INTO chapter_versions(chapter_id,version_no,content_sha256) \
-                 VALUES({chapter},1,decode('{}','hex')) RETURNING id", hex::encode(hash)
-            )).parse::<i64>().unwrap()
+            pg(
+                url,
+                &format!(
+                    "INSERT INTO chapter_versions(chapter_id,version_no,content_sha256) \
+                 VALUES({chapter},1,decode('{}','hex')) RETURNING id",
+                    hex::encode(hash)
+                ),
+            )
+            .parse::<i64>()
+            .unwrap()
         } else {
-            pg(url, &format!(
-                "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+            pg(
+                url,
+                &format!(
+                    "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
                  VALUES({chapter},1,'{text}') RETURNING id"
-            )).parse::<i64>().unwrap()
+                ),
+            )
+            .parse::<i64>()
+            .unwrap()
         };
         if n == 0 {
             let object = FreeChapterObject::for_markdown(chapter, version, text).unwrap();
             upload_and_verify(free, &object, text).await.unwrap();
-            pg(url, &format!(
-                "INSERT INTO free_chapter_storage_objects \
+            pg(
+                url,
+                &format!(
+                    "INSERT INTO free_chapter_storage_objects \
                  (chapter_id,version_id,bucket,object_key,sha256,size_bytes) \
                  VALUES({chapter},{version},'{BUCKET}','{}',decode('{}','hex'),{})",
-                object.key(), hex::encode(object.sha256()), object.size_bytes()
-            ));
+                    object.key(),
+                    hex::encode(object.sha256()),
+                    object.size_bytes()
+                ),
+            );
             pg(url, &format!(
                 "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
             ));
         } else {
-            let pinned = ChapterVersionRef { chapter_id: id(chapter), version_id: id(version) };
+            let pinned = ChapterVersionRef {
+                chapter_id: id(chapter),
+                version_id: id(version),
+            };
             let object_id = ObjectId::parse(OBJECT_IDS[n - 1]).unwrap();
             let sealed = seal_chapter(pinned, object_id.clone(), text, &kek).unwrap();
-            let reference = registry.reserve_pending(&sealed, &kek, BUCKET).await.unwrap();
-            let receipt = upload_paid(&paid_store, &reference, &sealed.ciphertext).await.unwrap();
+            let reference = registry
+                .reserve_pending(&sealed, &kek, BUCKET)
+                .await
+                .unwrap();
+            let receipt = upload_paid(&paid_store, &reference, &sealed.ciphertext)
+                .await
+                .unwrap();
             registry.mark_ready(&receipt).await.unwrap();
-            PgPaidStorage::new(pool.clone()).attach_verified_and_publish(
-                owner, book, pinned, &object_id,
-                PaidPublication::Publish { expected_current: None },
-            ).await.unwrap();
+            PgPaidStorage::new(pool.clone())
+                .attach_verified_and_publish(
+                    owner,
+                    book,
+                    pinned,
+                    &object_id,
+                    PaidPublication::Publish {
+                        expected_current: None,
+                    },
+                )
+                .await
+                .unwrap();
         }
         editions.push((chapter, version));
     }
@@ -90,12 +129,22 @@ pub(super) async fn paid_router(url: &str, accounts: &PgAccounts, client: &Clien
     let pool = accounts.pool().clone();
     let store = S3PrivateStore::new(client.clone(), BUCKET.to_owned()).unwrap();
     let signer = PgPrivateDelivery::new(
-        pool.clone(), store, Arc::new(ContentKek::from_bytes(KEK)), BUCKET.to_owned()
-    ).unwrap();
+        pool.clone(),
+        store,
+        Arc::new(ContentKek::from_bytes(KEK)),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
     let result = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-        PgCatalog::connect(url).await.unwrap(), PgReader::new(pool), accounts.clone(),
-        false, ORIGIN.to_owned(), (Arc::new(signer), ENDPOINT.to_owned()), None,
-    ).unwrap();
+        PgCatalog::connect(url).await.unwrap(),
+        PgReader::new(pool),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        (Arc::new(signer), ENDPOINT.to_owned()),
+        None,
+    )
+    .unwrap();
     env::remove_var("TOR_LAYER_READER_ENABLED");
     result
 }
@@ -130,7 +179,9 @@ pub(super) async fn verify(
     options.create_new(true).write(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let mut file = options.open(&path).expect("create ephemeral private fixture");
+    let mut file = options
+        .open(&path)
+        .expect("create ephemeral private fixture");
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
     drop(file);
