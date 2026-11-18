@@ -132,7 +132,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             return Err(AuthorError::Invalid);
         }
         let pending = if bodyless {
-            self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?
+            self.paid
+                .prepare_new_paid_chapter_bodyless(actor, request)
+                .await?
         } else {
             self.paid.prepare_new_paid_chapter(actor, request).await?
         };
