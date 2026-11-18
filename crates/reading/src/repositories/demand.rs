@@ -163,13 +163,13 @@ impl PgContinuationDemand {
         // Keyset order is (waiting DESC, book_id DESC), capped at 100 rows.
         let records: Vec<ContinuationStatsRecord> = sqlx::query_as(
             r#"WITH scoped AS MATERIALIZED (
-                SELECT book.id AS book_id, book.title, book.owner_user_id,
-                       owner.display_name AS owner_name,
+                SELECT book.id AS book_id, book.title, COALESCE(book.owner_user_id, 0)::bigint AS owner_user_id,
+                       COALESCE(owner.display_name, 'Сайт') AS owner_name,
                        frontier.chapter_no AS latest_chapter_no,
                        active.waiting, active.new_seven_days,
                        history.historical
                 FROM books AS book
-                JOIN users AS owner ON owner.id=book.owner_user_id
+                LEFT JOIN users AS owner ON owner.id=book.owner_user_id
                 LEFT JOIN LATERAL (
                     SELECT chapter.id, chapter.chapter_no
                     FROM chapters AS chapter
