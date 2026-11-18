@@ -246,9 +246,7 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
     writer.publish_edit_bodyless(owner, &upgrade).await.unwrap();
     let upgraded_version: i64 = pg(
         &url,
-        &format!(
-            "SELECT version_id FROM chapter_publications WHERE chapter_id={legacy_chapter}"
-        ),
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={legacy_chapter}"),
     )
     .parse()
     .unwrap();
