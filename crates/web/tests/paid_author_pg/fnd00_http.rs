@@ -154,7 +154,10 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
              WHERE c.book_id={book} AND c.chapter_no=2"
         ),
     );
-    assert_eq!(http_body, "1|0", "browser-created V1 must have no PG plaintext");
+    assert_eq!(
+        http_body, "1|0",
+        "browser-created V1 must have no PG plaintext"
+    );
 
     let edit_path = format!("/me/books/{book}/chapters/{chapter}/edit");
     let (denied, denied_page) = browse(&app, &edit_path, &buyer_session, &csrf).await;
@@ -188,9 +191,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     }
     let current_v2: i64 = pg(
         &url,
-        &format!(
-            "SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"
-        ),
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
     )
     .parse()
     .unwrap();
@@ -219,7 +220,11 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
     };
-    assert!(PgPaidStorage::new(pool).encrypted_chapter(first).await.unwrap().is_some());
+    assert!(PgPaidStorage::new(pool)
+        .encrypted_chapter(first)
+        .await
+        .unwrap()
+        .is_some());
     let (status, page) = browse(&app, &edit_path, &session, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
