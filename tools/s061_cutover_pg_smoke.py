@@ -238,6 +238,8 @@ def run() -> None:
     require(binary.is_file() and os.access(binary, os.X_OK),
             "S061 requires the previously built Rust server")
     previous_binary, distinct = select_previous_binary(dict(os.environ), runner_temp, binary)
+    require(distinct or not os.environ.get("TOR_S061_S3_ENDPOINT"),
+            "S061 S3 rollback requires two releases")
     if distinct:
         require(re.fullmatch(r"[0-9a-f]{40}", os.environ.get("TOR_S061_PREVIOUS_SHA", ""))
                 is not None, "S061 requires the previous source SHA for the upgrade report")
@@ -258,19 +260,31 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
     chapter = None
     paid_chapter = None
     original_catalog = None
+    saved_s3 = None
+    saved_s3_stages = []
+    s3_env = {}
     if distinct:
         ids = sql((SQL_DIR / "s061_seed_populated_catalog.sql").read_text(), database)
-        chapter, paid_chapter = map(int, ids.split("|"))
+        chapter, paid_chapter, saved, current_version = map(int, ids.split("|"))
+        if os.environ.get("TOR_S061_S3_ENDPOINT"):
+            from s061_saved_s3 import AWS_ENV, SavedChapterS3
+
+            saved_s3 = SavedChapterS3(chapter, saved, current_version)
+            saved_s3.seed(sql, database)
+            s3_env = AWS_ENV
         original_catalog = catalog_snapshot(database)
         require(all(original_catalog.values()), "S061 catalog fixture must populate every check")
 
-    def assert_release(port: int) -> None:
+    def assert_release(port: int, stage: str) -> None:
         assert_http(port, public_id, private_id)
         if chapter is not None:
             assert_chapter(port, chapter)
             status, html = http(port, f"/reader/{paid_chapter}")
             require(status in (200, 403, 404) and "S061 paid fixture" not in html,
                     "S061 could not verify anonymous paid-text denial")
+        if saved_s3 is not None:
+            saved_s3.assert_browser(port, stage)
+            saved_s3_stages.append(stage)
 
     output = runner_temp / "s061-real-cutover"
     output.mkdir(mode=0o700, exist_ok=False)
@@ -298,6 +312,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
                        TOR_AUTH_ENABLED="1", TOR_COVER_WORKER_ENABLED="0",
                        TOR_LISTEN_ADDR=f"127.0.0.1:{port}",
                        TOR_PUBLIC_ORIGIN=f"http://127.0.0.1:{port}")
+            env.update(s3_env)
             logfile = (root / f"{name}.log").open("w", encoding="utf-8")
             logs.append(logfile)
             process = subprocess.Popen([str(path)], env=env, stdout=logfile,
@@ -308,7 +323,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
         try:
             old = launch(current / "tor-web", LIVE_PORT, "previous")
             wait_ready(old, LIVE_PORT)
-            assert_release(LIVE_PORT)
+            assert_release(LIVE_PORT, "previous_before_migration")
             events.append("previous_live")
 
             # A broken candidate cannot switch the active release.
@@ -331,13 +346,13 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
                         "candidate removed or modified installed SQLx migrations")
                 require(catalog_snapshot(database) == original_catalog,
                         "persistent catalog changed during SQLx upgrade")
-                assert_release(LIVE_PORT)
+                assert_release(LIVE_PORT, "previous_after_migration")
                 events.append("populated_schema_upgraded_with_previous_live")
 
             # Run the actual candidate alongside the live TOR process.
             trial = launch(candidate / "tor-web", CANDIDATE_PORT, "candidate")
             wait_ready(trial, CANDIDATE_PORT)
-            assert_release(CANDIDATE_PORT)
+            assert_release(CANDIDATE_PORT, "parallel_candidate")
             require(is_ready(LIVE_PORT) and current.resolve() == previous,
                     "candidate inspection disrupted existing traffic")
             events.append("parallel_candidate_smoke_passed")
@@ -349,7 +364,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
             stop(old)
             promoted = launch(current / "tor-web", LIVE_PORT, "promoted")
             wait_ready(promoted, LIVE_PORT)
-            assert_release(LIVE_PORT)
+            assert_release(LIVE_PORT, "promoted_candidate")
             require(current.resolve() == candidate, "candidate was not activated")
             if distinct:
                 require(catalog_snapshot(database) == original_catalog,
@@ -362,7 +377,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
             atomic_select(current, previous)
             recovered = launch(current / "tor-web", LIVE_PORT, "rolled-back")
             wait_ready(recovered, LIVE_PORT)
-            assert_release(LIVE_PORT)
+            assert_release(LIVE_PORT, "rolled_back_previous")
             require(current.resolve() == previous, "previous release not restored")
             events.append("rollback_after_crash_verified")
             require(migration_state(database) == upgraded,
@@ -385,6 +400,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
                 "distinct_binary_validation": distinct,
                 "previous_source_sha": os.environ.get("TOR_S061_PREVIOUS_SHA", "") if distinct else "",
                 "populated_catalog_verified": distinct,
+                "saved_v1_s3_read_stages": saved_s3_stages,
                 "added_migrations": sorted(upgraded.keys() - before.keys()),
                 "no_production_or_tls_staging_claim": True,
                 "events": events,
