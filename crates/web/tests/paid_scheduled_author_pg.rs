@@ -262,6 +262,16 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let chapter: i64 = columns[0].parse().unwrap();
     let version: i64 = columns[1].parse().unwrap();
     assert_eq!((&columns[2..]), &["draft", "paid", "175", "attached"]);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"
+            ),
+        ),
+        "0",
+        "book-scheduled paid chapter must have S3-only body before release"
+    );
     let count_before: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
