@@ -1,13 +1,13 @@
 //! Live PG18 + MinIO + Rust HTTP + Chromium acceptance for archived FREE SINGLE.
 //! Only synthetic runner credentials, never production or persistent storage.
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
 };
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 
 pub(super) async fn verify(
     app: &Router,
