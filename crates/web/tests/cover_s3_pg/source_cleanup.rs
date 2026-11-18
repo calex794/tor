@@ -11,6 +11,7 @@ use tor_ingest::{
 };
 use tor_web::{
     cover_private_cleanup::PrivateCoverVariantCleanup,
+    cover_private_gc_ops::PrivateCoverGcCoordinator,
     cover_private_source_cleanup::PrivateCoverSourceCleanup,
 };
 
@@ -160,8 +161,14 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         PgPrivateCoverSourceRemovals::new(catalog.pool()),
         Arc::new(store.clone()),
     );
-    assert_eq!(variant_cleanup.run_batch().await.unwrap().removed, 2);
-    assert_eq!(source_cleanup.run_batch().await.unwrap().claimed, 0);
+    // The real PostgreSQL/MinIO fixture verifies orchestration as well as
+    // independent B guards: variants first, shared original kept because
+    // another recipe is still pending.
+    let coordinator = PrivateCoverGcCoordinator::new(catalog, Arc::new(store.clone()));
+    let first_cycle = coordinator.run_single_bounded_batch().await.unwrap();
+    assert_eq!(first_cycle.variants.removed, 2);
+    assert_eq!(first_cycle.variants.deferred, 0);
+    assert_eq!(first_cycle.sources.unwrap().claimed, 0);
     assert!(
         client
             .head_object()
