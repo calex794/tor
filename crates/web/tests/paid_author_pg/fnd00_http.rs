@@ -159,6 +159,118 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         "browser-created V1 must have no PG plaintext"
     );
 
+    // Browser illustrated paid V1 must reserve the same bodyless B version,
+    // verify G's image GET, and publish without any PG Markdown fallback.
+    let illustrated_key = generate_session_token();
+    let png_image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1,
+        1,
+        image::Rgba([16, 48, 96, 255]),
+    ));
+    let mut png_cursor = Cursor::new(Vec::new());
+    png_image
+        .write_to(&mut png_cursor, image::ImageFormat::Png)
+        .unwrap();
+    let png = png_cursor.into_inner();
+    let boundary = "fnd00-bodyless-illustration-http";
+    let mut payload = Vec::new();
+    for (name, value) in [
+        ("csrf_token", csrf.as_str()),
+        ("command_key", illustrated_key.as_str()),
+        ("number", "3"),
+        ("title", "Bodyless image"),
+        ("price_amount", "175"),
+        ("body", "Paid V1 with a sealed image"),
+    ] {
+        payload.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+    payload.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"illustration\"; filename=\"img.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    payload.extend_from_slice(&png);
+    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    for (who, origin, expected) in [
+        (buyer_session.as_str(), ORIGIN, StatusCode::NOT_FOUND),
+        (
+            session.as_str(),
+            "https://wrong-origin.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+        (session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/me/books/{book}/chapters/illustrated"))
+                    .method("POST")
+                    .header(header::ORIGIN, origin)
+                    .header(
+                        header::CONTENT_TYPE,
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .header(header::COOKIE, cookie(who, &csrf))
+                    .body(Body::from(payload.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let picture = pg(
+        &url,
+        &format!(
+            "SELECT c.id || '|' || v.id || '|' ||
+                    CASE WHEN v.body_markdown IS NULL THEN 'NULL' ELSE 'BODY' END ||
+                    '|' || a.storage_object_id::text
+             FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             JOIN chapter_version_assets a
+               ON a.chapter_id=c.id AND a.version_id=v.id
+             WHERE c.book_id={book} AND c.chapter_no=3"
+        ),
+    );
+    let fields = picture.split('|').collect::<Vec<_>>();
+    assert_eq!(fields.len(), 4);
+    assert_eq!(fields[2], "NULL", "illustrated V1 must never store PG Markdown");
+    let image_chapter: i64 = fields[0].parse().unwrap();
+    let image_version: i64 = fields[1].parse().unwrap();
+    let object_id = tor_contracts::paid_delivery::ObjectId::parse(fields[3]).unwrap();
+    let asset = PgPaidAssets::new(pool.clone())
+        .encrypted_for_pinned(
+            ChapterVersionRef {
+                chapter_id: PositiveId::new(image_chapter).unwrap(),
+                version_id: PositiveId::new(image_version).unwrap(),
+            },
+            &object_id,
+        )
+        .await
+        .unwrap()
+        .expect("B must bind only the sealed image to its published V1");
+    let sealed_png = store.get_verified(&asset.object).await.unwrap();
+    assert!(!sealed_png
+        .windows(png.len())
+        .any(|part| part == png.as_slice()));
+    let (image_status, image_editor) = browse(
+        &app,
+        &format!("/me/books/{book}/chapters/{image_chapter}/edit"),
+        &session,
+        &csrf,
+    )
+    .await;
+    assert_eq!(image_status, StatusCode::OK);
+    assert!(image_editor.contains(&format!("asset:{}", object_id.as_str())));
+
     let edit_path = format!("/me/books/{book}/chapters/{chapter}/edit");
     let (denied, denied_page) = browse(&app, &edit_path, &buyer_session, &csrf).await;
     assert_eq!(denied, StatusCode::NOT_FOUND);
