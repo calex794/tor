@@ -32,7 +32,11 @@ async fn buyer(pool: &PgPool, suffix: &str) -> i64 {
 async fn four_published_chapters(pool: &PgPool, book: i64) -> Vec<(i64, i64)> {
     let mut editions = Vec::new();
     for number in 1..=4_i32 {
-        let (access, price) = if number <= 2 { ("free", 0) } else { ("paid", 50) };
+        let (access, price) = if number <= 2 {
+            ("free", 0)
+        } else {
+            ("paid", 50)
+        };
         let chapter: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
              VALUES($1,$2,$3,'public',$4,$5) RETURNING id",
@@ -54,26 +58,18 @@ async fn four_published_chapters(pool: &PgPool, book: i64) -> Vec<(i64, i64)> {
         .fetch_one(pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-        )
-        .bind(chapter)
-        .bind(version)
-        .execute(pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+            .bind(chapter)
+            .bind(version)
+            .execute(pool)
+            .await
+            .unwrap();
         editions.push((chapter, version));
     }
     editions
 }
 
-fn purchase(
-    actor: i64,
-    layer: i64,
-    offer: i64,
-    version: i64,
-    key: char,
-) -> LayerCheckoutCommand {
+fn purchase(actor: i64, layer: i64, offer: i64, version: i64, key: char) -> LayerCheckoutCommand {
     LayerCheckoutCommand {
         actor: id(actor),
         wallet: WalletId::new(actor).unwrap(),
@@ -85,25 +81,20 @@ fn purchase(
     }
 }
 
-async fn assert_old_four(
-    rights: &PgLayerChapterEntitlements,
-    old: i64,
-    editions: &[(i64, i64)],
-) {
+async fn assert_old_four(rights: &PgLayerChapterEntitlements, old: i64, editions: &[(i64, i64)]) {
     for &(chapter, version) in &editions[..2] {
         assert_eq!(
-            rights.archived_free_version(id(old), id(chapter)).await.unwrap(),
+            rights
+                .archived_free_version(id(old), id(chapter))
+                .await
+                .unwrap(),
             Some(id(version)),
         );
     }
     for &(chapter, version) in &editions[2..] {
         assert_eq!(
             rights
-                .resolve_entitlement(
-                    Actor { user_id: id(old) },
-                    id(chapter),
-                    None,
-                )
+                .resolve_entitlement(Actor { user_id: id(old) }, id(chapter), None,)
                 .await
                 .unwrap(),
             EntitlementDecision::Allowed {
@@ -135,10 +126,9 @@ async fn assert_old_four(
         .chapters
         .iter()
         .all(|row| row.access == LayerTocAccess::ArchivedFree));
-    assert!(before
-        .chapters
+    assert!(before.chapters.iter().all(|row| editions[..2]
         .iter()
-        .all(|row| editions[..2].iter().any(|&(chapter, _)| chapter == row.chapter_id)));
+        .any(|&(chapter, _)| chapter == row.chapter_id)));
     let after = rights
         .layer_toc_window(
             id(old),
@@ -160,8 +150,7 @@ async fn assert_old_four(
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
-    let (pool, layer_repo, owner, old, deleted_book) =
-        setup("four-chapter-term-matrix").await;
+    let (pool, layer_repo, owner, old, deleted_book) = setup("four-chapter-term-matrix").await;
     let editions = four_published_chapters(&pool, deleted_book).await;
     let surviving_book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
@@ -322,7 +311,13 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     assert_ne!(first.term_id, renewed.term_id);
     assert_old_four(&rights, old, &editions).await;
     for &(chapter, _) in &editions[..2] {
-        assert_eq!(rights.archived_free_version(id(late), id(chapter)).await.unwrap(), None);
+        assert_eq!(
+            rights
+                .archived_free_version(id(late), id(chapter))
+                .await
+                .unwrap(),
+            None
+        );
     }
     for &(chapter, _) in &editions[2..] {
         assert!(matches!(
@@ -351,7 +346,12 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
              WHERE user_id=$1 AND chapter_id = ANY($2)",
         )
         .bind(old)
-        .bind(editions[2..].iter().map(|(chapter, _)| *chapter).collect::<Vec<_>>())
+        .bind(
+            editions[2..]
+                .iter()
+                .map(|(chapter, _)| *chapter)
+                .collect::<Vec<_>>()
+        )
         .fetch_one(&pool)
         .await
         .unwrap(),
@@ -372,12 +372,24 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     .await
     .unwrap();
     for &(chapter, _) in &editions[..2] {
-        assert_eq!(rights.archived_free_version(id(expiring), id(chapter)).await.unwrap(), None);
+        assert_eq!(
+            rights
+                .archived_free_version(id(expiring), id(chapter))
+                .await
+                .unwrap(),
+            None
+        );
     }
     for &(chapter, _) in &editions[2..] {
         assert!(matches!(
             rights
-                .resolve_entitlement(Actor { user_id: id(expiring) }, id(chapter), None)
+                .resolve_entitlement(
+                    Actor {
+                        user_id: id(expiring)
+                    },
+                    id(chapter),
+                    None
+                )
                 .await
                 .unwrap(),
             EntitlementDecision::Denied { .. }
