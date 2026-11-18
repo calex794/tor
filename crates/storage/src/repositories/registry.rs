@@ -2,6 +2,7 @@
 //! A ready row is NOT a B published chapter or a D entitlement.
 //! The only ready transition requires a G-owned verified GET/hash receipt.
 mod assets;
+mod author_source;
 
 use crate::{
     domain::{
