@@ -49,3 +49,33 @@ This catalog operation keeps both registered source receipts and has no
 provider side effects. The separate retirement process still needs exact
 replacement bytes, independent recovery evidence, read-grant drainage,
 and provider acceptance before either source key can be deleted.
+
+### Replacement bytes before the seal
+
+Use the PostgreSQL catalog owner profile for the whole operator procedure.
+Export one source PACK's current replacement plan in a read-only transaction.
+The export requires a complete active replacement for every source member.
+
+```bash
+PGSERVICE=tor-catalog-owner python3 tools/drop07_pack_replacement_verify.py \
+    export 123 > replacement-plan.json
+```
+
+Read back both complete objects for every listed replacement PACK using
+separate read-only storage credentials. In one dedicated staging directory,
+store them under the exact listed object keys. Verify full sizes and SHA-256
+against the catalog receipt that registered each replacement.
+
+```bash
+python3 tools/drop07_pack_replacement_verify.py \
+    verify replacement-plan.json "$STAGED_ROOT"
+```
+
+Use that same command with `--seal` and the catalog owner profile to request
+the placement seal. The command rereads the staged bytes, then obtains the
+source seal's transactional locks. It compares the whole reviewed plan,
+including edition generations, frame ranges, and object receipts, against
+the current PostgreSQL plan before committing. Changed or incomplete plans
+roll back. If the database connection fails around commit, check the gate
+before retrying. The command keeps the registered source receipts and the
+original objects. Physical retirement has its own acceptance procedure.
