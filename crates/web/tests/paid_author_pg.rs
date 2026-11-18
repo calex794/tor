@@ -2,8 +2,6 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
-#[path = "paid_author_pg/fnd00_bodyless.rs"]
-mod fnd00_bodyless;
 #[path = "paid_author_pg/s048_browser.rs"]
 mod s048_browser;
 
@@ -344,6 +342,23 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         chapter_id: PositiveId::new(chapter_id).unwrap(),
         version_id: PositiveId::new(version_id).unwrap(),
     };
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter_id}"
+            ),
+        ),
+        "0",
+        "paid browser Save must never persist Markdown in PostgreSQL"
+    );
+    let edit_url = format!("/me/books/{book}/chapters/{chapter_id}/edit");
+    let (status, owner_source) = browse(&app, &edit_url, &owner_session, &csrf).await;
+    assert_eq!(status, StatusCode::OK, "S3-only paid editor must open for owner");
+    assert!(owner_source.contains("Paid chapter V2"));
+    let (status, _) = browse(&app, &edit_url, &other_session, &csrf).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     let encrypted = PgPaidStorage::new(pool.clone())
         .encrypted_chapter(pinned)
         .await
@@ -461,7 +476,7 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let published: String = pg(
         &url,
         &format!(
-            "SELECT v.id || '|' || v.body_markdown || '|' || a.storage_object_id::text
+            "SELECT v.id || '|' || coalesce(v.body_markdown,'<NULL>') || '|' || a.storage_object_id::text
              FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.id=p.version_id
              JOIN chapter_version_assets a ON a.chapter_id=c.id AND a.version_id=v.id
@@ -471,9 +486,9 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let parts = published.split('|').collect::<Vec<_>>();
     assert_eq!(parts.len(), 3);
     let illustrated_version: i64 = parts[0].parse().unwrap();
-    assert!(
-        parts[1].contains(&format!("![Иллюстрация](asset:{})", parts[2])),
-        "published immutable Markdown must reference the exact encrypted image"
+    assert_eq!(
+        parts[1], "<NULL>",
+        "illustrated paid edition must also be S3-only without a PostgreSQL body"
     );
     let illustrated_chapter: i64 = pg(
         &url,
