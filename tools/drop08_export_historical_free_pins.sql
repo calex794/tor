@@ -22,10 +22,13 @@ COPY (
                 WHERE s.chapter_id=p.chapter_id AND s.version_id=p.version_id
            ) THEN 1 ELSE 0 END AS single_receipt,
            CASE WHEN EXISTS (
-               SELECT 1 FROM free_edition_storage_generations g
+               SELECT 1 FROM free_edition_active_storage a
+               JOIN free_edition_storage_generations g
+                 ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+                AND g.generation=a.generation AND g.placement_kind='pack'
                JOIN free_storage_packs pack ON pack.id=g.pack_id
-                WHERE g.chapter_id=p.chapter_id AND g.version_id=p.version_id
-                  AND g.placement_kind='pack'
+                WHERE a.chapter_id=p.chapter_id AND a.version_id=p.version_id
+                  AND g.content_sha256=v.content_sha256
            ) THEN 1 ELSE 0 END AS pack_receipt
       FROM pinned p
       LEFT JOIN chapter_versions v
