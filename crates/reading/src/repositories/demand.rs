@@ -103,7 +103,6 @@ impl PgContinuationDemand {
     }
 }
 
-
 /// A scoped, read-only aggregate. Never returns reader identifiers.
 #[derive(Debug, Clone)]
 pub struct ContinuationStatsBook {
