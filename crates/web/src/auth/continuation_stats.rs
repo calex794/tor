@@ -149,7 +149,8 @@ fn render(report: &ContinuationStatsReport, csrf: &str, sitewide: bool) -> axum:
     for book in &report.books {
         let _ = write!(
             body,
-            "<tr><td><a href=\"/me/books/{}\">{}</a></td>",
+            "<tr><td><a href=\"{}/{}\">{}</a></td>",
+            if sitewide { "/books" } else { "/me/books" },
             book.book_id,
             pages::escape_html(&book.title),
         );
