@@ -40,3 +40,18 @@ Before acceptance: exact-head CI including PostgreSQL foundation and real MinIO 
 - DROP-09: test-only real provider acceptance and a separate security-reviewed rollout decision.
 
 [Original Notion plan](https://app.notion.com/p/41a32a84beec816db12deb24688716d6). [PR #1014](https://github.com/calex794/tor/pull/1014).
+
+## DROP-07 — background reproof before closing a source
+
+Before the full PACK and manifest GETs, queued and manual activation reserve
+a five-minute window in the PACK placement gate. The queued path checks its
+current activation epoch and the immutable build fingerprint. The read uses
+a 290-second application deadline that includes admission. The reservation
+expires in PostgreSQL even if the worker crashes. A terminal job state does
+not shorten a reservation already issued.
+
+Sealing refuses a PACK with a pending or running activation or an unexpired
+reservation. Queue admission and the seal serialize on the same PACK row.
+After sealing, PostgreSQL refuses both new activation work and full reproof
+admission. Manual inventory, backup, diagnostic reads and provider acceptance
+are accounted for separately before any physical deletion.

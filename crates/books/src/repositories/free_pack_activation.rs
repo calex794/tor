@@ -29,6 +29,32 @@ fn map_error(error: sqlx::Error) -> AuthorError {
 }
 
 impl PgFreePackCatalog {
+    /// Reserve time to read the full immutable candidate and sidecar. A
+    /// queued worker must still own its activation epoch at admission.
+    pub async fn reserve_pack_activation_reproof(
+        &self,
+        claim: &PackJobClaim,
+        activation_epoch: Option<i64>,
+    ) -> Result<(), AuthorError> {
+        if claim.job_id <= 0 || claim.epoch <= 0 || activation_epoch.is_some_and(|epoch| epoch <= 0)
+        {
+            return Err(AuthorError::Invalid);
+        }
+        let admitted: bool =
+            sqlx::query_scalar("SELECT public.reserve_free_pack_activation_reproof($1,$2,$3,$4)")
+                .bind(claim.job_id)
+                .bind(claim.epoch)
+                .bind(Self::fingerprint(&claim.receipt).as_slice())
+                .bind(activation_epoch)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(map_error)?;
+        if !admitted {
+            return Err(AuthorError::Conflict);
+        }
+        Ok(())
+    }
+
     /// Fails closed when the additive schema is absent. Does not probe the
     /// remote provider or enable any background task.
     pub async fn probe_pack_activation_schema(&self) -> Result<(), AuthorError> {
@@ -36,7 +62,10 @@ impl PgFreePackCatalog {
             "SELECT EXISTS(SELECT 1 FROM information_schema.columns
              WHERE table_schema=current_schema()
                AND table_name='free_pack_activation_jobs'
-               AND column_name='lease_epoch')",
+               AND column_name='lease_epoch')
+             AND to_regprocedure(
+                 'public.reserve_free_pack_activation_reproof(bigint,bigint,bytea,bigint)'
+             ) IS NOT NULL",
         )
         .fetch_one(&self.pool)
         .await

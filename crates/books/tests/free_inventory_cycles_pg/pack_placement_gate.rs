@@ -1,5 +1,10 @@
 //! DROP-07: the real catalog cannot reuse a sealed source PACK.
 use sqlx::{PgConnection, PgPool};
+use tor_books::{
+    repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim},
+    services::authoring::AuthorError,
+};
+use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 
 #[derive(Clone, Copy)]
 struct Edition {
@@ -250,4 +255,132 @@ async fn drop_07_pack_seal_preserves_future_pins_and_denies_reactivation() {
     .await
     .unwrap();
     assert_eq!(active_and_source, (target, true));
+}
+
+#[tokio::test]
+#[ignore = "requires separate app and migrator roles on disposable PostgreSQL18 tor_ci"]
+async fn drop_07_background_reproof_hold_survives_terminal_queue_state() {
+    let app_url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let owner_url = std::env::var("MIGRATOR_URL").unwrap();
+    for url in [&app_url, &owner_url] {
+        assert!(url.contains("@127.0.0.1:") && url.ends_with("/tor_ci"));
+    }
+    let app = PgPool::connect(&app_url).await.unwrap();
+    let owner_pool = PgPool::connect(&owner_url).await.unwrap();
+    let mut owner = owner_pool.acquire().await.unwrap();
+    let (actor, book, editions) = seed(&app).await;
+    let edition = editions[0];
+    let bucket = "tor-ci-drop07-pack-gate";
+    let source = register(&app, book, bucket, "proof-source").await;
+    let target = register(&app, book, bucket, "proof-target").await;
+    edition.attach(&app, 1, source, 0).await.unwrap();
+    edition.attach(&app, 2, target, 0).await.unwrap();
+    let mut writer = app.acquire().await.unwrap();
+    assert!(edition.promote(&mut writer, 0, 2).await.unwrap());
+
+    let receipt = PackPlacementReceipt {
+        target: PackPlacementTarget {
+            bucket: bucket.to_owned(),
+            pack_key: format!("private/free-packs/ci/drop07-gate-{book}-proof-source.zst"),
+            manifest_key: format!(
+                "private/free-packs/ci/drop07-gate-{book}-proof-source.manifest.json"
+            ),
+            pack_sha256: [1; 32],
+            manifest_sha256: [2; 32],
+            pack_bytes: 150,
+            manifest_bytes: 30,
+            seek_table_start: 120,
+        },
+        frames: vec![PackPlacementFrame {
+            chapter_id: edition.chapter,
+            version_id: edition.version,
+            content_sha256: [3; 32],
+            size_bytes: 4,
+            frame_offset: 0,
+            frame_bytes: 20,
+        }],
+    };
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_jobs(actor_user_id,book_id,approved_fingerprint,
+            expected_chapter_count,status,lease_epoch,pack_id)
+         VALUES($1,$2,$3,1,'succeeded',1,$4) RETURNING id",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(PgFreePackCatalog::fingerprint(&receipt).as_slice())
+    .bind(source)
+    .fetch_one(&mut *writer)
+    .await
+    .unwrap();
+    let claim = PackJobClaim {
+        job_id: job,
+        epoch: 1,
+        actor_user_id: actor,
+        book_id: book,
+        receipt,
+    };
+    let catalog = PgFreePackCatalog::new(app.clone());
+
+    let mut enqueue = app.begin().await.unwrap();
+    sqlx::query("INSERT INTO free_pack_activation_jobs(pack_job_id) VALUES($1)")
+        .bind(job)
+        .execute(&mut *enqueue)
+        .await
+        .unwrap();
+    assert_sqlstate(seal(&mut owner, source).await.unwrap_err(), "55P03");
+    enqueue.commit().await.unwrap();
+    assert_sqlstate(seal(&mut owner, source).await.unwrap_err(), "23514");
+    sqlx::query(
+        "UPDATE free_pack_activation_jobs SET status='running',lease_epoch=2,attempts=1,
+           locked_until=clock_timestamp()+interval '1 minute' WHERE pack_job_id=$1",
+    )
+    .bind(job)
+    .execute(&mut *writer)
+    .await
+    .unwrap();
+    assert!(matches!(
+        catalog
+            .reserve_pack_activation_reproof(&claim, Some(1))
+            .await,
+        Err(AuthorError::Conflict)
+    ));
+    let mut forged = claim.clone();
+    forged.receipt.target.pack_sha256 = [8; 32];
+    assert!(matches!(
+        catalog
+            .reserve_pack_activation_reproof(&forged, Some(2))
+            .await,
+        Err(AuthorError::Conflict)
+    ));
+    catalog
+        .reserve_pack_activation_reproof(&claim, Some(2))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE free_pack_activation_jobs SET status='failed',locked_until=NULL,
+           completed_at=clock_timestamp() WHERE pack_job_id=$1",
+    )
+    .bind(job)
+    .execute(&mut *writer)
+    .await
+    .unwrap();
+    assert_sqlstate(seal(&mut owner, source).await.unwrap_err(), "23514");
+
+    // Move the durable hold into the past on the disposable database.
+    sqlx::query(
+        "UPDATE free_pack_placement_gates SET reproof_until=clock_timestamp()-interval '1 second'
+         WHERE pack_id=$1",
+    )
+    .bind(source)
+    .execute(&mut *owner)
+    .await
+    .unwrap();
+    assert!(seal(&mut owner, source).await.unwrap());
+    assert!(matches!(
+        catalog.reserve_pack_activation_reproof(&claim, None).await,
+        Err(AuthorError::Conflict)
+    ));
+    assert_sqlstate(sqlx::query(
+        "UPDATE free_pack_activation_jobs SET status='pending',completed_at=NULL WHERE pack_job_id=$1",
+    ).bind(job).execute(&mut *writer).await.unwrap_err(), "23514");
 }

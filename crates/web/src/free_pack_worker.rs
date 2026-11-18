@@ -7,10 +7,16 @@ pub mod inventory_dry_run;
 pub mod inventory_operator;
 pub mod quarantine_operator;
 pub mod runner;
+use std::time::Duration;
+use tokio::time::{timeout_at, Instant};
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
 use tor_books::services::authoring::AuthorError;
 use tor_storage::repositories::free_pack_proof_s3::S3PackProofStore;
 use tor_storage::services::{free_chapter::FreeChapterObject, free_pack_proof::PackProofTarget};
+
+// Begin counting before PostgreSQL admission and keep a margin inside the
+// five-minute durable hold. The check and full GET run without an open PG tx.
+const ACTIVATION_REPROOF_BUDGET: Duration = Duration::from_secs(290);
 
 async fn reverify_pack_receipt(
     proof: &S3PackProofStore,
@@ -95,6 +101,7 @@ async fn reprove_pack_for_cutover(
     proof: &S3PackProofStore,
     original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &PackJobClaim,
+    activation_epoch: Option<i64>,
 ) -> Result<(), AuthorError> {
     // The original SINGLE is the recoverable reserve. Every source is
     // checked with bounded private GET, not assumed from immutable B metadata.
@@ -119,12 +126,28 @@ async fn reprove_pack_for_cutover(
     // A succeeded R4a job is an idempotent readback, not permission to reuse
     // an old proof: fetch full PACK and manifest and validate each frame now.
     // A corrupt immutable PACK is terminal; a transient S3 outage is retryable.
-    let receipt = reverify_pack_receipt(proof, claim)
-        .await
-        .map_err(|error| match error {
-            tor_storage::domain::provider::StorageError::Unavailable => AuthorError::Unavailable,
-            _ => AuthorError::Conflict,
-        })?;
+    let deadline = Instant::now() + ACTIVATION_REPROOF_BUDGET;
+    let receipt = timeout_at(deadline, async {
+        catalog
+            .reserve_pack_activation_reproof(claim, activation_epoch)
+            .await?;
+        if Instant::now() >= deadline {
+            return Err(AuthorError::Unavailable);
+        }
+        reverify_pack_receipt(proof, claim)
+            .await
+            .map_err(|error| match error {
+                tor_storage::domain::provider::StorageError::Unavailable => {
+                    AuthorError::Unavailable
+                }
+                _ => AuthorError::Conflict,
+            })
+    })
+    .await
+    .map_err(|_| AuthorError::Unavailable)??;
+    if Instant::now() >= deadline {
+        return Err(AuthorError::Unavailable);
+    }
     if receipt != claim.receipt {
         return Err(AuthorError::Conflict);
     }
@@ -141,7 +164,7 @@ pub async fn activate_one_verified_pack(
     original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &PackJobClaim,
 ) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
-    reprove_pack_for_cutover(catalog, proof, original_single, claim).await?;
+    reprove_pack_for_cutover(catalog, proof, original_single, claim, None).await?;
     catalog
         .activate_verified_pack(claim.job_id, claim.epoch, &claim.receipt)
         .await
@@ -155,7 +178,14 @@ pub async fn activate_one_queued_verified_pack(
     original_single: &impl tor_storage::services::free_chapter::FreeChapterStore,
     claim: &tor_books::repositories::free_pack_activation::PackActivationClaim,
 ) -> Result<tor_books::repositories::free_pack_cutover::PackActivation, AuthorError> {
-    reprove_pack_for_cutover(catalog, proof, original_single, &claim.pack).await?;
+    reprove_pack_for_cutover(
+        catalog,
+        proof,
+        original_single,
+        &claim.pack,
+        Some(claim.activation_epoch),
+    )
+    .await?;
     catalog.activate_queued_verified_pack(claim).await
 }
 
