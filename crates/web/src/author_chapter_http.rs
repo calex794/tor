@@ -19,6 +19,7 @@ use tor_books::{
 mod chapter_import;
 mod free_editor;
 mod new_chapter_page;
+mod paid_editor;
 mod publisher;
 mod schedule;
 pub(crate) use publisher::{FreeChapterPublisher, FreeContent, PaidChapterPublisher};
@@ -330,24 +331,10 @@ async fn edit_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
-    // FND-00: published bodyless paid editions use a fenced B metadata
-    // selector and G's owner-only S3 opener. A denied or failed S3 read
-    // must not fall through to the legacy PostgreSQL editor.
-    if let Some(publisher) = state.paid_author.as_ref() {
-        match publisher.owned_bodyless(actor, id, chapter_id).await {
-            Ok(Some(chapter)) => {
-                let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-                let command_key = generate_session_token();
-                return private_response(
-                    crate::author_chapter_pages::edit_published_paid_chapter(
-                        id, chapter_id, &chapter, &csrf, &command_key,
-                    ),
-                    &cookies,
-                );
-            }
-            Ok(None) => {}
-            Err(error) => return free_editor::error(error),
-        }
+    match paid_editor::page(&state, actor, id, chapter_id, &headers).await {
+        Ok(Some(page)) => return page,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
     }
     // Published free content must be editable without a second release
     // action. Existing owner-only drafts still use their separate B path.
@@ -443,20 +430,9 @@ async fn update_chapter(
     // B decides paid/publication state, never a submitted "paid" form field.
     // The owner query and the publishing transaction both check ownership.
     let paid = if state.paid_author.is_some() {
-        let storage = PgPaidStorage::new(state.accounts.pool().clone());
-        match storage
-            .owned_published_bodyless_paid_metadata(actor, id, chapter_id)
-            .await
-        {
-            Ok(Some(meta)) => Some(meta.price_amount),
-            Ok(None) => match storage
-                .owned_published_paid_chapter(actor, id, chapter_id)
-                .await
-            {
-                Ok(legacy) => legacy.map(|value| value.price_amount),
-                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-            },
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        match paid_editor::price(&state, actor, id, chapter_id).await {
+            Ok(price) => price,
+            Err(error) => return free_editor::error(error),
         }
     } else {
         None
