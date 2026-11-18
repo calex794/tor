@@ -98,7 +98,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         bodyless: bool,
     ) -> Result<(), AuthorError> {
         let pending = if bodyless {
-            self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?
+            self.paid
+                .prepare_new_paid_chapter_bodyless(actor, request)
+                .await?
         } else {
             self.paid.prepare_new_paid_chapter(actor, request).await?
         };
@@ -148,14 +150,22 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
                 .await
         } else {
             self.paid
-                .attach_verified_and_publish(actor, request.book_id, version, &object_id, publication)
+                .attach_verified_and_publish(
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    publication,
+                )
                 .await
         };
         if published == Err(AuthorError::Conflict) {
             // Two identical tabs can race with different random G objects.
             // Report success only when the exact idempotent B version won.
             let current = if bodyless {
-                self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?
+                self.paid
+                    .prepare_new_paid_chapter_bodyless(actor, request)
+                    .await?
             } else {
                 self.paid.prepare_new_paid_chapter(actor, request).await?
             };
@@ -198,9 +208,13 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             .require_active_book_schedule(actor, request.book_id)
             .await?;
         let pending = if bodyless {
-            self.paid.prepare_scheduled_paid_chapter_bodyless(actor, request).await?
+            self.paid
+                .prepare_scheduled_paid_chapter_bodyless(actor, request)
+                .await?
         } else {
-            self.paid.prepare_scheduled_paid_chapter(actor, request).await?
+            self.paid
+                .prepare_scheduled_paid_chapter(actor, request)
+                .await?
         };
         if pending.published {
             // The delayed command hash is distinct from the immediate path.
@@ -264,7 +278,11 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         } else {
             self.paid
                 .attach_verified_and_publish(
-                    actor, request.book_id, version, &object_id, PaidPublication::KeepCurrent,
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    PaidPublication::KeepCurrent,
                 )
                 .await
         };
@@ -325,9 +343,13 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         bodyless: bool,
     ) -> Result<(), AuthorError> {
         let prepared = if bodyless {
-            self.paid.prepare_published_paid_edit_bodyless(actor, request).await?
+            self.paid
+                .prepare_published_paid_edit_bodyless(actor, request)
+                .await?
         } else {
-            self.paid.prepare_published_paid_edit(actor, request).await?
+            self.paid
+                .prepare_published_paid_edit(actor, request)
+                .await?
         };
         if prepared.published {
             return Ok(());
@@ -361,21 +383,34 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         let published = if bodyless {
             self.paid
                 .attach_verified_and_publish_bodyless(
-                    actor, request.book_id, version, &object_id, publication, &request.body,
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    publication,
+                    &request.body,
                 )
                 .await
         } else {
             self.paid
                 .attach_verified_and_publish(
-                    actor, request.book_id, version, &object_id, publication,
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    publication,
                 )
                 .await
         };
         if published == Err(AuthorError::Conflict) {
             let existing = if bodyless {
-                self.paid.prepare_published_paid_edit_bodyless(actor, request).await?
+                self.paid
+                    .prepare_published_paid_edit_bodyless(actor, request)
+                    .await?
             } else {
-                self.paid.prepare_published_paid_edit(actor, request).await?
+                self.paid
+                    .prepare_published_paid_edit(actor, request)
+                    .await?
             };
             if existing.chapter_id == prepared.chapter_id
                 && existing.version_id == prepared.version_id
