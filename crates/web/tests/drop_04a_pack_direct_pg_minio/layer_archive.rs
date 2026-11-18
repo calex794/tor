@@ -93,14 +93,26 @@ pub(super) async fn verify(
     // fixture before the owner takes the archive snapshot.
     assert_eq!(receipt.frames.len(), 2);
     for restored in &receipt.frames {
-        let result =
-            sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
-                .bind(restored.version_id)
-                .bind(restored.chapter_id)
-                .execute(&pool)
-                .await
-                .unwrap();
-        assert_eq!(result.rows_affected(), 1);
+        // Use the existing disposable PostgreSQL fixture helper; tor-web
+        // intentionally has no direct sqlx dependency.
+        pg(
+            url,
+            &format!(
+                "UPDATE chapter_publications SET version_id={} WHERE chapter_id={}",
+                restored.version_id, restored.chapter_id
+            ),
+        );
+        assert_eq!(
+            pg(
+                url,
+                &format!(
+                    "SELECT version_id FROM chapter_publications WHERE chapter_id={}",
+                    restored.chapter_id
+                ),
+            ),
+            restored.version_id.to_string(),
+            "each FREE chapter must publish its original immutable PACK frame"
+        );
     }
     let frame = &receipt.frames[1];
     let expected = chapters[1].body.as_bytes();
