@@ -31,6 +31,8 @@ for (const item of fixture.chapters) {
 }
 const route = item => "/read/layer/" +
   (item.kind === "free" ? "free/" : "") + item.id;
+const tocUrl = chapterId => SITE +
+  `/api/v1/reader/layer/${chapterId}/toc/window?after=1.${chapterId}&limit=36`;
 
 async function oldBuyer(browser) {
   const context = await browser.newContext({
@@ -100,6 +102,22 @@ async function oldBuyer(browser) {
       assert(minio200 > before,
         "each of four independently protected chapters requires its own real MinIO GET");
     }
+    // The old subscriber must see the deleted Book's private chapter index,
+    // not merely succeed at opening four guessed direct URLs.
+    const paidAnchor = fixture.chapters.find(item => item.kind === "paid");
+    const tocResponse = await page.goto(tocUrl(paidAnchor.id), {
+      waitUntil: "domcontentloaded",
+    });
+    assert.equal(tocResponse.status(), 200,
+      "historical Layer buyer must retain private archived TOC");
+    const toc = await tocResponse.json();
+    assert(Array.isArray(toc.items));
+    for (const item of fixture.chapters.filter(item => item.id !== paidAnchor.id)) {
+      assert(toc.items.some(entry => entry.chapter_id === String(item.id)),
+        "historical TOC must include each other archived FREE/PAID chapter");
+    }
+    assert(!JSON.stringify(toc).includes("X-Amz-Signature"),
+      "private TOC cannot disclose signed storage URLs");
     assert.equal(grants.size, 4,
       "two FREE grants and two PAID grants must use four chapter-scoped endpoints");
     assert.equal(publicFallbacks, 0, "deleted chapters must not use public reader fallback");
@@ -132,6 +150,17 @@ async function deniedBuyer(browser, session) {
       assert.equal(await page.locator(
         "[data-layer-free-content], [data-layer-content]").count(), 0);
     }
+    // A private navigation request must not be an alternate path to chapter
+    // names after expiry, deletion from CURRENT, or legal revocation.
+    const paidAnchor = fixture.chapters.find(item => item.kind === "paid");
+    const tocResponse = await page.goto(tocUrl(paidAnchor.id), {
+      waitUntil: "domcontentloaded",
+    });
+    assert(session ? [403, 404].includes(tocResponse.status()) :
+      [401, 403, 404].includes(tocResponse.status()),
+      "unauthorized actor must not enumerate deleted Layer chapter titles");
+    assert.equal(await tocResponse.text(), "",
+      "denied TOC must not disclose private titles or metadata");
     assert.equal(s3Requests, 0, "new buyer cannot reach private object delivery");
   } finally {
     await context.close();
