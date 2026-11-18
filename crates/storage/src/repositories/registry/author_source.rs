@@ -5,9 +5,7 @@ use super::{PgStorageRegistry, RegistryError};
 use crate::{
     domain::provider::valid_private_bucket,
     services::{
-        crypto::{
-            open_registered_paid_chapter, ContentKeyring, RegisteredPaidChapter,
-        },
+        crypto::{open_registered_paid_chapter, ContentKeyring, RegisteredPaidChapter},
         provider::PrivateObjectStore,
     },
 };
@@ -87,7 +85,9 @@ impl PgStorageRegistry {
             .try_get("object_id")
             .map_err(|_| RegistryError::Unavailable)?;
         let object_id = ObjectId::parse(&object_id).map_err(|_| RegistryError::Unavailable)?;
-        let size: i64 = row.try_get("size_bytes").map_err(|_| RegistryError::Unavailable)?;
+        let size: i64 = row
+            .try_get("size_bytes")
+            .map_err(|_| RegistryError::Unavailable)?;
         let digest: Vec<u8> = row
             .try_get("sha256_ciphertext")
             .map_err(|_| RegistryError::Unavailable)?;
@@ -96,21 +96,22 @@ impl PgStorageRegistry {
         let plain_digest: Vec<u8> = row
             .try_get("plaintext_sha256")
             .map_err(|_| RegistryError::Unavailable)?;
-        let plaintext_sha256: [u8; 32] =
-            plain_digest.try_into().map_err(|_| RegistryError::Unavailable)?;
+        let plaintext_sha256: [u8; 32] = plain_digest
+            .try_into()
+            .map_err(|_| RegistryError::Unavailable)?;
         let nonce: Vec<u8> = row
             .try_get("object_nonce")
             .map_err(|_| RegistryError::Unavailable)?;
-        let nonce: [u8; 12] =
-            nonce.try_into().map_err(|_| RegistryError::Unavailable)?;
+        let nonce: [u8; 12] = nonce.try_into().map_err(|_| RegistryError::Unavailable)?;
         let wrapped_dek: Vec<u8> = row
             .try_get("encrypted_dek")
             .map_err(|_| RegistryError::Unavailable)?;
         let wrap_nonce: Vec<u8> = row
             .try_get("wrap_nonce")
             .map_err(|_| RegistryError::Unavailable)?;
-        let wrap_nonce: [u8; 12] =
-            wrap_nonce.try_into().map_err(|_| RegistryError::Unavailable)?;
+        let wrap_nonce: [u8; 12] = wrap_nonce
+            .try_into()
+            .map_err(|_| RegistryError::Unavailable)?;
         let aad: Vec<u8> = row
             .try_get("object_aad")
             .map_err(|_| RegistryError::Unavailable)?;
