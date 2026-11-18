@@ -41,7 +41,11 @@ pub(super) async fn verify(url: &str, released: i64, reader: i64, notices: &PgNo
         ),
     );
     let _ = notices.fanout_chapter_releases(32).await.unwrap();
-    assert_eq!(release_children(), "0", "retry deadline blocks premature fanout");
+    assert_eq!(
+        release_children(),
+        "0",
+        "retry deadline blocks premature fanout"
+    );
     pg(
         url,
         &format!(
@@ -63,7 +67,10 @@ pub(super) async fn verify(url: &str, released: i64, reader: i64, notices: &PgNo
          AND payload->>'recipient_user_id'='{reader}'"
     );
     assert_eq!(
-        pg(url, &format!("SELECT count(*) FROM outbox_events WHERE {release_child}")),
+        pg(
+            url,
+            &format!("SELECT count(*) FROM outbox_events WHERE {release_child}")
+        ),
         "1",
         "one child event was created for the follower"
     );
@@ -98,7 +105,11 @@ pub(super) async fn verify(url: &str, released: i64, reader: i64, notices: &PgNo
         ),
     );
     let _ = notices.deliver_pending(64).await.unwrap();
-    assert_eq!(delivered_bells(), "0", "a deferred child cannot notify early");
+    assert_eq!(
+        delivered_bells(),
+        "0",
+        "a deferred child cannot notify early"
+    );
     pg(
         url,
         &format!(
@@ -117,8 +128,16 @@ pub(super) async fn verify(url: &str, released: i64, reader: i64, notices: &PgNo
     // but must preserve one child event and one durable notification.
     let _ = notices.fanout_chapter_releases(32).await.unwrap();
     let _ = notices.deliver_pending(64).await.unwrap();
-    assert_eq!(release_children(), "1", "replay created another child event");
-    assert_eq!(delivered_bells(), "1", "replay created another personal bell");
+    assert_eq!(
+        release_children(),
+        "1",
+        "replay created another child event"
+    );
+    assert_eq!(
+        delivered_bells(),
+        "1",
+        "replay created another personal bell"
+    );
     assert_eq!(
         pg(
             url,
