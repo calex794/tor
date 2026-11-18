@@ -12,6 +12,30 @@ use tor_web::cover_private_cleanup::PrivateCoverVariantCleanup;
 
 use super::{digest, pg_sql, BOOK_ID, BUCKET, SOURCE_KEY};
 
+// Execute the actual operator SQL inside the already disposable PG18 fixture.
+// It is read-only and never invokes an S3 API or a cleanup worker.
+async fn preview_on_disposable_postgres(url: &str) -> String {
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let file = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/mod_cover_gc_dry_run.sql"
+        );
+        let output = std::process::Command::new("psql")
+            .args(["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-d", &url, "-f", file])
+            .output()
+            .expect("disposable CI psql");
+        assert!(
+            output.status.success(),
+            "read-only preview failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("UTF-8 preview")
+    })
+    .await
+    .expect("blocking PostgreSQL preview task")
+}
+
 pub(super) struct PrivateRetentionCase<'a> {
     pub url: &'a str,
     pub catalog: &'a PgCatalog,
@@ -220,6 +244,25 @@ pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<
         ),
     )
     .await;
+    // Guard against PostgreSQL's NOT(NULL)=NULL behavior. The read-only
+    // operator report must agree with the actual B-owned worker, otherwise
+    // an undated legacy supersession appears falsely eligible to an operator.
+    let preview = preview_on_disposable_postgres(&url).await;
+    let exact_job = format!("job={superseded_job} variant=");
+    assert!(
+        preview.lines().any(|line| {
+            line.contains("private_variants|retain_pending_recent_or_undated_review|")
+                && line.contains(&exact_job)
+        }),
+        "legacy supersession must be retained in operator preview"
+    );
+    assert!(
+        !preview.lines().any(|line| {
+            line.contains("private_variants|eligible_to_stage|")
+                && line.contains(&exact_job)
+        }),
+        "legacy supersession must never appear eligible in operator preview"
+    );
     assert_eq!(
         private_cleanup.run_batch().await.unwrap().claimed,
         0,
