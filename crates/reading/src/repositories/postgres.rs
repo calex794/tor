@@ -261,7 +261,7 @@ impl PgReader {
         // Access predicates must be in the SAME SQL query that selects the text.
         // Never rely on filtering navigation links, the homepage or an earlier request.
         let row = sqlx::query(
-            "SELECT b.id AS book_id, b.title AS book_title, \
+            "SELECT b.id AS book_id, b.title AS book_title, (b.lifecycle_status='completed') AS book_completed, \
                     c.title AS chapter_title, p.version_id, v.version_no, COALESCE(v.body_markdown,'') AS body_markdown, \
                     (SELECT prior.id FROM chapters prior \
                      JOIN chapter_publications pp ON pp.chapter_id = prior.id \
@@ -326,6 +326,7 @@ impl PgReader {
                     .map(positive_id)
                     .transpose()?,
                 next_chapter_is_paid: row.try_get("next_chapter_is_paid").map_err(map_db)?,
+                book_completed: row.try_get("book_completed").map_err(map_db)?,
             })
         })
         .transpose()

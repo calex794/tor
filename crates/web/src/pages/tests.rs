@@ -339,6 +339,7 @@ fn s047_public_free_reader_binds_issue_form_only_to_verified_session() {
         previous_chapter_id: None,
         next_chapter_id: Some(103),
         next_chapter_is_paid: true,
+        book_completed: false,
     };
     let guest = reader_with_login_link(&chapter, Some(101)).0;
     assert!(guest.contains("data-free-toc-book=\"1\""));
@@ -410,6 +411,7 @@ fn c_14_public_continuation_distinguishes_read_access_and_missing_release() {
         previous_chapter_id: None,
         next_chapter_id: Some(31),
         next_chapter_is_paid: false,
+        book_completed: false,
     };
     assert_eq!(chapter.continuation(), PublicContinuation::ReadNow(31));
     let free = reader(&chapter).0;
@@ -448,6 +450,7 @@ fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
         previous_chapter_id: None,
         next_chapter_id: None,
         next_chapter_is_paid: false,
+        book_completed: false,
     };
     let waiting = reader_with_login_link(&chapter, Some(77)).0;
     assert!(waiting.contains("href=\"/read/77\""));

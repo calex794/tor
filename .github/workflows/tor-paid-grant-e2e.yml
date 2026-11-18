@@ -134,6 +134,7 @@ jobs:
           node --check tools/paid_reader_private_media_browser.cjs
           node --check tools/drop_06b_pack_chromium.cjs
           node --check tools/d05_layer_toc_chromium.cjs
+          node --check tools/d05_layer_free_live_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
           # without public /reader links, escaped titles, or full PACK URLs.

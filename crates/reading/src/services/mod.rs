@@ -53,6 +53,7 @@ pub enum PublicContinuation {
     ReadNow(u64),
     NeedsAccess(u64),
     WaitingForRelease,
+    FinishedBook,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,6 +67,8 @@ pub struct PublicChapterPage {
     pub previous_chapter_id: Option<u64>,
     pub next_chapter_id: Option<u64>,
     pub next_chapter_is_paid: bool,
+    /// Live lifecycle status, not inferred from the absence of the next chapter.
+    pub book_completed: bool,
 }
 
 impl PublicChapterPage {
@@ -73,6 +76,7 @@ impl PublicChapterPage {
         match self.next_chapter_id {
             Some(id) if self.next_chapter_is_paid => PublicContinuation::NeedsAccess(id),
             Some(id) => PublicContinuation::ReadNow(id),
+            None if self.book_completed => PublicContinuation::FinishedBook,
             None => PublicContinuation::WaitingForRelease,
         }
     }
@@ -102,3 +106,43 @@ pub mod group_book_returns;
 pub mod notification_preferences;
 pub mod notification_send_time;
 pub mod returns;
+
+#[cfg(test)]
+mod ret02_continuation_tests {
+    use super::{PublicChapterPage, PublicContinuation};
+
+    fn page(next: Option<u64>, paid: bool, finished: bool) -> PublicChapterPage {
+        PublicChapterPage {
+            version_id: 1,
+            book_id: 1,
+            book_title: "Book".to_owned(),
+            chapter_title: "Chapter".to_owned(),
+            version_no: 1,
+            body_markdown: "Text".to_owned(),
+            previous_chapter_id: None,
+            next_chapter_id: next,
+            next_chapter_is_paid: paid,
+            book_completed: finished,
+        }
+    }
+
+    #[test]
+    fn ret02_distinguishes_finished_book_from_unreleased_frontier() {
+        assert_eq!(
+            page(None, false, false).continuation(),
+            PublicContinuation::WaitingForRelease
+        );
+        assert_eq!(
+            page(None, false, true).continuation(),
+            PublicContinuation::FinishedBook
+        );
+        assert_eq!(
+            page(Some(7), false, true).continuation(),
+            PublicContinuation::ReadNow(7)
+        );
+        assert_eq!(
+            page(Some(8), true, true).continuation(),
+            PublicContinuation::NeedsAccess(8)
+        );
+    }
+}

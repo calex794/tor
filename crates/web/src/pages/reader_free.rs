@@ -110,6 +110,10 @@ pub fn reader_with_public_discussions(
             String::new(),
             "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
         ),
+        PublicContinuation::FinishedBook => (
+            String::new(),
+            "<p class=\"reader-next-state\">Книга завершена. Новых глав не ожидается.</p>",
+        ),
     };
     let return_to_reading = if matches!(
         chapter.continuation(),

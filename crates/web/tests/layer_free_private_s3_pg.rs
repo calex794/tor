@@ -32,10 +32,13 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "layer_free_private_s3_pg/live_chromium.rs"]
+mod live_chromium;
+
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-layer-free-archive-ci";
-const TEXT: &str = "Layer historical FREE V1 \u{0433}\u{043b}\u{0430}\u{0432}\u{0430}";
+const TEXT: &str = "Layer historical FREE V1 \u{0433}\u{043b}\u{0430}\u{0432}\u{0430} <script>globalThis.__layerFreeXss=1</script>";
 
 fn id(value: i64) -> PositiveId {
     PositiveId::new(value).unwrap()
@@ -359,6 +362,19 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     let opened = reqwest::Client::new().get(signed).send().await.unwrap();
     assert_eq!(opened.status().as_u16(), 200);
     assert_eq!(opened.bytes().await.unwrap().as_ref(), TEXT.as_bytes());
+
+    // Browser executes the exact Rust router, actual PG entitlement and
+    // actual signed MinIO GET. No synthetic response replay is accepted.
+    // Both viewports must render literal <script> text without executing it.
+    live_chromium::verify(
+        &app,
+        chapter,
+        version,
+        &buyer_session,
+        &unrelated_session,
+        TEXT,
+    )
+    .await;
 
     pg(
         &url,

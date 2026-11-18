@@ -37,3 +37,65 @@ application reads for saved FREE V1 and purchased V1 after V2, denial cases,
 key access, measured RPO/RTO and the operator's evidence of independent
 storage. The comparison is one component of DROP-08. It cannot establish
 provider/account independence or recover rights from a PACK manifest.
+
+## DROP-08b — historical saved FREE and Layer archive source coverage
+
+An exact S3-manifest-to-PostgreSQL receipt match does not prove that each
+**historical entitlement** points to any restored physical source at all.
+Before declaring the isolated restore complete, exercise both a saved FREE
+edition and a captured historical FREE edition for a purchased Layer after
+a newer revision or ordinary book deletion. The required snapshot must contain
+both kinds of pins; an absent fixture fails closed rather than being called a
+successful rights recovery.
+
+On the **read-only restored PostgreSQL** (not the live site), run:
+
+```bash
+set -o pipefail
+psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
+  -f tools/drop08_export_historical_free_pins.sql |
+  python3 tools/drop08_verify_historical_free_pins.py
+```
+
+The SQL exports historical `(kind, chapter_id, version_id)` identities,
+verifies that the chapter-version exists, the chapter is FREE with zero
+price, and a Layer archive belongs to its recorded book, then checks for a
+PostgreSQL inline body, a
+registered S349 SINGLE receipt with matching immutable edition SHA-256,
+or an **active** PACK generation with matching immutable edition SHA-256 and an
+existing PACK metadata record.
+Candidate-only or superseded PACK metadata is not a recoverable reader source. The Python check rejects an unbacked pinned edition, malformed,
+duplicate or unsorted exports, a wrong Layer book membership, and a missing
+saved/Layer fixture. Results expose
+only aggregate counts. The pipe includes private version IDs: never persist it
+to public logs or CI artifacts.
+
+**This is metadata coverage, not restored-text proof**: after this check,
+the independent DROP-08a manifest/bytes comparison must still pass for every
+relevant bucket/prefix, then the actual isolated reader must demonstrate
+archived Layer V1 and saved FREE V1, plus revoked access and failure scenarios.
+A green unit test or `TOR_DROP08_HISTORICAL_PINS_METADATA_OK` is not an
+independent offsite DR acceptance, RPO/RTO measurement or release approval.
+The CLI never writes PostgreSQL or S3; no VPS/deploy/migration is performed.
+
+### Disposable PostgreSQL acceptance fixtures
+
+The mandatory `postgres-runtime (foundation)` job also executes
+`bash tools/drop08_pg_fixture_ci.sh` on its temporary PostgreSQL 18 instance,
+after SQLx migrations. The script refuses every database URL except the fixed
+loopback `tor_ci` migrator fixture and creates **temporary session-local
+tables only**. It drives the **same** export SQL and verifier used in the DR
+procedure, covering:
+
+- Both saved SINGLE V1 and historical Layer V1 in an active PACK, accepted.
+- Layer archive associated with the wrong book, refused.
+- A non-FREE chapter incorrectly pinned as a Layer FREE archive, refused.
+- S349 SINGLE with a different immutable edition SHA-256, refused.
+- PACK generation with a different edition SHA-256, refused.
+- PACK candidate not activated for the reader, refused.
+
+This fixture verifies query shape and source-classification logic on real
+PostgreSQL syntax. It does not model live FK constraints, decryption, S3
+availability, reader authorization, or independence of backups. Those remain
+mandatory operator acceptance gates.
+
