@@ -384,6 +384,25 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
             EntitlementDecision::Denied { .. }
         ));
     }
+    // Neither a later purchaser nor an expired subscriber may enumerate
+    // the hidden book's FREE titles by asking for a paid-chapter TOC.
+    let archive_anchor = editions[2].0;
+    assert!(
+        rights
+            .layer_toc_window(
+                id(late),
+                id(archive_anchor),
+                MixedTocCursor {
+                    chapter_no: 3,
+                    chapter_id: archive_anchor,
+                },
+                MixedTocSide::Before,
+                10,
+            )
+            .await
+            .is_err(),
+        "new buyer must not enumerate deleted chapter titles"
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM commerce_layer_term_share_snapshots
@@ -451,6 +470,22 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
             EntitlementDecision::Denied { .. }
         ));
     }
+    assert!(
+        rights
+            .layer_toc_window(
+                id(expiring),
+                id(archive_anchor),
+                MixedTocCursor {
+                    chapter_no: 3,
+                    chapter_id: archive_anchor,
+                },
+                MixedTocSide::Before,
+                10,
+            )
+            .await
+            .is_err(),
+        "expired buyer must not enumerate deleted chapter titles"
+    );
     assert_old_four(&rights, old, &editions).await;
     assert_old_four(&rights, lifetime_buyer, &editions).await;
     pool.close().await;
