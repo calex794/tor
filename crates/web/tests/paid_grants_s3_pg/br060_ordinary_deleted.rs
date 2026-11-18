@@ -509,6 +509,7 @@ pub(super) async fn verify(
         chapter,
         active_layer,
         extra_free,
+        stranger_cookie,
     )
     .await;
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;

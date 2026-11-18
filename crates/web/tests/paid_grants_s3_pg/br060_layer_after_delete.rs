@@ -235,6 +235,7 @@ pub(super) async fn after_deletion(
     chapter: i64,
     active: ActiveLayerProbe,
     extra_free: [i64; 2],
+    outsider_cookie: &str,
 ) {
     assert_eq!(
         pg(
@@ -558,11 +559,11 @@ pub(super) async fn after_deletion(
         super::d05_four_chapter_expiry::expired_session(url, book, owner, &active.accounts).await;
     super::d05_four_chapter_browser::verify(
         app,
-        &active.cookie,
-        &late_cookie,
-        &elapsed,
+        url,
+        (&active.cookie, &late_cookie, &elapsed, outsider_cookie),
         extra_free,
         [chapter, active.second_paid_chapter],
+        active.term_id,
     )
     .await;
 }

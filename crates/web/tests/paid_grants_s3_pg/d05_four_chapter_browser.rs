@@ -16,12 +16,14 @@ use std::{
 
 pub(super) async fn verify(
     app: &Router,
-    old_session: &str,
-    new_session: &str,
-    expired_session: &str,
+    url: &str,
+    sessions: (&str, &str, &str, &str),
     free: [i64; 2],
     paid: [i64; 2],
+    term_id: i64,
 ) {
+    let (old_session, new_session, expired_session, outsider_session) = sessions;
+    assert!(term_id > 0);
     let temp = env::var("RUNNER_TEMP").expect("disposable CI temp directory");
     let url = env::var("TEST_DATABASE_URL").expect("disposable PG URL");
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
@@ -32,6 +34,7 @@ pub(super) async fn verify(
         "old_session": old_session,
         "new_session": new_session,
         "expired_session": expired_session,
+        "outsider_session": outsider_session,
         "chapters": [
             {"id": free[0], "kind": "free", "expected": FREE_ALPHA},
             {"id": free[1], "kind": "free", "expected": FREE_BETA},
@@ -62,27 +65,55 @@ pub(super) async fn verify(
     let script = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/d05_four_archived_layer_live_chromium.cjs");
     assert!(script.is_file());
-    let child_path = path.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new("timeout")
-            .args(["-k", "5s", "150s", "node"])
-            .arg(script)
-            .env("TOR_D05_FOUR_CHROMIUM_FIXTURE", child_path)
-            .output()
-    })
-    .await
-    .expect("Chromium runner");
+    // The two phases use the same actor-scoped Rust router, actual PG18 and
+    // MinIO. No mock HTTP handlers or synthetic grants are introduced.
+    let launch = |phase: &'static str| {
+        let script = script.clone();
+        let child_path = path.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                Command::new("timeout")
+                    .args(["-k", "5s", "150s", "node"])
+                    .arg(script)
+                    .env("TOR_D05_FOUR_CHROMIUM_FIXTURE", child_path)
+                    .env("TOR_D05_FOUR_CHROMIUM_PHASE", phase)
+                    .output()
+            })
+            .await
+            .expect("Chromium runner")
+            .expect("node, Linux timeout and Chromium required")
+        }
+    };
+    let initial = launch("initial").await;
+    let opened = initial.status.success()
+        && String::from_utf8_lossy(&initial.stdout).contains("D05 FOUR LIVE Chromium PASS");
+    let revoked = if opened {
+        // This is the same term that successfully unlocked all four chapters.
+        // Legal revocation must cut off both FREE and PAID immediately, with
+        // no refund, new direct purchase, or mutation of the original term.
+        super::pg(
+            url,
+            &format!(
+                "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
+                 VALUES({term_id},'legal_block','ci:d05-four-chapter-revoked:{term_id}')"
+            ),
+        );
+        Some(launch("revoked").await)
+    } else {
+        None
+    };
     server.abort();
     let _ = server.await;
     fs::remove_file(&path).expect("delete fixture with private sessions");
-    let output = output.expect("node, Linux timeout and Chromium required");
     assert!(
-        output.status.success(),
-        "unified D05 Chromium failed (exit {:?}); private diagnostics withheld",
-        output.status.code()
+        opened,
+        "unified D05 Chromium could not read four chapters; confidential diagnostics withheld"
     );
+    let revoked = revoked.expect("positive browser phase must pass before legal revocation");
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("D05 FOUR LIVE Chromium PASS"),
-        "Chromium must actually read four chapters with one historical Layer"
+        revoked.status.success()
+            && String::from_utf8_lossy(&revoked.stdout)
+                .contains("D05 FOUR REVOKED Chromium PASS"),
+        "revoked term must deny all four private browsers"
     );
 }
