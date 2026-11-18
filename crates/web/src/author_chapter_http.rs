@@ -19,6 +19,7 @@ use tor_books::{
 mod chapter_import;
 mod free_editor;
 mod new_chapter_page;
+mod paid_editor;
 mod publisher;
 mod schedule;
 pub(crate) use publisher::{FreeChapterPublisher, FreeContent, PaidChapterPublisher};
@@ -330,6 +331,11 @@ async fn edit_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
+    match paid_editor::page(&state, actor, id, chapter_id, &headers).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
     // Published free content must be editable without a second release
     // action. Existing owner-only drafts still use their separate B path.
     let published = match state
@@ -413,6 +419,11 @@ async fn update_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
+    match paid_editor::update(&state, actor, id, chapter_id, &form).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
     let book = match u64::try_from(id) {
         Ok(book) if book > 0 => book,
         _ => return deny(StatusCode::NOT_FOUND),
@@ -421,55 +432,10 @@ async fn update_chapter(
         Ok(chapter) if chapter > 0 => chapter,
         _ => return deny(StatusCode::NOT_FOUND),
     };
-    // B decides paid/publication state, never a submitted "paid" form field.
-    // The owner query and the publishing transaction both check ownership.
-    let paid = if state.paid_author.is_some() {
-        match PgPaidStorage::new(state.accounts.pool().clone())
-            .owned_published_paid_chapter(actor, id, chapter_id)
-            .await
-        {
-            Ok(paid) => paid,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else {
-        None
-    };
-    if let (Some(paid), Some(publisher)) = (paid, state.paid_author.as_ref()) {
-        let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
-        let input = match save_chapter(SaveChapterRequest {
-            book_id: book,
-            chapter_id: Some(chapter),
-            number: form.number,
-            expected_revision: form.expected_revision,
-            title: &form.title,
-            body: &body,
-            access: "paid",
-            price_amount: paid.price_amount,
-            command_key: &form.command_key,
-        }) {
-            Ok(input) => input,
-            Err(_) => return deny(StatusCode::BAD_REQUEST),
-        };
-        return match publisher.publish_edit(actor, &input).await {
-            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}/issues")), &[]),
-            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-            Err(AuthorError::Conflict) => private_response(
-                (
-                    StatusCode::CONFLICT,
-                    "Глава уже изменена. Обновите страницу редактора.",
-                ),
-                &[],
-            ),
-            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
-            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
-            Err(AuthorError::Unavailable) => private_response(
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Защищённое сохранение не завершено. Повторите эту же форму.",
-                ),
-                &[],
-            ),
-        };
+    if let Some(response) =
+        paid_editor::legacy_update(&state, actor, id, chapter_id, book, chapter, &form).await
+    {
+        return response;
     }
     if cfg!(feature = "s3-free") {
         return deny(StatusCode::SERVICE_UNAVAILABLE);

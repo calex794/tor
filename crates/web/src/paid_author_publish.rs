@@ -11,7 +11,7 @@ use tor_books::{
         paid_storage::{PaidPublication, PgPaidStorage},
         PgCatalog,
     },
-    services::authoring::{AuthorError, SaveChapter},
+    services::authoring::{AuthorError, ChapterAccess, OwnedChapter, SaveChapter},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 use tor_storage::{
@@ -32,6 +32,7 @@ pub struct PgPaidAuthorPublisher<S> {
     store: S,
     keyring: Arc<ContentKeyring>,
     bucket: String,
+    bodyless_http: bool,
 }
 
 impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
@@ -52,7 +53,15 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             store,
             keyring,
             bucket,
+            bodyless_http: false,
         })
+    }
+
+    /// FND-00: explicit isolated S3-only paid HTTP mode. No default flip
+    /// until owner-source, illustrated and scheduled browser tests are accepted.
+    pub fn with_bodyless_http(mut self) -> Self {
+        self.bodyless_http = true;
+        self
     }
 }
 
@@ -475,16 +484,98 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
 
 #[async_trait]
 impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
+    async fn owned_bodyless(
+        &self,
+        actor: i64,
+        book: i64,
+        chapter: i64,
+    ) -> Result<Option<OwnedChapter>, AuthorError> {
+        if !self.bodyless_http {
+            return Ok(None);
+        }
+        let Some(meta) = self
+            .paid
+            .owned_published_bodyless_paid_metadata(actor, book, chapter)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let version = ChapterVersionRef {
+            chapter_id: PositiveId::new(chapter).map_err(|_| AuthorError::Invalid)?,
+            version_id: PositiveId::new(meta.version_id).map_err(|_| AuthorError::Unavailable)?,
+        };
+        // B selects exact current paid V1/V2. G repeats live ownership,
+        // object and version checks after private S3 GET/decryption.
+        let Some(plain) = self
+            .registry
+            .owned_current_paid_markdown(
+                actor,
+                book,
+                version,
+                &self.bucket,
+                &self.store,
+                &self.keyring,
+            )
+            .await
+            .map_err(|_| AuthorError::Unavailable)?
+        else {
+            // Never report an empty S3-only source as an editable legacy draft.
+            return Err(AuthorError::Unavailable);
+        };
+        // A published V2 or an owner/hold change during async I/O must
+        // invalidate the selected metadata before the edit form is rendered.
+        if self
+            .paid
+            .owned_published_bodyless_paid_metadata(actor, book, chapter)
+            .await?
+            .as_ref()
+            != Some(&meta)
+        {
+            return Err(AuthorError::Conflict);
+        }
+        Ok(Some(OwnedChapter {
+            number: meta.number,
+            title: meta.title,
+            body: plain.as_str().to_owned(),
+            access: ChapterAccess::Paid,
+            price_amount: meta.price_amount,
+            revision: meta.revision,
+        }))
+    }
+
+    async fn publish_edit_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        if !self.bodyless_http {
+            return Err(AuthorError::Unavailable);
+        }
+        PgPaidAuthorPublisher::publish_edit_bodyless(self, actor, request).await
+    }
+
     async fn stage_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.stage_for_book_schedule(actor, request).await
+        if self.bodyless_http {
+            self.stage_for_book_schedule_bodyless(actor, request).await
+        } else {
+            self.stage_for_book_schedule(actor, request).await
+        }
     }
 
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.publish(actor, request).await
+        if self.bodyless_http {
+            self.publish_bodyless(actor, request).await
+        } else {
+            self.publish(actor, request).await
+        }
     }
 
     async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+        if self.bodyless_http {
+            PgPaidAuthorPublisher::publish_edit_bodyless(self, actor, request).await
+        } else {
+            PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+        }
     }
 
     async fn publish_with_image(
@@ -495,7 +586,13 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        self.publish_illustrated(actor, request, object_id, bytes, mime)
-            .await
+        if self.bodyless_http {
+            // Until #1112 is merged, illustrated HTTP cannot bypass the
+            // mandatory S3-only chapter contract through a legacy writer.
+            Err(AuthorError::Unavailable)
+        } else {
+            self.publish_illustrated(actor, request, object_id, bytes, mime)
+                .await
+        }
     }
 }
