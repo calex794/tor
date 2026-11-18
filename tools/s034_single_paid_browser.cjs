@@ -519,16 +519,38 @@ async function verify(browser, buyer, viewport) {
     assert.equal(commentCount(), 2, "revocation retains immutable discussion facts");
     assert(!(await page.content()).includes("Оплаченная V1: кириллица"));
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
-    const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
-      { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
-    assert.equal(grant.status(), 403, "S034 revoked paid delivery grant");
-    const revokedAsset = await context.request.post(SITE + assetGrantPath, {
-      data: { purchase_id: String(purchase) },
-      headers: { origin: SITE, "x-csrf-token": csrf },
-    });
-    assert.equal(revokedAsset.status(), 403, "S034 revoked paid asset grant");
-    assert.equal(revokedAsset.headers()["cache-control"], "no-store");
-    assert.equal((await revokedAsset.body()).length, 0);
+    // The reader has legitimately opened its signed V1 and private image
+    // several times. Under the production 12-grants/60-second safety cap,
+    // a later *negative* revocation probe may reach the limit before D.
+    // A 429 is NOT evidence that the revoked purchase was denied by rights:
+    // wait for one bounded window and demand the exact 403 on recheck.
+    const verifyRevokedGrant = async (request, label) => {
+      let response = await request();
+      if (response.status() === 429) {
+        assert.equal(response.headers()["cache-control"], "no-store");
+        assert.equal((await response.body()).length, 0);
+        await new Promise(resolve => setTimeout(resolve, 61000));
+        response = await request();
+      }
+      assert.equal(response.status(), 403, label);
+      assert.equal(response.headers()["cache-control"], "no-store");
+      assert.equal((await response.body()).length, 0);
+      return response;
+    };
+    await verifyRevokedGrant(
+      () => context.request.post(
+        SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
+        { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } }
+      ),
+      "S034 revoked paid delivery grant",
+    );
+    await verifyRevokedGrant(
+      () => context.request.post(SITE + assetGrantPath, {
+        data: { purchase_id: String(purchase) },
+        headers: { origin: SITE, "x-csrf-token": csrf },
+      }),
+      "S034 revoked paid asset grant",
+    );
     await assertAlternateSurfacesClosed();
     const rejectedIssue = await context.request.post(
       SITE + "/api/v1/reader/chapters/" + chapter.id + "/text-issues", {
