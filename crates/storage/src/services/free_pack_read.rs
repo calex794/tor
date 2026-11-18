@@ -10,7 +10,8 @@
 //! from a single frame and does NOT make an unverified PACK safe to publish.
 
 use async_trait::async_trait;
-use std::future::Future;
+use std::{future::Future, time::Duration};
+use tokio::time::{timeout_at, Instant};
 
 use crate::{
     domain::provider::StorageError,
@@ -26,6 +27,33 @@ pub trait PackFrameStore: Send + Sync {
     /// Fetch only the trusted edition frame, never a caller-provided range.
     /// Implementations must enforce exact HTTP Content-Range and body length.
     async fn fetch_frame(&self, frame: &ValidatedPackReference) -> Result<Vec<u8>, StorageError>;
+}
+
+const PACK_READ_BUDGET: Duration = Duration::from_secs(20);
+
+/// A single monotonic budget for selecting a PACK, reading it, and
+/// rechecking the placement. Start before the first catalog lookup.
+pub struct PackReadDeadline(Instant);
+
+impl PackReadDeadline {
+    pub fn start() -> Self {
+        Self(Instant::now() + PACK_READ_BUDGET)
+    }
+
+    pub async fn wait<T>(&self, phase: impl Future<Output = T>) -> Result<T, StorageError> {
+        if Instant::now() >= self.0 {
+            return Err(StorageError::Unavailable);
+        }
+        let result = timeout_at(self.0, phase)
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+        // A ready phase can win polling even after the deadline. Stop before
+        // dispatching another S3 request or accepting any late result.
+        if Instant::now() >= self.0 {
+            return Err(StorageError::Unavailable);
+        }
+        Ok(result)
+    }
 }
 
 /// Decode exactly one Zstd frame; bound decompression to B's byte count.
@@ -77,7 +105,7 @@ pub fn decode_exact_frame(
 ///
 /// Recheck after the remote fetch+decompression; a revoked/changed edition
 /// or changed placement invalidates the whole attempt and yields no bytes.
-/// The service is intentionally NOT connected to any live S349 route yet.
+/// The caller supplies the live reader authorization and placement lookup.
 pub async fn read_reauthorized_pack<Lookup, Fut, Store>(
     mut resolve: Lookup,
     store: &Store,
@@ -87,11 +115,15 @@ where
     Fut: Future<Output = Result<Option<FreeReadPlan>, StorageError>>,
     Store: PackFrameStore,
 {
-    let before = resolve().await?.ok_or(StorageError::Invalid)?;
+    let deadline = PackReadDeadline::start();
+    let before = deadline
+        .wait(resolve())
+        .await??
+        .ok_or(StorageError::Invalid)?;
     let frame = before.pack_frame().ok_or(StorageError::Invalid)?.clone();
-    let encoded = store.fetch_frame(&frame).await?;
+    let encoded = deadline.wait(store.fetch_frame(&frame)).await??;
     let source = decode_exact_frame(&frame, &encoded)?;
-    match resolve().await? {
+    match deadline.wait(resolve()).await?? {
         None => Err(StorageError::Invalid),
         Some(after) if after != before => Err(StorageError::Conflict),
         Some(_) => Ok(source),
@@ -105,7 +137,11 @@ mod tests {
         free_chapter::FreeChapterObject,
         free_placement::{plan_after_acl, FreePhysicalPlacement, PackMetadata},
     };
-    use std::{collections::VecDeque, future::ready, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        future::{pending, ready},
+        sync::Mutex,
+    };
 
     struct FakeFrameStore {
         bytes: Vec<u8>,
@@ -200,6 +236,99 @@ mod tests {
         let result = read_reauthorized_pack(|| ready(Ok(None)), &store).await;
         assert_eq!(result, Err(StorageError::Invalid));
         assert!(store.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_selection_that_stalls_or_finishes_at_the_deadline_never_dispatches_s3() {
+        let text = "A valid edition in the old PACK";
+        let bytes = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+        let old = plan(frame(edition(53, text), 0, &bytes, bytes.len()));
+        let store = FakeFrameStore::new(bytes);
+
+        assert_eq!(
+            read_reauthorized_pack(pending, &store).await,
+            Err(StorageError::Unavailable)
+        );
+        assert_eq!(
+            read_reauthorized_pack(
+                || async {
+                    tokio::time::sleep(PACK_READ_BUDGET).await;
+                    Ok(Some(old.clone()))
+                },
+                &store,
+            )
+            .await,
+            Err(StorageError::Unavailable)
+        );
+        assert!(store.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn selection_and_range_share_one_budget_and_a_pending_range_is_dropped() {
+        struct PendingRange(Mutex<Vec<&'static str>>);
+        #[async_trait]
+        impl PackFrameStore for PendingRange {
+            async fn fetch_frame(
+                &self,
+                _: &ValidatedPackReference,
+            ) -> Result<Vec<u8>, StorageError> {
+                struct FrameInFlight<'a>(&'a Mutex<Vec<&'static str>>);
+                impl Drop for FrameInFlight<'_> {
+                    fn drop(&mut self) {
+                        self.0.lock().unwrap().push("dropped");
+                    }
+                }
+                self.0.lock().unwrap().push("dispatched");
+                let _inflight = FrameInFlight(&self.0);
+                pending().await
+            }
+        }
+
+        let text = "No old bytes after a stalled Range";
+        let encoded = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+        let old = plan(frame(edition(54, text), 0, &encoded, encoded.len()));
+        let store = PendingRange(Mutex::default());
+        let start = Instant::now();
+        assert_eq!(
+            read_reauthorized_pack(
+                || async {
+                    tokio::time::sleep(Duration::from_secs(12)).await;
+                    Ok(Some(old.clone()))
+                },
+                &store,
+            )
+            .await,
+            Err(StorageError::Unavailable)
+        );
+        assert_eq!(start.elapsed(), PACK_READ_BUDGET);
+        assert_eq!(*store.0.lock().unwrap(), ["dispatched", "dropped"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn late_reauthorization_never_returns_a_verified_frame() {
+        let text = "Successfully decoded, but the read window has elapsed";
+        let encoded = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+        let selected = plan(frame(edition(55, text), 0, &encoded, encoded.len()));
+        let store = FakeFrameStore::new(encoded);
+        let mut calls = 0;
+
+        assert_eq!(
+            read_reauthorized_pack(
+                || {
+                    calls += 1;
+                    let selected = selected.clone();
+                    async move {
+                        tokio::time::sleep(Duration::from_secs(11)).await;
+                        Ok(Some(selected))
+                    }
+                },
+                &store,
+            )
+            .await,
+            Err(StorageError::Unavailable)
+        );
+        assert_eq!(calls, 2);
+        assert_eq!(store.calls.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
