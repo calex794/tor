@@ -55,11 +55,17 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
         .unwrap(),
     );
     let unavailable = PgPaidAuthorPublisher::new(
-        catalog.clone(), UnavailableStore, ring.clone(), BUCKET_BODYLESS.to_owned(),
+        catalog.clone(),
+        UnavailableStore,
+        ring.clone(),
+        BUCKET_BODYLESS.to_owned(),
     )
     .unwrap();
     let writer = PgPaidAuthorPublisher::new(
-        catalog.clone(), store.clone(), ring, BUCKET_BODYLESS.to_owned(),
+        catalog.clone(),
+        store.clone(),
+        ring,
+        BUCKET_BODYLESS.to_owned(),
     )
     .unwrap();
     let body_v1 = "Paid V1: доступ после проверки S3";
@@ -90,7 +96,10 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
              WHERE c.book_id={book} GROUP BY c.visibility"
         ),
     );
-    assert_eq!(pending, "draft|1|0", "failed upload stores zero paid Markdown");
+    assert_eq!(
+        pending, "draft|1|0",
+        "failed upload stores zero paid Markdown"
+    );
     writer.publish_bodyless(owner, &new_chapter).await.unwrap();
     writer.publish_bodyless(owner, &new_chapter).await.unwrap();
     let current: String = pg(
