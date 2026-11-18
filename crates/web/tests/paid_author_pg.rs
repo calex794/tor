@@ -4,6 +4,8 @@
 
 #[path = "paid_author_pg/fnd00_bodyless.rs"]
 mod fnd00_bodyless;
+#[path = "paid_author_pg/fnd00_http.rs"]
+mod fnd00_http;
 #[path = "paid_author_pg/s048_browser.rs"]
 mod s048_browser;
 
