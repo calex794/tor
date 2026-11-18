@@ -8,7 +8,7 @@ use crate::services::authoring::AuthorError;
 
 use super::{
     free_expected_inventory::{valid_bucket, valid_cursor},
-    free_observed_reconcile::{FreeReferenceState, PgFreeObservedClassifier},
+    free_observed_reconcile::{single_edition, FreeReferenceState, PgFreeObservedClassifier},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,27 +62,17 @@ fn version_id(value: &str) -> bool {
 }
 
 fn free_key(value: &str) -> bool {
-    fn positive(value: &str) -> bool {
-        !value.starts_with('0')
-            && value.bytes().all(|b| b.is_ascii_digit())
-            && value.parse::<i64>().is_ok_and(|n| n > 0)
-    }
     if !valid_cursor(value) {
         return false;
     }
-    if let Some(single) = value.strip_prefix("private/free-chapters/") {
-        return single
-            .strip_suffix(".md")
-            .and_then(|name| name.split_once('/'))
-            .is_some_and(|(chapter, version)| positive(chapter) && positive(version));
-    }
-    value
-        .strip_prefix("private/free-packs/")
-        .and_then(|name| {
-            name.strip_suffix(".zst")
-                .or_else(|| name.strip_suffix(".manifest.json"))
-        })
-        .is_some_and(|stem| !stem.is_empty() && !stem.ends_with('/'))
+    single_edition(value).is_some()
+        || value
+            .strip_prefix("private/free-packs/")
+            .and_then(|name| {
+                name.strip_suffix(".zst")
+                    .or_else(|| name.strip_suffix(".manifest.json"))
+            })
+            .is_some_and(|stem| !stem.is_empty() && !stem.ends_with('/'))
 }
 
 impl QuarantineObservation<'_> {
@@ -165,7 +155,7 @@ impl PgFreeKeyQuarantine {
         .execute(&mut *tx)
         .await
         .map_err(sql_error)?;
-        if inserted.rows_affected() == 0 {
+        let outcome = if inserted.rows_affected() == 0 {
             let exact: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM free_storage_key_fences
                  WHERE bucket=$1 AND object_key=$2 AND purpose='quarantine'
@@ -180,15 +170,16 @@ impl PgFreeKeyQuarantine {
             .fetch_one(&mut *tx)
             .await
             .map_err(sql_error)?;
-            return if exact {
-                Ok(QuarantineOutcome::AlreadyRecorded)
-            } else {
-                Err(FreeQuarantineError::Protected)
-            };
-        }
+            if !exact {
+                return Err(FreeQuarantineError::Protected);
+            }
+            QuarantineOutcome::AlreadyRecorded
+        } else {
+            QuarantineOutcome::Recorded
+        };
         Self::check_unreferenced(&mut tx, observation).await?;
         tx.commit().await.map_err(sql_error)?;
-        Ok(QuarantineOutcome::Recorded)
+        Ok(outcome)
     }
 
     /// Recheck after a separately initiated read of both exact versions.
@@ -268,6 +259,22 @@ impl PgFreeKeyQuarantine {
         conn: &mut sqlx::PgConnection,
         observation: &QuarantineObservation<'_>,
     ) -> Result<(), FreeQuarantineError> {
+        if let Some((chapter, version)) = single_edition(observation.key) {
+            // A missing receipt can be an inventory or restore defect.
+            // Preserve any known immutable edition, including historical or
+            // held editions and recovery copies in another bucket.
+            let known: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM chapter_versions WHERE id=$1 AND chapter_id=$2)",
+            )
+            .bind(version)
+            .bind(chapter)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(sql_error)?;
+            if known {
+                return Err(FreeQuarantineError::Protected);
+            }
+        }
         let mut keys = vec![observation.key.to_owned()];
         if let Some(stem) = observation.key.strip_suffix(".zst") {
             keys.push(format!("{stem}.manifest.json"));
