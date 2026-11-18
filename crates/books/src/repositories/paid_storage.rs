@@ -11,8 +11,8 @@ use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHE
 mod admin_delivery;
 mod delivery;
 mod edit;
-mod ports;
 mod owner;
+mod ports;
 pub use owner::OwnedPaidBodylessMetadata;
 pub(crate) mod scheduled;
 pub use admin_delivery::PgAdminPaidStorage;
