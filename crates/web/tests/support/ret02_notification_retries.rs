@@ -4,12 +4,7 @@
 use super::pg;
 use tor_social::repositories::notifications::PgNotifications;
 
-pub(super) async fn verify(
-    url: &str,
-    released: i64,
-    reader: i64,
-    notices: &PgNotifications,
-) {
+pub(super) async fn verify(url: &str, released: i64, reader: i64, notices: &PgNotifications) {
     // RET-02b: a fenced root from an interrupted worker cannot fan out.
     // Both the lease and retry deadline must mature before projection.
     let release_root = format!(
@@ -17,7 +12,7 @@ pub(super) async fn verify(
          AND payload->>'first_release'='true'"
     );
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()+interval '10 minutes',
@@ -28,7 +23,7 @@ pub(super) async fn verify(
     let _ = notices.fanout_chapter_releases(32).await.unwrap();
     let release_children = || {
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM outbox_events
                  WHERE event_type='reader.chapter.released' AND aggregate_id={released}"
@@ -37,7 +32,7 @@ pub(super) async fn verify(
     };
     assert_eq!(release_children(), "0", "an active lease blocks fanout");
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()-interval '1 second',
@@ -48,7 +43,7 @@ pub(super) async fn verify(
     let _ = notices.fanout_chapter_releases(32).await.unwrap();
     assert_eq!(release_children(), "0", "retry deadline blocks premature fanout");
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()-interval '1 second',
@@ -68,13 +63,13 @@ pub(super) async fn verify(
          AND payload->>'recipient_user_id'='{reader}'"
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM outbox_events WHERE {release_child}")),
+        pg(url, &format!("SELECT count(*) FROM outbox_events WHERE {release_child}")),
         "1",
         "one child event was created for the follower"
     );
     let delivered_bells = || {
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM user_notifications n
                  JOIN outbox_events e ON e.id=n.source_event_id
@@ -83,7 +78,7 @@ pub(super) async fn verify(
         )
     };
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()+interval '10 minutes',
@@ -94,7 +89,7 @@ pub(super) async fn verify(
     let _ = notices.deliver_pending(64).await.unwrap();
     assert_eq!(delivered_bells(), "0", "a fenced child cannot notify");
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()-interval '1 second',
@@ -105,7 +100,7 @@ pub(super) async fn verify(
     let _ = notices.deliver_pending(64).await.unwrap();
     assert_eq!(delivered_bells(), "0", "a deferred child cannot notify early");
     pg(
-        &url,
+        url,
         &format!(
             "UPDATE outbox_events
              SET lease_until=clock_timestamp()-interval '1 second',
@@ -126,7 +121,7 @@ pub(super) async fn verify(
     assert_eq!(delivered_bells(), "1", "replay created another personal bell");
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM event_deliveries d
                  JOIN outbox_events e ON e.id=d.event_id
