@@ -4,6 +4,7 @@
 -- and real private reader acceptance belong to the subsequent Rust slice.
 
 DO $fnd00_bodyless_sql_contract$
+<<fixture>>
 DECLARE
     actor BIGINT;
     book_id BIGINT;
@@ -137,7 +138,7 @@ BEGIN
        IS NOT NULL
        OR (SELECT storage_object_id FROM chapter_versions WHERE id=version_v1)
           IS DISTINCT FROM object_v1
-       OR (SELECT version_id FROM chapter_publications WHERE chapter_id=chapter_id)
+       OR (SELECT version_id FROM chapter_publications WHERE chapter_id=fixture.chapter_id)
           IS DISTINCT FROM version_v1 THEN
         RAISE EXCEPTION 'FND00 bodyless paid V1 was not published exactly';
     END IF;
@@ -149,7 +150,7 @@ BEGIN
     RETURNING id INTO version_v2;
     BEGIN
         UPDATE chapter_publications SET version_id=version_v2
-        WHERE chapter_publications.chapter_id=chapter_id;
+        WHERE chapter_publications.chapter_id=fixture.chapter_id;
         RAISE EXCEPTION 'FND00 accepted unverified paid V2'
             USING ERRCODE='P0001';
     EXCEPTION WHEN check_violation THEN
@@ -204,9 +205,9 @@ BEGIN
     RETURNING id INTO version_legacy;
     UPDATE chapter_publications
        SET version_id=version_legacy
-     WHERE chapter_publications.chapter_id=chapter_id;
+     WHERE chapter_publications.chapter_id=fixture.chapter_id;
     IF (SELECT version_id FROM chapter_publications
-        WHERE chapter_publications.chapter_id=chapter_id) <> version_legacy THEN
+        WHERE chapter_publications.chapter_id=fixture.chapter_id) <> version_legacy THEN
         RAISE EXCEPTION 'FND00 broke legacy PG paid publication';
     END IF;
 END
