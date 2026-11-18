@@ -18,7 +18,7 @@ mod open;
 #[cfg(any(feature = "pg", test))]
 pub use asset::seal_asset_with_keyring;
 pub use asset::{asset_aad, seal_asset, EncryptedAsset};
-#[cfg(any(feature = "pg", test))]
+#[cfg(feature = "pg")]
 pub(crate) use open::{open_registered_paid_chapter, RegisteredPaidChapter};
 
 use zeroize::Zeroizing;
