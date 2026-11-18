@@ -128,6 +128,18 @@ jobs:
         run: |
           cargo test -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- --ignored --test-threads=1
           cargo clippy -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- -D warnings
+      - name: MOD-COVER private GC read-only preview (disposable PG, no S3 deletes)
+        env:
+          PGUSER: tor_app
+          PGPASSWORD: tor-obs09-app
+          PGDATABASE: tor_ci
+        run: |
+          set -euo pipefail
+          report=$(psql -X -v ON_ERROR_STOP=1 -f tools/mod_cover_gc_dry_run.sql)
+          printf '%s\n' "$report" | grep -Fq 'private_variants'
+          printf '%s\n' "$report" | grep -Fq 'private_sources'
+          printf '%s\n' "$report" | grep -Fq 'retain_attached_slot'
+          printf '%s\n' "$report" | grep -Fq 'ROLLBACK'
       - name: Read-only cover-size inventory against disposable PG
         env:
           PGUSER: tor_app
