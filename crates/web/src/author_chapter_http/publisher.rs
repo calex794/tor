@@ -20,6 +20,28 @@ pub(crate) trait PaidChapterPublisher: Send + Sync {
         Err(AuthorError::Unavailable)
     }
 
+    /// FND-00g: only a current, owner-bound S3-only paid edition can prefill
+    /// the author editor. The concrete G reader must recheck owner/version
+    /// after the authenticated private S3 GET. Default never exposes text.
+    async fn owned_bodyless(
+        &self,
+        _actor: i64,
+        _book: i64,
+        _chapter: i64,
+    ) -> Result<Option<tor_books::services::authoring::OwnedChapter>, AuthorError> {
+        Ok(None)
+    }
+
+    /// Saving a paid S3-only edition is independent of legacy PG body storage.
+    /// No implementation is enabled until the exact private reader is accepted.
+    async fn publish_edit_bodyless(
+        &self,
+        _actor: i64,
+        _request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
+
     /// The isolated illustrated-author route supplies a server-computed
     /// immutable image identity. Non-S3 publishers fail closed by default.
     async fn publish_with_image(
