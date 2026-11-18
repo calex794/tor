@@ -139,11 +139,10 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
 
     // FND-01: the installed catalogue must survive an actual SQLx ledger
     // upgrade. These are synthetic metadata receipts: NO S3 is contacted.
-    let book_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM books WHERE source_identity='ci:e08:installed-upgrade'",
-    )
-    .fetch_one(&pool)
-    .await?;
+    let book_id: i64 =
+        sqlx::query_scalar("SELECT id FROM books WHERE source_identity='ci:e08:installed-upgrade'")
+            .fetch_one(&pool)
+            .await?;
     let chapter_id: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title)
          VALUES($1,1,'Existing chapter before upgrade') RETURNING id",
@@ -165,7 +164,9 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
     )
     .bind(chapter_id)
     .bind(version_id)
-    .bind(format!("private/free-chapters/{chapter_id}/{version_id}.md"))
+    .bind(format!(
+        "private/free-chapters/{chapter_id}/{version_id}.md"
+    ))
     .execute(&pool)
     .await?;
     let pack_id: i64 = sqlx::query_scalar(
