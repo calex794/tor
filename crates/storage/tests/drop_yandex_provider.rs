@@ -1,6 +1,9 @@
 //! DROP-09a: explicit synthetic provider evidence in a dedicated test bucket.
 #![cfg(feature = "s3")]
 
+#[path = "fixtures/drop09_version_read.rs"]
+mod version_read;
+
 use aws_sdk_s3::{
     config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Credentials, Region},
     error::ProvideErrorMetadata,
@@ -19,7 +22,6 @@ use tor_storage::{
         free_chapter::FreeChapterObject,
         free_pack_read::{decode_exact_frame, PackFrameStore},
         free_pack_write::prepare_free_pack,
-        free_placement::{PackMetadata, ValidatedPackReference},
     },
 };
 
@@ -106,6 +108,10 @@ async fn drop_09_yandex_private_pack_read_write_acceptance() {
         "conditional PACK+manifest upload and independent full readback failed"
     );
     let upload_ms = start.elapsed().as_millis();
+    let target = prepared.target();
+    let pack_version = version_read::current_version(&client, &bucket, &target.pack_key).await;
+    let manifest_version =
+        version_read::current_version(&client, &bucket, &target.manifest_key).await;
     let duplicate = client
         .put_object()
         .bucket(&bucket)
@@ -120,36 +126,21 @@ async fn drop_09_yandex_private_pack_read_write_acceptance() {
             .is_some_and(|e| { e.raw_response().is_some_and(|r| r.status().as_u16() == 412) }),
         "provider must reject a different conditional PUT for the same key"
     );
-    let target = prepared.target();
-    for object_key in [&target.pack_key, &target.manifest_key] {
-        let stored = client
-            .head_object()
-            .bucket(&bucket)
-            .key(object_key)
-            .send()
-            .await
-            .expect("versioned probe object metadata");
+    for (object_key, version, bytes) in [
+        (&target.pack_key, &pack_version, prepared.pack_bytes()),
+        (
+            &target.manifest_key,
+            &manifest_version,
+            prepared.manifest_bytes(),
+        ),
+    ] {
         assert!(
-            stored
-                .version_id()
-                .is_some_and(|version| !version.is_empty() && version != "null"),
-            "PACK and manifest must have non-null version IDs"
+            version_read::current_version(&client, &bucket, object_key).await == *version,
+            "conditional overwrite must leave both object versions unchanged"
         );
-        let anonymous = Command::new("curl")
-            .args([
-                "--silent",
-                "--max-time",
-                "10",
-                "--output",
-                "/dev/null",
-                "--write-out",
-                "%{http_code}",
-                &format!("{ENDPOINT}/{bucket}/{object_key}"),
-            ])
-            .output()
-            .expect("curl required for the anonymous request");
-        assert!(anonymous.status.success());
-        assert_eq!(anonymous.stdout, b"403", "anonymous read must be denied");
+        version_read::assert_exact_object(&client, &bucket, object_key, version, bytes).await;
+        assert_anonymous_denied(&bucket, object_key, None);
+        assert_anonymous_denied(&bucket, object_key, Some(version));
     }
 
     let store = S3PackFrameStore::new(client.clone());
@@ -157,21 +148,14 @@ async fn drop_09_yandex_private_pack_read_write_acceptance() {
     let mut range_bytes = 0;
     for i in 0..SAMPLES {
         let member = i % sources.len();
-        let frame = &prepared.receipt().frames[member];
-        let reference = ValidatedPackReference::new(
-            sources[member].0.clone(),
-            PackMetadata {
-                bucket: bucket.clone(),
-                key: key.clone(),
-                pack_bytes: target.pack_bytes,
-                seek_table_start: target.seek_table_start,
-                frame_offset: frame.frame_offset,
-                frame_bytes: frame.frame_bytes,
-                pack_sha256: target.pack_sha256,
-                manifest_sha256: target.manifest_sha256,
-            },
-        )
-        .unwrap();
+        let reference = version_read::pack_frame(&prepared, member);
+        if i < sources.len() {
+            let exact = version_read::exact_version_range(&client, &reference, &pack_version).await;
+            assert_eq!(
+                decode_exact_frame(&reference, &exact).unwrap(),
+                sources[member].1
+            );
+        }
         let start = Instant::now();
         let encoded = store
             .fetch_frame(&reference)
@@ -185,8 +169,10 @@ async fn drop_09_yandex_private_pack_read_write_acceptance() {
     let first = latencies[0];
     latencies.sort_unstable();
     println!(
-        "DROP09_PROVIDER_READ_PASS records={} upload_and_full_proof_ms={} \
-         first_range_us={} range_p50_us={} range_p95_us={} response_payload_bytes={}",
+        "DROP09_PROVIDER_READ_PASS exact_full_objects=2 exact_version_ranges={} \
+         records={} upload_and_full_proof_ms={} first_range_us={} range_p50_us={} \
+         range_p95_us={} response_payload_bytes={}",
+        sources.len(),
         SAMPLES,
         upload_ms,
         first,
@@ -194,6 +180,28 @@ async fn drop_09_yandex_private_pack_read_write_acceptance() {
         latencies[(SAMPLES * 95).div_ceil(100) - 1],
         range_bytes + prepared.pack_bytes().len() + prepared.manifest_bytes().len()
     );
+}
+
+fn assert_anonymous_denied(bucket: &str, object_key: &str, version: Option<&str>) {
+    let mut command = Command::new("curl");
+    command.args([
+        "--silent",
+        "--max-time",
+        "10",
+        "--output",
+        "/dev/null",
+        "--write-out",
+        "%{http_code}",
+    ]);
+    if let Some(version) = version {
+        command.args(["--get", "--data-urlencode", &format!("versionId={version}")]);
+    }
+    let anonymous = command
+        .arg(format!("{ENDPOINT}/{bucket}/{object_key}"))
+        .output()
+        .expect("curl required for the anonymous request");
+    assert!(anonymous.status.success());
+    assert_eq!(anonymous.stdout, b"403", "anonymous read must be denied");
 }
 
 #[tokio::test]

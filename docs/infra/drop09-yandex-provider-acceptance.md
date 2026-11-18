@@ -19,16 +19,21 @@ TOR_DROP_PROVIDER_PROBE=READ_WRITE cargo test -p tor-storage --features s3 \
   --ignored --exact drop_09_yandex_private_pack_read_write_acceptance --nocapture
 ```
 
-The probe uploads a synthetic two-edition Zstd archive and manifest, reads
-both in full for integrity, verifies their non-null version IDs and anonymous
-denial, checks conditional overwrite rejection, then performs 24 exact verified
-Range reads. It prints
+The probe uploads a synthetic two-edition Zstd archive and manifest, records
+their version IDs, then verifies both versions with HEAD and full GET. It
+checks conditional overwrite rejection without changing the current version
+and anonymous denial on both current and version-specific URLs. It reads and
+decodes both frames with version-specific Range GET before measuring the 24
+Range reads used by the current runtime gateway. It prints
 first-read latency, p50, p95 and payload bytes. These tests use a small
 synthetic PACK. The numbers are not a production throughput estimate, a
 cache hit-rate measurement or a provider invoice. Collect date, endpoint
 region, network location, exact SHA, class, request counters and the actual
 provider charges. Retain or expire synthetic probe objects using the
 disposable bucket lifecycle.
+
+The loopback MinIO regression also makes a different version current and
+checks that the old version's full bytes and Range still resolve by ID.
 
 ## Exact-version deletion acceptance
 
