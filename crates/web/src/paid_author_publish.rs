@@ -78,7 +78,30 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
 
     /// Reusable orchestration for the browser and isolated PG/S3 tests.
     pub async fn publish(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        self.publish_mode(actor, request, false).await
+    }
+
+    /// FND-00d: opt-in, unexposed S3-only publisher. Author HTTP remains on
+    /// the legacy port until private owner editor and image support are ready.
+    pub async fn publish_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        self.publish_mode(actor, request, true).await
+    }
+
+    async fn publish_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        bodyless: bool,
+    ) -> Result<(), AuthorError> {
+        let pending = if bodyless {
+            self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?
+        } else {
+            self.paid.prepare_new_paid_chapter(actor, request).await?
+        };
         // A lost HTTP response is not another publication. Earlier G objects
         // and purchase-scoped old editions are deliberately left untouched.
         if pending.published {
@@ -109,22 +132,33 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
 
-        let published = self
-            .paid
-            .attach_verified_and_publish(
-                actor,
-                request.book_id,
-                version,
-                &object_id,
-                PaidPublication::Publish {
-                    expected_current: None,
-                },
-            )
-            .await;
+        let publication = PaidPublication::Publish {
+            expected_current: None,
+        };
+        let published = if bodyless {
+            self.paid
+                .attach_verified_and_publish_bodyless(
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    publication,
+                    &request.body,
+                )
+                .await
+        } else {
+            self.paid
+                .attach_verified_and_publish(actor, request.book_id, version, &object_id, publication)
+                .await
+        };
         if published == Err(AuthorError::Conflict) {
             // Two identical tabs can race with different random G objects.
             // Report success only when the exact idempotent B version won.
-            let current = self.paid.prepare_new_paid_chapter(actor, request).await?;
+            let current = if bodyless {
+                self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?
+            } else {
+                self.paid.prepare_new_paid_chapter(actor, request).await?
+            };
             if current.chapter_id == pending.chapter_id
                 && current.version_id == pending.version_id
                 && current.published
@@ -142,13 +176,32 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<(), AuthorError> {
+        self.stage_mode(actor, request, false).await
+    }
+
+    /// FND-00d: prepare a scheduled paid edition without PG plaintext.
+    pub async fn stage_for_book_schedule_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        self.stage_mode(actor, request, true).await
+    }
+
+    async fn stage_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        bodyless: bool,
+    ) -> Result<(), AuthorError> {
         self.paid
             .require_active_book_schedule(actor, request.book_id)
             .await?;
-        let pending = self
-            .paid
-            .prepare_scheduled_paid_chapter(actor, request)
-            .await?;
+        let pending = if bodyless {
+            self.paid.prepare_scheduled_paid_chapter_bodyless(actor, request).await?
+        } else {
+            self.paid.prepare_scheduled_paid_chapter(actor, request).await?
+        };
         if pending.published {
             // The delayed command hash is distinct from the immediate path.
             // This exact scheduled edition may already have been released
@@ -197,16 +250,24 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             .mark_ready(&receipt)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        let attached = self
-            .paid
-            .attach_verified_and_publish(
-                actor,
-                request.book_id,
-                version,
-                &object_id,
-                PaidPublication::KeepCurrent,
-            )
-            .await;
+        let attached = if bodyless {
+            self.paid
+                .attach_verified_and_publish_bodyless(
+                    actor,
+                    request.book_id,
+                    version,
+                    &object_id,
+                    PaidPublication::KeepCurrent,
+                    &request.body,
+                )
+                .await
+        } else {
+            self.paid
+                .attach_verified_and_publish(
+                    actor, request.book_id, version, &object_id, PaidPublication::KeepCurrent,
+                )
+                .await
+        };
         if attached == Err(AuthorError::Conflict)
             && self
                 .paid
@@ -245,10 +306,29 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
     /// authenticated G PUT+GET/hash may B move the current pointer by CAS.
     /// This method does not expose a new HTTP route or alter paid metadata.
     pub async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        let prepared = self
-            .paid
-            .prepare_published_paid_edit(actor, request)
-            .await?;
+        self.publish_edit_mode(actor, request, false).await
+    }
+
+    /// FND-00d: immutable bodyless V2, preserving all historical paid V1 grants.
+    pub async fn publish_edit_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        self.publish_edit_mode(actor, request, true).await
+    }
+
+    async fn publish_edit_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        bodyless: bool,
+    ) -> Result<(), AuthorError> {
+        let prepared = if bodyless {
+            self.paid.prepare_published_paid_edit_bodyless(actor, request).await?
+        } else {
+            self.paid.prepare_published_paid_edit(actor, request).await?
+        };
         if prepared.published {
             return Ok(());
         }
@@ -274,24 +354,29 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             .mark_ready(&receipt)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        let published = self
-            .paid
-            .attach_verified_and_publish(
-                actor,
-                request.book_id,
-                version,
-                &object_id,
-                PaidPublication::PublishEdit {
-                    expected_current: prepared.previous_version_id,
-                    expected_revision: prepared.expected_revision,
-                },
-            )
-            .await;
+        let publication = PaidPublication::PublishEdit {
+            expected_current: prepared.previous_version_id,
+            expected_revision: prepared.expected_revision,
+        };
+        let published = if bodyless {
+            self.paid
+                .attach_verified_and_publish_bodyless(
+                    actor, request.book_id, version, &object_id, publication, &request.body,
+                )
+                .await
+        } else {
+            self.paid
+                .attach_verified_and_publish(
+                    actor, request.book_id, version, &object_id, publication,
+                )
+                .await
+        };
         if published == Err(AuthorError::Conflict) {
-            let existing = self
-                .paid
-                .prepare_published_paid_edit(actor, request)
-                .await?;
+            let existing = if bodyless {
+                self.paid.prepare_published_paid_edit_bodyless(actor, request).await?
+            } else {
+                self.paid.prepare_published_paid_edit(actor, request).await?
+            };
             if existing.chapter_id == prepared.chapter_id
                 && existing.version_id == prepared.version_id
                 && existing.published
