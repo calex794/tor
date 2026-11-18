@@ -919,15 +919,19 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
     assert_eq!(metadata.price_amount, 125);
     assert_eq!(metadata.revision, 2);
     assert_eq!(metadata.version_id, edited.version_id);
-    assert!(b
-        .owned_published_bodyless_paid_metadata(owner + 1, book, prepared.chapter_id)
-        .await
-        .unwrap()
-        .is_none(), "non-owner must never receive paid metadata");
-    assert!(b
-        .owned_published_paid_chapter(owner, book, prepared.chapter_id)
-        .await
-        .unwrap()
-        .is_none(), "legacy editor must not try to decode NULL PG Markdown");
+    assert!(
+        b.owned_published_bodyless_paid_metadata(owner + 1, book, prepared.chapter_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "non-owner must never receive paid metadata"
+    );
+    assert!(
+        b.owned_published_paid_chapter(owner, book, prepared.chapter_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "legacy editor must not try to decode NULL PG Markdown"
+    );
     pool.close().await;
 }
