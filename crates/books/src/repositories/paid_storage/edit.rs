@@ -23,6 +23,24 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidEdit, AuthorError> {
+        self.prepare_paid_edit_mode(actor, request, false).await
+    }
+
+    /// FND-00: new immutable paid edit without a PostgreSQL plaintext copy.
+    pub async fn prepare_published_paid_edit_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<PreparedPaidEdit, AuthorError> {
+        self.prepare_paid_edit_mode(actor, request, true).await
+    }
+
+    async fn prepare_paid_edit_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        bodyless: bool,
+    ) -> Result<PreparedPaidEdit, AuthorError> {
         let chapter_id = request.chapter_id.ok_or(AuthorError::Invalid)?;
         if actor <= 0
             || request.book_id <= 0
@@ -199,7 +217,7 @@ impl PgPaidStorage {
         )
         .bind(chapter_id)
         .bind(version_no)
-        .bind(&request.body)
+        .bind(if bodyless { None } else { Some(request.body.as_str()) })
         .bind(body_hash.as_slice())
         .fetch_one(&mut *tx)
         .await
