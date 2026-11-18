@@ -448,7 +448,13 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         {
             return Err(AuthorError::Invalid);
         }
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = if self.bodyless_http {
+            self.paid
+                .prepare_new_paid_chapter_bodyless(actor, request)
+                .await?
+        } else {
+            self.paid.prepare_new_paid_chapter(actor, request).await?
+        };
         let pinned = ChapterVersionRef {
             chapter_id: PositiveId::new(pending.chapter_id)
                 .map_err(|_| AuthorError::Unavailable)?,
@@ -475,10 +481,17 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
             self.bucket.clone(),
         )
         .map_err(|_| AuthorError::Unavailable)?;
-        uploader
-            .upload_to_draft_with_id(actor, request, 1, bytes, mime, object_id)
-            .await?;
-        self.publish(actor, request).await
+        if self.bodyless_http {
+            uploader
+                .upload_to_draft_with_id_bodyless(actor, request, 1, bytes, mime, object_id)
+                .await?;
+            self.publish_bodyless(actor, request).await
+        } else {
+            uploader
+                .upload_to_draft_with_id(actor, request, 1, bytes, mime, object_id)
+                .await?;
+            self.publish(actor, request).await
+        }
     }
 }
 
@@ -586,13 +599,9 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        if self.bodyless_http {
-            // Until #1112 is merged, illustrated HTTP cannot bypass the
-            // mandatory S3-only chapter contract through a legacy writer.
-            Err(AuthorError::Unavailable)
-        } else {
-            self.publish_illustrated(actor, request, object_id, bytes, mime)
-                .await
-        }
+        // The concrete publisher chooses the same immutable bodyless mode
+        // for both B's chapter reservation and G's version-bound image.
+        self.publish_illustrated(actor, request, object_id, bytes, mime)
+            .await
     }
 }
