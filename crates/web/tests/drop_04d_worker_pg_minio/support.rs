@@ -52,9 +52,14 @@ pub struct Fixture {
     pub actor: i64,
     pub book: i64,
     pub source: Arc<S3ChapterImportStore>,
+    bucket: String,
 }
 impl Fixture {
     pub async fn new(label: &str) -> Self {
+        Self::new_in_bucket(label, BUCKET).await
+    }
+
+    pub async fn new_in_bucket(label: &str, bucket: &str) -> Self {
         let url = env::var("TEST_DATABASE_URL").unwrap();
         assert!(url.ends_with("/tor_test"));
         assert_eq!(
@@ -77,12 +82,15 @@ impl Fixture {
                 .retry_config(RetryConfig::standard().with_max_attempts(1))
                 .build(),
         );
-        let _ = client.create_bucket().bucket(BUCKET).send().await;
+        let creation = client.create_bucket().bucket(bucket).send().await;
+        if bucket != BUCKET {
+            creation.expect("fresh bucket for the isolated catalog");
+        }
         let id = generate_session_token().to_ascii_lowercase();
         let actor = pg(&url, &format!("INSERT INTO users(email_normalized,display_name,password_hash) VALUES('{id}@tor.example','DROP worker','$argon2id$test') RETURNING id")).parse().unwrap();
-        let book = pg(&url, &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:drop-worker:{id}','ru','{label}','draft',{actor}) RETURNING id")).parse().unwrap();
+        let book = insert_book(&url, actor, label);
         let catalog = PgCatalog::connect(&url).await.unwrap();
-        let source = Arc::new(S3ChapterImportStore::new(client.clone(), BUCKET.into()).unwrap());
+        let source = Arc::new(S3ChapterImportStore::new(client.clone(), bucket.into()).unwrap());
         Self {
             url,
             client,
@@ -90,16 +98,18 @@ impl Fixture {
             actor,
             book,
             source,
+            bucket: bucket.into(),
         }
     }
+
     pub fn jobs(&self) -> PgImportJobs {
         PgImportJobs::new(self.catalog.pool().clone())
     }
     pub fn author(&self) -> S3FreeAuthor {
         PgFreeAuthorPublisher::new(
             PgFreeS3Publication::new(self.catalog.pool().clone()),
-            S3FreeChapterStore::new(self.client.clone(), BUCKET.into()).unwrap(),
-            BUCKET.into(),
+            S3FreeChapterStore::new(self.client.clone(), self.bucket.clone()).unwrap(),
+            self.bucket.clone(),
         )
         .unwrap()
     }
@@ -109,8 +119,12 @@ impl Fixture {
         ChapterImportWorker::new(&self.catalog, self.source.clone()).with_free_s3(author)
     }
     pub async fn enqueue(&self, source: &str) -> (i64, String) {
+        self.enqueue_for_book(self.book, source).await
+    }
+
+    pub async fn enqueue_for_book(&self, book: i64, source: &str) -> (i64, String) {
         let key = generate_session_token();
-        let object_key = format!("staging/chapters/{}/{}/{key}", self.actor, self.book);
+        let object_key = format!("staging/chapters/{}/{}/{key}", self.actor, book);
         let hash: [u8; 32] = Sha256::digest(source.as_bytes()).into();
         let chapters = parse_text("chapters.txt", source).unwrap();
         self.source
@@ -121,13 +135,13 @@ impl Fixture {
             .jobs()
             .enqueue_verified(
                 self.actor,
-                self.book,
+                book,
                 &key,
                 &object_key,
                 "chapters.txt",
                 &hash,
                 source.len() as i64,
-                &fingerprint(self.book, &chapters),
+                &fingerprint(book, &chapters),
                 chapters.len() as i32,
             )
             .await
@@ -150,4 +164,10 @@ impl Fixture {
         };
         pg(&self.url, &query).parse().unwrap()
     }
+}
+
+pub fn insert_book(url: &str, actor: i64, label: &str) -> i64 {
+    let id = generate_session_token().to_ascii_lowercase();
+    let title = label.replace('\'', "''");
+    pg(url, &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:drop-worker:{id}','ru','{title}','draft',{actor}) RETURNING id")).parse().unwrap()
 }
