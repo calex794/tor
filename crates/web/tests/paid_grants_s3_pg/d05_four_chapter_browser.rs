@@ -31,6 +31,7 @@ pub(super) async fn verify(
     let payload = json!({
         "old_session": old_session,
         "new_session": new_session,
+        "expired_session": expired_session,
         "chapters": [
             {"id": free[0], "kind": "free", "expected": FREE_ALPHA},
             {"id": free[1], "kind": "free", "expected": FREE_BETA},
