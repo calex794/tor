@@ -490,6 +490,9 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         book: i64,
         chapter: i64,
     ) -> Result<Option<OwnedChapter>, AuthorError> {
+        if !self.bodyless_http {
+            return Ok(None);
+        }
         let Some(meta) = self
             .paid
             .owned_published_bodyless_paid_metadata(actor, book, chapter)
@@ -545,6 +548,9 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         actor: i64,
         request: &SaveChapter,
     ) -> Result<(), AuthorError> {
+        if !self.bodyless_http {
+            return Err(AuthorError::Unavailable);
+        }
         PgPaidAuthorPublisher::publish_edit_bodyless(self, actor, request).await
     }
 
