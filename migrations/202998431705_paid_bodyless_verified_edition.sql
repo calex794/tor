@@ -30,11 +30,9 @@ BEGIN
             replace(replace(OLD.body_markdown, E'\r\n', E'\n'), E'\r', E'\n'),
             'UTF8'
         ));
-        IF OLD.content_sha256 IS NOT NULL
-            AND OLD.content_sha256 IS DISTINCT FROM original_sha THEN
-            RAISE EXCEPTION 'paid body digest conflicts with edition digest'
-                USING ERRCODE='23514';
-        END IF;
+        -- Legacy imported paid editions may have an unnormalized B hash
+        -- while G verified LF-normalized Markdown. Preserve the original
+        -- SQLx attachment rule for these historical records.
     END IF;
 
     IF original_sha IS NULL OR NOT EXISTS (
@@ -77,8 +75,9 @@ BEGIN
             AND o.codec='gzip'
             AND o.state='attached'
             AND o.plaintext_sha256=NEW.content_sha256
-            AND (v.content_sha256 IS NULL OR
-                 v.content_sha256=NEW.content_sha256)
+            -- For legacy PG-backed editions, the normalized source is the
+            -- historical authority; only bodyless editions require the B
+            -- immutable digest to be equal to G's receipt.
             AND (
                 (v.body_markdown IS NULL
                  AND v.content_sha256=NEW.content_sha256)
