@@ -40,6 +40,8 @@ impl PgStorageRegistry {
                     o.object_nonce,o.object_aad,o.encrypted_dek,
                     o.wrap_nonce,o.kek_id
              FROM books b
+             JOIN users owner ON owner.id=b.owner_user_id
+                AND owner.account_state='active'
              JOIN chapters c ON c.book_id=b.id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
@@ -53,7 +55,7 @@ impl PgStorageRegistry {
                AND m.content_sha256=o.plaintext_sha256
              WHERE b.id=$1 AND b.owner_user_id=$2
                AND c.id=$3 AND o.bucket=$4
-               AND b.visibility='public' AND c.visibility='public'
+               AND b.visibility='public' AND b.visibility_status='active' AND c.visibility='public'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND c.access_level='paid' AND c.price_amount>0
@@ -158,14 +160,19 @@ impl PgStorageRegistry {
         let still_owner: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM books b
+                JOIN users owner ON owner.id=b.owner_user_id
+                    AND owner.account_state='active'
                 JOIN chapters c ON c.book_id=b.id
                 JOIN chapter_publications p ON p.chapter_id=c.id
                 JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+                JOIN storage_objects o ON o.id=v.storage_object_id
                 WHERE b.id=$1 AND b.owner_user_id=$2 AND c.id=$3 AND v.id=$4
-                  AND b.visibility='public' AND c.visibility='public'
+                  AND b.visibility='public' AND b.visibility_status='active' AND c.visibility='public'
                   AND NOT b.admin_hold AND NOT b.is_deleted
                   AND NOT c.admin_hold AND NOT c.is_deleted
-                  AND c.access_level='paid'
+                  AND c.access_level='paid' AND c.price_amount>0
+                  AND v.body_markdown IS NULL AND v.storage_object_id=$5::uuid
+                  AND o.state='attached' AND o.object_kind='chapter' AND o.bucket=$6
                   AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
              )",
         )
@@ -173,6 +180,8 @@ impl PgStorageRegistry {
         .bind(actor)
         .bind(chapter)
         .bind(version.version_id.get())
+        .bind(object_id.as_str())
+        .bind(private_bucket)
         .fetch_one(&self.pool)
         .await
         .map_err(|_| RegistryError::Unavailable)?;
