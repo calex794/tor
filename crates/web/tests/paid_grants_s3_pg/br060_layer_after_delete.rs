@@ -324,11 +324,12 @@ pub(super) async fn after_deletion(
         .unwrap()
         .starts_with(ENDPOINT));
     assert_ne!(
-        grant["content"]["ciphertext_url"],
-        second_grant["content"]["ciphertext_url"],
+        grant["content"]["ciphertext_url"], second_grant["content"]["ciphertext_url"],
         "two PAID chapters must sign different private objects"
     );
-    assert!(!second_grant.to_string().contains("Second paid edition content"));
+    assert!(!second_grant
+        .to_string()
+        .contains("Second paid edition content"));
     let second_shell = private_get(
         app,
         &format!("/read/layer/{}", active.second_paid_chapter),
