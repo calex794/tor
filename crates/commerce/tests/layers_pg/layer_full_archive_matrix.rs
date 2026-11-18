@@ -600,6 +600,7 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .await
         .unwrap();
     assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
     sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
         .bind(deleted_book)
         .execute(&pool)
@@ -613,6 +614,7 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .await
         .unwrap();
     assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
     sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
         .bind(deleted_book)
         .execute(&pool)
@@ -626,6 +628,7 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .await
         .unwrap();
     assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
     // The reversible fixture flag only proves entitlement gating. Production
     // hard deletion remains a separate protected administrative operation.
     sqlx::query("UPDATE books SET is_deleted=FALSE WHERE id=$1")
