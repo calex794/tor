@@ -1,5 +1,5 @@
 //! FND-07 / S023: multi-book import and byte-for-byte accounting after restart.
-use super::support::{pg, Fixture};
+use super::support::{insert_book, pg, Fixture};
 use aws_sdk_s3::Client;
 use axum::{
     body::{to_bytes, Body},
@@ -59,7 +59,7 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
         let book = if index == 1 {
             fixture.book
         } else {
-            fixture.create_book(&format!("FND-07 book {index}"))
+            insert_book(&fixture.url, fixture.actor, &format!("FND-07 book {index}"))
         };
         let mut source = String::new();
         for chapter in 1..=CHAPTERS_PER_BOOK {

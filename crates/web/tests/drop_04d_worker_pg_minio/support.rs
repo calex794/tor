@@ -102,9 +102,6 @@ impl Fixture {
         }
     }
 
-    pub fn create_book(&self, label: &str) -> i64 {
-        insert_book(&self.url, self.actor, label)
-    }
     pub fn jobs(&self) -> PgImportJobs {
         PgImportJobs::new(self.catalog.pool().clone())
     }
@@ -169,7 +166,7 @@ impl Fixture {
     }
 }
 
-fn insert_book(url: &str, actor: i64, label: &str) -> i64 {
+pub fn insert_book(url: &str, actor: i64, label: &str) -> i64 {
     let id = generate_session_token().to_ascii_lowercase();
     let title = label.replace('\'', "''");
     pg(url, &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:drop-worker:{id}','ru','{title}','draft',{actor}) RETURNING id")).parse().unwrap()
