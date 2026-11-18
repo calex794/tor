@@ -143,5 +143,8 @@ async fn fnd00_paid_image_upload_never_creates_postgres_markdown() {
              WHERE c.book_id={book} GROUP BY c.visibility"
         ),
     );
-    assert_eq!(remaining, "draft|0|0", "legacy fallback must not publish the draft");
+    assert_eq!(
+        remaining, "draft|0|0",
+        "legacy fallback must not publish the draft"
+    );
 }
