@@ -2,6 +2,8 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
+#[path = "paid_author_pg/fnd00_http.rs"]
+mod fnd00_http;
 #[path = "paid_author_pg/s048_browser.rs"]
 mod s048_browser;
 
@@ -342,22 +344,10 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         chapter_id: PositiveId::new(chapter_id).unwrap(),
         version_id: PositiveId::new(version_id).unwrap(),
     };
-    assert_eq!(
-        pg(
-            &url,
-            &format!(
-                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter_id}"
-            ),
-        ),
-        "0",
-        "paid browser Save must never persist Markdown in PostgreSQL"
-    );
-    let edit_url = format!("/me/books/{book}/chapters/{chapter_id}/edit");
-    let (status, owner_source) = browse(&app, &edit_url, &owner_session, &csrf).await;
-    assert_eq!(status, StatusCode::OK, "S3-only paid editor must open for owner");
-    assert!(owner_source.contains("Paid chapter V2"));
-    let (status, _) = browse(&app, &edit_url, &other_session, &csrf).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    fnd00_http::assert_owner_editor(
+        &app, &url, book, chapter_id, &owner_session, &other_session, &csrf,
+    )
+    .await;
 
     let encrypted = PgPaidStorage::new(pool.clone())
         .encrypted_chapter(pinned)
