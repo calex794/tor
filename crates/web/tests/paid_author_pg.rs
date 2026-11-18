@@ -469,23 +469,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         recorded, 2,
         "lost HTTP response must not duplicate the image"
     );
-    let published: String = pg(
-        &url,
-        &format!(
-            "SELECT v.id || '|' || coalesce(v.body_markdown,'<NULL>') || '|' || a.storage_object_id::text
-             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
-             JOIN chapter_versions v ON v.id=p.version_id
-             JOIN chapter_version_assets a ON a.chapter_id=c.id AND a.version_id=v.id
-             WHERE c.book_id={book} AND c.chapter_no=2"
-        ),
-    );
-    let parts = published.split('|').collect::<Vec<_>>();
-    assert_eq!(parts.len(), 3);
-    let illustrated_version: i64 = parts[0].parse().unwrap();
-    assert_eq!(
-        parts[1], "<NULL>",
-        "illustrated paid edition must also be S3-only without a PostgreSQL body"
-    );
+    let (illustrated_version, illustrated_asset_id) =
+        fnd00_http::illustrated_identity(&url, book);
     let illustrated_chapter: i64 = pg(
         &url,
         &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"),
@@ -499,7 +484,7 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let illustration = PgPaidAssets::new(pool.clone())
         .encrypted_for_pinned(
             illustrated_pin,
-            &tor_contracts::paid_delivery::ObjectId::parse(parts[2]).unwrap(),
+            &illustrated_asset_id,
         )
         .await
         .unwrap()
