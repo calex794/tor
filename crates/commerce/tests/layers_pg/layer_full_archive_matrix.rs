@@ -1,5 +1,5 @@
 //! D-05: four chapters in one ordinarily removed Book, with independent
-//! subscription-origin rights for the old, renewed, expired and new buyer.
+//! subscription-origin rights for the old, renewed, revoked and new buyer.
 //! This is a PG-only entitlement/TOC matrix; S3 and genuine deletion HTTP
 //! are exercised by the separate required paid-private-e2e/MinIO suites.
 use super::*;
@@ -207,9 +207,9 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .buy(&purchase(old, layer, offer, original_version, 'J'))
         .await
         .unwrap();
-    let expiring = buyer(&pool, "expiring").await;
-    let expired_soon = layer_repo
-        .buy(&purchase(expiring, layer, offer, original_version, 'K'))
+    let revoked = buyer(&pool, "revoked").await;
+    let revocation_target = layer_repo
+        .buy(&purchase(revoked, layer, offer, original_version, 'K'))
         .await
         .unwrap();
     // Lifetime uses an independent, non-exclusive Layer offer. A hard expiry
@@ -434,22 +434,33 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         "Layer membership must not mint direct purchases"
     );
 
-    // Both time-bounded terms of a different pre-deletion buyer can expire
-    // without affecting the continuous buyer's same immutable old origin.
-    sqlx::query(
-        "UPDATE commerce_layer_terms
-         SET started_at=started_at-interval '45 days',
-             expires_at=expires_at-interval '45 days'
-         WHERE id=$1",
+    // Terms are immutable: DO NOT UPDATE dates just to simulate expiry.
+    // Verify the exact 30-day horizon read-only, then exercise a genuine
+    // append-only legal revocation against the same four-chapter entitlement.
+    let (exact_30_days, expired_at_plus_31_days): (bool, bool) = sqlx::query_as(
+        "SELECT expires_at=started_at+interval '30 days',
+                expires_at<now()+interval '31 days'
+         FROM commerce_layer_terms WHERE id=$1",
     )
-    .bind(expired_soon.term_id)
+    .bind(revocation_target.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(exact_30_days && expired_at_plus_31_days);
+    assert_old_four(&rights, revoked, &editions).await;
+    sqlx::query(
+        "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
+         VALUES($1,'legal_block',$2)",
+    )
+    .bind(revocation_target.term_id)
+    .bind(format!("ci:d05-four-legal-revoke:{}", revocation_target.term_id))
     .execute(&pool)
     .await
     .unwrap();
     for &(chapter, _) in &editions[..2] {
         assert_eq!(
             rights
-                .archived_free_version(id(expiring), id(chapter))
+                .archived_free_version(id(revoked), id(chapter))
                 .await
                 .unwrap(),
             None
@@ -460,7 +471,7 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
             rights
                 .resolve_entitlement(
                     Actor {
-                        user_id: id(expiring)
+                        user_id: id(revoked)
                     },
                     id(chapter),
                     None
@@ -473,7 +484,7 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     assert!(
         rights
             .layer_toc_window(
-                id(expiring),
+                id(revoked),
                 id(archive_anchor),
                 MixedTocCursor {
                     chapter_no: 3,
@@ -484,7 +495,7 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
             )
             .await
             .is_err(),
-        "expired buyer must not enumerate deleted chapter titles"
+        "revoked buyer must not enumerate deleted chapter titles"
     );
     assert_old_four(&rights, old, &editions).await;
     assert_old_four(&rights, lifetime_buyer, &editions).await;
