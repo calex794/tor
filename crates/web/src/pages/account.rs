@@ -393,6 +393,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ret03_home_and_library_share_safe_book_scoped_resume_links() {
+        use tor_reading::services::progress::ContinueReading;
+        let books = vec![
+            ContinueReading {
+                book_id: 7,
+                book_title: "<img src=x onerror=alert(1)>".into(),
+                chapter_id: 70,
+                chapter_no: 3,
+                chapter_title: "<script>bad</script>".into(),
+                block_index: 2,
+                archived_saved: false,
+            },
+            ContinueReading {
+                book_id: 8,
+                book_title: "Удалённая книга".into(),
+                chapter_id: 80,
+                chapter_no: 1,
+                chapter_title: "Архив".into(),
+                block_index: 1,
+                archived_saved: true,
+            },
+            ContinueReading {
+                book_id: 9,
+                book_title: "No third Home card".into(),
+                chapter_id: 90,
+                chapter_no: 1,
+                chapter_title: "Extra".into(),
+                block_index: 0,
+                archived_saved: false,
+            },
+        ];
+        let cards = account_resume_cards(&books);
+        assert_eq!(cards.matches("data-ret-resume-book=").count(), 2);
+        assert!(cards.contains("href=\"/read/70#p-2\""));
+        assert!(cards.contains("href=\"/me/library/saved/80#saved-resume\""));
+        assert!(cards.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(cards.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!cards.contains("<script>bad</script>"));
+        assert!(!cards.contains("No third Home card"));
+        assert_eq!(
+            super::super::library::reading_destination(&ContinueReading {
+                block_index: 0,
+                ..books[0].clone()
+            }),
+            "/read/70",
+            "edited editions never inherit a stale fragment"
+        );
+        assert_eq!(
+            super::super::library::reading_destination(&ContinueReading {
+                block_index: 0,
+                ..books[1].clone()
+            }),
+            "/me/library/saved/80",
+            "archived V1 never redirects to a public chapter"
+        );
+    }
+
+
+    #[test]
     fn e_03_received_reply_links_escape_titles_and_contain_no_message_copy() {
         let replies = vec![ReceivedReply {
             comment_id: 26,
