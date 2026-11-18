@@ -23,6 +23,7 @@ class HistoricalFreePins(unittest.TestCase):
         self.assertIn("FROM free_edition_active_storage a", sql)
         self.assertIn("AND g.generation=a.generation AND g.placement_kind='pack'", sql)
         self.assertIn("AND g.content_sha256=v.content_sha256", sql)
+        self.assertIn("AND s.sha256=v.content_sha256", sql)
         self.assertIn("AND a.version_id=p.version_id", sql)
 
     def test_missing_receipt_refused(self):
