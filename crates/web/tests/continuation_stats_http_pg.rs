@@ -231,15 +231,18 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     assert!(notice.body.contains("Запросов на продолжение: 1"));
     assert!(!notice.body.contains("stats-other"));
     assert_eq!(
-        owner_bell.iter().filter(|n| n.kind == "continuation_demand").count(),
+        owner_bell
+            .iter()
+            .filter(|n| n.kind == "continuation_demand")
+            .count(),
         1
     );
-    assert!(
-        bell.list_section(stranger, None, 50, "system")
-            .await.unwrap()
-            .iter()
-            .all(|n| n.kind != "continuation_demand")
-    );
+    assert!(bell
+        .list_section(stranger, None, 50, "system")
+        .await
+        .unwrap()
+        .iter()
+        .all(|n| n.kind != "continuation_demand"));
     assert!(bell.mark_read(owner, notice.id).await.unwrap());
     let another = actors[3];
     pg(&url,&format!(
@@ -252,10 +255,19 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
         .expect("second verified reader");
     bell.deliver_pending(100).await.unwrap();
     let updated = bell.list_section(owner, None, 50, "system").await.unwrap();
-    let updated = updated.iter().filter(|n| n.kind == "continuation_demand").collect::<Vec<_>>();
+    let updated = updated
+        .iter()
+        .filter(|n| n.kind == "continuation_demand")
+        .collect::<Vec<_>>();
     assert_eq!(updated.len(), 1, "no per-click bell spam");
-    assert!(updated[0].body.contains("Запросов на продолжение: 2"), "live count updates");
-    assert!(updated[0].is_read, "new request does not mark the same bell unread");
+    assert!(
+        updated[0].body.contains("Запросов на продолжение: 2"),
+        "live count updates"
+    );
+    assert!(
+        updated[0].is_read,
+        "new request does not mark the same bell unread"
+    );
     // A new published frontier changes current waiting but never deletes history.
     let next: i64 = pg(
         &url,
@@ -285,8 +297,11 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     assert!(after.contains("data-metric=\"waiting\">0"));
     assert!(after.contains("data-metric=\"historical\">2"));
     assert!(
-        bell.list_section(owner, None, 50, "system").await.unwrap()
-            .iter().all(|n| n.kind != "continuation_demand"),
+        bell.list_section(owner, None, 50, "system")
+            .await
+            .unwrap()
+            .iter()
+            .all(|n| n.kind != "continuation_demand"),
         "fulfilled frontier must not remain a current owner bell"
     );
     assert!(after.contains("<td>2</td><td>0</td>"));
