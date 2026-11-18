@@ -1880,12 +1880,13 @@ jobs:
           node --check tools/drop_06b_pack_chromium.cjs
           node --check tools/d05_layer_toc_chromium.cjs
           node --check tools/d05_layer_free_live_chromium.cjs
+          node --check tools/d05_four_archived_layer_live_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
           # without public /reader links, escaped titles, or full PACK URLs.
           node tools/d05_layer_toc_chromium.cjs
           cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid,s3-free --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/layer_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
