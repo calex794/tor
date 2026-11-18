@@ -31,6 +31,8 @@ impl PgPaidStorage {
             "SELECT c.chapter_no,c.title,c.price_amount,c.edit_revision,
                     v.id AS version_id
              FROM books b
+             JOIN users owner ON owner.id=b.owner_user_id
+                AND owner.account_state='active'
              JOIN chapters c ON c.book_id=b.id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
@@ -43,7 +45,8 @@ impl PgPaidStorage {
               AND m.storage_object_id=o.id
               AND m.content_sha256=v.content_sha256
              WHERE b.id=$1 AND b.owner_user_id=$2 AND c.id=$3
-               AND b.visibility='public' AND c.visibility='public'
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND c.visibility='public'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND c.access_level='paid' AND c.price_amount>0
