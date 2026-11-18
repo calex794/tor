@@ -32,6 +32,9 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[cfg(feature = "s3-paid")]
+#[path = "layer_free_private_s3_pg/four_live.rs"]
+mod four_live;
 #[path = "layer_free_private_s3_pg/live_chromium.rs"]
 mod live_chromium;
 
@@ -143,7 +146,7 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
         .build();
     let client = Client::from_conf(config);
     client.create_bucket().bucket(BUCKET).send().await.unwrap();
-    let store = S3FreeChapterStore::new(client, BUCKET.to_owned()).unwrap();
+    let store = S3FreeChapterStore::new(client.clone(), BUCKET.to_owned()).unwrap();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -203,6 +206,9 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
             "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
         ),
     );
+
+    #[cfg(feature = "s3-paid")]
+    let four_editions = four_live::install(&url, owner, book, &accounts, &store, &client).await;
 
     let layers = PgLayers::new(pool.clone());
     let layer = layers
@@ -269,7 +275,7 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
 
     // This branch's private capability is an explicit operator opt-in.
     env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
-    let app = tor_web::free_reader_http::router(
+    let free_app = tor_web::free_reader_http::router(
         accounts.clone(),
         false,
         ORIGIN.to_owned(),
@@ -279,6 +285,10 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     )
     .unwrap();
     env::remove_var("TOR_LAYER_FREE_ARCHIVE_ENABLED");
+    #[cfg(feature = "s3-paid")]
+    let app = free_app.merge(four_live::paid_router(&url, &accounts, &client).await);
+    #[cfg(not(feature = "s3-paid"))]
+    let app = free_app;
 
     let page = format!("/read/layer/free/{chapter}");
     let get_old = call(&app, Method::GET, &page, Some(&buyer_session), None, None).await;
@@ -373,6 +383,16 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
         &buyer_session,
         &unrelated_session,
         TEXT,
+    )
+    .await;
+
+    #[cfg(feature = "s3-paid")]
+    four_live::verify(
+        &app,
+        (chapter, version),
+        four_editions,
+        &buyer_session,
+        &unrelated_session,
     )
     .await;
 
