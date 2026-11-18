@@ -18,6 +18,7 @@ assert(filename && temp &&
 const fixture = JSON.parse(fs.readFileSync(filename, "utf8"));
 assert(typeof fixture.old_session === "string" && fixture.old_session.length > 20);
 assert(typeof fixture.new_session === "string" && fixture.new_session.length > 20);
+assert(typeof fixture.expired_session === "string" && fixture.expired_session.length > 20);
 assert(Array.isArray(fixture.chapters) && fixture.chapters.length === 4);
 assert.deepEqual(fixture.chapters.map(c => c.kind), ["free", "free", "paid", "paid"]);
 assert(new Set(fixture.chapters.map(c => c.id)).size === 4);
@@ -106,11 +107,11 @@ async function oldBuyer(browser) {
   }
 }
 
-async function newBuyer(browser) {
+async function deniedBuyer(browser, session) {
   const context = await browser.newContext({ serviceWorkers: "block" });
   try {
     await context.addCookies([{
-      url: SITE, name: "tor-dev-session", value: fixture.new_session,
+      url: SITE, name: "tor-dev-session", value: session,
       httpOnly: true, sameSite: "Lax",
     }]);
     const page = await context.newPage();
@@ -137,7 +138,8 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   try {
     await oldBuyer(browser);
-    await newBuyer(browser);
+    await deniedBuyer(browser, fixture.new_session);
+    await deniedBuyer(browser, fixture.expired_session);
   } finally {
     await browser.close();
   }
