@@ -27,6 +27,7 @@ use tor_storage::{
 struct FakeS3 {
     bytes: Mutex<Option<Vec<u8>>>,
     gets: AtomicUsize,
+    revoke_on_get: Mutex<Option<(PgPool, i64)>>,
 }
 
 impl FakeS3 {
@@ -36,6 +37,10 @@ impl FakeS3 {
 
     fn reads(&self) -> usize {
         self.gets.load(Ordering::SeqCst)
+    }
+
+    fn revoke_book_on_next_get(&self, pool: PgPool, book: i64) {
+        *self.revoke_on_get.lock().unwrap() = Some((pool, book));
     }
 }
 
@@ -54,11 +59,23 @@ impl PrivateObjectStore for FakeS3 {
     }
     async fn get_verified(&self, _object: &ObjectRef) -> Result<Vec<u8>, StorageError> {
         self.gets.fetch_add(1, Ordering::SeqCst);
-        self.bytes
+        let bytes = self
+            .bytes
             .lock()
             .unwrap()
             .clone()
-            .ok_or(StorageError::Unavailable)
+            .ok_or(StorageError::Unavailable)?;
+        // Deterministic TOCTOU regression: revoke the book during private
+        // S3 I/O, after the original B/G authorization has succeeded.
+        let revoke = self.revoke_on_get.lock().unwrap().take();
+        if let Some((pool, book)) = revoke {
+            sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+                .bind(book)
+                .execute(&pool)
+                .await
+                .map_err(|_| StorageError::Unavailable)?;
+        }
+        Ok(bytes)
     }
     async fn presign_verified(
         &self,
@@ -254,6 +271,23 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
     assert_eq!(store.reads(), before_denial);
     sqlx::query("UPDATE chapters SET admin_hold=FALSE WHERE id=$1")
         .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A hold applied during S3 GET must be caught by the second DB check.
+    store.revoke_book_on_next_get(pool.clone(), book);
+    let original_gets = store.reads();
+    assert!(
+        registry
+            .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+            .await
+            .is_err(),
+        "the owner must not receive plaintext after an in-flight hold"
+    );
+    assert_eq!(store.reads(), original_gets + 1);
+    sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
+        .bind(book)
         .execute(&pool)
         .await
         .unwrap();
