@@ -940,6 +940,7 @@ jobs:
           cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test continuation_stats_http_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_returns_pg -- --ignored --test-threads=1
