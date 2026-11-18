@@ -2,8 +2,7 @@
 //! registers and actually verifies private S3, B atomically attaches/publishes.
 //! No writer endpoint is enabled without an explicit, configured S3-paid router.
 use crate::author_chapter_http::PaidChapterPublisher;
-use crate::author_chapter_images::stable_image_id;
-use crate::paid_author_assets::PgPaidAuthorAssets;
+mod illustrated;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tor_books::{
@@ -432,56 +431,6 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
     }
 }
 
-impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
-    /// One-image author form: final immutable Markdown contains exactly this
-    /// server-derived ID before B reserves the version. Only encrypted G
-    /// bytes and the version-scoped B asset row are persisted.
-    pub async fn publish_illustrated(
-        &self,
-        actor: i64,
-        request: &SaveChapter,
-        object_id: &tor_contracts::paid_delivery::ObjectId,
-        bytes: &[u8],
-        mime: &str,
-    ) -> Result<(), AuthorError> {
-        if actor <= 0 || stable_image_id(actor, request.book_id, &request.command_key) != *object_id
-        {
-            return Err(AuthorError::Invalid);
-        }
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
-        let pinned = ChapterVersionRef {
-            chapter_id: PositiveId::new(pending.chapter_id)
-                .map_err(|_| AuthorError::Unavailable)?,
-            version_id: PositiveId::new(pending.version_id)
-                .map_err(|_| AuthorError::Unavailable)?,
-        };
-        if pending.published {
-            // Lost HTTP response is a true retry ONLY for identical bytes.
-            let digest = tor_storage::services::crypto::sha256_bytes(bytes);
-            return match tor_books::repositories::paid_assets::PgPaidAssets::new(
-                self.catalog.pool(),
-            )
-            .existing_draft_upload(actor, pinned, 1, mime, &digest)
-            .await?
-            {
-                Some(existing) if existing == *object_id => Ok(()),
-                _ => Err(AuthorError::Conflict),
-            };
-        }
-        let uploader = PgPaidAuthorAssets::new(
-            self.catalog.clone(),
-            self.store.clone(),
-            self.keyring.clone(),
-            self.bucket.clone(),
-        )
-        .map_err(|_| AuthorError::Unavailable)?;
-        uploader
-            .upload_to_draft_with_id(actor, request, 1, bytes, mime, object_id)
-            .await?;
-        self.publish(actor, request).await
-    }
-}
-
 #[async_trait]
 impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
     async fn owned_bodyless(
@@ -586,13 +535,9 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        if self.bodyless_http {
-            // Until #1112 is merged, illustrated HTTP cannot bypass the
-            // mandatory S3-only chapter contract through a legacy writer.
-            Err(AuthorError::Unavailable)
-        } else {
-            self.publish_illustrated(actor, request, object_id, bytes, mime)
-                .await
-        }
+        // The concrete publisher chooses the same immutable bodyless mode
+        // for both B's chapter reservation and G's version-bound image.
+        self.publish_illustrated(actor, request, object_id, bytes, mime)
+            .await
     }
 }
