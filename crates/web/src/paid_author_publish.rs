@@ -11,7 +11,7 @@ use tor_books::{
         paid_storage::{PaidPublication, PgPaidStorage},
         PgCatalog,
     },
-    services::authoring::{AuthorError, SaveChapter},
+    services::authoring::{AuthorError, ChapterAccess, OwnedChapter, SaveChapter},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 use tor_storage::{
@@ -356,15 +356,62 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
 #[async_trait]
 impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
     async fn stage_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.stage_for_book_schedule(actor, request).await
+        self.stage_for_book_schedule_bodyless(actor, request).await
     }
 
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.publish(actor, request).await
+        self.publish_bodyless(actor, request).await
     }
 
     async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+        self.publish_edit_bodyless(actor, request).await
+    }
+
+    async fn owned_bodyless(
+        &self,
+        actor: i64,
+        book: i64,
+        chapter: i64,
+    ) -> Result<Option<OwnedChapter>, AuthorError> {
+        let Some(metadata) = self
+            .paid
+            .owned_published_bodyless_paid_metadata(actor, book, chapter)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let version = ChapterVersionRef {
+            chapter_id: PositiveId::new(chapter).map_err(|_| AuthorError::Invalid)?,
+            version_id: PositiveId::new(metadata.version_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+        };
+        let markdown = self
+            .registry
+            .owned_current_paid_markdown(
+                actor,
+                book,
+                version,
+                &self.bucket,
+                &self.store,
+                &self.keyring,
+            )
+            .await
+            .map_err(|error| match error {
+                tor_storage::repositories::registry::RegistryError::Missing => AuthorError::Missing,
+                tor_storage::repositories::registry::RegistryError::Invalid => AuthorError::Invalid,
+                tor_storage::repositories::registry::RegistryError::Conflict => AuthorError::Conflict,
+                tor_storage::repositories::registry::RegistryError::Unavailable => AuthorError::Unavailable,
+            })?
+            .ok_or(AuthorError::Missing)?;
+
+        Ok(Some(OwnedChapter {
+            number: metadata.number,
+            title: metadata.title,
+            body: markdown.as_str().to_owned(),
+            access: ChapterAccess::Paid,
+            price_amount: metadata.price_amount,
+            revision: metadata.revision,
+        }))
     }
 
     async fn publish_with_image(
