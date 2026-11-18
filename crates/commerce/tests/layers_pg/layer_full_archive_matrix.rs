@@ -498,3 +498,279 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     assert_old_four(&rights, lifetime_buyer, &editions).await;
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet_origin() {
+    let (pool, layer_repo, owner, active, book) = setup("elapsed-term-matrix").await;
+    let editions = four_published_chapters(&pool, book).await;
+
+    // A wholly new disposable historical fixture is inserted with dates from
+    // 32 days ago. No UPDATE of an immutable term, wallet entry, or Layer
+    // composition is used to emulate expiry.
+    let layer: i64 = sqlx::query_scalar(
+        "INSERT INTO commerce_layers(owner_user_id,title,created_at)
+         VALUES($1,'D05 elapsed 30-day archive',now()-interval '33 days') RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let origin: i64 = sqlx::query_scalar(
+        "INSERT INTO commerce_layer_versions(layer_id,version_no,created_at)
+         VALUES($1,1,now()-interval '32 days') RETURNING id",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO commerce_layer_version_books(layer_version_id,book_id) VALUES($1,$2)",
+    )
+    .bind(origin)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let offer: i64 = sqlx::query_scalar(
+        "INSERT INTO commerce_layer_offers
+         (layer_id,revision,term_kind,price_minor,created_at)
+         VALUES($1,1,'prepaid_30d',90,now()-interval '32 days') RETURNING id",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE commerce_layers SET current_version_id=$2,current_offer_id=$3 WHERE id=$1",
+    )
+    .bind(layer)
+    .bind(origin)
+    .bind(offer)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // A genuine new purchase proves that the very same Layer and four
+    // publications remain readable to an unexpired buyer.
+    let active_term = layer_repo
+        .buy(&purchase(active, layer, offer, origin, 'U'))
+        .await
+        .unwrap();
+    let expired = buyer(&pool, "elapsed").await;
+    let command_key = format!("{}8", "W".repeat(42));
+
+    // Construct the *initial* immutable record for an already elapsed term
+    // in one transaction, including real B-10 shares, a matching idempotent
+    // checkout command, an actual wallet debit and an exact journal reference.
+    // Deferred PostgreSQL triggers prove these are not orphaned credentials.
+    let mut tx = pool.begin().await.unwrap();
+    let expired_term: i64 = sqlx::query_scalar(
+        "INSERT INTO commerce_layer_terms
+         (user_id,layer_id,offer_id,base_version_id,access_origin_version_id,
+          term_kind,amount_minor,started_at,expires_at,purchased_at)
+         VALUES($1,$2,$3,$4,$4,'prepaid_30d',90,
+                now()-interval '31 days',now()-interval '1 day',
+                now()-interval '31 days') RETURNING id",
+    )
+    .bind(expired)
+    .bind(layer)
+    .bind(offer)
+    .bind(origin)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let share_revision: i64 =
+        sqlx::query_scalar("SELECT current_revision FROM revenue_share_states WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO commerce_layer_term_share_snapshots
+         (term_id,book_id,share_revision) VALUES($1,$2,$3)",
+    )
+    .bind(expired_term)
+    .bind(book)
+    .bind(share_revision)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let share_lines = sqlx::query(
+        "INSERT INTO commerce_layer_term_share_lines
+         (term_id,book_id,user_id,share_percent)
+         SELECT $1,$2,user_id,share_percent FROM revenue_share_assignments
+         WHERE book_id=$2 AND revision=$3",
+    )
+    .bind(expired_term)
+    .bind(book)
+    .bind(share_revision)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert!(share_lines.rows_affected() > 0);
+    sqlx::query(
+        "INSERT INTO commerce_layer_commands
+         (user_id,command_key,layer_id,expected_offer_id,
+          expected_version_id,expected_price_minor,term_id)
+         VALUES($1,$2,$3,$4,$5,90,$6)",
+    )
+    .bind(expired)
+    .bind(&command_key)
+    .bind(layer)
+    .bind(offer)
+    .bind(origin)
+    .bind(expired_term)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let balance: i64 = sqlx::query_scalar(
+        "UPDATE reader_wallet_accounts SET balance_minor=balance_minor-90
+         WHERE user_id=$1 AND currency='RUB' AND balance_minor>=90
+         RETURNING balance_minor",
+    )
+    .bind(expired)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_wallet_entries
+         (user_id,kind,delta_minor,balance_after_minor,reference,layer_term_id)
+         VALUES($1,'layer_purchase',-90,$2,$3,$4)",
+    )
+    .bind(expired)
+    .bind(balance)
+    .bind(format!("layer-wallet:{expired}:{command_key}"))
+    .bind(expired_term)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    let (valid_wallet, exactly_30_days, already_elapsed, physical_version_predates_expiry):
+        (bool, bool, bool, bool) = sqlx::query_as(
+        "SELECT d05_layer_term_has_wallet_evidence(t.id),
+                t.expires_at=t.started_at+interval '30 days',
+                t.expires_at<now(),
+                v.created_at<t.expires_at
+         FROM commerce_layer_terms t
+         JOIN commerce_layer_versions v ON v.id=t.access_origin_version_id
+         WHERE t.id=$1",
+    )
+    .bind(expired_term)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        valid_wallet && exactly_30_days && already_elapsed
+            && physical_version_predates_expiry,
+        "expiry must be the only denial reason, not missing financial provenance"
+    );
+    assert_eq!(balance, 1410);
+
+    // The deleted Book is eligible for the active original buyer, and must
+    // not appear even as a title in the expired buyer's private Layer TOC.
+    let revision: i64 = sqlx::query_scalar(
+        "UPDATE books SET lifecycle_status='pending_deletion',
+         lifecycle_revision=lifecycle_revision+1,visibility='draft'
+         WHERE id=$1 RETURNING lifecycle_revision",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_ordinary_deletion_requests
+         (book_id,request_revision,owner_user_id,
+          previous_lifecycle_status,previous_visibility)
+         VALUES($1,$2,$3,'in_progress','public')",
+    )
+    .bind(book)
+    .bind(revision)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    for &(chapter, version) in &editions[..2] {
+        sqlx::query(
+            "INSERT INTO book_layer_free_archive_versions
+             (book_id,request_revision,chapter_id,version_id)
+             VALUES($1,$2,$3,$4)",
+        )
+        .bind(book)
+        .bind(revision)
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=clock_timestamp(),
+         lifecycle_revision=lifecycle_revision+1 WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rights = PgLayerChapterEntitlements::new(pool.clone());
+    assert_old_four(&rights, active, &editions).await;
+    assert!(!layer_repo.can_read_book(id(expired), id(book)).await.unwrap());
+    for &(chapter, _) in &editions[..2] {
+        assert_eq!(
+            rights.archived_free_version(id(expired), id(chapter)).await.unwrap(),
+            None,
+            "expired 30-day term may not read frozen FREE chapter"
+        );
+    }
+    for &(chapter, _) in &editions[2..] {
+        assert!(matches!(
+            rights
+                .resolve_entitlement(Actor { user_id: id(expired) }, id(chapter), None)
+                .await
+                .unwrap(),
+            EntitlementDecision::Denied { .. }
+        ));
+    }
+    assert!(
+        rights
+            .layer_toc_window(
+                id(expired),
+                id(editions[2].0),
+                MixedTocCursor {
+                    chapter_no: 3,
+                    chapter_id: editions[2].0,
+                },
+                MixedTocSide::Before,
+                10,
+            )
+            .await
+            .is_err(),
+        "expired reader may not enumerate archived titles"
+    );
+    assert_old_four(&rights, active, &editions).await;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM commerce_layer_term_revocations WHERE term_id=$1",
+        )
+        .bind(expired_term)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0,
+        "expiry must deny without fabricating a revocation"
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT d05_layer_term_has_wallet_evidence($1)",
+        )
+        .bind(expired_term)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert_ne!(active_term.term_id, expired_term);
+    pool.close().await;
+}
