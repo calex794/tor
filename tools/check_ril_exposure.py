@@ -202,12 +202,19 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("POST", "/admin/audience/seo/refresh", "seo::refresh", "administrator"),
                 }
             )
+            # RET-R03 is the exact administrator-only sitewide read.
+            # Live role proof is independently enforced by check_ril_governance.py.
+            allow_continuation_admin = (
+                row["source"] == "crates/web/src/auth.rs"
+                and key == ("GET", "/admin/audience/continuations",
+                            "continuation_stats::administrator", "administrator")
+            )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
-                    or allow_ratio_admin):
+                    or allow_ratio_admin or allow_continuation_admin):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
