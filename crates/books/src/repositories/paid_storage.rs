@@ -40,6 +40,9 @@ pub struct PreparedPaidChapter {
     pub published: bool,
 }
 
+// Object identity, optional legacy text, and immutable B digest.
+type PaidStoredEdition = (Option<String>, Option<String>, Option<Vec<u8>>);
+
 fn map_write(error: sqlx::Error) -> AuthorError {
     if let sqlx::Error::Database(ref db) = error {
         if matches!(db.code().as_deref(), Some("23503" | "23505" | "23514")) {
@@ -293,7 +296,7 @@ impl PgPaidStorage {
         };
 
         // For historical V1, allow attachment without moving a newer V2.
-        let existing: Option<(Option<String>, Option<String>, Option<Vec<u8>>)> = sqlx::query_as(
+        let existing: Option<PaidStoredEdition> = sqlx::query_as(
             "SELECT storage_object_id::text,body_markdown,content_sha256
                  FROM chapter_versions
                  WHERE id=$1 AND chapter_id=$2 FOR UPDATE",
