@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-paid")]
     let paid_author_s3_only_enabled = paid_flags.s3_only;
     #[cfg(not(feature = "s3-paid"))]
-    let _ = paid_flags.s3_only;
+    let _ = (paid_grants_enabled, paid_author_enabled, paid_flags.s3_only);
     let g09_operator_enabled = g09_bootstrap::enabled(demo)?;
     // Optional numeric-only SQLx telemetry. Never enables raw SQL logs.
     if !demo && env::var("DATABASE_URL").is_ok() && !tor_web::activate_ril_sqlx_observation() {
