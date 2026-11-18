@@ -226,6 +226,40 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
             .unwrap();
         assert_eq!(response.status(), expected);
     }
+    // The same command is idempotent only for identical source bytes.
+    // A mutated body must not reuse its published V1 or attached image.
+    let mut changed = payload.clone();
+    let original = b"Paid V1 with a sealed image";
+    let offset = changed
+        .windows(original.len())
+        .position(|part| part == original)
+        .expect("multipart has the original paid source");
+    changed.splice(
+        offset..offset + original.len(),
+        b"Altered V1 with a sealed image".iter().copied(),
+    );
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/me/books/{book}/chapters/illustrated"))
+                .method("POST")
+                .header(header::ORIGIN, ORIGIN)
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header(header::COOKIE, cookie(&session, &csrf))
+                .body(Body::from(changed))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected.status(),
+        StatusCode::CONFLICT,
+        "changed Markdown must never replay a published illustrated paid command"
+    );
     let picture = pg(
         &url,
         &format!(
