@@ -117,3 +117,22 @@ fn altered_bytes_and_false_retention_states_are_refused() {
         assert_eq!(check(&source, &report), Err(ROW_ERROR));
     }
 }
+
+#[test]
+fn recheck_refuses_changes_to_references_and_members_even_with_equal_totals() {
+    let (_, verified) = fixture();
+    assert_eq!(check_unchanged(&verified, verified.as_bytes()), Ok(()));
+    assert_eq!(
+        check_unchanged(&verified, verified.replace('\n', "\r\n").as_bytes()),
+        Ok(())
+    );
+
+    let newly_pinned = set_field(&set_field(&verified, 1, 13, "t"), 1, 16, "RETAIN");
+    let moved_reason = set_field(&set_field(&verified, 0, 12, "f"), 0, 13, "t");
+    let new_generation = set_field(&verified, 1, 7, "2");
+    let partial = verified.lines().take(2).collect::<Vec<_>>().join("\n");
+    for fresh in [newly_pinned, moved_reason, new_generation, partial] {
+        assert_eq!(check_unchanged(&verified, fresh.as_bytes()), Err(CHANGED));
+    }
+    assert!(check_unchanged(&verified, b"\xff").is_err());
+}
