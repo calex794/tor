@@ -292,10 +292,24 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let (other_first, other_first_version) =
-        chapter(&pool, other_book, 1, "Другая первая", "public", "Первый текст").await;
-    let (other_second, _) =
-        chapter(&pool, other_book, 2, "Другая вторая", "public", "Второй текст").await;
+    let (other_first, other_first_version) = chapter(
+        &pool,
+        other_book,
+        1,
+        "Другая первая",
+        "public",
+        "Первый текст",
+    )
+    .await;
+    let (other_second, _) = chapter(
+        &pool,
+        other_book,
+        2,
+        "Другая вторая",
+        "public",
+        "Второй текст",
+    )
+    .await;
     assert_eq!(
         progress.continue_reading(reader).await.unwrap().len(),
         1,
@@ -342,7 +356,11 @@ async fn ret00_library_resume_moves_only_to_next_visible_free_chapter() {
     let continued = progress.continue_reading(reader).await.unwrap();
     assert_eq!(continued.len(), 2);
     assert_eq!(
-        continued.iter().find(|item| item.book_id == book).unwrap().chapter_id,
+        continued
+            .iter()
+            .find(|item| item.book_id == book)
+            .unwrap()
+            .chapter_id,
         third,
         "a second-book completion must not mutate the first Book"
     );
