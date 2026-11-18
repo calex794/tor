@@ -1,6 +1,6 @@
 //! Paid private-storage publication port used by authoring HTTP.
 use async_trait::async_trait;
-use tor_books::services::authoring::{AuthorError, SaveChapter};
+use tor_books::services::authoring::{AuthorError, OwnedChapter, SaveChapter};
 
 #[derive(Clone)]
 pub(crate) struct FreeContent(pub std::sync::Arc<dyn FreeChapterPublisher>);
@@ -18,6 +18,18 @@ pub(crate) trait PaidChapterPublisher: Send + Sync {
     /// No paid edit without a separately configured, verified S3 writer.
     async fn publish_edit(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
         Err(AuthorError::Unavailable)
+    }
+
+    /// The paid S3-only editor may open only an owner-bound, current and
+    /// verified encrypted edition. Legacy PG-body rows are handled by the
+    /// separate pre-existing owner path. Non-S3 publishers fail closed.
+    async fn owned_bodyless(
+        &self,
+        _actor: i64,
+        _book: i64,
+        _chapter: i64,
+    ) -> Result<Option<OwnedChapter>, AuthorError> {
+        Ok(None)
     }
 
     /// The isolated illustrated-author route supplies a server-computed
