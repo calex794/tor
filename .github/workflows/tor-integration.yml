@@ -671,18 +671,23 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"
           CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
             cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
-            -p tor-web --bin tor-web -p tor-migrations --bin tor-migrate
+            -p tor-web --bin tor-web --features s3-free -p tor-migrations --bin tor-migrate
           install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
             "$RUNNER_TEMP/s061-previous-tor-web"
           install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-migrate" \
             "$RUNNER_TEMP/s061-previous-tor-migrate"
           test -x ./target/debug/tor-migrate
+          cargo build -p tor-web --bin tor-web --features s3-free
+      - name: S061 start private loopback MinIO for the saved reader
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && matrix.shard == 'foundation' }}
+        run: bash tools/s061_start_minio.sh
       - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
         if: ${{ matrix.shard == 'foundation' }}
         env:
           GITHUB_ACTIONS: 'true'
           TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
           TOR_S061_PREVIOUS_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha || '' }}
+          TOR_S061_S3_ENDPOINT: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && 'http://127.0.0.1:9012' || '' }}
         run: |
           # Reuse this job's accepted binary; build a second only for manual two-SHA tests.
           test -x ./target/debug/tor-web

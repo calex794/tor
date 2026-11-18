@@ -96,6 +96,11 @@ class CandidateCutoverGuardTests(unittest.TestCase):
                 self.assertIn("name: s061-real-cutover-pg", text)
                 self.assertIn('"$RUNNER_TEMP/s061-previous-tor-migrate"', text)
                 self.assertIn("TOR_S061_PREVIOUS_SHA:", text)
+                self.assertIn("--bin tor-web --features s3-free", text)
+                self.assertIn("bash tools/s061_start_minio.sh", text)
+                self.assertIn("TOR_S061_S3_ENDPOINT:", text)
+                self.assertLess(text.index("bash tools/s061_start_minio.sh"),
+                                text.index("python3 tools/s061_cutover_pg_smoke.py"))
                 self.assertLess(text.index("bash tools/tor_pg_backup_restore_smoke.sh"),
                                 text.index("python3 tools/s061_cutover_pg_smoke.py"))
         manual_text = manual.read_text()
@@ -116,6 +121,7 @@ class CandidateCutoverGuardTests(unittest.TestCase):
         self.assertIn("migration_state(database) == upgraded", text)
         self.assertIn("before.items() <= upgraded.items()", text)
         self.assertIn("catalog_snapshot(database) == original_catalog", text)
+        self.assertIn('"saved_v1_s3_read_stages": saved_s3_stages', text)
         self.assertIn('"same_binary_both_slots": not distinct', text)
         self.assertIn('"distinct_binary_validation": distinct', text)
         self.assertIn('"no_production_or_tls_staging_claim": True', text)

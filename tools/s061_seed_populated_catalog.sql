@@ -42,5 +42,5 @@ RETURNING id AS purchase_id \gset
 INSERT INTO reader_purchased_positions(user_id, purchase_id, chapter_id, version_id,
                                        block_index, char_offset)
 VALUES (:reader_id, :purchase_id, :paid_id, :paid_version, 2, 3);
-SELECT :free_id, :paid_id;
+SELECT :free_id, :paid_id, :saved_id, :current_id;
 COMMIT;
