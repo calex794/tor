@@ -2,10 +2,10 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
-#[path = "paid_author_pg/s048_browser.rs"]
-mod s048_browser;
 #[path = "paid_author_pg/fnd00_bodyless.rs"]
 mod fnd00_bodyless;
+#[path = "paid_author_pg/s048_browser.rs"]
+mod s048_browser;
 
 use async_trait::async_trait;
 use aws_sdk_s3::{
