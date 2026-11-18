@@ -90,9 +90,7 @@ $d05$;
     assert_eq!(
         pg(
             url,
-            &format!(
-                "SELECT count(*) FROM commerce_layer_terms WHERE user_id={actor}"
-            ),
+            &format!("SELECT count(*) FROM commerce_layer_terms WHERE user_id={actor}"),
         ),
         "1"
     );
