@@ -1,6 +1,5 @@
 //! Live D-05 PACK browser acceptance: actual Rust router, PG18, MinIO Range,
 //! Chromium and actor-scoped source fallback. No real cloud or persistent DB.
-use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::{
