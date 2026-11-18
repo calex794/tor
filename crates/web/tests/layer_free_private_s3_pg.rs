@@ -208,7 +208,7 @@ async fn d05_layer_free_single_historical_buyer_signed_read_and_denials() {
     );
 
     #[cfg(feature = "s3-paid")]
-    let four_editions = four_live::install(&url, owner, book, &pool, &store, &client).await;
+    let four_editions = four_live::install(&url, owner, book, &accounts, &store, &client).await;
 
     let layers = PgLayers::new(pool.clone());
     let layer = layers
