@@ -3,7 +3,10 @@ use super::super::escape_html;
 
 /// Private Home navigation uses exactly the same destination resolver as Library.
 /// Only server-side actor-scoped progress is rendered; links never confer rights.
-pub fn account_resume_cards(items: &[tor_reading::services::progress::ContinueReading]) -> String {
+pub fn account_resume_cards(
+    items: &[tor_reading::services::progress::ContinueReading],
+    paid_only: &[tor_reading::services::library::PurchasedOnlyBook],
+) -> String {
     let mut links = String::new();
     for item in items.iter().take(2) {
         let target = super::super::library::reading_destination(item);
@@ -23,6 +26,26 @@ pub fn account_resume_cards(items: &[tor_reading::services::progress::ContinueRe
              <span class=\"me-now-item__text\">Глава {}. {chapter_title} · {status}</span>\
              </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
             item.book_id, item.chapter_no,
+        ));
+    }
+    // This is not a paid cursor, a payment grant or a publication pointer.
+    // The archive route performs its own live entitlement check on every GET.
+    for book in paid_only.iter().take(2) {
+        let title = escape_html(&book.title);
+        let state = if book.ordinary_deleted {
+            "Удалена · Купленные главы"
+        } else if book.pending_deletion {
+            "Ожидает удаления · Купленные главы"
+        } else {
+            "Купленные главы"
+        };
+        links.push_str(&format!(
+            "<a class=\"me-now-item me-now-item--reading\" data-ret-purchased-book=\"{}\" href=\"/me/library/{}/saved\">\
+             <span class=\"me-now-item__copy\">\
+             <strong class=\"me-now-item__title\">{title}</strong>\
+             <span class=\"me-now-item__text\">{state} · Открыть закреплённые редакции</span>\
+             </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
+            book.book_id, book.book_id,
         ));
     }
     links
@@ -64,7 +87,7 @@ mod tests {
                 archived_saved: false,
             },
         ];
-        let cards = account_resume_cards(&books);
+        let cards = account_resume_cards(&books, &[]);
         assert_eq!(cards.matches("data-ret-resume-book=").count(), 2);
         assert!(cards.contains("href=\"/read/70#p-2\""));
         assert!(cards.contains("href=\"/me/library/saved/80#saved-resume\""));
@@ -89,4 +112,41 @@ mod tests {
             "archived V1 never redirects to a public chapter"
         );
     }
+    #[test]
+    fn ret03_paid_only_home_uses_private_archive_not_purchase_id() {
+        use tor_reading::services::library::PurchasedOnlyBook;
+        let purchased = vec![
+            PurchasedOnlyBook {
+                book_id: 51,
+                title: "<img src=x onerror=alert(1)>".into(),
+                pending_deletion: false,
+                ordinary_deleted: true,
+            },
+            PurchasedOnlyBook {
+                book_id: 52,
+                title: "Вторая купленная".into(),
+                pending_deletion: true,
+                ordinary_deleted: false,
+            },
+            PurchasedOnlyBook {
+                book_id: 53,
+                title: "Third purchase".into(),
+                pending_deletion: false,
+                ordinary_deleted: false,
+            },
+        ];
+        let html = account_resume_cards(&[], &purchased);
+        assert_eq!(html.matches("data-ret-purchased-book=").count(), 2);
+        assert!(html.contains("href=\"/me/library/51/saved\""));
+        assert!(html.contains("href=\"/me/library/52/saved\""));
+        assert!(html.contains("Удалена · Купленные главы"));
+        assert!(html.contains("Ожидает удаления · Купленные главы"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img src=x"));
+        assert!(!html.contains("Third purchase"));
+        assert!(!html.contains("/read/paid/"));
+        assert!(!html.contains("purchase_id="));
+        assert!(account_resume_cards(&[], &[]).is_empty());
+    }
+
 }

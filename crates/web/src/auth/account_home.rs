@@ -62,6 +62,24 @@ pub(super) async fn page(
         Ok(items) => items,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    // Paid-only Books have no free cursor. Reuse Library's live D policy
+    // (including session, age, deletion and refund gates) for their links.
+    let paid_only = if state.paid_reader_available {
+        let Some(session) = state.cookies.session_token(&headers) else {
+            return deny(StatusCode::UNAUTHORIZED);
+        };
+        let digest = session_token_digest(&session);
+        match state
+            .bookmarks
+            .purchased_only_books(user_id, &digest, 2, None)
+            .await
+        {
+            Ok(page) => page.items,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        Vec::new()
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut page = pages::my_account_with_achievements_refunds_and_swap(
         &name,
@@ -80,7 +98,7 @@ pub(super) async fn page(
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
     page.0 = page.0.replace(
         "<!--RET_RESUME_CARDS-->",
-        &pages::account_resume_cards(&resumes),
+        &pages::account_resume_cards(&resumes, &paid_only),
     );
     let changed = if revisions == 0 {
         String::new()

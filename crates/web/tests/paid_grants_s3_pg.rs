@@ -63,6 +63,7 @@ mod s020_paid_completion_age;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
+mod ret03_paid_home;
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
@@ -422,6 +423,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (book, chapter, chapter_two),
         (buyer, &buyer_cookie, &csrf),
         MARKDOWN,
+    )
+    .await;
+    ret03_paid_home::verify(
+        &app,
+        &url,
+        buyer,
+        book,
+        &buyer_cookie,
+        &stranger_cookie,
     )
     .await;
     s035_live_chromium::verify(
