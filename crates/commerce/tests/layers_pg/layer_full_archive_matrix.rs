@@ -14,7 +14,7 @@ async fn buyer(pool: &PgPool, suffix: &str) -> i64 {
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'D05 chapter matrix','$argon2id$test') RETURNING id",
     )
-    .bind(format!("ci:d05-four-{suffix}@example.invalid"))
+    .bind(format!("d05-four-{suffix}@example.invalid"))
     .fetch_one(pool)
     .await
     .unwrap();
