@@ -35,7 +35,8 @@ async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
         ))
         .endpoint_url(endpoint.clone())
         .force_path_style(true)
-        .retry_config(RetryConfig::standard().with_max_attempts(1))
+        // Match the runtime S3 client's bounded retries for transport failures.
+        .retry_config(RetryConfig::standard())
         .build();
     let client = Client::from_conf(config);
     const BUCKET: &str = "tor-private-free-ci";
@@ -52,7 +53,9 @@ async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
         &object
     );
     assert_eq!(store.get_verified(&object).await.unwrap(), text.as_bytes());
-    assert!(upload_and_verify(&store, &object, text).await.is_ok());
+    upload_and_verify(&store, &object, text)
+        .await
+        .expect("an identical replay must verify the stored edition");
 
     let other_text = "# Изменённая версия";
     let other = FreeChapterObject::for_markdown(43001, 53001, other_text).unwrap();
