@@ -61,9 +61,13 @@ impl PgPaidStorage {
         markdown: &str,
     ) -> Result<(), AuthorError> {
         self.attach_verified_internal(
-            actor, book_id, version, object_id, publication, Some(markdown),
+            actor,
+            book_id,
+            version,
+            object_id,
+            publication,
+            Some(markdown),
         )
         .await
     }
-
 }
