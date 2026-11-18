@@ -147,6 +147,51 @@ async fn assert_old_four(rights: &PgLayerChapterEntitlements, old: i64, editions
     assert_eq!(after.chapters[0].access, LayerTocAccess::Subscription);
 }
 
+/// Every hard Book gate must deny both immutable FREE versions, both PAID
+/// versions, and the archived TOC, without modifying paid provenance.
+async fn assert_four_hidden(
+    rights: &PgLayerChapterEntitlements,
+    actor: i64,
+    editions: &[(i64, i64)],
+) {
+    for &(chapter, _) in &editions[..2] {
+        assert_eq!(
+            rights
+                .archived_free_version(id(actor), id(chapter))
+                .await
+                .unwrap(),
+            None,
+            "a blocked actor must not receive an archived FREE version"
+        );
+    }
+    for &(chapter, _) in &editions[2..] {
+        assert!(matches!(
+            rights
+                .resolve_entitlement(Actor { user_id: id(actor) }, id(chapter), None)
+                .await
+                .unwrap(),
+            EntitlementDecision::Denied { .. }
+        ));
+    }
+    let (anchor, _) = editions[2];
+    assert!(
+        rights
+            .layer_toc_window(
+                id(actor),
+                id(anchor),
+                MixedTocCursor {
+                    chapter_no: 3,
+                    chapter_id: anchor,
+                },
+                MixedTocSide::Before,
+                10,
+            )
+            .await
+            .is_err(),
+        "a blocked actor must not enumerate historical FREE/PAID titles"
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
@@ -496,6 +541,114 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     );
     assert_old_four(&rights, old, &editions).await;
     assert_old_four(&rights, lifetime_buyer, &editions).await;
+
+    // Post-checkout age restrictions apply at *read time* to the original
+    // immutable Layer term. They must not alter the paid purchase, its origin,
+    // or a separate lifetime buyer's entitlement.
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(old)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+
+    // A storefront block does not revoke pre-existing rights, but a BOOK
+    // legal block, operator hold or physical deletion does. On release,
+    // the historical editions must reappear unchanged.
+    sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
+    sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+
+    sqlx::query("UPDATE books SET is_deleted=TRUE WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_four_hidden(&rights, old, &editions).await;
+    assert_four_hidden(&rights, lifetime_buyer, &editions).await;
+    // The reversible fixture flag only proves entitlement gating. Production
+    // hard deletion remains a separate protected administrative operation.
+    sqlx::query("UPDATE books SET is_deleted=FALSE WHERE id=$1")
+        .bind(deleted_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_old_four(&rights, old, &editions).await;
+    assert_old_four(&rights, lifetime_buyer, &editions).await;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM commerce_layer_term_revocations WHERE term_id=$1",
+        )
+        .bind(first.term_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0,
+        "age and hard-gate denial must not fabricate a refund/revocation",
+    );
     pool.close().await;
 }
 
