@@ -16,7 +16,8 @@ use tor_contracts::paid_delivery::{
 use zeroize::Zeroizing;
 
 impl PgStorageRegistry {
-    /// Only an active book owner can fetch current S3-only author Markdown.
+    /// Only an active book owner can fetch the exact current S3-only edition.
+    /// The expected version fences B metadata against concurrent publication.
     /// Historical paid PG-body editions deliberately remain on the legacy
     /// author editor path until their independent migration is accepted.
     pub async fn owned_current_paid_markdown<S: PrivateObjectStore>(
@@ -24,11 +25,12 @@ impl PgStorageRegistry {
         actor: i64,
         book: i64,
         chapter: i64,
+        expected_version: i64,
         private_bucket: &str,
         store: &S,
         keyring: &ContentKeyring,
     ) -> Result<Option<Zeroizing<String>>, RegistryError> {
-        if actor <= 0 || book <= 0 || chapter <= 0 {
+        if actor <= 0 || book <= 0 || chapter <= 0 || expected_version <= 0 {
             return Ok(None);
         }
         if !valid_private_bucket(private_bucket) {
@@ -54,7 +56,7 @@ impl PgStorageRegistry {
                AND m.storage_object_id=o.id
                AND m.content_sha256=o.plaintext_sha256
              WHERE b.id=$1 AND b.owner_user_id=$2
-               AND c.id=$3 AND o.bucket=$4
+               AND c.id=$3 AND o.bucket=$4 AND v.id=$5
                AND b.visibility='public' AND b.visibility_status='active' AND c.visibility='public'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND NOT c.admin_hold AND NOT c.is_deleted
@@ -70,6 +72,7 @@ impl PgStorageRegistry {
         .bind(actor)
         .bind(chapter)
         .bind(private_bucket)
+        .bind(expected_version)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| RegistryError::Unavailable)?;
