@@ -11,7 +11,10 @@ use tor_books::{
 };
 use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
-    services::free_chapter::{upload_and_verify, FreeChapterObject, FreeChapterStore},
+    services::{
+        free_chapter::{upload_and_verify, FreeChapterObject, FreeChapterStore},
+        free_pack_read::PackReadDeadline,
+    },
 };
 mod admin;
 mod import;
@@ -260,6 +263,7 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
         chapter: i64,
     ) -> Result<Option<tor_books::repositories::free_s3_publish::OwnedFreeS3Chapter>, AuthorError>
     {
+        let pack_deadline = PackReadDeadline::start();
         let Some(mut owned) = self.repository.owned(actor, book, chapter).await? else {
             return Ok(None);
         };
@@ -271,16 +275,19 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
         // edition, revision and physical placement again after S3 I/O.
         let frame_before = if owned.stored_in_pack {
             Some(
-                self.owned_pack_reference(actor, book, chapter, &owned)
-                    .await?,
+                pack_deadline
+                    .wait(self.owned_pack_reference(actor, book, chapter, &owned))
+                    .await
+                    .map_err(map_storage)??,
             )
         } else {
             None
         };
         let bytes = if let Some(frame) = frame_before.as_ref() {
-            self.store
-                .get_verified_pack(frame)
+            pack_deadline
+                .wait(self.store.get_verified_pack(frame))
                 .await
+                .map_err(map_storage)?
                 .map_err(map_storage)?
         } else {
             let object = FreeChapterObject::from_metadata(
@@ -295,11 +302,13 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
                 .await
                 .map_err(map_storage)?
         };
-        let current = self
-            .repository
-            .owned(actor, book, chapter)
-            .await?
-            .ok_or(AuthorError::Missing)?;
+        let current = self.repository.owned(actor, book, chapter);
+        let current = if frame_before.is_some() {
+            pack_deadline.wait(current).await.map_err(map_storage)??
+        } else {
+            current.await?
+        }
+        .ok_or(AuthorError::Missing)?;
         if current.version_id != owned.version_id
             || current.chapter.revision != owned.chapter.revision
             || current.chapter.title != owned.chapter.title
@@ -311,9 +320,10 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
             return Err(AuthorError::Conflict);
         }
         if let Some(before) = frame_before {
-            let after = self
-                .owned_pack_reference(actor, book, chapter, &current)
-                .await?;
+            let after = pack_deadline
+                .wait(self.owned_pack_reference(actor, book, chapter, &current))
+                .await
+                .map_err(map_storage)??;
             if after != before {
                 return Err(AuthorError::Conflict);
             }

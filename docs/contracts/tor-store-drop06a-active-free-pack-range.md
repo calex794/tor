@@ -21,3 +21,20 @@ Extend the existing disposable PG18+MinIO `drop_04b_direct_pack_finalizer_is_ato
 - Explicit operator-only deployment feature gate and live HTTP merge, followed by guarded S023 PACK-direct worker cutover and original DROP-04 100k chapter benchmark/DR/fault injection. Until then KEEP default SINGLE reader and importer untouched.
 
 [Original plan](https://app.notion.com/p/41a32a84beec816db12deb24688716d6).
+
+## DROP-07 — in-flight application reads
+
+Public FREE, Saved FREE, historical Layer and author PACK Range reads use
+one 20-second monotonic deadline beginning before the lookup that selects
+the frame for S3. A late selection cannot dispatch a new Range request.
+An in-progress Range is dropped on timeout and the read returns unavailable.
+PACK keys and Range capabilities stay server-side.
+
+For a retirement drill, record that every serving process has this deadline
+and observes the same primary catalog. Start the elapsed-time measurement
+after observing the committed placement seal. Allow the full read budget to
+elapse while those processes are running or after they have been stopped.
+Treat preflight readers, manual catalog checks and maintenance jobs
+that can still fetch an inactive PACK as separate consumers. The application
+deadline covers its own reads and cancellation. Provider acceptance and
+independent recovery evidence are separate prerequisites.
