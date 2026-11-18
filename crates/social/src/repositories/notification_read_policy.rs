@@ -86,6 +86,37 @@ pub(super) const VISIBLE: &str = r#"
           ))
       )
 )) AND
+-- RET-R03 owner demand notices never reveal book demand after ownership
+-- transfer, completed publication, moderation hold or account suspension.
+(n.kind <> 'continuation_demand' OR EXISTS (
+    SELECT 1 FROM outbox_events e
+    JOIN books book ON book.id=e.aggregate_id
+    JOIN users owner ON owner.id=book.owner_user_id
+       AND owner.account_state='active'
+    WHERE e.id=n.source_event_id
+      AND e.event_type='reader.continuation.requested'
+      AND e.aggregate_kind='book'
+      AND e.payload->>'actor_user_id'='0'
+      AND e.payload->>'recipient_user_id'=n.recipient_user_id::text
+      AND e.payload->>'object_id'=book.id::text
+      AND book.owner_user_id=n.recipient_user_id
+      AND n.actor_user_id IS NULL
+      AND book.visibility='public'
+      AND book.visibility_status='active'
+      AND book.lifecycle_status<>'completed'
+      AND NOT book.admin_hold AND NOT book.is_deleted
+      AND e.payload->>'frontier_chapter_id'=(
+          SELECT chapter.id::text
+          FROM chapters chapter
+          JOIN chapter_publications publication
+            ON publication.chapter_id=chapter.id
+          WHERE chapter.book_id=book.id AND chapter.visibility='public'
+            AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+            AND (chapter.reader_released_at IS NULL
+                 OR chapter.reader_released_at<=clock_timestamp())
+          ORDER BY chapter.chapter_no DESC,chapter.id DESC LIMIT 1
+      )
+)) AND
 -- A stored moderation bell never grants operational access. Revoked admin
 -- roles and no-longer-pending source requests hide the notice before LIMIT,
 -- including read/unread update routes, even without a new worker scan.

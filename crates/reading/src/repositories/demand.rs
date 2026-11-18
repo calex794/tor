@@ -2,6 +2,9 @@
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
 
+#[path = "demand_owner_signal.rs"]
+mod owner_signal;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DemandState {
     NotEligible,
@@ -64,13 +67,19 @@ impl PgContinuationDemand {
         if actor <= 0 || book <= 0 || chapter <= 0 {
             return Err(DemandError::Invalid);
         }
+        // The request and its one-per-frontier owner signal commit atomically.
+        // Retries cannot create a second event or a second verified request.
+        let mut tx = self.pool.begin().await.map_err(|_| DemandError::Unavailable)?;
         // Eligibility is rechecked in the single INSERT statement, not trusted from GET.
         let added: Option<i64> = sqlx::query_scalar("INSERT INTO reader_continuation_demand(user_id,book_id,frontier_chapter_id)\n SELECT $1, chapter.book_id, chapter.id\n FROM reader_chapter_completions AS finished\n JOIN chapters AS chapter ON chapter.id=finished.chapter_id\n JOIN books AS book ON book.id=chapter.book_id\n JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id\n WHERE finished.user_id=$1 AND finished.book_id=$2 AND finished.chapter_id=$3\n   AND chapter.book_id=$2 AND book.visibility='public' AND book.visibility_status='active' AND book.lifecycle_status <> 'completed' AND NOT book.admin_hold\n   AND NOT book.is_deleted AND chapter.visibility='public'\n   AND chapter.access_level='free' AND NOT chapter.admin_hold AND NOT chapter.is_deleted\n   AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at<=now())\n   AND NOT EXISTS (\n     SELECT 1 FROM chapters AS later JOIN chapter_publications AS release ON release.chapter_id=later.id\n     WHERE later.book_id=chapter.book_id AND later.chapter_no>chapter.chapter_no\n       AND later.visibility='public' AND NOT later.admin_hold AND NOT later.is_deleted\n       AND (later.reader_released_at IS NULL OR later.reader_released_at<=now())\n   )\n ON CONFLICT (user_id,book_id,frontier_chapter_id) DO NOTHING RETURNING id")
-            .bind(actor).bind(book).bind(chapter).fetch_optional(&self.pool).await
+            .bind(actor).bind(book).bind(chapter).fetch_optional(&mut *tx).await
             .map_err(|_| DemandError::Unavailable)?;
         if added.is_some() {
+            owner_signal::enqueue(&mut tx, book, chapter, actor).await?;
+            tx.commit().await.map_err(|_| DemandError::Unavailable)?;
             return Ok(());
         }
+        tx.commit().await.map_err(|_| DemandError::Unavailable)?;
         match self.state(actor, book, chapter).await? {
             DemandState::Recorded => Ok(()),
             DemandState::NotEligible | DemandState::Ready => Err(DemandError::NotEligible),
