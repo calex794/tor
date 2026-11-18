@@ -8,7 +8,10 @@ CREATE TEMP TABLE book_layer_free_archive_versions (
 CREATE TEMP TABLE reader_saved_free_chapters (
     chapter_id bigint NOT NULL, version_id bigint NOT NULL
 );
-CREATE TEMP TABLE chapters (id bigint NOT NULL, book_id bigint NOT NULL);
+CREATE TEMP TABLE chapters (
+    id bigint NOT NULL, book_id bigint NOT NULL,
+    access_level text NOT NULL, price_amount bigint NOT NULL
+);
 CREATE TEMP TABLE chapter_versions (
     chapter_id bigint NOT NULL, id bigint NOT NULL,
     body_markdown text, content_sha256 bytea
@@ -26,7 +29,9 @@ CREATE TEMP TABLE free_edition_storage_generations (
 );
 CREATE TEMP TABLE free_storage_packs (id bigint NOT NULL);
 
-INSERT INTO chapters VALUES (101,11),(202,22);
+INSERT INTO chapters VALUES
+    (101,11,CASE WHEN :'scenario'='paid_layer_chapter' THEN 'paid' ELSE 'free' END,0),
+    (202,22,'free',0);
 INSERT INTO chapter_versions VALUES
     (101,1001,NULL,decode(repeat('11',32),'hex')),
     (202,2002,NULL,decode(repeat('22',32),'hex'));
