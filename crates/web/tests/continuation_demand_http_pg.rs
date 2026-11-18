@@ -532,8 +532,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         )),
         "Account Home and Library must agree on the new chapter"
     );
-    let observer_home =
-        html(call(&app, "GET", "/me", &observer_cookie, ORIGIN, "").await).await;
+    let observer_home = html(call(&app, "GET", "/me", &observer_cookie, ORIGIN, "").await).await;
     assert!(
         !observer_home.contains(&format!("data-ret-resume-book=\"{book}\"")),
         "A second reader with no saved place must not inherit A's resume card"
