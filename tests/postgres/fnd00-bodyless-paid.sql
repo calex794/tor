@@ -138,7 +138,7 @@ BEGIN
        IS NOT NULL
        OR (SELECT storage_object_id FROM chapter_versions WHERE id=version_v1)
           IS DISTINCT FROM object_v1
-       OR (SELECT version_id FROM chapter_publications WHERE chapter_id=fixture.chapter_id)
+       OR (SELECT version_id FROM chapter_publications cp WHERE cp.chapter_id=fixture.chapter_id)
           IS DISTINCT FROM version_v1 THEN
         RAISE EXCEPTION 'FND00 bodyless paid V1 was not published exactly';
     END IF;
