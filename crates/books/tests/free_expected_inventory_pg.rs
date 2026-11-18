@@ -1,5 +1,8 @@
 //! DROP-07a: disposable PG18 enumeration of protected FREE object receipts.
 //! Never contacts a real provider or changes storage placement.
+#[path = "free_expected_inventory_pg/pack_retention.rs"]
+mod pack_retention;
+
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tor_books::{
