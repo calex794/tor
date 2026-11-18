@@ -593,4 +593,3 @@ fn s039_admin_post_is_exact_internal_wallet_write() {
 
 #[path = "tests/s349.rs"]
 mod s349;
-
