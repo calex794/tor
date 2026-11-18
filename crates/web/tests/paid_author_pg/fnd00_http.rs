@@ -33,7 +33,10 @@ pub(super) async fn assert_owner_editor(
 }
 
 /// Read the immutable illustration binding, verifying the paid text is S3-only.
-pub(super) fn illustrated_identity(url: &str, book: i64) -> (i64, tor_contracts::paid_delivery::ObjectId) {
+pub(super) fn illustrated_identity(
+    url: &str,
+    book: i64,
+) -> (i64, tor_contracts::paid_delivery::ObjectId) {
     let published: String = pg(
         url,
         &format!(
