@@ -16,6 +16,10 @@ locator in a separate bucket and a fresh reference check. Matching retries
 record only one immutable event.
 
 Published, reserved, pinned and rollback source editions stay protected.
+A canonical SINGLE key for a known chapter/version stays protected even
+without its bucket-specific receipt. This includes historical saved and Layer
+editions and copies in another bucket. Quarantine retries, the aged recheck
+and retirement requests all repeat the logical edition check.
 A crashed writer's durable reservation is intentionally not aged out. The
 initial cleanup scope covers unregistered objects that were never reserved;
 retiring an existing write reservation is a separate lifecycle action with

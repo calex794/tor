@@ -1,5 +1,7 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
+#[path = "support/ret02_notification_retries.rs"]
+mod ret02_notification_retries;
 #[path = "support/ret02_return_chromium.rs"]
 mod ret02_return_chromium;
 
@@ -404,16 +406,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "the real author Save produces one immutable release envelope"
     );
     let notices = PgNotifications::new(pool.clone());
-    for _ in 0..8 {
-        if notices.fanout_chapter_releases(32).await.unwrap() == 0 {
-            break;
-        }
-    }
-    for _ in 0..8 {
-        if notices.deliver_pending(64).await.unwrap() == 0 {
-            break;
-        }
-    }
+    ret02_notification_retries::verify(&url, released, reader, &notices).await;
     let a_bells = notices
         .list_section(reader, None, 30, "releases")
         .await
