@@ -3,9 +3,7 @@ use super::super::escape_html;
 
 /// Private Home navigation uses exactly the same destination resolver as Library.
 /// Only server-side actor-scoped progress is rendered; links never confer rights.
-pub fn account_resume_cards(
-    items: &[tor_reading::services::progress::ContinueReading],
-) -> String {
+pub fn account_resume_cards(items: &[tor_reading::services::progress::ContinueReading]) -> String {
     let mut links = String::new();
     for item in items.iter().take(2) {
         let target = super::super::library::reading_destination(item);

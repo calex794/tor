@@ -78,7 +78,10 @@ pub(super) async fn page(
         ""
     };
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
-    page.0 = page.0.replace("<!--RET_RESUME_CARDS-->", &pages::account_resume_cards(&resumes));
+    page.0 = page.0.replace(
+        "<!--RET_RESUME_CARDS-->",
+        &pages::account_resume_cards(&resumes),
+    );
     let changed = if revisions == 0 {
         String::new()
     } else {
