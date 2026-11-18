@@ -12,7 +12,7 @@ cd "$root"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-for scenario in happy wrong_layer_book wrong_single_sha wrong_pack_sha candidate_only; do
+for scenario in happy wrong_layer_book paid_layer_chapter wrong_single_sha wrong_pack_sha candidate_only; do
   # No persistent book or entitlement rows are changed: all fixtures use pg_temp.
   psql -Xq --no-password --dbname "$MIGRATOR_URL" \
     -v ON_ERROR_STOP=1 -v "scenario=$scenario" \
@@ -26,7 +26,7 @@ for scenario in happy wrong_layer_book wrong_single_sha wrong_pack_sha candidate
     exit_code=$?
     set -e
     [[ "$exit_code" -eq 2 ]] || { echo "DROP08_PG_FIXTURE_REFUSED: expected verifier failure" >&2; exit 1; }
-    if [[ "$scenario" == wrong_layer_book ]]; then
+    if [[ "$scenario" == wrong_layer_book || "$scenario" == paid_layer_chapter ]]; then
       grep -q 'invalid historical chapter-version or Layer book membership' "$tmp/result"
     else
       grep -q 'missing_source_receipts=1' "$tmp/result"
