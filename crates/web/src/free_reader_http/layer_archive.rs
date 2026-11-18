@@ -123,10 +123,14 @@ pub(super) async fn page(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    match authorized_free_source(actor, &state, chapter).await {
+    // The shell is transport-neutral. A valid historical Layer free V1
+    // might now live in a verified PACK, with no SINGLE receipt. The shell
+    // contains no text or storage capability; each transport separately
+    // reauthorizes D/B/G before releasing bytes.
+    match state.layer.archived_free_version(actor, chapter).await {
         Ok(Some(_)) => {}
         Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(status) => return deny(status),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(shell(id, &csrf, &state.s3_origin), &cookies);

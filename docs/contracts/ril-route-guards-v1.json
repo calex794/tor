@@ -3109,6 +3109,13 @@
       "source": "crates/web/src/free_reader_http.rs",
       "handler": "layer_archive::script",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/layer/free/{id}/pack",
+      "source": "crates/web/src/free_pack_http.rs",
+      "handler": "layer_archive::read_pack",
+      "policy": "scoped"
     }
   ]
 }

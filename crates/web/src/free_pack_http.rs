@@ -9,7 +9,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::Response,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -17,14 +17,19 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
+use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
 use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
 use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
     repositories::free_pack_range_s3::S3PackFrameStore,
 };
 
+mod layer_archive;
+
 #[derive(Clone)]
 struct PackHttpState {
+    accounts: PgAccounts,
+    layer: PgLayerChapterEntitlements,
     reference: PgFreeS3Ref,
     placement: PgFreePackCatalog,
     frame_store: S3PackFrameStore,
@@ -51,19 +56,35 @@ pub fn router(
     if !valid_private_bucket(&bucket) {
         return Err("Invalid private FREE PACK bucket");
     }
+    // This historical PACK route is an independent, disabled-by-default
+    // capability. The existing public/saved FREE PACK gateway is unaffected.
+    let layer_archive_enabled = match std::env::var("TOR_LAYER_FREE_ARCHIVE_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(std::env::VarError::NotPresent) => false,
+        _ => return Err("TOR_LAYER_FREE_ARCHIVE_ENABLED must be 0 or 1"),
+    };
     let pool = accounts.pool().clone();
-    Ok(Router::new()
+    let mut routes = Router::new()
         .route("/api/v1/chapters/{id}/free-pack-source", get(source))
         .route("/api/v1/chapters/{id}/free-source-plan", get(plan))
-        .route("/api/v1/chapters/{id}/free-source", get(no_js_source))
-        .with_state(PackHttpState {
-            reference: PgFreeS3Ref::new(pool.clone()),
-            placement: PgFreePackCatalog::new(pool),
-            frame_store: S3PackFrameStore::new(s3),
-            cookies: CookiePolicy { secure, origin },
-            bucket,
-            inflight: Arc::new(Semaphore::new(16)),
-        }))
+        .route("/api/v1/chapters/{id}/free-source", get(no_js_source));
+    if layer_archive_enabled {
+        routes = routes.route(
+            "/api/v1/reader/layer/free/{id}/pack",
+            post(layer_archive::read_pack),
+        );
+    }
+    Ok(routes.with_state(PackHttpState {
+        layer: PgLayerChapterEntitlements::new(pool.clone()),
+        reference: PgFreeS3Ref::new(pool.clone()),
+        placement: PgFreePackCatalog::new(pool),
+        accounts,
+        frame_store: S3PackFrameStore::new(s3),
+        cookies: CookiePolicy { secure, origin },
+        bucket,
+        inflight: Arc::new(Semaphore::new(16)),
+    }))
 }
 
 fn deny(status: StatusCode) -> Response {

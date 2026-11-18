@@ -59,6 +59,39 @@ impl PgFreeS3Ref {
         row.map(decode).transpose()
     }
 
+    /// D-05: storage identity only, never a reader grant. The frozen edition
+    /// comes from the actor-scoped historical Layer term, not a browser input.
+    /// Return only a whole-object-verified and activated PACK generation.
+    pub async fn archived_free_active_pack_metadata_only(
+        &self,
+        chapter: i64,
+        version: i64,
+    ) -> Result<Option<FreeS3Ref>, sqlx::Error> {
+        if chapter <= 0 || version <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT g.chapter_id,g.version_id,g.content_sha256 AS sha256,
+                    g.size_bytes,pack.bucket
+             FROM free_edition_active_storage a
+             JOIN free_edition_storage_generations g
+               ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
+              AND g.generation=a.generation AND g.placement_kind='pack'
+             JOIN chapter_versions v
+               ON v.chapter_id=g.chapter_id AND v.id=g.version_id
+              AND v.content_sha256=g.content_sha256
+             JOIN free_storage_packs pack ON pack.id=g.pack_id
+             WHERE a.chapter_id=$1 AND a.version_id=$2
+               AND g.size_bytes BETWEEN 1 AND 200000
+             LIMIT 1",
+        )
+        .bind(chapter)
+        .bind(version)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(decode).transpose()
+    }
+
     /// Exact historical free file for an independently authenticated site
     /// administrator. A moderator or browser-selected role is insufficient.
     pub async fn for_administrator(
