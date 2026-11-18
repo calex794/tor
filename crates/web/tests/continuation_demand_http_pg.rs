@@ -523,6 +523,21 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     )
     .await;
     assert!(returned_library.contains(&format!("href=\"/read/{released}\"")));
+    // RET-03b: Home must use the same actor-scoped next-free target as Library.
+    // A private notification never itself grants a Book cursor to reader B.
+    let home = html(call(&app, "GET", "/me", &reader_cookie, ORIGIN, "").await).await;
+    assert!(
+        home.contains(&format!(
+            "data-ret-resume-book=\"{book}\" href=\"/read/{released}\""
+        )),
+        "Account Home and Library must agree on the new chapter"
+    );
+    let observer_home =
+        html(call(&app, "GET", "/me", &observer_cookie, ORIGIN, "").await).await;
+    assert!(
+        !observer_home.contains(&format!("data-ret-resume-book=\"{book}\"")),
+        "A second reader with no saved place must not inherit A's resume card"
+    );
     assert_eq!(
         pg(
             &url,
