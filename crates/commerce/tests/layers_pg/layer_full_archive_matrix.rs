@@ -178,14 +178,12 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(surviving_chapter)
-    .bind(surviving_version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(surviving_chapter)
+        .bind(surviving_version)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let layer = layer_repo
         .create_layer(id(owner), "Four chapter archive matrix")
@@ -350,11 +348,7 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     );
     assert_eq!(
         rights
-            .resolve_entitlement(
-                Actor { user_id: id(late) },
-                id(surviving_chapter),
-                None,
-            )
+            .resolve_entitlement(Actor { user_id: id(late) }, id(surviving_chapter), None,)
             .await
             .unwrap(),
         EntitlementDecision::Allowed {
@@ -453,7 +447,10 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
          VALUES($1,'legal_block',$2)",
     )
     .bind(revocation_target.term_id)
-    .bind(format!("ci:d05-four-legal-revoke:{}", revocation_target.term_id))
+    .bind(format!(
+        "ci:d05-four-legal-revoke:{}",
+        revocation_target.term_id
+    ))
     .execute(&pool)
     .await
     .unwrap();
