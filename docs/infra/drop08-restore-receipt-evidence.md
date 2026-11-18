@@ -58,8 +58,9 @@ psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
 ```
 
 The SQL exports historical `(kind, chapter_id, version_id)` identities,
-verifies that the chapter-version exists and a Layer archive belongs to its
-recorded book, then checks for a PostgreSQL inline body, a
+verifies that the chapter-version exists, the chapter is FREE with zero
+price, and a Layer archive belongs to its recorded book, then checks for a
+PostgreSQL inline body, a
 registered S349 SINGLE receipt with matching immutable edition SHA-256,
 or an **active** PACK generation with matching immutable edition SHA-256 and an
 existing PACK metadata record.
@@ -88,6 +89,7 @@ procedure, covering:
 
 - Both saved SINGLE V1 and historical Layer V1 in an active PACK, accepted.
 - Layer archive associated with the wrong book, refused.
+- A non-FREE chapter incorrectly pinned as a Layer FREE archive, refused.
 - S349 SINGLE with a different immutable edition SHA-256, refused.
 - PACK generation with a different edition SHA-256, refused.
 - PACK candidate not activated for the reader, refused.
