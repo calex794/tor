@@ -103,6 +103,35 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         mime: &str,
         object_id: &ObjectId,
     ) -> Result<ObjectId, AuthorError> {
+        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, mime, object_id, false)
+            .await
+    }
+
+    /// FND-00: reserve the illustration against a bodyless paid V1, never
+    /// writing the Markdown into PostgreSQL. No HTTP caller is switched here.
+    pub async fn upload_to_draft_with_id_bodyless(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        ordinal: i16,
+        bytes: &[u8],
+        mime: &str,
+        object_id: &ObjectId,
+    ) -> Result<ObjectId, AuthorError> {
+        self.upload_to_draft_with_id_mode(actor, request, ordinal, bytes, mime, object_id, true)
+            .await
+    }
+
+    async fn upload_to_draft_with_id_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        ordinal: i16,
+        bytes: &[u8],
+        mime: &str,
+        object_id: &ObjectId,
+        bodyless: bool,
+    ) -> Result<ObjectId, AuthorError> {
         if !(1..=64).contains(&ordinal) {
             return Err(AuthorError::Invalid);
         }
@@ -117,7 +146,13 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
             return Err(AuthorError::Invalid);
         }
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = if bodyless {
+            self.paid
+                .prepare_new_paid_chapter_bodyless(actor, request)
+                .await?
+        } else {
+            self.paid.prepare_new_paid_chapter(actor, request).await?
+        };
         if pending.published {
             return Err(AuthorError::Conflict);
         }
