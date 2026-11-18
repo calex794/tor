@@ -12,6 +12,8 @@ mod admin_delivery;
 mod delivery;
 mod edit;
 mod ports;
+mod owner;
+pub use owner::OwnedPaidBodylessMetadata;
 pub(crate) mod scheduled;
 pub use admin_delivery::PgAdminPaidStorage;
 pub use edit::PreparedPaidEdit;
