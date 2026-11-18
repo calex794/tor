@@ -32,6 +32,7 @@ pub struct PgPaidAuthorPublisher<S> {
     store: S,
     keyring: Arc<ContentKeyring>,
     bucket: String,
+    bodyless_http: bool,
 }
 
 impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
@@ -52,7 +53,15 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             store,
             keyring,
             bucket,
+            bodyless_http: false,
         })
+    }
+
+    /// FND-00: explicit isolated S3-only paid HTTP mode. No default flip
+    /// until owner-source, illustrated and scheduled browser tests are accepted.
+    pub fn with_bodyless_http(mut self) -> Self {
+        self.bodyless_http = true;
+        self
     }
 }
 
@@ -540,15 +549,27 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
     }
 
     async fn stage_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.stage_for_book_schedule(actor, request).await
+        if self.bodyless_http {
+            self.stage_for_book_schedule_bodyless(actor, request).await
+        } else {
+            self.stage_for_book_schedule(actor, request).await
+        }
     }
 
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        self.publish(actor, request).await
+        if self.bodyless_http {
+            self.publish_bodyless(actor, request).await
+        } else {
+            self.publish(actor, request).await
+        }
     }
 
     async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+        if self.bodyless_http {
+            PgPaidAuthorPublisher::publish_edit_bodyless(self, actor, request).await
+        } else {
+            PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+        }
     }
 
     async fn publish_with_image(
@@ -559,7 +580,13 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        self.publish_illustrated(actor, request, object_id, bytes, mime)
-            .await
+        if self.bodyless_http {
+            // Until #1112 is merged, illustrated HTTP cannot bypass the
+            // mandatory S3-only chapter contract through a legacy writer.
+            Err(AuthorError::Unavailable)
+        } else {
+            self.publish_illustrated(actor, request, object_id, bytes, mime)
+                .await
+        }
     }
 }
