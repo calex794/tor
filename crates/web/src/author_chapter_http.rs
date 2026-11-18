@@ -19,6 +19,7 @@ use tor_books::{
 mod chapter_import;
 mod free_editor;
 mod new_chapter_page;
+mod paid_editor;
 mod publisher;
 mod schedule;
 pub(crate) use publisher::{FreeChapterPublisher, FreeContent, PaidChapterPublisher};
@@ -330,6 +331,11 @@ async fn edit_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
+    match paid_editor::page(&state, actor, id, chapter_id, &headers).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
     // Published free content must be editable without a second release
     // action. Existing owner-only drafts still use their separate B path.
     let published = match state
@@ -409,6 +415,11 @@ async fn update_chapter(
         Err(status) => return deny(status),
     };
     match free_editor::update(&state, actor, id, chapter_id, &form).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => (),
+        Err(error) => return free_editor::error(error),
+    }
+    match paid_editor::update(&state, actor, id, chapter_id, &form).await {
         Ok(Some(response)) => return response,
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
