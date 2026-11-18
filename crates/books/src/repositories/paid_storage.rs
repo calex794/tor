@@ -196,7 +196,11 @@ impl PgPaidStorage {
              VALUES($1,1,$2,$3) RETURNING id",
         )
         .bind(chapter_id)
-        .bind(if bodyless { None } else { Some(request.body.as_str()) })
+        .bind(if bodyless {
+            None
+        } else {
+            Some(request.body.as_str())
+        })
         .bind(content_hash.as_slice())
         .fetch_one(&mut *tx)
         .await
@@ -289,17 +293,16 @@ impl PgPaidStorage {
         };
 
         // For historical V1, allow attachment without moving a newer V2.
-        let existing: Option<(Option<String>, Option<String>, Option<Vec<u8>>)> =
-            sqlx::query_as(
-                "SELECT storage_object_id::text,body_markdown,content_sha256
+        let existing: Option<(Option<String>, Option<String>, Option<Vec<u8>>)> = sqlx::query_as(
+            "SELECT storage_object_id::text,body_markdown,content_sha256
                  FROM chapter_versions
                  WHERE id=$1 AND chapter_id=$2 FOR UPDATE",
-            )
-            .bind(version_id)
-            .bind(chapter_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(map_write)?;
+        )
+        .bind(version_id)
+        .bind(chapter_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_write)?;
         let Some((previous_object, persisted_body, persisted_digest)) = existing else {
             return Err(AuthorError::Missing);
         };
