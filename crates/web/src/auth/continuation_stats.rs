@@ -1,18 +1,16 @@
 //! RET-R03: shared read-only continuation demand tab for owners and site admins.
 //! Counts come only from verified requests; no reader identities or editorial states.
-use super::{AuthState, deny};
+use super::{deny, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Query, State, rejection::QueryRejection},
+    extract::{rejection::QueryRejection, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_accounts::services::security::session_token_digest;
-use tor_reading::repositories::demand::{
-    ContinuationStatsReport, PgContinuationDemand,
-};
+use tor_reading::repositories::demand::{ContinuationStatsReport, PgContinuationDemand};
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,9 +23,7 @@ impl StatsQuery {
     fn cursor(self) -> Result<Option<(i64, i64)>, StatusCode> {
         match (self.after_waiting, self.after_book) {
             (None, None) => Ok(None),
-            (Some(waiting), Some(book)) if waiting >= 0 && book > 0 => {
-                Ok(Some((waiting, book)))
-            }
+            (Some(waiting), Some(book)) if waiting >= 0 && book > 0 => Ok(Some((waiting, book))),
             _ => Err(StatusCode::BAD_REQUEST),
         }
     }
@@ -63,7 +59,11 @@ async fn report_page(
         };
     };
     // Always check current administrator status, not a cached owner flag.
-    let actor = match state.accounts.session_actor(&session_token_digest(&token)).await {
+    let actor = match state
+        .accounts
+        .session_actor(&session_token_digest(&token))
+        .await
+    {
         Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -94,7 +94,11 @@ async fn report_page(
     private_response(render(&report, &csrf, sitewide), &cookies)
 }
 
-fn render(report: &ContinuationStatsReport, csrf: &str, sitewide: bool) -> axum::response::Html<String> {
+fn render(
+    report: &ContinuationStatsReport,
+    csrf: &str,
+    sitewide: bool,
+) -> axum::response::Html<String> {
     let base = if sitewide {
         "/admin/audience/continuations"
     } else {
@@ -138,7 +142,8 @@ fn render(report: &ContinuationStatsReport, csrf: &str, sitewide: bool) -> axum:
         "<p>«Ждут» — подтверждённые запросы после последней доступной главы. \
          После выхода новой главы текущий счётчик начинается заново, история сохраняется. \
          Повторное нажатие одного читателя на одной главе не увеличивает число.</p>\
-         <table><thead><tr><th>Книга</th>");
+         <table><thead><tr><th>Книга</th>",
+    );
     if sitewide {
         body.push_str("<th>Владелец</th>");
     }
@@ -155,16 +160,11 @@ fn render(report: &ContinuationStatsReport, csrf: &str, sitewide: bool) -> axum:
             pages::escape_html(&book.title),
         );
         if sitewide {
-            let _ = write!(
-                body,
-                "<td>{}</td>",
-                pages::escape_html(&book.owner_name),
-            );
+            let _ = write!(body, "<td>{}</td>", pages::escape_html(&book.owner_name),);
         }
-        let chapter = book.latest_chapter_no.map_or_else(
-            || "—".to_owned(),
-            |number| number.to_string(),
-        );
+        let chapter = book
+            .latest_chapter_no
+            .map_or_else(|| "—".to_owned(), |number| number.to_string());
         let _ = write!(
             body,
             "<td>{chapter}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
@@ -184,8 +184,16 @@ fn render(report: &ContinuationStatsReport, csrf: &str, sitewide: bool) -> axum:
     if sitewide {
         body.push_str("<p><a href=\"/admin/audience\">Вернуться к общей статистике</a></p>");
     }
-    body.push_str(if sitewide { "</div></section>" } else { "</div></div></section>" });
-    pages::private_account_layout("Продолжения — статистика", "Подтверждённые запросы читателей.", &body)
+    body.push_str(if sitewide {
+        "</div></section>"
+    } else {
+        "</div></div></section>"
+    });
+    pages::private_account_layout(
+        "Продолжения — статистика",
+        "Подтверждённые запросы читателей.",
+        &body,
+    )
 }
 
 #[cfg(test)]
@@ -195,9 +203,26 @@ mod tests {
     #[test]
     fn cursor_requires_full_positive_key_and_rejects_extras() {
         assert_eq!(StatsQuery::default().cursor(), Ok(None));
-        assert_eq!(StatsQuery { after_waiting: Some(0), after_book: Some(7) }.cursor(), Ok(Some((0, 7))));
-        assert!(StatsQuery { after_waiting: Some(-1), after_book: Some(7) }.cursor().is_err());
-        assert!(StatsQuery { after_waiting: Some(1), after_book: None }.cursor().is_err());
+        assert_eq!(
+            StatsQuery {
+                after_waiting: Some(0),
+                after_book: Some(7)
+            }
+            .cursor(),
+            Ok(Some((0, 7)))
+        );
+        assert!(StatsQuery {
+            after_waiting: Some(-1),
+            after_book: Some(7)
+        }
+        .cursor()
+        .is_err());
+        assert!(StatsQuery {
+            after_waiting: Some(1),
+            after_book: None
+        }
+        .cursor()
+        .is_err());
     }
 
     #[test]
