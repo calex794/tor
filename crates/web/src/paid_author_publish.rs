@@ -439,7 +439,10 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         {
             return Err(AuthorError::Invalid);
         }
-        let pending = self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?;
+        let pending = self
+            .paid
+            .prepare_new_paid_chapter_bodyless(actor, request)
+            .await?;
         let pinned = ChapterVersionRef {
             chapter_id: PositiveId::new(pending.chapter_id)
                 .map_err(|_| AuthorError::Unavailable)?,
@@ -519,8 +522,12 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
             .map_err(|error| match error {
                 tor_storage::repositories::registry::RegistryError::Missing => AuthorError::Missing,
                 tor_storage::repositories::registry::RegistryError::Invalid => AuthorError::Invalid,
-                tor_storage::repositories::registry::RegistryError::Conflict => AuthorError::Conflict,
-                tor_storage::repositories::registry::RegistryError::Unavailable => AuthorError::Unavailable,
+                tor_storage::repositories::registry::RegistryError::Conflict => {
+                    AuthorError::Conflict
+                }
+                tor_storage::repositories::registry::RegistryError::Unavailable => {
+                    AuthorError::Unavailable
+                }
             })?
             .ok_or(AuthorError::Missing)?;
 
@@ -533,7 +540,6 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
             revision: metadata.revision,
         }))
     }
-
 
     async fn publish_with_image(
         &self,
