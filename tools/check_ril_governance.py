@@ -893,12 +893,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and "!verified.administrator" in evidence
         and "StatusCode::FORBIDDEN" in evidence
     )
+    audited_continuation_admin = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/auth.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/continuations", "continuation_stats::administrator")
+        and all(marker in body for marker in (
+            "session_token_digest(&token)", "session_actor(",
+            "if !verified.administrator", "StatusCode::FORBIDDEN",
+            "StatusCode::UNAUTHORIZED", ".stats_report(None, cursor)",
+        ))
+        and body.index("if !verified.administrator") < body.index(".stats_report(None, cursor)")
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin):
+            or audited_ratio_admin or audited_continuation_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
