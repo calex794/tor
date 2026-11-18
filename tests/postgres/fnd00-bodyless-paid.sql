@@ -14,9 +14,11 @@ DECLARE
     version_legacy BIGINT;
     object_v1 UUID := 'c2a6f138-93ed-4a01-b7c7-41ea87911801'::uuid;
     bad_object UUID := 'c2a6f138-93ed-4a01-b7c7-41ea87911802'::uuid;
+    legacy_object UUID := 'c2a6f138-93ed-4a01-b7c7-41ea87911803'::uuid;
     source_v1 TEXT := '# FND-00 paid bodyless V1';
     source_v2 TEXT := '# FND-00 paid bodyless V2';
-    source_legacy TEXT := '# FND-00 legacy PG paid';
+    source_legacy TEXT := E'# FND-00 legacy PG\r\npaid';
+    legacy_digest BYTEA;
     digest_v1 BYTEA;
 BEGIN
     digest_v1 := sha256(convert_to(source_v1, 'UTF8'));
@@ -196,19 +198,68 @@ BEGIN
         NULL;
     END;
 
-    -- Legacy paid editions with PG bodies remain supported by the additive
-    -- migration: do not strand existing purchases by requiring new S3.
+    -- Historical paid imports may preserve raw CRLF source in PostgreSQL
+    -- but G encrypted normalized-LF bytes. The original migration trusted
+    -- G's normalized digest without forcing the old B raw digest to equal it.
     INSERT INTO chapter_versions(chapter_id, version_no,
                                  body_markdown, content_sha256)
     VALUES (chapter_id, 3, source_legacy,
             sha256(convert_to(source_legacy,'UTF8')))
     RETURNING id INTO version_legacy;
+    legacy_digest := sha256(convert_to(
+        replace(replace(source_legacy, E'\r\n', E'\n'), E'\r', E'\n'), 'UTF8'
+    ));
+    IF legacy_digest=sha256(convert_to(source_legacy,'UTF8')) THEN
+        RAISE EXCEPTION 'FND00 legacy CRLF fixture did not produce two digests';
+    END IF;
+
+    INSERT INTO storage_objects(
+        id, object_kind, bucket, object_key, state, size_bytes,
+        sha256_ciphertext, plaintext_sha256, encrypted_dek, wrap_nonce,
+        kek_id, object_nonce, object_aad, codec, verified_at
+    )
+    VALUES (
+        legacy_object, 'chapter', 'tor-fnd00-private',
+        'private/chapter-versions/' || legacy_object::text || '.enc',
+        'ready', 256,
+        decode(repeat('a3',32),'hex'), legacy_digest,
+        decode(repeat('b2',48),'hex'),
+        decode(repeat('c3',12),'hex'),
+        'content-kek-v1',
+        decode(repeat('d4',12),'hex'),
+        convert_to(
+            'tor.encrypted.chapter.v1' || E'\n' ||
+            chapter_id::text || E'\n' ||
+            version_legacy::text || E'\n' ||
+            legacy_object::text || E'\n' ||
+            encode(legacy_digest,'hex') || E'\n',
+            'UTF8'
+        ),
+        'gzip', clock_timestamp()
+    );
+    UPDATE storage_objects SET state='attached',attached_at=clock_timestamp()
+    WHERE id=legacy_object;
+    UPDATE chapter_versions SET storage_object_id=legacy_object
+    WHERE id=version_legacy;
+
+    INSERT INTO chapter_reader_manifests(
+        chapter_id, version_id, storage_object_id, parser_schema,
+        content_sha256, block_utf16_lengths,
+        last_readable_block_index, last_readable_char_offset
+    ) VALUES (
+        chapter_id, version_legacy, legacy_object, 1,
+        legacy_digest,
+        ARRAY[char_length(replace(source_legacy, E'\r\n', E'\n'))],
+        1, char_length(replace(source_legacy, E'\r\n', E'\n'))
+    );
     UPDATE chapter_publications
        SET version_id=version_legacy
      WHERE chapter_publications.chapter_id=fixture.chapter_id;
     IF (SELECT version_id FROM chapter_publications
-        WHERE chapter_publications.chapter_id=fixture.chapter_id) <> version_legacy THEN
-        RAISE EXCEPTION 'FND00 broke legacy PG paid publication';
+        WHERE chapter_publications.chapter_id=fixture.chapter_id) <> version_legacy
+       OR (SELECT storage_object_id FROM chapter_versions
+           WHERE id=version_legacy) IS DISTINCT FROM legacy_object THEN
+        RAISE EXCEPTION 'FND00 broke legacy CRLF paid attachment/manifest';
     END IF;
 END
 $fnd00_bodyless_sql_contract$;
