@@ -14,6 +14,7 @@ COPY (
     )
     SELECT p.kind, p.chapter_id, p.version_id,
            CASE WHEN v.id IS NOT NULL AND c.id IS NOT NULL
+                     AND c.access_level='free' AND c.price_amount=0
                      AND (p.kind='saved' OR p.book_id=c.book_id)
                 THEN 1 ELSE 0 END AS valid_member,
            CASE WHEN v.body_markdown IS NOT NULL THEN 1 ELSE 0 END AS pg_body,
