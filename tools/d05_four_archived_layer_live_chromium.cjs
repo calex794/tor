@@ -12,6 +12,8 @@ const SITE = "http://127.0.0.1:3098";
 const S3 = "http://127.0.0.1:9000";
 const filename = process.env.TOR_D05_FOUR_CHROMIUM_FIXTURE || "";
 const temp = process.env.RUNNER_TEMP || "";
+const phase = process.env.TOR_D05_FOUR_CHROMIUM_PHASE || "initial";
+assert(["initial", "revoked"].includes(phase));
 assert(filename && temp &&
   path.resolve(filename).startsWith(path.resolve(temp) + path.sep),
   "D05 four-chapter fixture must remain in disposable runner temp");
@@ -19,6 +21,7 @@ const fixture = JSON.parse(fs.readFileSync(filename, "utf8"));
 assert(typeof fixture.old_session === "string" && fixture.old_session.length > 20);
 assert(typeof fixture.new_session === "string" && fixture.new_session.length > 20);
 assert(typeof fixture.expired_session === "string" && fixture.expired_session.length > 20);
+assert(typeof fixture.outsider_session === "string" && fixture.outsider_session.length > 20);
 assert(Array.isArray(fixture.chapters) && fixture.chapters.length === 4);
 assert.deepEqual(fixture.chapters.map(c => c.kind), ["free", "free", "paid", "paid"]);
 assert(new Set(fixture.chapters.map(c => c.id)).size === 4);
@@ -110,7 +113,7 @@ async function oldBuyer(browser) {
 async function deniedBuyer(browser, session) {
   const context = await browser.newContext({ serviceWorkers: "block" });
   try {
-    await context.addCookies([{
+    if (session) await context.addCookies([{
       url: SITE, name: "tor-dev-session", value: session,
       httpOnly: true, sameSite: "Lax",
     }]);
@@ -123,8 +126,9 @@ async function deniedBuyer(browser, session) {
       const response = await page.goto(SITE + route(item), {
         waitUntil: "domcontentloaded",
       });
-      assert.equal(response.status(), 404,
-        "new buyer must not receive deleted chapter metadata or private shell");
+      assert(session ? response.status() === 404 :
+        [401, 403, 404].includes(response.status()),
+        "anonymous, outsider, expired, new and revoked actors must be denied");
       assert.equal(await page.locator(
         "[data-layer-free-content], [data-layer-content]").count(), 0);
     }
@@ -137,9 +141,16 @@ async function deniedBuyer(browser, session) {
 async function main() {
   const browser = await chromium.launch({ headless: true });
   try {
-    await oldBuyer(browser);
-    await deniedBuyer(browser, fixture.new_session);
-    await deniedBuyer(browser, fixture.expired_session);
+    if (phase === "revoked") {
+      await deniedBuyer(browser, fixture.old_session);
+      console.log("D05 FOUR REVOKED Chromium PASS");
+    } else {
+      await oldBuyer(browser);
+      await deniedBuyer(browser, fixture.new_session);
+      await deniedBuyer(browser, fixture.expired_session);
+      await deniedBuyer(browser, fixture.outsider_session);
+      await deniedBuyer(browser, null);
+    }
   } finally {
     await browser.close();
   }
