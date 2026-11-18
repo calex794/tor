@@ -34,6 +34,8 @@ use tor_web::free_author_publish::PgFreeAuthorPublisher;
 mod layer_archive;
 #[path = "drop_04a_pack_direct_pg_minio/pack_editor.rs"]
 mod pack_editor;
+#[path = "drop_04a_pack_direct_pg_minio/retained_layer_pack.rs"]
+mod retained_layer_pack;
 #[path = "drop_04a_pack_direct_pg_minio/v1_v2_transport.rs"]
 mod v1_v2_transport;
 
