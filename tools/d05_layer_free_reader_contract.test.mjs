@@ -49,9 +49,22 @@ function networkResponse(body, type = "application/json", status = 200, extra = 
 async function run({
   grant = baseGrant, payload = bytes, pack = false,
   packSha = hash, packSize = bytes.byteLength, packStatus = 200,
-  singleStatus = 404
+  singleStatus = 404, digestDelayMs = 0
 } = {}) {
-  const status = { textContent: "" };
+  // A real WebCrypto digest runs on a worker thread. Counting a handful of
+  // setImmediate turns is not a completion signal on loaded CI runners.
+  // Resolve the fixture exactly when the shipped reader publishes success
+  // or denial, with a hard deadline to catch a genuinely stuck reader.
+  let complete;
+  const settled = new Promise(resolve => { complete = resolve; });
+  let statusText = "";
+  const status = {
+    get textContent() { return statusText; },
+    set textContent(value) {
+      statusText = value;
+      complete();
+    }
+  };
   const article = {
     children: [],
     replaceChildren(...nodes) { this.children = nodes; }
@@ -105,12 +118,30 @@ async function run({
     assert.equal(options.redirect, "error");
     return networkResponse(payload, "text/plain");
   };
+  const crypto = digestDelayMs === 0 ? webcrypto : {
+    subtle: {
+      digest: async (...args) => {
+        await new Promise(resolve => setTimeout(resolve, digestDelayMs));
+        return webcrypto.subtle.digest(...args);
+      }
+    }
+  };
   vm.runInNewContext(script, {
-    document, fetch, Uint8Array, URL, TextDecoder,
-    crypto: webcrypto, console
+    document, fetch, Uint8Array, URL, TextDecoder, crypto, console
   }, { filename: "newboo-layer-free-reader.mjs" });
-  // Two fetches and WebCrypto digest complete as microtasks.
-  for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
+  let deadline;
+  try {
+    await Promise.race([
+      settled,
+      new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(
+          new Error("Layer FREE reader did not publish success or denial")
+        ), 10000);
+      })
+    ]);
+  } finally {
+    clearTimeout(deadline);
+  }
   return { status, article, calls };
 }
 
@@ -124,6 +155,12 @@ test("verified FREE V1 renders only text nodes and never public fallback", async
     output.article.children[0].pieces[1].textContent,
     "<script>alert('unsafe')</script>"
   );
+});
+
+test("WebCrypto completion waits for the actual browser verdict, not event-loop ticks", async () => {
+  const output = await run({ digestDelayMs: 60 });
+  assert.match(output.status.textContent, /Архивная редакция/);
+  assert.equal(output.article.children[0].pieces.length, 2);
 });
 
 test("incorrect hash refuses rendered text", async () => {
