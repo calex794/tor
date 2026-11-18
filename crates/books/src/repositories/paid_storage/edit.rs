@@ -217,7 +217,11 @@ impl PgPaidStorage {
         )
         .bind(chapter_id)
         .bind(version_no)
-        .bind(if bodyless { None } else { Some(request.body.as_str()) })
+        .bind(if bodyless {
+            None
+        } else {
+            Some(request.body.as_str())
+        })
         .bind(body_hash.as_slice())
         .fetch_one(&mut *tx)
         .await
