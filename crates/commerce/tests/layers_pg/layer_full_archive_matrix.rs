@@ -524,14 +524,12 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO commerce_layer_version_books(layer_version_id,book_id) VALUES($1,$2)",
-    )
-    .bind(origin)
-    .bind(book)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO commerce_layer_version_books(layer_version_id,book_id) VALUES($1,$2)")
+        .bind(origin)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     let offer: i64 = sqlx::query_scalar(
         "INSERT INTO commerce_layer_offers
          (layer_id,revision,term_kind,price_minor,created_at)
@@ -541,15 +539,13 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "UPDATE commerce_layers SET current_version_id=$2,current_offer_id=$3 WHERE id=$1",
-    )
-    .bind(layer)
-    .bind(origin)
-    .bind(offer)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE commerce_layers SET current_version_id=$2,current_offer_id=$3 WHERE id=$1")
+        .bind(layer)
+        .bind(origin)
+        .bind(offer)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // A genuine new purchase proves that the very same Layer and four
     // publications remain readable to an unexpired buyer.
@@ -647,8 +643,12 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
     .unwrap();
     tx.commit().await.unwrap();
 
-    let (valid_wallet, exactly_30_days, already_elapsed, physical_version_predates_expiry):
-        (bool, bool, bool, bool) = sqlx::query_as(
+    let (valid_wallet, exactly_30_days, already_elapsed, physical_version_predates_expiry): (
+        bool,
+        bool,
+        bool,
+        bool,
+    ) = sqlx::query_as(
         "SELECT d05_layer_term_has_wallet_evidence(t.id),
                 t.expires_at=t.started_at+interval '30 days',
                 t.expires_at<now(),
@@ -662,8 +662,7 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
     .await
     .unwrap();
     assert!(
-        valid_wallet && exactly_30_days && already_elapsed
-            && physical_version_predates_expiry,
+        valid_wallet && exactly_30_days && already_elapsed && physical_version_predates_expiry,
         "expiry must be the only denial reason, not missing financial provenance"
     );
     assert_eq!(balance, 1410);
@@ -717,10 +716,16 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
 
     let rights = PgLayerChapterEntitlements::new(pool.clone());
     assert_old_four(&rights, active, &editions).await;
-    assert!(!layer_repo.can_read_book(id(expired), id(book)).await.unwrap());
+    assert!(!layer_repo
+        .can_read_book(id(expired), id(book))
+        .await
+        .unwrap());
     for &(chapter, _) in &editions[..2] {
         assert_eq!(
-            rights.archived_free_version(id(expired), id(chapter)).await.unwrap(),
+            rights
+                .archived_free_version(id(expired), id(chapter))
+                .await
+                .unwrap(),
             None,
             "expired 30-day term may not read frozen FREE chapter"
         );
@@ -728,7 +733,13 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
     for &(chapter, _) in &editions[2..] {
         assert!(matches!(
             rights
-                .resolve_entitlement(Actor { user_id: id(expired) }, id(chapter), None)
+                .resolve_entitlement(
+                    Actor {
+                        user_id: id(expired)
+                    },
+                    id(chapter),
+                    None
+                )
                 .await
                 .unwrap(),
             EntitlementDecision::Denied { .. }
@@ -763,13 +774,11 @@ async fn d_05_elapsed_30d_historical_term_denies_four_chapters_with_valid_wallet
         "expiry must deny without fabricating a revocation"
     );
     assert!(
-        sqlx::query_scalar::<_, bool>(
-            "SELECT d05_layer_term_has_wallet_evidence($1)",
-        )
-        .bind(expired_term)
-        .fetch_one(&pool)
-        .await
-        .unwrap()
+        sqlx::query_scalar::<_, bool>("SELECT d05_layer_term_has_wallet_evidence($1)",)
+            .bind(expired_term)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
     );
     assert_ne!(active_term.term_id, expired_term);
     pool.close().await;
