@@ -49,7 +49,10 @@ async fn fnd00_paid_image_upload_never_creates_postgres_markdown() {
     .parse()
     .unwrap();
     let object_id = ObjectId::parse("f00da550-0001-4000-8000-000000000001").unwrap();
-    let body = format!("Paid body without PG text\n\n![Illustration](asset:{object_id})");
+    let body = format!(
+        "Paid body without PG text\n\n![Illustration](asset:{})",
+        object_id.as_str()
+    );
     let command = generate_session_token();
     let request = save_chapter(SaveChapterRequest {
         book_id: book as u64,
