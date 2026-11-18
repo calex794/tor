@@ -22,7 +22,18 @@ async fn preview_on_disposable_postgres(url: &str) -> String {
             "/../../tools/mod_cover_gc_dry_run.sql"
         );
         let output = std::process::Command::new("psql")
-            .args(["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-d", &url, "-f", file])
+            .args([
+                "-X",
+                "-q",
+                "-t",
+                "-A",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-d",
+                &url,
+                "-f",
+                file,
+            ])
             .output()
             .expect("disposable CI psql");
         assert!(
@@ -258,8 +269,7 @@ pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<
     );
     assert!(
         !preview.lines().any(|line| {
-            line.contains("private_variants|eligible_to_stage|")
-                && line.contains(&exact_job)
+            line.contains("private_variants|eligible_to_stage|") && line.contains(&exact_job)
         }),
         "legacy supersession must never appear eligible in operator preview"
     );
