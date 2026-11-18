@@ -1,5 +1,7 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
+#[path = "support/ret02_notification_retries.rs"]
+mod ret02_notification_retries;
 #[path = "support/ret02_return_chromium.rs"]
 mod ret02_return_chromium;
 
@@ -404,16 +406,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "the real author Save produces one immutable release envelope"
     );
     let notices = PgNotifications::new(pool.clone());
-    for _ in 0..8 {
-        if notices.fanout_chapter_releases(32).await.unwrap() == 0 {
-            break;
-        }
-    }
-    for _ in 0..8 {
-        if notices.deliver_pending(64).await.unwrap() == 0 {
-            break;
-        }
-    }
+    ret02_notification_retries::verify(&url, released, reader, &notices).await;
     let a_bells = notices
         .list_section(reader, None, 30, "releases")
         .await
@@ -530,6 +523,20 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     )
     .await;
     assert!(returned_library.contains(&format!("href=\"/read/{released}\"")));
+    // RET-03b: Home must use the same actor-scoped next-free target as Library.
+    // A private notification never itself grants a Book cursor to reader B.
+    let home = html(call(&app, "GET", "/me", &reader_cookie, ORIGIN, "").await).await;
+    assert!(
+        home.contains(&format!(
+            "data-ret-resume-book=\"{book}\" href=\"/read/{released}\""
+        )),
+        "Account Home and Library must agree on the new chapter"
+    );
+    let observer_home = html(call(&app, "GET", "/me", &observer_cookie, ORIGIN, "").await).await;
+    assert!(
+        !observer_home.contains(&format!("data-ret-resume-book=\"{book}\"")),
+        "A second reader with no saved place must not inherit A's resume card"
+    );
     assert_eq!(
         pg(
             &url,

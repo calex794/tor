@@ -1880,13 +1880,14 @@ jobs:
           node --check tools/drop_06b_pack_chromium.cjs
           node --check tools/d05_layer_toc_chromium.cjs
           node --check tools/d05_layer_free_live_chromium.cjs
+          node --check tools/d05_four_live_layer_chromium.cjs
           node --check tools/d05_four_archived_layer_live_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
           # without public /reader links, escaped titles, or full PACK URLs.
           node tools/d05_layer_toc_chromium.cjs
           cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg --features s3-free -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid,s3-free --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/layer_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
@@ -1898,7 +1899,7 @@ jobs:
           TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
           # D-05/#1022: a real old Layer buyer opens immutable FREE V1
           # from private SINGLE after owner deletion and moderator approval.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
+          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free,s3-paid --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
           # DROP-07a: actual-byte evidence only, on this disposable PG/MinIO.
           # These checks cannot authorize orphan classification or S3 DELETE.
           cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output

@@ -7,6 +7,10 @@ use tor_books::{
         free_expected_inventory::{
             FreeInventoryError, FreeObjectKind, InventoryNamespace, PgFreeExpectedInventory,
         },
+        free_key_quarantine::{
+            FreeQuarantineError, PgFreeKeyQuarantine, QuarantineBackup, QuarantineObservation,
+            QuarantineOutcome,
+        },
         free_observed_reconcile::{FreeReferenceState, PgFreeObservedClassifier},
         free_pack_attach::PgFreePackCatalog,
         free_s3_publish::PgFreeS3Publication,
@@ -14,6 +18,159 @@ use tor_books::{
     services::authoring::{save_chapter, SaveChapterRequest},
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
+
+#[tokio::test]
+#[ignore = "requires isolated disposable PostgreSQL18 /tor_ci"]
+async fn drop_07j_quarantine_protects_historical_single_without_a_storage_receipt() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.contains("@127.0.0.1:") && url.ends_with("/tor_ci"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let token = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'DROP07 retention','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("drop07j-{token}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (chapter, historical, current): (i64, i64, i64) = sqlx::query_as(
+        "WITH book AS (
+             INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES($1,'ru','DROP07 retention','public',$2) RETURNING id
+         ), chapter AS (
+             INSERT INTO chapters(book_id,chapter_no,title,visibility)
+             SELECT id,1,'Retained chapter','public' FROM book RETURNING id,book_id
+         ), editions AS (
+             INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             SELECT chapter.id,edition.version_no,edition.body
+             FROM chapter CROSS JOIN (VALUES (1,'old text'),(2,'current text')) edition(version_no,body)
+             RETURNING chapter_id,id,version_no
+         )
+         SELECT v1.chapter_id,v1.id,v2.id FROM editions v1 JOIN editions v2 USING(chapter_id)
+         WHERE v1.version_no=1 AND v2.version_no=2",
+    )
+    .bind(format!("ci:drop07j:{token}"))
+    .bind(actor)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(current)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         VALUES($1,$2,$3)",
+    )
+    .bind(actor)
+    .bind(chapter)
+    .bind(historical)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_layer_free_archive_versions(book_id,request_revision,chapter_id,version_id)
+         SELECT book_id,1,id,$2 FROM chapters WHERE id=$1",
+    )
+    .bind(chapter)
+    .bind(historical)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let historical_key = format!("private/free-chapters/{chapter}/{historical}.md");
+    let current_key = format!("private/free-chapters/{chapter}/{current}.md");
+    let unrelated_key = format!("private/free-chapters/{}/{historical}.md", i64::MAX);
+    let bucket = format!("tor-drop07j-{chapter}");
+    let backup_bucket = format!("tor-drop07j-backup-{chapter}");
+    let observation = QuarantineObservation {
+        bucket: &bucket,
+        key: &historical_key,
+        version: "fixture-object-version",
+        etag: "\"fixture-etag\"",
+        sha256: [19; 32],
+        size: 8,
+    };
+    let repo = PgFreeKeyQuarantine::new(pool.clone());
+    assert_eq!(
+        repo.enter(&observation).await,
+        Err(FreeQuarantineError::Protected)
+    );
+    assert_eq!(
+        repo.enter(&QuarantineObservation {
+            key: &current_key,
+            ..observation
+        })
+        .await,
+        Err(FreeQuarantineError::Protected)
+    );
+    assert_eq!(
+        repo.enter(&QuarantineObservation {
+            key: &unrelated_key,
+            ..observation
+        })
+        .await,
+        Ok(QuarantineOutcome::Recorded)
+    );
+
+    // An older operator could have recorded a fence and backup evidence
+    // before the logical edition guard existed. No retry may trust them alone.
+    sqlx::query(
+        "INSERT INTO free_storage_key_fences
+           (bucket,object_key,purpose,object_version,etag,sha256,size_bytes,recorded_at)
+         VALUES($1,$2,'quarantine',$3,$4,$5,$6,clock_timestamp()-interval '25 hours')",
+    )
+    .bind(&bucket)
+    .bind(&historical_key)
+    .bind(observation.version)
+    .bind(observation.etag)
+    .bind(observation.sha256.as_slice())
+    .bind(observation.size as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let backup = QuarantineBackup {
+        bucket: &backup_bucket,
+        key: &historical_key,
+        version: "fixture-backup-version",
+    };
+    assert_eq!(
+        repo.enter(&observation).await,
+        Err(FreeQuarantineError::Protected)
+    );
+    assert_eq!(
+        repo.recheck(&observation, &backup).await,
+        Err(FreeQuarantineError::Protected)
+    );
+    sqlx::query(
+        "INSERT INTO free_storage_quarantine_rechecks
+           (bucket,object_key,backup_bucket,backup_key,backup_version)
+         VALUES($1,$2,$3,$4,$5)",
+    )
+    .bind(&bucket)
+    .bind(&historical_key)
+    .bind(backup.bucket)
+    .bind(backup.key)
+    .bind(backup.version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let release = repo
+        .find_release(&bucket, &historical_key, observation.version)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.request_retirement(&release).await,
+        Err(FreeQuarantineError::Protected)
+    );
+}
 
 #[tokio::test]
 #[ignore = "requires isolated disposable PostgreSQL18 /tor_ci"]
