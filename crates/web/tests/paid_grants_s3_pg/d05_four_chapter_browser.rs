@@ -18,6 +18,7 @@ pub(super) async fn verify(
     app: &Router,
     old_session: &str,
     new_session: &str,
+    expired_session: &str,
     free: [i64; 2],
     paid: [i64; 2],
 ) {
