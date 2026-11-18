@@ -17,10 +17,13 @@ WITH variants AS (
                WHEN j.status NOT IN ('done','superseded','dead')
                    THEN 'retain_nonterminal_job'
                WHEN r.id IS NULL THEN 'retain_missing_review'
-               WHEN NOT (
+               -- SQL NOT(NULL) is NULL, not TRUE. Explicit IS NOT TRUE
+               -- prevents legacy superseded_at=NULL from leaking into the
+               -- eligible_to_stage branch (worker correctly keeps it).
+               WHEN (
                    (r.state='rejected' AND r.decided_at<=now()-interval '7 days')
                    OR (r.state='superseded' AND r.superseded_at<=now()-interval '7 days')
-               ) THEN 'retain_pending_recent_or_undated_review'
+               ) IS NOT TRUE THEN 'retain_pending_recent_or_undated_review'
                WHEN c.id IS NULL THEN 'eligible_to_stage'
                WHEN c.state='leased' AND c.locked_until>=now()
                    THEN 'retain_live_lease'
