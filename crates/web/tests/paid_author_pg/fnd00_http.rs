@@ -26,6 +26,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         .retry_config(RetryConfig::standard().with_max_attempts(1))
         .build();
     let client = Client::from_conf(config);
+    let failure_client = client.clone();
     client
         .create_bucket()
         .bucket(BUCKET_BODYLESS_HTTP)
@@ -344,4 +345,44 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
+
+    // FND-00: a lost/corrupted private object must deny owner GET rather than
+    // disclose a stale edition or silently fall back to PostgreSQL Markdown.
+    // Only the disposable CI bucket is touched.
+    let current_object_key = pg(
+        &url,
+        &format!(
+            "SELECT o.object_key
+             FROM chapter_versions v
+             JOIN storage_objects o ON o.id=v.storage_object_id
+             WHERE v.chapter_id={chapter} AND v.id={current_v2}"
+        ),
+    );
+    assert!(current_object_key.starts_with("private/chapter-versions/"));
+    failure_client
+        .delete_object()
+        .bucket(BUCKET_BODYLESS_HTTP)
+        .key(&current_object_key)
+        .send()
+        .await
+        .unwrap();
+
+    let (failure_status, failure_page) = browse(&app, &edit_path, &session, &csrf).await;
+    assert_eq!(
+        failure_status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "owner GET must fail closed when the current S3 ciphertext vanishes"
+    );
+    assert!(!failure_page.contains("Paid bodyless V2 source"));
+    assert!(!failure_page.contains(initial_body));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"
+            ),
+        ),
+        "0",
+        "S3 loss must never activate a PostgreSQL paid-body fallback"
+    );
 }
