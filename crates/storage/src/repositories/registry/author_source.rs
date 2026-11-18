@@ -11,7 +11,7 @@ use crate::{
 };
 use sqlx::Row;
 use tor_contracts::paid_delivery::{
-    ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef, PositiveId,
+    ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef,
 };
 use zeroize::Zeroizing;
 
@@ -24,13 +24,17 @@ impl PgStorageRegistry {
         &self,
         actor: i64,
         book: i64,
-        chapter: i64,
-        expected_version: i64,
+        version: ChapterVersionRef,
         private_bucket: &str,
         store: &S,
         keyring: &ContentKeyring,
     ) -> Result<Option<Zeroizing<String>>, RegistryError> {
-        if actor <= 0 || book <= 0 || chapter <= 0 || expected_version <= 0 {
+        if actor <= 0 || book <= 0 {
+            return Ok(None);
+        }
+        let chapter = version.chapter_id.get();
+        let expected_version = version.version_id.get();
+        if chapter <= 0 || expected_version <= 0 {
             return Ok(None);
         }
         if !valid_private_bucket(private_bucket) {
@@ -79,13 +83,12 @@ impl PgStorageRegistry {
         let Some(row) = row else {
             return Ok(None);
         };
-        let version: i64 = row
+        let actual_version: i64 = row
             .try_get("version_id")
             .map_err(|_| RegistryError::Unavailable)?;
-        let version = ChapterVersionRef {
-            chapter_id: PositiveId::new(chapter).map_err(|_| RegistryError::Invalid)?,
-            version_id: PositiveId::new(version).map_err(|_| RegistryError::Unavailable)?,
-        };
+        if actual_version != expected_version {
+            return Err(RegistryError::Unavailable);
+        }
         let object_id: String = row
             .try_get("object_id")
             .map_err(|_| RegistryError::Unavailable)?;
