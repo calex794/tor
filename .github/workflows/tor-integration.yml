@@ -37,6 +37,8 @@ jobs:
         run: python3 tools/check_feature_layout.py
       - name: S025 staging verifier offline unit tests (no network)
         run: python3 -m unittest discover -s tools -p test_s025_cdn_staging_probe.py
+      - name: DROP-08b historical FREE pinned receipts (offline negative controls)
+        run: python3 -m unittest discover -s tests/architecture -p test_drop08_historical_free_pins.py
       - name: S006 free reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_free_progress_reconcile.test.mjs
       - name: S006 paid reader lost-ack reconciliation (offline Node)
@@ -232,6 +234,21 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: DROP-08b compile restored-PG historical pin export and refuse empty evidence
+        if: ${{ matrix.shard == 'foundation' }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/drop08-pins.csv"
+          psql -Xq --no-password --dbname "$TEST_DATABASE_URL" \
+            -f tools/drop08_export_historical_free_pins.sql > "$out"
+          test ! -s "$out"
+          set +e
+          python3 tools/drop08_verify_historical_free_pins.py < "$out" > "$RUNNER_TEMP/drop08-result" 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'requires exercised saved and Layer' "$RUNNER_TEMP/drop08-result"
+          bash tools/drop08_pg_fixture_ci.sh
       - name: Native HTML quality on the fresh schema
         if: ${{ matrix.shard == 'foundation' }}
         env:
