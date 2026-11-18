@@ -345,7 +345,13 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         version_id: PositiveId::new(version_id).unwrap(),
     };
     fnd00_http::assert_owner_editor(
-        &app, &url, book, chapter_id, &owner_session, &other_session, &csrf,
+        &app,
+        &url,
+        book,
+        chapter_id,
+        &owner_session,
+        &other_session,
+        &csrf,
     )
     .await;
 
