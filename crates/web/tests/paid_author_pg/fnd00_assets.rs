@@ -78,6 +78,13 @@ async fn fnd00_paid_image_upload_never_creates_postgres_markdown() {
     let ring = Arc::new(ContentKeyring::v1_only(Arc::new(ContentKek::from_bytes(
         [0x6f; 32],
     ))));
+    let legacy_writer = PgPaidAuthorPublisher::new(
+        catalog.clone(),
+        store.clone(),
+        ring.clone(),
+        BUCKET_BODYLESS_ASSETS.to_owned(),
+    )
+    .unwrap();
     let uploader =
         PgPaidAuthorAssets::new(catalog, store, ring, BUCKET_BODYLESS_ASSETS.to_owned()).unwrap();
 
@@ -118,13 +125,23 @@ async fn fnd00_paid_image_upload_never_creates_postgres_markdown() {
         row, "draft|1|0|1",
         "private image staging cannot fall back to PostgreSQL Markdown"
     );
-    assert!(
-        matches!(
-            PgPaidStorage::new(pool)
-                .prepare_new_paid_chapter(owner, &request)
-                .await,
-            Err(AuthorError::Conflict)
-        ),
-        "a legacy writer must not attach Markdown to a bodyless draft"
+    // The command reservation is intentionally idempotent across old and
+    // bodyless ports; it is the publication attach that must fail closed.
+    assert_eq!(
+        legacy_writer.publish(owner, &request).await,
+        Err(AuthorError::Conflict),
+        "legacy publication must not attach Markdown to a bodyless V1"
     );
+    let remaining = pg(
+        &url,
+        &format!(
+            "SELECT c.visibility || '|' || count(v.body_markdown) || '|' ||
+                    count(p.version_id)
+             FROM chapters c
+             JOIN chapter_versions v ON v.chapter_id=c.id
+             LEFT JOIN chapter_publications p ON p.chapter_id=c.id
+             WHERE c.book_id={book} GROUP BY c.visibility"
+        ),
+    );
+    assert_eq!(remaining, "draft|0|0", "legacy fallback must not publish the draft");
 }
