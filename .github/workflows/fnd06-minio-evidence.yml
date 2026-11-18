@@ -1,0 +1,98 @@
+name: FND-06 two releases with PostgreSQL and MinIO (evidence only)
+on:
+  pull_request:
+    branches: [test/fnd06-saved-free-s3-rollback-20261119]
+    paths: [.github/workflows/fnd06-minio-evidence.yml]
+permissions:
+  contents: read
+jobs:
+  saved-v1-after-rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      CANDIDATE_SHA: 7ab2147c604237104fac75ad7c3d7cfa88b923cb
+      TOR_S061_PREVIOUS_SHA: 5c6109cfec856c94e91063824ab74f2fbdd1c48d
+      TOR_S061_S3_ENDPOINT: http://127.0.0.1:9012
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the two pinned releases and their SQLx migrators
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor "$TOR_S061_PREVIOUS_SHA" "$CANDIDATE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$TOR_S061_PREVIOUS_SHA"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
+            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
+            -p tor-web --bin tor-web --features s3-free -p tor-migrations --bin tor-migrate
+          for binary in tor-web tor-migrate; do
+            install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/$binary" \
+              "$RUNNER_TEMP/s061-previous-$binary"
+          done
+          cargo build -p tor-web --bin tor-web --features s3-free -p tor-migrations --bin tor-migrate
+      - name: Start private MinIO and install Chromium
+        run: |
+          set -euo pipefail
+          bash tools/s061_start_minio.sh
+          npm install --no-save playwright@1.56.1
+          npx playwright install --only-shell chromium
+      - name: Read the saved V1 through both binaries before and after rollback
+        env:
+          TOR_S061_PREVIOUS_BINARY: ${{ runner.temp }}/s061-previous-tor-web
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          SQL
+          GITHUB_SHA="$CANDIDATE_SHA" python3 tools/s061_cutover_pg_smoke.py
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          evidence = json.loads((Path(os.environ['RUNNER_TEMP']) / 's061-real-cutover/report.json').read_text())
+          assert evidence['checked_out_sha'] == os.environ['CANDIDATE_SHA']
+          assert evidence['previous_source_sha'] == os.environ['TOR_S061_PREVIOUS_SHA']
+          assert evidence['added_migrations'] == [202997960621]
+          assert evidence['distinct_binary_validation'] and evidence['populated_catalog_verified']
+          assert evidence['postcutover_rollback']
+          assert evidence['saved_v1_s3_read_stages'] == [
+              'previous_before_migration', 'previous_after_migration', 'parallel_candidate',
+              'promoted_candidate', 'rolled_back_previous',
+          ]
+          print('FND06_REAL_MINIO_TWO_RELEASES_OK')
+          PY
+      - name: Preserve S061 two-release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fnd06-two-releases-postgres-minio
+          path: ${{ runner.temp }}/s061-real-cutover/report.json
+          if-no-files-found: error
+          retention-days: 14
