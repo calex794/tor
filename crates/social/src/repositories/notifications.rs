@@ -14,6 +14,8 @@ mod external_candidates;
 pub use external_candidates::ExternalReleasePreview;
 #[path = "notification_read_policy.rs"]
 mod read_policy;
+#[path = "notification_revision_counts.rs"]
+mod revision_counts;
 pub use daily_chapter_digest::DailyChapterDigestEntry;
 #[path = "notification_profile_url.rs"]
 mod profile_url;
@@ -393,7 +395,10 @@ impl PgNotifications {
         if actor <= 0
             || before.is_some_and(|id| id <= 0)
             || !(1..=100).contains(&limit)
-            || !matches!(section, "notifications" | "releases" | "system")
+            || !matches!(
+                section,
+                "notifications" | "releases" | "system" | "revisions"
+            )
         {
             return Err(MailError::Invalid);
         }
@@ -406,6 +411,7 @@ impl PgNotifications {
                  AND {}
                  AND (
                    $4::text='notifications'
+                   OR ($4='revisions' AND n.kind='chapter_updated')
                    OR ($4='releases' AND n.kind IN (
                      'chapter_created','chapter_updated','project_news','author_new_book',
                      'author_new_layer','author_new_collection'))

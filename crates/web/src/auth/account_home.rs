@@ -43,6 +43,15 @@ pub(super) async fn page(
         Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let revisions = match tor_social::repositories::notifications::PgNotifications::new(
+        state.accounts.pool().clone(),
+    )
+    .unread_chapter_revisions_capped(user_id)
+    .await
+    {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let achievements = match state.achievements.snapshot(user_id).await {
         Ok(achievements) => achievements,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -63,6 +72,25 @@ pub(super) async fn page(
         ""
     };
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
+    let changed = if revisions == 0 {
+        String::new()
+    } else {
+        let count = if revisions >= 100 {
+            "99+".to_owned()
+        } else {
+            revisions.to_string()
+        };
+        format!(
+            "<a class=\"me-now-item me-now-item--reading\" \
+             href=\"/me/library?view=updates#updated-chapters\" \
+             aria-label=\"Обновились главы: {count}\">\
+             <span class=\"me-now-item__copy\">\
+             <strong class=\"me-now-item__title\">Обновились главы: {count}</strong>\
+             <span class=\"me-now-item__text\">Новые редакции опубликованных глав.</span>\
+             </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>"
+        )
+    };
+    page.0 = page.0.replace("<!--FOLLOWED_REVISION_NOTICE-->", &changed);
     // Admin tools must be discoverable without an extra disclosure click.
     if administrator {
         page.0 = page.0.replacen(

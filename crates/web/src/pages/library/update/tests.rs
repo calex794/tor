@@ -78,3 +78,38 @@ fn paid_update_is_escaped_and_points_to_enabled_checkout() {
     assert!(seen.contains("Просмотрено"));
     assert!(seen.contains("Отметить непрочитанной"));
 }
+
+#[test]
+fn ret01b_revision_card_uses_per_event_ack_and_safe_private_reader() {
+    use tor_social::repositories::notifications::UserNotification;
+    let records = [
+        UserNotification {
+            id: 91,
+            kind: "chapter_updated".into(),
+            title: "Глава <V2>".into(),
+            body: "Автор обновил & текст".into(),
+            url: "/read/12".into(),
+            created_at: "18.11.2026 12:00".into(),
+            is_read: false,
+        },
+        UserNotification {
+            id: 92,
+            kind: "chapter_updated".into(),
+            title: "Bad link".into(),
+            body: "".into(),
+            url: "//evil.invalid".into(),
+            created_at: "".into(),
+            is_read: false,
+        },
+    ];
+    let html = library_revision_cards(&records, "csrf-token");
+    assert!(html.contains("Обновились"));
+    assert!(html.contains("action=\"/notifications/91/read\""));
+    assert!(html.contains("name=\"next\" value=\"/read/12\""));
+    assert!(!html.contains("action=\"/me/updates/12/read-state\""));
+    assert!(!html.contains("//evil.invalid"));
+    assert!(html.contains("Глава &lt;V2&gt;"));
+    assert!(html.contains("Автор обновил &amp; текст"));
+    assert!(!html.contains("Глава <V2>"));
+    assert!(html.contains("value=\"csrf-token\""));
+}
