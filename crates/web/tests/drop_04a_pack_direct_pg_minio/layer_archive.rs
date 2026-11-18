@@ -91,23 +91,37 @@ pub(super) async fn verify(
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
 
-    // The preceding DROP-04c test edited chapter two from PACK V1 into
-    // SINGLE V2. Re-publish the still-verified immutable PACK V1 as the
-    // deliberate current publication for this *isolated* archive fixture.
-    // The archive must freeze the currently published edition, not select an
-    // old V1 merely because an S3 object happens to remain.
+    // Earlier transport and author-edit checks published SINGLE V2 for both
+    // chapters. Restore both verified PACK V1 publications in this disposable
+    // fixture before the owner takes the archive snapshot.
+    assert_eq!(receipt.frames.len(), 2);
+    for restored in &receipt.frames {
+        // Use the existing disposable PostgreSQL fixture helper; tor-web
+        // intentionally has no direct sqlx dependency.
+        pg(
+            url,
+            &format!(
+                "UPDATE chapter_publications SET version_id={} WHERE chapter_id={}",
+                restored.version_id, restored.chapter_id
+            ),
+        );
+        assert_eq!(
+            pg(
+                url,
+                &format!(
+                    "SELECT version_id FROM chapter_publications WHERE chapter_id={}",
+                    restored.chapter_id
+                ),
+            ),
+            restored.version_id.to_string(),
+            "each FREE chapter must publish its original immutable PACK frame"
+        );
+    }
     let frame = &receipt.frames[1];
     let expected = chapters[1].body.as_bytes();
     assert_eq!(
         <[u8; 32]>::from(Sha256::digest(expected)),
         frame.content_sha256
-    );
-    pg(
-        url,
-        &format!(
-            "UPDATE chapter_publications SET version_id={} WHERE chapter_id={}",
-            frame.version_id, frame.chapter_id,
-        ),
     );
     assert_eq!(
         pg(
@@ -127,6 +141,33 @@ pub(super) async fn verify(
         .unwrap()
         .expect("real active PACK physical generation is present");
     assert_eq!(pack.sha256, frame.content_sha256);
+
+    // The same verified two-frame PACK must keep BOTH pre-deletion FREE
+    // publications, with independent version/hash identities.
+    let first = &receipt.frames[0];
+    let first_expected = chapters[0].body.as_bytes();
+    assert_eq!(
+        <[u8; 32]>::from(Sha256::digest(first_expected)),
+        first.content_sha256
+    );
+    let first_pack = tor_reading::repositories::free_s3_ref::PgFreeS3Ref::new(pool.clone())
+        .archived_free_active_pack_metadata_only(first.chapter_id, first.version_id)
+        .await
+        .unwrap()
+        .expect("the first FREE V1 is an independently verified active PACK frame");
+    assert_eq!(first_pack.sha256, first.content_sha256);
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects
+                 WHERE chapter_id={} AND version_id={}",
+                first.chapter_id, first.version_id
+            ),
+        ),
+        "0",
+        "the first FREE V1 must also be PACK-only, without a SINGLE receipt"
+    );
 
     let owner_hash = hash_password("D05 real owner deletion password").unwrap();
     // The DROP import fixture created an account without a usable password;
@@ -221,6 +262,19 @@ pub(super) async fn verify(
         frame.version_id.to_string()
     );
 
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT version_id FROM book_layer_free_archive_versions
+                 WHERE book_id={book} AND chapter_id={}",
+                first.chapter_id
+            ),
+        ),
+        first.version_id.to_string(),
+        "the approved archive must retain both FREE V1 publications"
+    );
+
     // Actor-scoped HTTP route, exact FRAME only; all transport keys and
     // Range offsets stay inside the service.
     std::env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
@@ -313,6 +367,39 @@ pub(super) async fn verify(
         "one archived PACK frame, no neighbor"
     );
 
+    let first_path = format!("/api/v1/reader/layer/free/{}/pack", first.chapter_id);
+    let first_response = post(
+        &app,
+        &first_path,
+        Some(&buyer_session),
+        Some(&csrf),
+        Some("http://127.0.0.1:3098"),
+        false,
+    )
+    .await;
+    assert_eq!(first_response.status(), StatusCode::OK);
+    assert_eq!(
+        first_response.headers()["x-tor-free-version-id"],
+        first.version_id.to_string()
+    );
+    assert_eq!(
+        first_response.headers()["x-tor-free-sha256"],
+        hex::encode(first.content_sha256)
+    );
+    assert_eq!(first_response.headers()["cache-control"], "no-store");
+    assert!(!first_response.headers().contains_key(header::LOCATION));
+    let first_bytes = to_bytes(first_response.into_body(), 200_001).await.unwrap();
+    assert_eq!(
+        first_bytes.as_ref(),
+        first_expected,
+        "the first FREE frame cannot expose the neighboring FREE frame"
+    );
+    assert_ne!(
+        first_bytes.as_ref(),
+        expected,
+        "distinct FREE frame contents"
+    );
+
     // The browser must exercise the real D-checked Rust shell and discover
     // the PACK only via a denied SINGLE grant (404), then a single same-origin
     // /pack POST. It never downloads a complete PACK or sees object keys.
@@ -347,6 +434,20 @@ pub(super) async fn verify(
         .status(),
         StatusCode::NOT_FOUND,
         "revoked paid Layer term cannot read any archived PACK frame"
+    );
+    assert_eq!(
+        post(
+            &app,
+            &first_path,
+            Some(&buyer_session),
+            Some(&csrf),
+            Some("http://127.0.0.1:3098"),
+            false
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "revocation must also close the other chapter in the same PACK"
     );
     super::retained_layer_pack::verify(url, client, book, receipt).await;
     pool.close().await;
