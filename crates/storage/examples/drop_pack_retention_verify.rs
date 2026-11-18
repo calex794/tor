@@ -5,7 +5,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::Path,
-    process::ExitCode,
+    process::{Command, ExitCode, Stdio},
     str::FromStr,
 };
 use tor_storage::services::{
@@ -24,6 +24,9 @@ const HEADER: &str = concat!(
 const MAX_ROW_BYTES: usize = 384;
 const MAX_CSV_BYTES: u64 = (MAX_PROOF_MEMBERS * MAX_ROW_BYTES + HEADER.len() + 2) as u64;
 const ROW_ERROR: &str = "invalid PACK retention CSV row";
+const USAGE: &str =
+    "usage: drop_pack_retention_verify PACK_ID CSV PACK MANIFEST BUCKET PACK_KEY [--recheck]";
+const CHANGED: &str = "live PACK retention evidence changed; export and review the new snapshot";
 
 type Check<T> = Result<T, &'static str>;
 
@@ -173,15 +176,73 @@ fn read_local(path: &Path, max: u64) -> Check<Vec<u8>> {
     Ok(bytes)
 }
 
+fn export_live_report(pack_id: i64) -> Check<Vec<u8>> {
+    if env::var_os("PGSERVICE").is_none_or(|service| service.is_empty()) {
+        return Err("set PGSERVICE to the intended read-only PostgreSQL service for --recheck");
+    }
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/drop07_export_pack_retention.sql");
+    let mut psql = Command::new("psql")
+        .args([
+            "-Xq",
+            "--no-password",
+            "-v",
+            &format!("pack_id={pack_id}"),
+            "-f",
+        ])
+        .arg(script)
+        .env("PGCONNECT_TIMEOUT", "10")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "cannot start the read-only PostgreSQL recheck")?;
+    let Some(stdout) = psql.stdout.take() else {
+        let _ = psql.kill();
+        let _ = psql.wait();
+        return Err("cannot read the PostgreSQL recheck output");
+    };
+    let mut fresh = Vec::new();
+    if stdout
+        .take(MAX_CSV_BYTES + 1)
+        .read_to_end(&mut fresh)
+        .is_err()
+        || fresh.len() as u64 > MAX_CSV_BYTES
+    {
+        let _ = psql.kill();
+        let _ = psql.wait();
+        return Err("unreadable or oversized PostgreSQL recheck output");
+    }
+    let exit = psql
+        .wait()
+        .map_err(|_| "cannot finish the PostgreSQL recheck")?;
+    if !exit.success() {
+        return Err("read-only PostgreSQL recheck failed");
+    }
+    Ok(fresh)
+}
+
+fn check_unchanged(verified_report: &str, fresh: &[u8]) -> Check<()> {
+    let fresh = std::str::from_utf8(fresh).map_err(|_| "PostgreSQL recheck is not UTF-8")?;
+    if !verified_report.lines().eq(fresh.lines()) {
+        return Err(CHANGED);
+    }
+    Ok(())
+}
+
 fn run() -> Check<()> {
-    let [id, csv, pack, sidecar, bucket, key]: [OsString; 6] = env::args_os()
-        .skip(1)
-        .take(7)
+    let mut args = env::args_os().skip(1);
+    let [id, csv, pack, sidecar, bucket, key]: [OsString; 6] = args
+        .by_ref()
+        .take(6)
         .collect::<Vec<_>>()
         .try_into()
-        .map_err(|_| {
-            "usage: drop_pack_retention_verify PACK_ID CSV PACK MANIFEST BUCKET PACK_KEY"
-        })?;
+        .map_err(|_| USAGE)?;
+    let recheck = match args.next() {
+        None => false,
+        Some(flag) if flag == "--recheck" && args.next().is_none() => true,
+        _ => return Err(USAGE),
+    };
     let pack_id = decimal(id.to_str().ok_or("invalid PACK id")?)?;
     let bucket = bucket.to_str().ok_or("invalid bucket")?;
     let key = key.to_str().ok_or("invalid PACK key")?;
@@ -190,8 +251,14 @@ fn run() -> Check<()> {
     let pack = read_local(Path::new(&pack), MAX_FREE_PACK_BYTES)?;
     let sidecar = read_local(Path::new(&sidecar), MAX_PACK_MANIFEST_BYTES)?;
     let result = verify(pack_id, bucket, key, report, &pack, &sidecar)?;
+    let status = if recheck {
+        check_unchanged(report, &export_live_report(pack_id)?)?;
+        "DROP07_PACK_RETENTION_RECHECK_MATCH"
+    } else {
+        "DROP07_PACK_RETENTION_MATCH"
+    };
     println!(
-        "DROP07_PACK_RETENTION_MATCH pack_id={pack_id} frames={} retain={} unknown={}",
+        "{status} pack_id={pack_id} frames={} retain={} unknown={}",
         result.frames,
         result.retained,
         result.frames - result.retained
