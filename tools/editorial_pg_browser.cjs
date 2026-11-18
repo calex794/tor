@@ -38,7 +38,23 @@ function observationResponses(page){
  return events;
 }
 async function observedCard(page,card,campaign,before,response,events){
- const proof=await card.getAttribute('data-flow-proof');assert.match(proof,/^[A-Za-z0-9_-]{43}$/);
+ // F proofs are minted by the server only while its collector lease
+ // and queue are healthy. If issuance fails closed, this HTML will never
+ // acquire a proof asynchronously: request a fresh real page instead.
+ let currentResponse=response;
+ let proof=await card.getAttribute('data-flow-proof');
+ for(let attempt=0;proof===null&&attempt<20;attempt++){
+  await new Promise(resolve=>setTimeout(resolve,1000));
+  currentResponse=await page.reload({waitUntil:'load'});
+  assert.equal(currentResponse.status(),200,'proof recovery must use a live page');
+  assert.equal(await card.count(),1,'editorial card disappeared during proof recovery');
+  assert.equal(await card.getAttribute('data-editorial-campaign'),String(campaign),
+   'proof recovery must retain the same eligible campaign');
+  await card.scrollIntoViewIfNeeded();
+  proof=await card.getAttribute('data-flow-proof');
+ }
+ assert.equal(typeof proof,'string','collector never recovered a genuine proof');
+ assert.match(proof,/^[A-Za-z0-9_-]{43}$/);
  const geometry=await card.evaluate(element=>new Promise(resolve=>{
   const observer=new IntersectionObserver(([entry])=>{
    observer.disconnect();resolve({ratio:entry.intersectionRatio,foreground:document.visibilityState});
@@ -55,7 +71,7 @@ async function observedCard(page,card,campaign,before,response,events){
   assert.deepEqual(await violations(),[],`CSP violations on ${page.url()}`);
  }catch(error){
   const callbacks=events.filter(event=>event.proof===proof).map(({kind,status})=>({kind,status}));
-  const csp=(await response.allHeaders())['content-security-policy'];
+  const csp=(await currentResponse.allHeaders())['content-security-policy'];
   throw new Error(`Observation diagnostics: ${JSON.stringify({url:page.url(),geometry,callbacks,csp,violations:await violations(),counts:sums(campaign)})}`,{cause:error});
  }
 }
