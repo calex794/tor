@@ -199,6 +199,35 @@ pub fn my_account_with_achievements_refunds_and_swap(
     )
 }
 
+/// Private Home navigation uses exactly the same destination resolver as Library.
+/// Only server-side actor-scoped progress is rendered; links never confer rights.
+pub fn account_resume_cards(
+    items: &[tor_reading::services::progress::ContinueReading],
+) -> String {
+    let mut links = String::new();
+    for item in items.iter().take(2) {
+        let target = super::library::reading_destination(item);
+        let book_title = escape_html(&item.book_title);
+        let chapter_title = escape_html(&item.chapter_title);
+        let status = if item.archived_saved {
+            "Сохранённая редакция · Удалена"
+        } else if item.block_index > 0 {
+            "Сохранённая позиция"
+        } else {
+            "Новая или обновлённая глава"
+        };
+        links.push_str(&format!(
+            "<a class=\"me-now-item me-now-item--reading\" data-ret-resume-book=\"{}\" href=\"{target}\">\
+             <span class=\"me-now-item__copy\">\
+             <strong class=\"me-now-item__title\">{book_title}</strong>\
+             <span class=\"me-now-item__text\">Глава {}. {chapter_title} · {status}</span>\
+             </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
+            item.book_id, item.chapter_no,
+        ));
+    }
+    links
+}
+
 /// Shared, accessible account navigation for the overview and notification pages.
 pub fn account_navigation(active: &str, csrf: &str) -> String {
     let mut navigation = include_str!("../../templates/account_nav.html")
