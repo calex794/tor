@@ -29,6 +29,44 @@ const E08_VERSIONS: [i64; 14] = [
 // Keep this fixture's pre-E-08 baseline FK-complete.
 const E08_DEPENDENT_VERSIONS: [i64; 1] = [202701198653];
 
+async fn durable_catalogue_snapshot(
+    pool: &sqlx::PgPool,
+    book_id: i64,
+    chapter_id: i64,
+    version_id: i64,
+    pack_id: i64,
+) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT jsonb_build_object(
+           'book',(SELECT jsonb_build_object('id',id,'source',source_identity)
+                   FROM books WHERE id=$1),
+           'chapter',(SELECT jsonb_build_object('id',id,'book',book_id,'number',chapter_no)
+                      FROM chapters WHERE id=$2),
+           'version',(SELECT jsonb_build_object('id',id,'chapter',chapter_id,
+                        'body',body_markdown,'digest',encode(content_sha256,'hex'))
+                      FROM chapter_versions WHERE id=$3),
+           'single',(SELECT jsonb_build_object('key',object_key,'bucket',bucket,
+                         'digest',encode(sha256,'hex'),'size',size_bytes)
+                      FROM free_chapter_storage_objects
+                      WHERE chapter_id=$2 AND version_id=$3),
+           'pack',(SELECT jsonb_build_object('id',id,'key',object_key,'bucket',bucket,
+                       'digest',encode(pack_sha256,'hex'))
+                   FROM free_storage_packs WHERE id=$4),
+           'generation',(SELECT jsonb_build_object('generation',generation,
+                              'pack',pack_id,'frame_offset',frame_offset,
+                              'frame_bytes',frame_bytes)
+                         FROM free_edition_storage_generations
+                         WHERE chapter_id=$2 AND version_id=$3 AND pack_id=$4)
+         )::text",
+    )
+    .bind(book_id)
+    .bind(chapter_id)
+    .bind(version_id)
+    .bind(pack_id)
+    .fetch_one(pool)
+    .await
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable tor_ci_e08_upgrade database owned by tor_migrator"]
 async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
@@ -99,8 +137,72 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
     .execute(&pool)
     .await?;
 
+    // FND-01: the installed catalogue must survive an actual SQLx ledger
+    // upgrade. These are synthetic metadata receipts: NO S3 is contacted.
+    let book_id: i64 = sqlx::query_scalar(
+        "SELECT id FROM books WHERE source_identity='ci:e08:installed-upgrade'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    let chapter_id: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title)
+         VALUES($1,1,'Existing chapter before upgrade') RETURNING id",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await?;
+    let version_id: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,1,'durable free body',sha256('durable free body'::bytea)) RETURNING id",
+    )
+    .bind(chapter_id)
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO free_chapter_storage_objects
+         (chapter_id,version_id,bucket,object_key,sha256,size_bytes)
+         VALUES($1,$2,'tor-ci-fnd01-storage',$3,sha256('durable free body'::bytea),17)",
+    )
+    .bind(chapter_id)
+    .bind(version_id)
+    .bind(format!("private/free-chapters/{chapter_id}/{version_id}.md"))
+    .execute(&pool)
+    .await?;
+    let pack_id: i64 = sqlx::query_scalar(
+        "INSERT INTO free_storage_packs
+         (bucket,object_key,pack_sha256,manifest_key,manifest_sha256,
+          pack_bytes,manifest_bytes,seek_table_start)
+         VALUES('tor-ci-fnd01-storage',
+                'private/free-packs/ci/fnd01-installed-upgrade.zst',
+                sha256('fnd01-pack'::bytea),
+                'private/free-packs/ci/fnd01-installed-upgrade.manifest.json',
+                sha256('fnd01-manifest'::bytea),150,30,120) RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO free_edition_storage_generations
+         (chapter_id,version_id,generation,placement_kind,
+          content_sha256,size_bytes,pack_id,frame_offset,frame_bytes)
+         VALUES($1,$2,1,'pack',sha256('durable free body'::bytea),17,$3,0,20)",
+    )
+    .bind(chapter_id)
+    .bind(version_id)
+    .bind(pack_id)
+    .execute(&pool)
+    .await?;
+    let catalogue_before =
+        durable_catalogue_snapshot(&pool, book_id, chapter_id, version_id, pack_id).await?;
+    assert!(catalogue_before.contains("private/free-chapters/"));
+    assert!(catalogue_before.contains("private/free-packs/"));
+
     MIGRATOR.run(&pool).await?;
     MIGRATOR.run(&pool).await?; // no replay or accidental checksum repair
+    assert_eq!(
+        durable_catalogue_snapshot(&pool, book_id, chapter_id, version_id, pack_id).await?,
+        catalogue_before,
+        "additive SQLx upgrade must preserve Book, ChapterVersion and exact S3 references"
+    );
 
     let installed_after: Vec<(i64, Vec<u8>, bool)> =
         sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
