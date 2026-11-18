@@ -59,12 +59,28 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 447)  # Includes three private Layer FREE and two RET-R03 routes.
-        self.assertEqual(report["route_pairs"], 442)  # Exact route+method pairs, including Layer FREE archival grant.
+        self.assertEqual(report["route_pairs"], 444)  # Two new RET-R03 authenticated GET pairs.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
         self.assertFalse(audit["nginx_config_reviewed"])
         self.assertFalse(audit["public_origin_reviewed"])
+
+    def test_continuation_admin_exception_is_exact_and_not_downgradable(self):
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+        for field, replacement in (
+            ("template", "/admin/audience/continuations/export"),
+            ("policy", "session"),
+        ):
+            with self.subTest(field=field):
+                payload = json.loads(json.dumps(baseline))
+                row = next(row for row in payload["routes"]
+                           if row["template"] == "/admin/audience/continuations")
+                row[field] = replacement
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertTrue(any("internal/admin route is not denied" in issue
+                                    for issue in check_repository(self.root)))
 
     def test_fingerprint_is_canonical_across_policy_record_order(self):
         before = fingerprint(self.root)["sha256"]
