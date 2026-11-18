@@ -521,13 +521,16 @@ async fn d_05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
                 );
             }
             for &(chapter, _) in &editions[2..] {
-                assert!(matches!(
-                    rights
-                        .resolve_entitlement(Actor { user_id: id(actor) }, id(chapter), None)
-                        .await
-                        .unwrap(),
-                    EntitlementDecision::Denied { .. }
-                ), "book-wide B restriction must deny historical PAID");
+                assert!(
+                    matches!(
+                        rights
+                            .resolve_entitlement(Actor { user_id: id(actor) }, id(chapter), None)
+                            .await
+                            .unwrap(),
+                        EntitlementDecision::Denied { .. }
+                    ),
+                    "book-wide B restriction must deny historical PAID"
+                );
             }
             assert!(
                 rights
