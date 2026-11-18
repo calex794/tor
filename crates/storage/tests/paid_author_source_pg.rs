@@ -188,6 +188,21 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
         .await
         .unwrap();
     sqlx::query(
+        "INSERT INTO chapter_first_release_events(chapter_id,version_id,creator_user_id)
+         VALUES($1,$2,$3)",
+    )
+    .bind(chapter)
+    .bind(version)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
         "INSERT INTO chapter_encrypted_release_events(
            chapter_id,version_id,storage_object_id
          ) VALUES($1,$2,$3::uuid)",
@@ -198,11 +213,6 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
-        .bind(chapter)
-        .execute(&pool)
-        .await
-        .unwrap();
 
     // Only the active owner gets text; rejected selectors must not reach G/S3.
     let original_gets = store.reads();
