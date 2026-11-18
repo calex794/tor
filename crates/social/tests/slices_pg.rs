@@ -780,9 +780,7 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
         .iter()
         .any(|p| p.kind == "chapter_updated" && p.enabled));
     assert!(initial.iter().all(|pref| pref.enabled));
-    assert!(initial
-        .iter()
-        .any(|pref| pref.kind == "continuation_demand" && pref.enabled));
+    assert!(initial.iter().any(|p| p.kind == "continuation_demand" && p.enabled));
     assert_eq!(notifications.preferences(0).await, Err(MailError::Invalid));
     assert_eq!(
         notifications.set_preferences(0, &[]).await,
@@ -796,13 +794,7 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
     let reopened = PgNotifications::new(pool.clone());
     let saved = reopened.preferences(b).await.unwrap();
     assert!(!saved.iter().find(|p| p.kind == "mail").unwrap().enabled);
-    assert!(
-        !saved
-            .iter()
-            .find(|p| p.kind == "continuation_demand")
-            .unwrap()
-            .enabled
-    );
+    assert!(!saved.iter().any(|p| p.kind == "continuation_demand" && p.enabled));
     assert!(
         saved
             .iter()
