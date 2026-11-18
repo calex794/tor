@@ -178,7 +178,16 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     assert!(!page.contains("stats-other-"));
     let admin_page = html(get(&app, admin_path, &tokens[2]).await).await;
     assert!(admin_page.contains("Спрос &lt;test&gt;"));
-    assert!(admin_page.contains("data-metric=\"waiting\">1"));
+    // Sitewide totals can include unrelated fixtures from earlier PG tests.
+    // Verify this exact book row without assuming a globally empty database.
+    let row = admin_page
+        .split(&format!("href=\\"/books/{book}\\""))
+        .nth(1)
+        .expect("the book must appear in the administrator report")
+        .split("</tr>")
+        .next()
+        .unwrap();
+    assert!(row.contains("<td>1</td>"), "{row}");
     assert_eq!(
         get(&app, "/me/stats/continuations?after_book=2", &tokens[0])
             .await
