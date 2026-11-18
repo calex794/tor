@@ -53,13 +53,32 @@ main() {
 INSERT INTO books(source_identity,target_language,title,visibility)
   VALUES ('ci-preexisting', 'ru', 'Existing book', 'public');
 SQL
-  apply tor_migrations_upgrade "${migrations[@]:6}"
+  # FND-01: retain two S3-only FREE editions and a saved historical V1
+  # across actual subsequent DROP and SQLx schema migrations.
+  local split_index=-1 i
+  for (( i=6; i<${#migrations[@]}; i++ )); do
+    if [[ ${migrations[i]##*/} == \
+         202811163749_drop_free_placement_generations.sql ]]; then
+      split_index=$i
+      break
+    fi
+  done
+  if (( split_index <= 6 )); then
+    echo 'FND-01 upgrade boundary not found in SQLx tree' >&2
+    exit 1
+  fi
+  apply tor_migrations_upgrade "${migrations[@]:6:$((split_index-6))}"
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/fnd01-seed-retained-s3.sql
+  apply tor_migrations_upgrade "${migrations[@]:split_index}"
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/fnd01-verify-retained-s3.sql
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -Atqc \
     "SELECT count(*) FROM books WHERE source_identity='ci-preexisting'" | grep -qx '1'
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -f tests/postgres/migrations-smoke.sql
 
   bash tests/postgres/verify-migration-modes.sh
-  echo 'PG18: fresh SQL migrations PASS, upgrade with existing data PASS, privacy/constraints PASS'
+  echo 'PG18: fresh SQL migrations PASS, retained S3-only V1/V2 upgrade PASS, privacy/constraints PASS'
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
