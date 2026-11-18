@@ -267,7 +267,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"),
+            &format!(
+                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"
+            ),
         ),
         "0",
         "the scheduled paid author path must keep staged Markdown out of PG"
