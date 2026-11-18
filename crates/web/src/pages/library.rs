@@ -3,6 +3,29 @@ use super::{escape_html, private_account_layout as layout};
 use axum::response::Html;
 use std::fmt::Write;
 
+/// Canonical private resume target shared by Library and Account Home.
+/// This is navigation only: the target reader rechecks actor, live age,
+/// deletion and immutable edition policy before returning any chapter text.
+pub(super) fn reading_destination(
+    item: &tor_reading::services::progress::ContinueReading,
+) -> String {
+    if item.archived_saved {
+        let anchor = if item.block_index > 0 {
+            "#saved-resume"
+        } else {
+            ""
+        };
+        format!("/me/library/saved/{}{anchor}", item.chapter_id)
+    } else {
+        let anchor = if item.block_index > 0 {
+            format!("#p-{}", item.block_index)
+        } else {
+            String::new() // a changed edition cannot use a stale text anchor
+        };
+        format!("/read/{}{}", item.chapter_id, anchor)
+    }
+}
+
 pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -130,33 +153,17 @@ fn my_library_inner(
         for item in items {
             let book = escape_html(&item.book_title);
             let chapter = escape_html(&item.chapter_title);
-            let bookmark = if item.block_index > 0 {
-                format!("#p-{}", item.block_index)
-            } else {
-                String::new() // published version changed: never resume at an old anchor
-            };
             let hint = if item.block_index > 0 {
                 format!("Фрагмент {}", item.block_index)
             } else {
                 "Глава обновлена — проверьте новое содержание".to_owned()
             };
-            // Deleted Books never link back to the public /read endpoint.
-            // The private pinned reader rechecks session, age and legal holds.
-            let (target, mode) = if item.archived_saved {
-                let anchor = if item.block_index > 0 {
-                    "#saved-resume"
-                } else {
-                    ""
-                };
-                (
-                    format!("/me/library/saved/{}{anchor}", item.chapter_id),
-                    "Сохранённая редакция · Удалена",
-                )
+            // Account Home and Library must use the same policy-aware target.
+            let target = reading_destination(item);
+            let mode = if item.archived_saved {
+                "Сохранённая редакция · Удалена"
             } else {
-                (
-                    format!("/read/{}{bookmark}", item.chapter_id),
-                    "Продолжить чтение",
-                )
+                "Продолжить чтение"
             };
             let art = book_art(item.book_id, !item.archived_saved, confirmed_covers);
             write!(cards, "<article class=\"library-reading-card\">{art}<div class=\"library-reading-card__copy\"><span class=\"library-status\">{mode}</span><h3>{book}</h3><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"{target}\">Продолжить</a></article>", item.chapter_no).expect("write HTML");
