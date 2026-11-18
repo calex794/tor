@@ -1,4 +1,7 @@
 //! FND-07 / S023: multi-book import and byte-for-byte accounting after restart.
+#[path = "catalog_provider.rs"]
+mod provider;
+
 use super::support::{insert_book, pg, Fixture};
 use aws_sdk_s3::Client;
 use axum::{
@@ -7,7 +10,7 @@ use axum::{
     Router,
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Duration};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
     repositories::PgCatalog,
@@ -21,7 +24,8 @@ use tor_storage::{
 use tor_web::chapter_import_worker::ChapterImportWorkerResult;
 use tower::ServiceExt;
 
-const BUCKET: &str = "tor-fnd07-import-ci";
+const LOOPBACK_BUCKET: &str = "tor-fnd07-import-ci";
+const LOOPBACK_ENDPOINT: &str = "http://127.0.0.1:9000";
 const BOOKS: usize = 10;
 const CHAPTERS_PER_BOOK: i64 = 3;
 
@@ -51,9 +55,17 @@ struct Edition {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires the disposable S023 PostgreSQL and MinIO fixture"]
+#[ignore = "requires dedicated test PostgreSQL and S3"]
 async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
-    let mut fixture = Fixture::new_in_bucket("FND-07 book 1", BUCKET).await;
+    let label = "FND-07 book 1";
+    let (mut fixture, bucket, endpoint) = match provider::requested_fixture(label).await {
+        Some((fixture, bucket)) => (fixture, bucket, provider::YANDEX_ENDPOINT),
+        None => (
+            provider::loopback_fixture(label, LOOPBACK_BUCKET).await,
+            LOOPBACK_BUCKET.into(),
+            LOOPBACK_ENDPOINT,
+        ),
+    };
     let mut imports = Vec::new();
     for index in 1..=BOOKS {
         let book = if index == 1 {
@@ -129,14 +141,14 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
             fixture.actor,
         ),
     );
-    let (store, bucket) = fixture.author().reader_store();
+    let (store, reader_bucket) = fixture.author().reader_store();
     let router = tor_web::free_reader_http::router(
         PgAccounts::from_pool(pool.clone()),
         false,
         "http://127.0.0.1:3098".into(),
         store.clone(),
-        bucket,
-        "http://127.0.0.1:9000".into(),
+        reader_bucket,
+        endpoint.into(),
     )
     .unwrap();
     let mut expected_keys = BTreeSet::new();
@@ -165,7 +177,7 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
             import.book
         );
         for (edition, expected) in editions.iter().zip(&import.chapters) {
-            assert!(expected_keys.insert(verify_edition(&store, edition, expected).await));
+            assert!(expected_keys.insert(verify_edition(&store, &bucket, edition, expected).await));
             let request = format!("/api/v1/chapters/{}/free-grant", edition.chapter_id);
             let (status, _) = get(&router, &request).await;
             assert_eq!(
@@ -176,7 +188,7 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
         }
     }
     assert_eq!(
-        list_all_keys(&fixture.client).await,
+        list_all_keys(&fixture.client, &bucket).await,
         expected_keys,
         "missing or unexpected S3 keys"
     );
@@ -208,7 +220,27 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
         hex::encode(Sha256::digest(body.as_bytes()))
     );
     assert_eq!(grant["size_bytes"], body.len() as u64);
+    let key = FreeChapterObject::for_markdown(chapter, version, body)
+        .unwrap()
+        .key();
+    verify_reader_download(
+        endpoint,
+        &bucket,
+        &key,
+        grant["url"].as_str().unwrap(),
+        body,
+    )
+    .await;
+    if endpoint == LOOPBACK_ENDPOINT {
+        assert_eq!(
+            provider::check_bucket(&fixture.client, &bucket).await,
+            Err(provider::BUCKET_NOT_EMPTY)
+        );
+    }
     println!("FND07_MULTI_BOOK_IMPORT_OK books={BOOKS} chapters={chapters} versions={chapters} objects={} missing=0 unexpected=0", expected_keys.len());
+    if endpoint == provider::YANDEX_ENDPOINT {
+        println!("FND07_YANDEX_FREE_CATALOG_OK provider=Yandex versioning=enabled signed_download=verified");
+    }
 }
 
 async fn verify_import(fixture: &Fixture, import: &Import) {
@@ -252,6 +284,7 @@ async fn verify_import(fixture: &Fixture, import: &Import) {
 
 async fn verify_edition(
     store: &S3FreeChapterStore,
+    bucket: &str,
     edition: &Edition,
     expected: &ImportedChapter,
 ) -> String {
@@ -262,7 +295,7 @@ async fn verify_edition(
     assert_eq!(edition.title, expected.title);
     assert_eq!(edition.version_no, 1);
     assert!(edition.bodyless && edition.published);
-    assert_eq!(edition.bucket, BUCKET);
+    assert_eq!(edition.bucket, bucket);
     assert_eq!(edition.object_key, object.key());
     let expected_hash = hex::encode(object.sha256());
     assert_eq!(edition.edition_hash, expected_hash);
@@ -289,11 +322,11 @@ async fn get(router: &Router, route: &str) -> (StatusCode, Vec<u8>) {
     )
 }
 
-async fn list_all_keys(client: &Client) -> BTreeSet<String> {
+async fn list_all_keys(client: &Client, bucket: &str) -> BTreeSet<String> {
     let mut keys = BTreeSet::new();
     let mut pages = client
         .list_objects_v2()
-        .bucket(BUCKET)
+        .bucket(bucket)
         .max_keys(7)
         .into_paginator()
         .send();
@@ -304,4 +337,55 @@ async fn list_all_keys(client: &Client) -> BTreeSet<String> {
         assert!(keys.len() <= BOOKS * CHAPTERS_PER_BOOK as usize);
     }
     keys
+}
+
+async fn verify_reader_download(endpoint: &str, bucket: &str, key: &str, grant: &str, body: &str) {
+    let object = reqwest::Url::parse(&format!("{endpoint}/{bucket}/{key}")).unwrap();
+    let signed = reqwest::Url::parse(grant).expect("valid signed object URL");
+    let mut unsigned = signed.clone();
+    unsigned.set_query(None);
+    assert!(
+        unsigned == object
+            && signed
+                .query_pairs()
+                .any(|(name, _)| name == "X-Amz-Signature"),
+        "grant must target the exact object on the configured provider"
+    );
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap();
+    let mut response = client
+        .get(signed)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut bytes = Vec::with_capacity(body.len());
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(reqwest::Error::without_url)
+        .unwrap()
+    {
+        assert!(
+            bytes.len() + chunk.len() <= body.len(),
+            "reader returned unexpected bytes"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    assert_eq!(bytes, body.as_bytes());
+    let anonymous = client
+        .get(object)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)
+        .unwrap();
+    assert_eq!(
+        anonymous.status(),
+        StatusCode::FORBIDDEN,
+        "storage must deny an unsigned read"
+    );
 }

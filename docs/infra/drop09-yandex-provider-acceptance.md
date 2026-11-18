@@ -35,6 +35,39 @@ disposable bucket lifecycle.
 The loopback MinIO regression also makes a different version current and
 checks that the old version's full bytes and Range still resolve by ID.
 
+## FND-07 free catalog trial
+
+Use a fresh disposable PostgreSQL 18 `tor_test` on loopback with the schema
+installed at the candidate commit and the restricted `tor_app` fixture role.
+Provision a separate private `tor-fnd07-probe-<suffix>` bucket with versioning
+enabled and an eight to forty character lowercase alphanumeric suffix. Use a
+new bucket for each run. The probe checks for an empty catalog and queue, and
+for a bucket with no object versions or delete markers before writing.
+
+Supply `TOR_FND07_YANDEX_BUCKET`, `TOR_FND07_YANDEX_ACCESS_KEY`, and
+`TOR_FND07_YANDEX_SECRET_KEY` from the operator's secret store. Scope the
+identity to this bucket with permission to read its versioning setting and
+list its objects and versions. Grant object reads and writes for
+`staging/chapters/` and `private/free-chapters/`. The import worker needs
+`s3:DeleteObject` on `staging/chapters/` for its own completed jobs. Retain or
+expire the synthetic versions under the test bucket lifecycle. [Yandex bucket policy actions](https://yandex.cloud/en/docs/storage/s3/api-ref/policy/actions)
+
+Run the test from the isolated operator host.
+
+```sh
+TEST_DATABASE_URL=postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_test \
+TOR_FND07_YANDEX_PROBE=READ_WRITE \
+  cargo test -p tor-web --features s3-free,s3-chapter-import \
+  --test drop_04d_worker_pg_minio -- --ignored --exact \
+  catalog_import::fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes --nocapture
+```
+
+Record the candidate SHA, run time, `FND07_YANDEX_FREE_CATALOG_OK` marker and
+catalog counts. The trial imports ten FREE books, matches all 30 PostgreSQL
+chapter editions to their S3 bytes, checks denial of unsigned access, and
+downloads a chapter with a TOR reader grant. Paid editions, media and
+independent recovery are subsequent DATA-READY gates.
+
 ## Exact-version deletion acceptance
 
 Load separate credentials `TOR_DROP_PROVIDER_DELETE_ACCESS_KEY` and

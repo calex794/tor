@@ -86,10 +86,14 @@ impl Fixture {
         if bucket != BUCKET {
             creation.expect("fresh bucket for the isolated catalog");
         }
+        Self::with_client(url, label, bucket, client).await
+    }
+
+    pub async fn with_client(url: String, label: &str, bucket: &str, client: Client) -> Self {
+        let catalog = PgCatalog::connect(&url).await.unwrap();
         let id = generate_session_token().to_ascii_lowercase();
         let actor = pg(&url, &format!("INSERT INTO users(email_normalized,display_name,password_hash) VALUES('{id}@tor.example','DROP worker','$argon2id$test') RETURNING id")).parse().unwrap();
         let book = insert_book(&url, actor, label);
-        let catalog = PgCatalog::connect(&url).await.unwrap();
         let source = Arc::new(S3ChapterImportStore::new(client.clone(), bucket.into()).unwrap());
         Self {
             url,
