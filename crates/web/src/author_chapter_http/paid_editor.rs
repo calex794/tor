@@ -1,6 +1,7 @@
 //! FND-00g: isolated S3-only paid editor integration at the authenticated
 //! author HTTP boundary. A missing bodyless source never falls back to PG.
 use super::*;
+use tor_books::repositories::paid_storage::PgPaidStorage;
 
 pub(super) async fn page(
     state: &AuthorChapterState,
@@ -62,4 +63,68 @@ pub(super) async fn update(
         Redirect::to(&format!("/me/books/{book}/issues")),
         &[],
     )))
+}
+
+/// Legacy paid V1 path remains separate until the private S3-only editor and
+/// version-bound migration have both completed their integration acceptance.
+pub(super) async fn legacy_update(
+    state: &AuthorChapterState,
+    actor: i64,
+    id: i64,
+    chapter_id: i64,
+    book: u64,
+    chapter: u64,
+    form: &EditChapterForm,
+) -> Option<Response> {
+    // B decides paid/publication state, never a submitted "paid" form field.
+    // The owner query and the publishing transaction both check ownership.
+    let paid = if state.paid_author.is_some() {
+        match PgPaidStorage::new(state.accounts.pool().clone())
+            .owned_published_paid_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(paid) => paid,
+            Err(_) => return Some(deny(StatusCode::SERVICE_UNAVAILABLE)),
+        }
+    } else {
+        None
+    };
+    if let (Some(paid), Some(publisher)) = (paid, state.paid_author.as_ref()) {
+        let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+        let input = match save_chapter(SaveChapterRequest {
+            book_id: book,
+            chapter_id: Some(chapter),
+            number: form.number,
+            expected_revision: form.expected_revision,
+            title: &form.title,
+            body: &body,
+            access: "paid",
+            price_amount: paid.price_amount,
+            command_key: &form.command_key,
+        }) {
+            Ok(input) => input,
+            Err(_) => return Some(deny(StatusCode::BAD_REQUEST)),
+        };
+        return Some(match publisher.publish_edit(actor, &input).await {
+            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}/issues")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => private_response(
+                (
+                    StatusCode::CONFLICT,
+                    "Глава уже изменена. Обновите страницу редактора.",
+                ),
+                &[],
+            ),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => private_response(
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Защищённое сохранение не завершено. Повторите эту же форму.",
+                ),
+                &[],
+            ),
+        });
+    }
+    None
 }
