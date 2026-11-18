@@ -60,8 +60,9 @@ psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
 The SQL exports historical `(kind, chapter_id, version_id)` identities,
 verifies that the chapter-version exists and a Layer archive belongs to its
 recorded book, then checks for a PostgreSQL inline body, a
-registered S349 SINGLE receipt, or an **active** PACK generation with
-matching immutable edition SHA-256 and an existing PACK metadata record.
+registered S349 SINGLE receipt with matching immutable edition SHA-256,
+or an **active** PACK generation with matching immutable edition SHA-256 and an
+existing PACK metadata record.
 Candidate-only or superseded PACK metadata is not a recoverable reader source. The Python check rejects an unbacked pinned edition, malformed,
 duplicate or unsorted exports, a wrong Layer book membership, and a missing
 saved/Layer fixture. Results expose
