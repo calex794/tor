@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
-    repositories::postgres::PgAuthoring,
+    repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapterRequest},
 };
 mod chapter_import;
