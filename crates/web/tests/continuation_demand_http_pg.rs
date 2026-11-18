@@ -1,9 +1,9 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
-#[path = "support/ret02_return_chromium.rs"]
-mod ret02_return_chromium;
 #[path = "support/ret02_notification_retries.rs"]
 mod ret02_notification_retries;
+#[path = "support/ret02_return_chromium.rs"]
+mod ret02_return_chromium;
 
 use axum::{
     body::{to_bytes, Body},
