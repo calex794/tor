@@ -35,6 +35,7 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let (owner, _) = user(&accounts, "fnd00d-bodyless-paid-owner@example.invalid").await;
+    let (buyer, _) = user(&accounts, "fnd00d-legacy-buyer@example.invalid").await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -186,4 +187,102 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
     .parse()
     .unwrap();
     assert_eq!(recheck, current_v2);
+
+    // Upgrade with retained historical data: legacy paid V1 keeps its
+    // PostgreSQL body and purchased entitlement; newly edited V2 is S3-only.
+    // Do not retroactively mutate a bought legacy version during cutover.
+    let legacy_command = generate_session_token();
+    let legacy_create = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 2,
+        expected_revision: 0,
+        title: "Retained legacy paid V1",
+        body: "Legacy paid text retained for the historical buyer",
+        access: "paid",
+        price_amount: 190,
+        command_key: &legacy_command,
+    })
+    .unwrap();
+    writer.publish(owner, &legacy_create).await.unwrap();
+    let legacy_ids = pg(
+        &url,
+        &format!(
+            "SELECT c.id || '|' || p.version_id
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             WHERE c.book_id={book} AND c.chapter_no=2"
+        ),
+    );
+    let ids = legacy_ids.split('|').collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2);
+    let legacy_chapter: i64 = ids[0].parse().unwrap();
+    let legacy_v1: i64 = ids[1].parse().unwrap();
+    let purchase: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_purchase_facts
+               (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+             VALUES({buyer},{legacy_chapter},{legacy_v1},
+                    'fnd00-legacy-v1-{legacy_chapter}',190,'RUB')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let upgraded_command = generate_session_token();
+    let upgrade = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: Some(legacy_chapter as u64),
+        number: 2,
+        expected_revision: 1,
+        title: "Retained legacy paid V1",
+        body: "New S3-only V2 after a historical purchased V1",
+        access: "paid",
+        price_amount: 190,
+        command_key: &upgraded_command,
+    })
+    .unwrap();
+    writer.publish_edit_bodyless(owner, &upgrade).await.unwrap();
+    writer.publish_edit_bodyless(owner, &upgrade).await.unwrap();
+    let upgraded_version: i64 = pg(
+        &url,
+        &format!(
+            "SELECT version_id FROM chapter_publications WHERE chapter_id={legacy_chapter}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_ne!(upgraded_version, legacy_v1);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) || '|' || count(body_markdown) || '|' ||
+                        count(DISTINCT storage_object_id)
+                 FROM chapter_versions WHERE chapter_id={legacy_chapter}"
+            ),
+        ),
+        "2|1|2",
+        "legacy purchased V1 is retained while new V2 has no PG Markdown"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT CASE WHEN tor_purchase_version_readable(
+                    {buyer},{purchase},{legacy_chapter},{legacy_v1}
+                 ) THEN 'yes' ELSE 'no' END"
+            ),
+        ),
+        "yes",
+        "buyer must retain the original pinned legacy V1 after S3-only V2"
+    );
+    assert!(version_port
+        .encrypted_chapter(ChapterVersionRef {
+            chapter_id: PositiveId::new(legacy_chapter).unwrap(),
+            version_id: PositiveId::new(legacy_v1).unwrap(),
+        })
+        .await
+        .unwrap()
+        .is_some());
 }
