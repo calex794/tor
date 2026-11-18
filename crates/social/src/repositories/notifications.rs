@@ -5,10 +5,10 @@ use crate::domain::MailError;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
-#[path = "notification_daily_digest.rs"]
-mod daily_chapter_digest;
 #[path = "notification_continuation.rs"]
 mod continuation;
+#[path = "notification_daily_digest.rs"]
+mod daily_chapter_digest;
 #[path = "notification_delivery.rs"]
 mod delivery;
 #[path = "notification_email_intents.rs"]
