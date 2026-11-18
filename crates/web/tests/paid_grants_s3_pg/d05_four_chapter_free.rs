@@ -10,6 +10,32 @@ use tor_storage::{
 pub(super) const FREE_ALPHA: &str = "D05 exact historical FREE chapter alpha.";
 pub(super) const FREE_BETA: &str = "D05 exact historical FREE chapter beta.";
 
+pub(super) async fn create_store(client: Client) -> S3FreeChapterStore {
+    client
+        .create_bucket()
+        .bucket(FREE_BUCKET)
+        .send()
+        .await
+        .expect("separate disposable FREE S3 bucket");
+    S3FreeChapterStore::new(client, FREE_BUCKET.to_owned()).unwrap()
+}
+
+pub(super) fn router(accounts: &PgAccounts, store: S3FreeChapterStore) -> Router {
+    // The operator capability is captured by the private route constructor.
+    env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
+    let routes = tor_web::free_reader_http::router(
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        store,
+        FREE_BUCKET.to_owned(),
+        ENDPOINT.to_owned(),
+    )
+    .unwrap();
+    env::remove_var("TOR_LAYER_FREE_ARCHIVE_ENABLED");
+    routes
+}
+
 pub(super) async fn publish(url: &str, book: i64, store: &S3FreeChapterStore) -> [i64; 2] {
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));
     let mut result = [0_i64; 2];

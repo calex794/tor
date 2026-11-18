@@ -234,17 +234,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .send()
         .await
         .expect("only a new isolated MinIO bucket");
-    client
-        .create_bucket()
-        .bucket(FREE_BUCKET)
-        .send()
-        .await
-        .expect("separate disposable FREE S3 bucket");
-    let free_store = tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(
-        client.clone(),
-        FREE_BUCKET.to_owned(),
-    )
-    .unwrap();
+    let free_store = d05_four_chapter_free::create_store(client.clone()).await;
     let s3 = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
 
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -344,19 +334,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         None,
     )
     .unwrap();
-    // A single real Rust app must serve both archival FREE and PAID paths.
-    env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
-    let free_router = tor_web::free_reader_http::router(
-        accounts.clone(),
-        false,
-        ORIGIN.to_owned(),
-        free_store.clone(),
-        FREE_BUCKET.to_owned(),
-        ENDPOINT.to_owned(),
-    )
-    .unwrap();
-    env::remove_var("TOR_LAYER_FREE_ARCHIVE_ENABLED");
-    let app = app.merge(free_router);
+    let app = app.merge(d05_four_chapter_free::router(&accounts, free_store.clone()));
     assert_eq!(
         post_grant(
             &app,
