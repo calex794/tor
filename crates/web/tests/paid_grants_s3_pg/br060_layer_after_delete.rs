@@ -21,6 +21,8 @@ pub(super) struct ActiveLayerProbe {
     offer_id: i64,
     layer_version: i64,
     published_version: i64,
+    second_paid_chapter: i64,
+    second_paid_version: i64,
     wallet_after_minor: i64,
     surviving_chapter: i64,
     surviving_version: i64,
@@ -31,8 +33,9 @@ pub(super) async fn before_deletion(
     url: &str,
     accounts: &PgAccounts,
     book: i64,
-    chapter: i64,
+    paid_chapters: (i64, i64),
 ) -> ActiveLayerProbe {
+    let (chapter, second_paid_chapter) = paid_chapters;
     let owner = scalar(
         url,
         &format!("SELECT owner_user_id FROM books WHERE id={book}"),
@@ -40,6 +43,20 @@ pub(super) async fn before_deletion(
     let current_version = scalar(
         url,
         &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
+    let second_paid_version = scalar(
+        url,
+        &format!(
+            "SELECT version_id FROM chapter_publications WHERE chapter_id={second_paid_chapter}"
+        ),
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!("SELECT book_id FROM chapters WHERE id={second_paid_chapter}")
+        ),
+        book,
+        "both verified PAID chapters must belong to the deleted Book"
     );
     let (subscriber, cookie) = user(accounts, "br060-active-layer@tor-ci.example").await;
     let csrf = generate_session_token();
@@ -177,6 +194,8 @@ pub(super) async fn before_deletion(
         offer_id: offer,
         layer_version,
         published_version: current_version,
+        second_paid_chapter,
+        second_paid_version,
         wallet_after_minor: receipt.balance_after_minor,
         surviving_chapter: sibling_chapter,
         surviving_version: sibling_version,
@@ -283,6 +302,44 @@ pub(super) async fn after_deletion(
         .as_str()
         .unwrap()
         .starts_with(ENDPOINT));
+    // The same historical term must serve a second, independently encrypted
+    // PAID chapter of the deleted Book, without a direct purchase fact.
+    let second = post_grant(
+        app,
+        active.second_paid_chapter,
+        Some(&active.cookie),
+        Some(&active.csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::OK);
+    let second_grant = decode(second).await;
+    assert_eq!(
+        second_grant["version_id"],
+        active.second_paid_version.to_string()
+    );
+    assert!(second_grant["content"]["ciphertext_url"]
+        .as_str()
+        .unwrap()
+        .starts_with(ENDPOINT));
+    assert_ne!(
+        grant["content"]["ciphertext_url"], second_grant["content"]["ciphertext_url"],
+        "two PAID chapters must sign different private objects"
+    );
+    assert!(!second_grant
+        .to_string()
+        .contains("Second paid edition content"));
+    let second_shell = private_get(
+        app,
+        &format!("/read/layer/{}", active.second_paid_chapter),
+        Some(&active.cookie),
+    )
+    .await;
+    assert_eq!(second_shell.status(), StatusCode::OK);
+    let second_html = html_body(second_shell).await;
+    assert!(second_html.contains(r#"data-layer-archive="1""#));
+    assert!(!second_html.contains("Second paid edition content"));
     let shell = private_get(app, &format!("/read/layer/{chapter}"), Some(&active.cookie)).await;
     assert_eq!(shell.status(), StatusCode::OK);
     assert!(html_body(shell).await.contains("data-layer-archive=\"1\""));
@@ -411,6 +468,30 @@ pub(super) async fn after_deletion(
         private_get(app, &format!("/read/layer/{chapter}"), Some(&late_cookie))
             .await
             .status(),
+        StatusCode::NOT_FOUND
+    );
+    let late_second_grant = post_grant(
+        app,
+        active.second_paid_chapter,
+        Some(&late_cookie),
+        Some(&active.csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(late_second_grant.status(), StatusCode::NOT_FOUND);
+    assert!(to_bytes(late_second_grant.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        private_get(
+            app,
+            &format!("/read/layer/{}", active.second_paid_chapter),
+            Some(&late_cookie)
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     let late_terms = tor_commerce::repositories::layer_storefront::purchased_terms(
