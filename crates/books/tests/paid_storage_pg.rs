@@ -907,5 +907,27 @@ async fn fnd00_bodyless_paid_new_and_edit_keep_historical_v1_without_pg_markdown
             .await
             .unwrap();
     assert_eq!(manifests, 2);
+    // FND-00e: paid author editor metadata is owner-only and tied to CURRENT
+    // V2; source bytes remain exclusively in G/private S3.
+    let metadata = b
+        .owned_published_bodyless_paid_metadata(owner, book, prepared.chapter_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(metadata.number, 1);
+    assert_eq!(metadata.title, "Paid S3-only");
+    assert_eq!(metadata.price_amount, 125);
+    assert_eq!(metadata.revision, 2);
+    assert_eq!(metadata.version_id, edited.version_id);
+    assert!(b
+        .owned_published_bodyless_paid_metadata(owner + 1, book, prepared.chapter_id)
+        .await
+        .unwrap()
+        .is_none(), "non-owner must never receive paid metadata");
+    assert!(b
+        .owned_published_paid_chapter(owner, book, prepared.chapter_id)
+        .await
+        .unwrap()
+        .is_none(), "legacy editor must not try to decode NULL PG Markdown");
     pool.close().await;
 }
