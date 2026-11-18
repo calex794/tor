@@ -214,10 +214,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         )
         .unwrap(),
     );
-    let publisher =
-        PgPaidAuthorPublisher::new(catalog.clone(), store, keyring, BUCKET.to_owned())
-            .unwrap()
-            .with_bodyless_http();
+    let publisher = PgPaidAuthorPublisher::new(catalog.clone(), store, keyring, BUCKET.to_owned())
+        .unwrap()
+        .with_bodyless_http();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
         PgReader::new(pool.clone()),
