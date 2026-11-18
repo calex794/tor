@@ -77,7 +77,9 @@ function server() {
              title:"Оплаченная в Layer",access_level:"layer" }];
       return finish(200, "application/json", JSON.stringify({items,next_cursor:null}));
     }
-    throw new Error("unexpected request: " + url.pathname);
+    // Chromium may request /favicon.ico automatically. Do not treat this
+    // browser housekeeping request as a reader/entitlement fallback.
+    return finish(404, "text/plain", "not found");
   });
   return {httpServer,traffic};
 }
