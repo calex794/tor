@@ -274,6 +274,30 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
         Some(tor_reading::services::ReadingError::InvalidPage),
         "a forged number/id cursor cannot select unrelated chapters"
     );
+
+    // R02: a finished title is different from an ongoing book frontier.
+    let frontier = reader.public_chapter(8_000_501).await.unwrap().unwrap();
+    assert_eq!(
+        frontier.continuation(),
+        tor_reading::services::PublicContinuation::WaitingForRelease
+    );
+    sqlx::query("UPDATE books SET lifecycle_status='completed' WHERE id=$1")
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let finished = reader.public_chapter(8_000_501).await.unwrap().unwrap();
+    assert_eq!(
+        finished.continuation(),
+        tor_reading::services::PublicContinuation::FinishedBook
+    );
+    assert_eq!(finished.version_id, frontier.version_id);
+    assert_eq!(finished.body_markdown, frontier.body_markdown);
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM books WHERE id = $1")
         .bind(book_id)
         .execute(&pool)

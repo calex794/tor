@@ -1,5 +1,8 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
+#[path = "support/ret02_return_chromium.rs"]
+mod ret02_return_chromium;
+
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -16,6 +19,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -85,6 +89,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let owner_session = generate_session_token();
     let reader_session = generate_session_token();
+    let observer_session = generate_session_token();
     let csrf = generate_session_token();
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -107,6 +112,16 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
             "Reader",
             &password_hash,
             &session_token_digest(&reader_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let observer = accounts
+        .register_with_session(
+            &format!("c15-observer-{nonce}@tor-ci.example"),
+            "Observer",
+            &password_hash,
+            &session_token_digest(&observer_session),
             std::num::NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -155,6 +170,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     let owner_cookie = format!("tor-dev-session={owner_session}; tor-dev-csrf={csrf}");
     let reader_cookie = format!("tor-dev-session={reader_session}; tor-dev-csrf={csrf}");
+    let observer_cookie = format!("tor-dev-session={observer_session}; tor-dev-csrf={csrf}");
     let read_path = format!("/read/{chapter}");
     let want_path = format!("/read/{chapter}/want-continuation");
     let owner_path = format!("/me/books/{book}");
@@ -372,6 +388,132 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     assert!(follower_updates.contains("Отметить прочитанной"));
+
+    // E-08 must project exactly one first-release bell for A and none for B.
+    // This uses the actual bounded worker, not a fabricated per-user SQL row.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='ChapterPublished' AND aggregate_id={released}
+                   AND payload->>'first_release'='true'"
+            )
+        ),
+        "1",
+        "the real author Save produces one immutable release envelope"
+    );
+    let notices = PgNotifications::new(pool.clone());
+    for _ in 0..8 {
+        if notices.fanout_chapter_releases(32).await.unwrap() == 0 {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        if notices.deliver_pending(64).await.unwrap() == 0 {
+            break;
+        }
+    }
+    let a_bells = notices
+        .list_section(reader, None, 30, "releases")
+        .await
+        .unwrap();
+    assert_eq!(
+        a_bells
+            .iter()
+            .filter(|notice| notice.kind == "chapter_created")
+            .count(),
+        1,
+        "A receives exactly one private bell for the real release"
+    );
+    let b_bells = notices
+        .list_section(observer, None, 30, "releases")
+        .await
+        .unwrap();
+    assert!(
+        b_bells.is_empty(),
+        "B has no Follow or Library subscription and must not get an E-08 bell"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='reader.chapter.released' AND aggregate_id={released}
+                   AND payload->>'recipient_user_id'='{observer}'"
+            )
+        ),
+        "0",
+        "fanout cannot create a private notification for the unfollowed observer"
+    );
+    // RET-02: another active reader may open the public book without Follow,
+    // but does not inherit A's private release notification or read receipt.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_book_follows
+                 WHERE user_id={observer} AND book_id={book}"
+            )
+        ),
+        "0"
+    );
+    let observer_updates = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &observer_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        !observer_updates.contains("Demand fulfilled"),
+        "reader B without Follow cannot see reader A's private update"
+    );
+    let observer_read = call(
+        &app,
+        "GET",
+        &format!("/read/{released}"),
+        &observer_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(
+        observer_read.status(),
+        StatusCode::OK,
+        "a public FREE chapter does not require Follow"
+    );
+    assert!(html(observer_read).await.contains("C15 reader return"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "opening without Follow is not a verified chapter completion"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/me/updates/{released}/read-state"),
+            &observer_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&state=read")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "reader B cannot acknowledge A's private release notice"
+    );
     // RET-00b/c: the same canonical first release must also advance the
     // library's single Continue Reading destination, without fabricating
     // a new saved position or treating the update as read.
@@ -635,6 +777,157 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(owner_fulfilled
         .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+
+    // RET-02: Follow controls personal notifications, never the ability to
+    // confirm a genuine completion of an otherwise public FREE chapter.
+    let observer_finish = format!(
+        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=0"
+    );
+    let wrong_version = observer_finish.replace(
+        &format!("version_id={released_version}"),
+        &format!("version_id={version}"),
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &observer_cookie,
+            ORIGIN,
+            &wrong_version
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "B cannot confirm a different immutable edition"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0"
+    );
+    // The second verified completion must be performed through Chromium's
+    // real 390px mobile form, not synthesized by an HTTP test helper.
+    // Desktop also proves that A returned to the proper new chapter.
+    ret02_return_chromium::verify(
+        &app,
+        ORIGIN,
+        &reader_session,
+        &observer_session,
+        &csrf,
+        released,
+        released_version,
+    )
+    .await;
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE chapter_id={released} AND user_id IN ({reader},{observer})"
+            )
+        ),
+        "2",
+        "A and B have independent verified completion facts"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE event_type='ChapterCompletedV1'
+                   AND dedupe_key IN ('chapter-completed:{reader}:{released}',
+                                      'chapter-completed:{observer}:{released}')"
+            )
+        ),
+        "2",
+        "completion outbox is recipient-specific, not a shared book event"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads
+                 WHERE user_id={observer} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "B's actual reading must not forge A's Follow receipt"
+    );
+
+    // Completed-book label must not promise the next release or solicit demand.
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='completed' WHERE id={book}"),
+    );
+    let finished_page = html(
+        call(
+            &app,
+            "GET",
+            &format!("/read/{released}"),
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(finished_page.contains("Книга завершена"));
+    assert!(!finished_page.contains("Хочу продолжение"));
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={book}"),
+    );
+    // The age gate is evaluated at *read and completion time*. Past progress
+    // and Follow cannot act as a durable CanRead grant when the book changes
+    // from basic to adult. Restore the fixture afterwards for paid regression.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    for cookie in [&reader_cookie, &observer_cookie] {
+        assert_eq!(
+            call(
+                &app,
+                "GET",
+                &format!("/read/{released}"),
+                cookie,
+                ORIGIN,
+                ""
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND,
+            "a previous completion or Follow must not bypass current age policy"
+        );
+        assert_eq!(
+            call(&app, "POST", &finish_path, cookie, ORIGIN, &observer_finish)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "age denial must precede optimistic completion revision checks"
+        );
+    }
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions
+                 WHERE chapter_id={released} AND user_id IN ({reader},{observer})"
+            )
+        ),
+        "2",
+        "age denial does not revoke or fabricate historical completion facts"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     // A separate synthetic paid release remains as the old non-leak regression.
 
     let next: i64 = pg(
