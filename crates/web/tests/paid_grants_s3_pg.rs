@@ -54,6 +54,8 @@ mod br060_ordinary_deleted;
 mod completion_helpers;
 #[path = "paid_grants_s3_pg/d05_four_chapter_browser.rs"]
 mod d05_four_chapter_browser;
+#[path = "paid_grants_s3_pg/d05_four_chapter_expiry.rs"]
+mod d05_four_chapter_expiry;
 #[path = "paid_grants_s3_pg/d05_four_chapter_free.rs"]
 mod d05_four_chapter_free;
 #[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
