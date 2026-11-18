@@ -162,6 +162,30 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    let surviving_chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,1,'Surviving Layer paid chapter','public','paid',50) RETURNING id",
+    )
+    .bind(surviving_book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let surviving_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'Surviving paid text') RETURNING id",
+    )
+    .bind(surviving_chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
+    )
+    .bind(surviving_chapter)
+    .bind(surviving_version)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let layer = layer_repo
         .create_layer(id(owner), "Four chapter archive matrix")
@@ -309,6 +333,38 @@ async fn d05_four_chapter_archived_layer_preserves_only_predeletion_origin() {
         .await
         .unwrap();
     assert_ne!(first.term_id, renewed.term_id);
+    let (contiguous, same_origin): (bool, bool) = sqlx::query_as(
+        "SELECT next.started_at=previous.expires_at,
+                next.access_origin_version_id=previous.access_origin_version_id
+         FROM commerce_layer_terms previous JOIN commerce_layer_terms next ON next.id=$2
+         WHERE previous.id=$1",
+    )
+    .bind(first.term_id)
+    .bind(renewed.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        contiguous && same_origin,
+        "renewal must preserve continuous old origin"
+    );
+    assert_eq!(
+        rights
+            .resolve_entitlement(
+                Actor { user_id: id(late) },
+                id(surviving_chapter),
+                None,
+            )
+            .await
+            .unwrap(),
+        EntitlementDecision::Allowed {
+            pinned: tor_contracts::paid_delivery::ChapterVersionRef {
+                chapter_id: id(surviving_chapter),
+                version_id: id(surviving_version),
+            },
+        },
+        "new buyer retains paid rights to the surviving Book"
+    );
     assert_old_four(&rights, old, &editions).await;
     for &(chapter, _) in &editions[..2] {
         assert_eq!(
