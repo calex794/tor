@@ -34,7 +34,28 @@ pub(super) async fn owner(
     headers: HeaderMap,
     query: Result<Query<StatsQuery>, QueryRejection>,
 ) -> Response {
-    report_page(state, headers, query, false).await
+    // A live, session-scoped actor is the only source of the owner filter.
+    let actor = match super::session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let cursor = match query {
+        Ok(Query(query)) => match query.cursor() {
+            Ok(cursor) => cursor,
+            Err(status) => return deny(status),
+        },
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let report = match PgContinuationDemand::new(state.accounts.pool().clone())
+        .stats_report(Some(actor), cursor)
+        .await
+    {
+        Ok(report) => report,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(render(&report, &csrf, false), &cookies)
 }
 
 pub(super) async fn administrator(
@@ -42,33 +63,20 @@ pub(super) async fn administrator(
     headers: HeaderMap,
     query: Result<Query<StatsQuery>, QueryRejection>,
 ) -> Response {
-    report_page(state, headers, query, true).await
-}
-
-async fn report_page(
-    state: AuthState,
-    headers: HeaderMap,
-    query: Result<Query<StatsQuery>, QueryRejection>,
-    sitewide: bool,
-) -> Response {
+    // The sitewide report never accepts an actor ID or role from query params.
     let Some(token) = state.cookies.session_token(&headers) else {
-        return if sitewide {
-            private_response(StatusCode::UNAUTHORIZED, &[])
-        } else {
-            private_response(Redirect::to("/login"), &[])
-        };
+        return deny(StatusCode::UNAUTHORIZED);
     };
-    // Always check current administrator status, not a cached owner flag.
-    let actor = match state
+    let verified = match state
         .accounts
         .session_actor(&session_token_digest(&token))
         .await
     {
-        Ok(Some(actor)) => actor,
+        Ok(Some(verified)) => verified,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    if sitewide && !actor.administrator {
+    if !verified.administrator {
         return deny(StatusCode::FORBIDDEN);
     }
     let cursor = match query {
@@ -78,20 +86,15 @@ async fn report_page(
         },
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    let owner_id = if sitewide {
-        None
-    } else {
-        Some(actor.actor.user_id.get())
-    };
     let report = match PgContinuationDemand::new(state.accounts.pool().clone())
-        .stats_report(owner_id, cursor)
+        .stats_report(None, cursor)
         .await
     {
         Ok(report) => report,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(render(&report, &csrf, sitewide), &cookies)
+    private_response(render(&report, &csrf, true), &cookies)
 }
 
 fn render(
