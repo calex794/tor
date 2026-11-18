@@ -169,6 +169,45 @@ async fn drop_07d_observed_pages_resume_and_commit_unknown_counts_without_gc() {
         ),
         "pg_to_s3|pack|completed|2|1|1"
     );
+    let owner_url = env::var("MIGRATOR_URL").unwrap();
+    assert!(owner_url.contains("@127.0.0.1:") && owner_url.ends_with("/tor_ci"));
+    // Catalog fixture only. The Postgres tests exercise the full seal with
+    // active replacements. Here keep the MinIO object and check audit output.
+    fixture_sql(
+        &owner_url,
+        &format!(
+        "UPDATE free_pack_placement_gates SET reproof_until=clock_timestamp()-interval '1 second'
+          WHERE pack_id=(SELECT id FROM free_storage_packs WHERE object_key='{PACK_KEY}');
+         UPDATE free_pack_placement_gates SET sealed_at=clock_timestamp()
+          WHERE pack_id=(SELECT id FROM free_storage_packs WHERE object_key='{PACK_KEY}')"
+    ),
+    );
+    let sealed_id = match resumed
+        .run_expected_one(InventoryNamespace::Pack)
+        .await
+        .unwrap()
+    {
+        OperatorScanStep::Completed {
+            cycle_id, counters, ..
+        } => {
+            assert_eq!(counters.inspected, 2);
+            assert_eq!(counters.sealed, 2);
+            assert_eq!(counters.verified, 0);
+            assert_eq!(counters.unverifiable, 0);
+            cycle_id
+        }
+        other => panic!("expected both sealed receipts to be accounted for: {other:?}"),
+    };
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!(
+                "SELECT matched_count,protected_count,unverifiable_count
+         FROM free_storage_inventory_cycles WHERE id={sealed_id}"
+            )
+        ),
+        "0|2|0"
+    );
     println!("DROP07D_PG_MINIO_OPERATOR_PASS: bounded LIST+PG classification across two pages, fenced checkpoint, unknown never GC");
 }
 

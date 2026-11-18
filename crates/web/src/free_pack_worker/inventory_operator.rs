@@ -58,6 +58,7 @@ pub struct OperatorScanCounters {
     pub verified: u32,
     pub mismatch: u32,
     pub unverifiable: u32,
+    pub sealed: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,11 +130,13 @@ fn expected_counts(counts: ExpectedCounters) -> InventoryPageCounts {
     let matched = counts.verified as u32;
     let mismatch = (counts.hash_mismatch + counts.size_mismatch) as u32;
     let unverifiable = counts.unverifiable as u32;
+    let protected = counts.sealed as u32;
     InventoryPageCounts {
-        inspected: matched + mismatch + unverifiable,
+        inspected: matched + mismatch + unverifiable + protected,
         matched,
         mismatch,
         unverifiable,
+        protected,
         ..Default::default()
     }
 }
@@ -233,6 +236,7 @@ impl OperatorObservedScanner {
             verified: counts.matched,
             mismatch: counts.mismatch,
             unverifiable: counts.unverifiable,
+            sealed: counts.protected,
             ..Default::default()
         };
         self.commit_page(lease, page.next_after_key, counts, public)

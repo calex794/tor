@@ -179,7 +179,7 @@ mod audit {
                         "inspected": counters.inspected, "registered": counters.registered,
                         "protected_pending": counters.protected_pending, "unknown": counters.unknown,
                         "verified": counters.verified, "mismatch": counters.mismatch,
-                        "unverifiable": counters.unverifiable
+                        "unverifiable": counters.unverifiable, "sealed": counters.sealed
                     })
                 ),
             }
