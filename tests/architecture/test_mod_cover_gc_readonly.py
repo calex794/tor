@@ -31,6 +31,22 @@ class CoverGcReadOnlyPreview(unittest.TestCase):
             ),
         )
 
+    def test_null_terminal_timestamp_cannot_become_eligible(self):
+        # PostgreSQL uses three-valued logic: NOT(NULL) is NULL. The operator
+        # preview must treat an unknown review timestamp as ineligible, just
+        # like the guarded B cleanup worker.
+        self.assertIn(
+            ") IS NOT TRUE THEN 'retain_pending_recent_or_undated_review'",
+            SQL,
+        )
+        self.assertNotIn(
+            ") THEN 'retain_pending_recent_or_undated_review'",
+            SQL.replace(
+                ") IS NOT TRUE THEN 'retain_pending_recent_or_undated_review'",
+                "",
+            ),
+        )
+
     def test_worker_guards_and_no_key_disclosure(self):
         for fragment in (
             "cover_private_variant_removals",
