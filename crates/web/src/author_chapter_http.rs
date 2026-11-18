@@ -330,6 +330,25 @@ async fn edit_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
+    // FND-00: published bodyless paid editions use a fenced B metadata
+    // selector and G's owner-only S3 opener. A denied or failed S3 read
+    // must not fall through to the legacy PostgreSQL editor.
+    if let Some(publisher) = state.paid_author.as_ref() {
+        match publisher.owned_bodyless(actor, id, chapter_id).await {
+            Ok(Some(chapter)) => {
+                let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+                let command_key = generate_session_token();
+                return private_response(
+                    crate::author_chapter_pages::edit_published_paid_chapter(
+                        id, chapter_id, &chapter, &csrf, &command_key,
+                    ),
+                    &cookies,
+                );
+            }
+            Ok(None) => {}
+            Err(error) => return free_editor::error(error),
+        }
+    }
     // Published free content must be editable without a second release
     // action. Existing owner-only drafts still use their separate B path.
     let published = match state
@@ -424,17 +443,25 @@ async fn update_chapter(
     // B decides paid/publication state, never a submitted "paid" form field.
     // The owner query and the publishing transaction both check ownership.
     let paid = if state.paid_author.is_some() {
-        match PgPaidStorage::new(state.accounts.pool().clone())
-            .owned_published_paid_chapter(actor, id, chapter_id)
+        let storage = PgPaidStorage::new(state.accounts.pool().clone());
+        match storage
+            .owned_published_bodyless_paid_metadata(actor, id, chapter_id)
             .await
         {
-            Ok(paid) => paid,
+            Ok(Some(meta)) => Some(meta.price_amount),
+            Ok(None) => match storage
+                .owned_published_paid_chapter(actor, id, chapter_id)
+                .await
+            {
+                Ok(legacy) => legacy.map(|value| value.price_amount),
+                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+            },
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         }
     } else {
         None
     };
-    if let (Some(paid), Some(publisher)) = (paid, state.paid_author.as_ref()) {
+    if let (Some(price_amount), Some(publisher)) = (paid, state.paid_author.as_ref()) {
         let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
         let input = match save_chapter(SaveChapterRequest {
             book_id: book,
@@ -444,7 +471,7 @@ async fn update_chapter(
             title: &form.title,
             body: &body,
             access: "paid",
-            price_amount: paid.price_amount,
+            price_amount,
             command_key: &form.command_key,
         }) {
             Ok(input) => input,
