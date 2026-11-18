@@ -336,8 +336,6 @@ async fn edit_chapter(
         Ok(None) => (),
         Err(error) => return free_editor::error(error),
     }
-    // Published free content must be editable without a second release
-    // action. Existing owner-only drafts still use their separate B path.
     let published = match state
         .authoring
         .owned_published_free_chapter(actor, id, chapter_id)
@@ -427,8 +425,6 @@ async fn update_chapter(
         Ok(chapter) if chapter > 0 => chapter,
         _ => return deny(StatusCode::NOT_FOUND),
     };
-    // B decides paid/publication state, never a submitted "paid" form field.
-    // The owner query and the publishing transaction both check ownership.
     let paid = if state.paid_author.is_some() {
         match paid_editor::price(&state, actor, id, chapter_id).await {
             Ok(price) => price,
