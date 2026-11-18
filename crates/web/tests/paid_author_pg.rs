@@ -1156,8 +1156,8 @@ async fn fnd00d_bodyless_writer_recovers_from_s3_outage_and_keeps_paid_v1_after_
     );
     assert_eq!(
         writer.publish_bodyless(owner, &new_chapter).await,
-        Ok(()),
-        "an old idempotent command must not revert V2"
+        Err(AuthorError::Conflict),
+        "a replay of old V1 must fail closed instead of reverting the current V2"
     );
     let recheck: i64 = pg(
         &url,
