@@ -68,7 +68,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         // A retry of the library-only upload must preserve the original
         // server-issued UUID. Never mint another ID for identical attached
         // bytes, but still fence owner, command payload and publication.
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?;
         if pending.published {
             return Err(AuthorError::Conflict);
         }
@@ -117,7 +117,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
             return Err(AuthorError::Invalid);
         }
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = self.paid.prepare_new_paid_chapter_bodyless(actor, request).await?;
         if pending.published {
             return Err(AuthorError::Conflict);
         }
