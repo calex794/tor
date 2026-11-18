@@ -149,12 +149,12 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
 
     // No release, and a stranger cannot cause even one ciphertext GET.
     assert!(registry
-        .owned_current_paid_markdown(stranger, book, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(stranger, book, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .is_none());
     assert!(registry
-        .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(owner, book, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .is_none());
@@ -234,23 +234,32 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
     // Only the active owner gets text; rejected selectors must not reach G/S3.
     let original_gets = store.reads();
     assert!(registry
-        .owned_current_paid_markdown(stranger, book, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(stranger, book, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .is_none());
     assert!(registry
-        .owned_current_paid_markdown(owner, book + 100, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(owner, book + 100, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .is_none());
     assert!(registry
-        .owned_current_paid_markdown(owner, book, chapter, "other-private-ci", &store, &ring)
+        .owned_current_paid_markdown(owner, book, chapter, version, "other-private-ci", &store, &ring)
         .await
         .unwrap()
         .is_none());
     assert_eq!(store.reads(), original_gets);
+    assert!(
+        registry
+            .owned_current_paid_markdown(owner, book, chapter, version + 1, bucket, &store, &ring)
+            .await
+            .unwrap()
+            .is_none(),
+        "B current VersionID must be fenced before any G GET"
+    );
+    assert_eq!(store.reads(), original_gets);
     let body = registry
-        .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(owner, book, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .unwrap();
@@ -264,7 +273,7 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
         .unwrap();
     let before_denial = store.reads();
     assert!(registry
-        .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+        .owned_current_paid_markdown(owner, book, chapter, version, bucket, &store, &ring)
         .await
         .unwrap()
         .is_none());
@@ -280,7 +289,7 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
     let original_gets = store.reads();
     assert!(
         registry
-            .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+            .owned_current_paid_markdown(owner, book, chapter, version, bucket, &store, &ring)
             .await
             .is_err(),
         "the owner must not receive plaintext after an in-flight hold"
@@ -295,7 +304,7 @@ async fn fnd00_author_source_checks_owner_release_and_actual_ciphertext() {
     store.corrupt();
     assert!(
         registry
-            .owned_current_paid_markdown(owner, book, chapter, bucket, &store, &ring)
+            .owned_current_paid_markdown(owner, book, chapter, version, bucket, &store, &ring)
             .await
             .is_err(),
         "G must not expose damaged ciphertext even with valid ownership"
