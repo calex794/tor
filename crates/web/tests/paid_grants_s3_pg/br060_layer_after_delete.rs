@@ -554,10 +554,18 @@ pub(super) async fn after_deletion(
     .await;
     // All four chapters now share the SAME original Layer term and real
     // immutable archive; Chromium must read each without public fallbacks.
+    let elapsed = super::d05_four_chapter_expiry::expired_session(
+        url,
+        book,
+        owner,
+        &active.accounts,
+    )
+    .await;
     super::d05_four_chapter_browser::verify(
         app,
         &active.cookie,
         &late_cookie,
+        &elapsed,
         extra_free,
         [chapter, active.second_paid_chapter],
     )
