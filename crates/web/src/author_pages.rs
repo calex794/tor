@@ -42,6 +42,7 @@ fn render_index(
 <div class="author-workspace__actions">
 <a class="text-link" href="/me/books/{id}/settings">Настройки</a>
 <a class="text-link" href="/me/books/{id}/recommendations">Рекомендации</a>
+<a class="text-link" href="/me/stats/continuations">Статистика продолжений</a>
 </div>
 <details class="author-workspace__more"><summary>Другие действия</summary>
 <a href="/me/books/{id}/settings/delete">Удаление книги</a></details>

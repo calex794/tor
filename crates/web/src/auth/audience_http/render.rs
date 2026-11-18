@@ -35,6 +35,7 @@ fn start(days: i32, zone: &str) -> String {
          <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
+         <p><a class=\"button button--quiet\" href=\"/admin/audience/continuations\">Продолжения — спрос читателей</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",

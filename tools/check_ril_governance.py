@@ -893,12 +893,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and "!verified.administrator" in evidence
         and "StatusCode::FORBIDDEN" in evidence
     )
+    audited_continuation_admin = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/auth.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/continuations", "continuation_stats::administrator")
+        and all(marker in body for marker in (
+            "session_token_digest(&token)", "session_actor(",
+            "if !verified.administrator", "StatusCode::FORBIDDEN",
+            "StatusCode::UNAUTHORIZED", ".stats_report(None, cursor)",
+        ))
+        and body.index("if !verified.administrator") < body.index(".stats_report(None, cursor)")
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin):
+            or audited_ratio_admin or audited_continuation_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1798,6 +1810,36 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "session_user(&state, &headers)" in evidence):
             errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
+    continuation_stats_owner = (
+        route_key == ("GET", "/me/stats/continuations", "continuation_stats::owner")
+        and entry["source"] == "crates/web/src/auth.rs"
+    )
+    continuation_stats_admin = (
+        route_key == ("GET", "/admin/audience/continuations", "continuation_stats::administrator")
+        and entry["source"] == "crates/web/src/auth.rs"
+    )
+    # RET-R03: these two reports must prove their own live guard and explicit
+    # SQL scope. A helper naming convention or merely an inventory policy is
+    # never enough to authorize the sitewide read.
+    if continuation_stats_owner and not all(marker in body for marker in (
+        "match super::session_user(&state, &headers).await",
+        "Ok(Some(actor)) => actor",
+        "Ok(None) => return private_response(Redirect::to(\"/login\"), &[])",
+        ".stats_report(Some(actor), cursor)",
+    )):
+        errors.append(f"{label}: owner demand statistics must use live actor-scoped report")
+    if continuation_stats_admin and not (
+        all(marker in body for marker in (
+            "session_token_digest(&token)",
+            "session_actor(",
+            "if !verified.administrator",
+            "StatusCode::FORBIDDEN",
+            "StatusCode::UNAUTHORIZED",
+            ".stats_report(None, cursor)",
+        ))
+        and body.index("if !verified.administrator") < body.index(".stats_report(None, cursor)")
+    ):
+        errors.append(f"{label}: sitewide demand report must prove live administrator authority")
     audience_admin = (
         route_key in {
             ("GET", "/admin/audience", "page"),
@@ -1939,7 +1981,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "administrator":
         rec_binding = (route_key in rec_admin
                        and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
-        if not (rec_binding or audience_admin or audited_exposure):
+        if not (rec_binding or audience_admin or audited_exposure or continuation_stats_admin):
             errors.append(f"{label}: administrator exception is not allowed here")
         role_guard = "!actor.administrator" if audience_admin or audited_exposure else "!verified.administrator"
         if not ("session_actor(" in evidence and role_guard in evidence

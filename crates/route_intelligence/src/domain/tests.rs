@@ -20,8 +20,8 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    // DROP-06b adds a separately reviewed, C-authorized source-plan route.
-    assert_eq!(unique.len(), 442);
+    // RET-R03 adds two independent, protected continuation-statistics routes.
+    assert_eq!(unique.len(), 444);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
