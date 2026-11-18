@@ -20,6 +20,7 @@ COPY (
            CASE WHEN EXISTS (
                SELECT 1 FROM free_chapter_storage_objects s
                 WHERE s.chapter_id=p.chapter_id AND s.version_id=p.version_id
+                  AND s.sha256=v.content_sha256
            ) THEN 1 ELSE 0 END AS single_receipt,
            CASE WHEN EXISTS (
                SELECT 1 FROM free_edition_active_storage a
