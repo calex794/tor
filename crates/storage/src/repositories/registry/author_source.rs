@@ -163,6 +163,7 @@ impl PgStorageRegistry {
                   AND NOT b.admin_hold AND NOT b.is_deleted
                   AND NOT c.admin_hold AND NOT c.is_deleted
                   AND c.access_level='paid'
+                  AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
              )",
         )
         .bind(book)
