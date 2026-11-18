@@ -24,6 +24,9 @@ use tor_commerce::{
 use tor_contracts::paid_delivery::PositiveId;
 use tower::ServiceExt;
 
+#[path = "layer_archive/live_pack_chromium.rs"]
+mod live_pack_chromium;
+
 fn id(raw: i64) -> PositiveId {
     PositiveId::new(raw).unwrap()
 }
@@ -221,7 +224,7 @@ pub(super) async fn verify(
     // Actor-scoped HTTP route, exact FRAME only; all transport keys and
     // Range offsets stay inside the service.
     std::env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
-    let app = tor_web::free_pack_http::router(
+    let pack_app = tor_web::free_pack_http::router(
         accounts.clone(),
         false,
         "http://127.0.0.1:3098".into(),
@@ -229,6 +232,20 @@ pub(super) async fn verify(
         BUCKET.into(),
     )
     .unwrap();
+    let free_app = tor_web::free_reader_http::router(
+        accounts.clone(),
+        false,
+        "http://127.0.0.1:3098".into(),
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(
+            client.clone(),
+            BUCKET.into(),
+        )
+        .unwrap(),
+        BUCKET.into(),
+        super::ENDPOINT.into(),
+    )
+    .unwrap();
+    let app = pack_app.merge(free_app);
     std::env::remove_var("TOR_LAYER_FREE_ARCHIVE_ENABLED");
     let path = format!("/api/v1/reader/layer/free/{}/pack", frame.chapter_id);
     let csrf = generate_session_token();
@@ -295,6 +312,19 @@ pub(super) async fn verify(
         expected,
         "one archived PACK frame, no neighbor"
     );
+
+    // The browser must exercise the real D-checked Rust shell and discover
+    // the PACK only via a denied SINGLE grant (404), then a single same-origin
+    // /pack POST. It never downloads a complete PACK or sees object keys.
+    live_pack_chromium::verify(
+        &app,
+        frame.chapter_id,
+        frame.version_id,
+        &buyer_session,
+        &unrelated_session,
+        std::str::from_utf8(expected).unwrap(),
+    )
+    .await;
 
     pg(
         url,
