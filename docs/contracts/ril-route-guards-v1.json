@@ -3116,6 +3116,20 @@
       "source": "crates/web/src/free_pack_http.rs",
       "handler": "layer_archive::read_pack",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/stats/continuations",
+      "source": "crates/web/src/auth.rs",
+      "handler": "continuation_stats::owner",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/continuations",
+      "source": "crates/web/src/auth.rs",
+      "handler": "continuation_stats::administrator",
+      "policy": "administrator"
     }
   ]
 }
