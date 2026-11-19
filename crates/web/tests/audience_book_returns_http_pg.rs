@@ -253,10 +253,7 @@ async fn report(app: &Router, cookie: &str, book: i64, days: i32) -> String {
     html
 }
 
-fn date_bounds(url: &str, html: &str, days: i32) {
-    // Every HTTP report freezes "today" in its own PostgreSQL snapshot.
-    // A separate psql NOW() can cross 00:00 UTC between the HTTP request and
-    // this assertion; compare dates against the report's measured_at instead.
+fn report_snapshot_utc_day(html: &str) -> &str {
     let measured = html
         .split("data-testid=\"audience-book-returns\"")
         .nth(1)
@@ -278,6 +275,14 @@ fn date_bounds(url: &str, html: &str, days: i32) {
         }),
         "report must contain a well-formed UTC snapshot day"
     );
+    snapshot_day
+}
+
+fn date_bounds(url: &str, html: &str, days: i32) {
+    // Every HTTP report freezes "today" in its own PostgreSQL snapshot.
+    // A separate psql NOW() can cross 00:00 UTC between the HTTP request and
+    // this assertion; compare dates against the report's measured_at instead.
+    let snapshot_day = report_snapshot_utc_day(html);
     for (key, start, end) in [
         ("current", days - 1, -1),
         ("previous", 2 * days - 1, days - 1),
@@ -291,6 +296,17 @@ fn date_bounds(url: &str, html: &str, days: i32) {
             assert!(text.contains(&date), "{key}: {date} UTC boundary");
         }
     }
+}
+
+#[test]
+fn book_returns_snapshot_day_does_not_jump_when_next_utc_day_appears() {
+    let html = concat!(
+        "<section data-testid=\"audience-book-returns\">",
+        "<p><time datetime=\"2026-11-18T23:59:59.999999Z\">first snapshot</time></p>",
+        "<section><time datetime=\"2026-11-19T00:00:00Z\">later response</time></section>",
+        "</section>"
+    );
+    assert_eq!(report_snapshot_utc_day(html), "2026-11-18");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
