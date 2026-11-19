@@ -58,7 +58,10 @@ pub async fn appearance_script() -> impl IntoResponse {
 pub async fn home_order_script() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
