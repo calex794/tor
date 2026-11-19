@@ -209,3 +209,22 @@ test("UI-08: compact author surfaces keep all server actions and safeguards", ()
   assert(css.includes(":root .author-book-workspace .author-book-workspace__hero"));
   assert(css.includes(":root .author-new-book-page .author-editor__panel"));
 });
+
+
+test("UI-MOB-01: compact author navigation keeps native groups, links and safe logout", () => {
+  const css = fs.readFileSync(path.join(__dirname,
+    "../crates/web/assets/account-ui.css"), "utf8");
+  const nav = fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/account_nav.html"), "utf8");
+  const layout = fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/layout.html"), "utf8");
+  assert(css.includes("UI-MOB-01: compact mobile author navigation"));
+  assert(css.includes(".author-workspace .account-sidebar__header"));
+  assert(css.includes(".author-workspace .account-sidebar__logout"));
+  assert(nav.includes('aria-label="Меню личного кабинета"'));
+  assert(nav.includes('method="post" action="/logout"'));
+  for (const link of ['/me/books', '/me/books/new', '/me/finance',
+    '/me/library', '/me/settings/password'])
+    assert(nav.includes('href="' + link + '"'));
+  assert(layout.includes("<!--HEADER_DESKTOP_AUTH-->"));
+});
