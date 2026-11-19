@@ -33,11 +33,25 @@
   let settings = load();
   const root = document.documentElement;
 
+  // UI-03A: the private library intentionally forbids all JavaScript.
+  // Mirror this non-sensitive enum to a first-party cookie so its server
+  // can choose the same color scheme without weakening the private CSP.
+  function mirrorThemeCookie() {
+    try {
+      const secure = window.location?.protocol === "https:" ? "; Secure" : "";
+      document.cookie = "tor-ui-theme-v1=" + settings.theme +
+        "; Path=/; Max-Age=31536000; SameSite=Lax" + secure;
+    } catch (_) {
+      // Storage/cookies may be disabled; system theme remains the fallback.
+    }
+  }
+
   function apply() {
     root.dataset.torStyle = settings.style;
     root.dataset.torTheme = settings.theme;
     root.dataset.torDensity = settings.density;
     root.dataset.torCatalog = settings.catalog;
+    mirrorThemeCookie();
   }
 
   // This script intentionally loads before CSS to avoid a light/dark flash.

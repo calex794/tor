@@ -131,5 +131,102 @@ pub(super) async fn my_library(
         "<!--RET_REVISION_CARDS-->",
         &pages::library_revision_cards(&revisions, &csrf),
     );
+    // Browser preferences are an allowlisted, presentation-only cookie.
+    // Keep private account CSP script-src 'none' unchanged.
+    apply_private_library_theme(&mut page.0, &headers);
     private_response(page, &cookies)
+}
+
+/// Render the preferred *public* color theme without executing scripts on a
+/// sensitive authenticated page. Cookie bytes never enter HTML: only a static
+/// enum label is substituted after exact matching.
+fn apply_private_library_theme(html: &mut String, headers: &HeaderMap) {
+    for raw in headers.get_all(axum::http::header::COOKIE) {
+        let Ok(raw) = raw.to_str() else { continue };
+        for item in raw.split(';') {
+            let Some((name, raw_mode)) = item.trim().split_once('=') else {
+                continue;
+            };
+            if name != "tor-ui-theme-v1" {
+                continue;
+            }
+            let theme = match raw_mode {
+                "system" => "system",
+                "light" => "light",
+                "dark" => "dark",
+                _ => continue,
+            };
+            *html = html.replacen(
+                "<html lang=\"ru\">",
+                &format!("<html lang=\"ru\" data-tor-theme=\"{theme}\">"),
+                1,
+            );
+            break;
+        }
+        if html.contains(" data-tor-theme=") {
+            break;
+        }
+    }
+    // The canonical layout contains this asset for public pages, but the
+    // private library must not even request it under script-src 'none'.
+    *html = html.replacen(
+        "<script src=\"/assets/tor-appearance.js\"></script>",
+        "",
+        1,
+    );
+}
+
+#[cfg(test)]
+mod private_library_appearance_tests {
+    use super::apply_private_library_theme;
+    use axum::http::{header, HeaderMap, HeaderValue};
+
+    fn rendered(cookie: Option<&'static str>) -> String {
+        let mut headers = HeaderMap::new();
+        if let Some(cookie) = cookie {
+            headers.insert(header::COOKIE, HeaderValue::from_static(cookie));
+        }
+        let mut html = String::from(
+            "<html lang=\"ru\"><head><script src=\"/assets/tor-appearance.js\"></script></head>\
+             <body><form action=\"/me/library/1/remove\"></form></body></html>",
+        );
+        apply_private_library_theme(&mut html, &headers);
+        assert!(!html.contains("<script"));
+        assert!(html.contains("<form action=\"/me/library/1/remove\">"));
+        html
+    }
+
+    #[test]
+    fn private_library_theme_cookie_is_server_rendered_with_strict_whitelist() {
+        for mode in ["light", "dark", "system"] {
+            let header = format!("x=unused; tor-ui-theme-v1={mode}; y=other");
+            let mut headers = HeaderMap::new();
+            headers.insert(header::COOKIE, HeaderValue::from_str(&header).unwrap());
+            let mut html = String::from("<html lang=\"ru\"><body>Без скрипта</body></html>");
+            apply_private_library_theme(&mut html, &headers);
+            assert!(html.starts_with(&format!(
+                "<html lang=\"ru\" data-tor-theme=\"{mode}\">"
+            )));
+        }
+        assert_eq!(
+            rendered(None).matches("data-tor-theme").count(),
+            0,
+            "no cookie must retain the OS theme and server-rendered content"
+        );
+        for hostile in [
+            "tor-ui-theme-v1=%22%3E%3Cscript%3E",
+            "tor-ui-theme-v1=dark%22",
+            "tor-ui-theme-v1=autodark",
+            "tor-ui-theme-v1=none",
+        ] {
+            assert!(!rendered(Some(hostile)).contains("data-tor-theme"));
+        }
+    }
+
+    #[test]
+    fn private_library_does_not_execute_appearance_script() {
+        let html = rendered(Some("tor-ui-theme-v1=dark"));
+        assert!(html.contains("data-tor-theme=\"dark\""));
+        assert!(!html.contains("tor-appearance.js"));
+    }
 }
