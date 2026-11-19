@@ -44,10 +44,12 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
 pub async fn appearance_script() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         include_str!("../../assets/tor-appearance.js"),
     )
 }
-
