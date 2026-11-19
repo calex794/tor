@@ -214,6 +214,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/tor-home-order.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::home_order_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/organic_discovery.js",
       "handler": "organic::script",
       "policy": "public",
