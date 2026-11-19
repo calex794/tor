@@ -100,18 +100,21 @@ pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
         .await?,
         0
     );
+    // Each batch has its own hour bucket: the test can cross a UTC hour
+    // boundary between seed and materialization. Check total committed facts
+    // across those buckets rather than an arbitrary one of the hourly rows.
     for batch in [&fixture.ril_batch, &new_batch] {
         assert!(materialize(pool, batch).await?);
         assert!(!materialize(pool, batch).await?);
     }
     assert_eq!(text(pool,
-        "SELECT concat_ws('|',html_requests,opted_in_html_requests,observed_opted_in_visit_starts)
+        "SELECT concat_ws('|',coalesce(sum(html_requests),0),coalesce(sum(opted_in_html_requests),0),coalesce(sum(observed_opted_in_visit_starts),0))
          FROM ril_flow_hourly WHERE surface_code=1 AND acquisition_hint=0"
     ).await?, "36|5|2");
     assert_eq!(
         count(
             pool,
-            "SELECT request_count FROM ril_route_hourly
+            "SELECT coalesce(sum(request_count),0)::bigint FROM ril_route_hourly
          WHERE route_code=1 AND status_group=2 AND latency_group=0"
         )
         .await?,
@@ -120,7 +123,7 @@ pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
     assert_eq!(
         text(
             pool,
-            "SELECT concat_ws('|',observed_requests,observed_queries,sqlx_elapsed_us)
+            "SELECT concat_ws('|',coalesce(sum(observed_requests),0),coalesce(sum(observed_queries),0),coalesce(sum(sqlx_elapsed_us),0))
          FROM ril_sql_cost_hourly WHERE route_code=1"
         )
         .await?,
@@ -129,7 +132,7 @@ pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
     assert_eq!(
         count(
             pool,
-            "SELECT transition_count FROM ril_transition_hourly
+            "SELECT coalesce(sum(transition_count),0)::bigint FROM ril_transition_hourly
          WHERE from_code=1 AND to_code=2 AND gap_group=0"
         )
         .await?,
