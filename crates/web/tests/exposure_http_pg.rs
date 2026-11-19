@@ -29,6 +29,12 @@ const ORIGIN: &str = "http://127.0.0.1:3109";
 const API: &str = "/api/v1/flow/observations";
 const REPORT: &str = "/admin/audience/exposure";
 
+// Every fixture manipulates the same durable observation-epoch state.  In
+// particular, health tests expire the latest epoch, so running fixtures in
+// parallel can invalidate an unrelated authority-lock recovery test.
+static EPOCH_FIXTURE_LOCK: std::sync::LazyLock<Arc<tokio::sync::Mutex<()>>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(())));
+
 struct Guard {
     allowed: AtomicBool,
     expected: CardObservation,
@@ -47,6 +53,9 @@ impl EditorialObservationGuard for Guard {
     }
 }
 struct Fixture {
+    // Hold across the complete test, including cleanup; internal HTTP fan-out
+    // and PostgreSQL lock-concurrency assertions remain fully concurrent.
+    _epoch_fixture_guard: tokio::sync::OwnedMutexGuard<()>,
     url: String,
     app: Router,
     actor: i64,
@@ -59,6 +68,7 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        let epoch_fixture_guard = EPOCH_FIXTURE_LOCK.clone().lock_owned().await;
         let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
         assert!(
             url.starts_with("postgresql://tor_app:")
@@ -100,6 +110,7 @@ impl Fixture {
         let app = runtime.clone().attach(app);
         let worker = tokio::spawn(worker.run());
         Self {
+            _epoch_fixture_guard: epoch_fixture_guard,
             url,
             app,
             actor,
