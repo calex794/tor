@@ -152,7 +152,14 @@ async function observedCard(page,card,campaign,before,response,events){
   await orderPicker.locator('summary').click();
   const up=orderPicker.locator('button[data-tor-home-id="editorial"][data-tor-home-direction="up"]');
   assert(await up.isEnabled());
-  await up.click();
+  // One step may cross the releases shelf first; move until editorial
+  // actually precedes the latest shelf in DOM and keyboard focus order.
+  for(let step=0;step<4;step++){
+   const order=await homeOrder();
+   if(order.indexOf('editorial')<order.indexOf('latest'))break;
+   await up.click();
+   assert(await up.evaluate(button=>button===document.activeElement),'keyboard focus lost after moving row');
+  }
   assert((await homeOrder()).indexOf('editorial')<(await homeOrder()).indexOf('latest'));
   assert.equal(await editorialCard.getAttribute('data-flow-proof'),originalProof);
   assert.equal(await editorialCard.locator('a').first().getAttribute('href'),originalHref);
