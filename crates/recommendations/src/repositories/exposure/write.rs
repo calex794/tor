@@ -200,8 +200,8 @@ impl PgExposure {
     }
 }
 
-// A quick early epoch check is nonlocking; the final FOR SHARE pins the live
-// epoch across commit only, never across aggregate/proof row-lock contention.
+// An early liveness check is nonlocking; the final shared row fence pins
+// the live epoch across commit only, never across aggregate/proof contention.
 // If the worker retired in between, the whole transaction rolls back: 503,
 // not an expired proof (410) or an invented observation.
 async fn epoch_fence(
