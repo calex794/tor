@@ -9,7 +9,6 @@ mod catalog_active_filters;
 mod catalog_filters;
 mod catalog_pagination;
 mod catalog_taxonomy_selects;
-mod home_spotlight;
 use cards::book_cards;
 use tor_contracts::exposure::{ExposureSurface, ObservationIssuer};
 type Observer<'a> = Option<(&'a dyn ObservationIssuer, ExposureSurface)>;
@@ -77,6 +76,40 @@ fn recent_genre_shelves(
     html
 }
 
+/// Public genre shortcuts use only the already-filtered homepage rows.
+fn recent_genre_links(books: &[PublicBookCard]) -> String {
+    let mut seen = Vec::<&str>::new();
+    let mut links = String::new();
+    for book in books {
+        for genre in &book.genres {
+            let genre = genre.trim();
+            if genre.is_empty() || seen.contains(&genre) {
+                continue;
+            }
+            seen.push(genre);
+            write!(
+                links,
+                "<a class=\"home-genre-navigation__link\" href=\"/catalog?genre={}&amp;sort=newest\">{}</a>",
+                encode_search_term(genre),
+                escape_html(genre)
+            )
+            .expect("write genre shortcut");
+            if seen.len() >= 5 {
+                break;
+            }
+        }
+        if seen.len() >= 5 {
+            break;
+        }
+    }
+    if links.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<nav class=\"home-genre-navigation\" aria-label=\"Жанры новинок\"><span class=\"home-genre-navigation__label\">Жанры</span><div class=\"home-genre-navigation__links\">{links}</div></nav>"
+    )
+}
+
 fn home_body(
     books: &[PublicBookCard],
     latest: bool,
@@ -86,18 +119,8 @@ fn home_body(
     issuer: Option<&dyn ObservationIssuer>,
 ) -> Html<String> {
     let observer = issuer.map(|issuer| (issuer, ExposureSurface::Home));
-    let fallback = r#"<div class="home-showcase">
-        <div><p class="ui-page-header__kicker">Библиотека платформы</p>
-        <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
-        <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
-    </div>"#;
-    let hero = if latest && !books.is_empty() {
-        home_spotlight::render_observed(books, covers, issuer)
-    } else {
-        fallback.to_owned()
-    };
     let content = include_str!("../../templates/home.html")
-        .replace("<!--HOME_SPOTLIGHT-->", &hero)
+        .replace("<!--HOME_GENRE_NAV-->", &if latest { recent_genre_links(books) } else { String::new() })
         .replace(
             "<!--BOOKS_HEADING-->",
             if latest {
@@ -339,12 +362,16 @@ mod home_tests {
     }
 
     #[test]
-    fn recent_home_has_real_spotlight_and_shelf_without_fake_ranking() {
+    fn recent_home_puts_real_books_directly_after_search_without_duplicate_carousel() {
         let html = home_recent(&[book(8, "Последняя книга"), book(3, "Ранняя")]).0;
-        assert!(html.contains("home-spotlight-card"));
-        assert!(html.contains("href=\"/books/8\""));
+        let search = html.find("id=\"home-search-query\"").expect("search");
+        let first_book = html.find("href=\"/books/8\"").expect("book");
+        assert!(search < first_book);
+        assert_eq!(html.matches("href=\"/books/8\"").count(), 1);
         assert!(html.contains("Недавно добавленные"));
         assert!(html.contains("Ранняя"));
+        assert!(!html.contains("home-spotlight-card"));
+        assert!(!html.contains("home-showcase"));
         assert!(!html.contains("Топ дня"));
         assert!(!html.contains("Рекомендуем для вас"));
     }
@@ -364,6 +391,22 @@ mod home_tests {
         assert!(!html.contains("<img>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&quot; onclick=&quot;evil"));
+    }
+
+
+    #[test]
+    fn library_genre_shortcuts_are_bounded_and_escaped() {
+        let mut row = book(5, "Новинка");
+        row.genres = vec![
+            "Фэнтези".into(),
+            "<img onerror=x>".into(),
+            "Научная фантастика".into(),
+        ];
+        let html = home_recent(&[row]).0;
+        assert!(html.contains("home-genre-navigation__link"));
+        assert!(html.contains("&lt;img onerror=x&gt;"));
+        assert!(!html.contains("> <img onerror=x>"));
+        assert!(html.contains("/catalog?genre="));
     }
 
     #[test]
@@ -425,7 +468,7 @@ mod home_tests {
         let cards = [book(8, "Книга 8"), book(3, "Книга 3")];
         let available = HashSet::from([8_u64]);
         let home = home_recent_with_covers(&cards, &available).0;
-        assert!(home.contains(r#"src="/covers/8/main.webp""#));
+        assert!(!home.contains(r#"src="/covers/8/main.webp""#));
         assert!(home.contains(r#"src="/covers/8/card.webp""#));
         assert!(!home.contains("/covers/3/"));
         assert!(home.contains("Нет обложки"));
