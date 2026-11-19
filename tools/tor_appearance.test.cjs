@@ -150,3 +150,28 @@ test("UI-06: real books appear immediately after compact search; promo and home 
   assert(css.includes("UI-06: content-first public homepage"));
   assert(css.includes(':root[data-tor-style="library"] .home-genre-navigation'));
 });
+
+test("UI-07: catalog and book detail keep working content without decorative intro", () => {
+  const catalog = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/catalog.html"), "utf8"
+  );
+  const book = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/book_detail.html"), "utf8"
+  );
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  assert(catalog.includes('id="catalog-title"'));
+  assert(!catalog.includes("Библиотека платформы"));
+  assert(!catalog.includes("Ищите книги по названию"));
+  assert(catalog.indexOf("<!--SEARCH_FORM-->") < catalog.indexOf("<!--PUBLIC_BOOKS-->"));
+  for (const slot of ["<!--SEARCH_FORM-->", "<!--ACTIVE_FILTERS-->",
+    "<!--PUBLIC_BOOKS-->", "<!--PAGINATION-->"]) assert(catalog.includes(slot));
+  assert(!book.includes('class="book-hero-card__kicker"'));
+  assert(book.includes('class="breadcrumbs__current" aria-current="page"'));
+  for (const slot of ["<!--BOOK_TITLE-->", "<!--BOOK_COVER-->",
+    "<!--PRIMARY_ACTION-->", "<!--CHAPTERS-->", "<!--EDITORIAL_PROMOTION-->"])
+    assert(book.includes(slot));
+  assert(css.includes("UI-07: compact public catalog and book detail"));
+  assert(css.includes(":root .book-detail-page .book-hero-card__title"));
+});

@@ -75,6 +75,20 @@ async function select(page, setting, value) {
       assert.equal(await page.locator("html").getAttribute("data-tor-style"), "minimal",
         width + ": appearance not restored after reload");
       await open(page, "/catalog");
+      assert.equal(await page.locator("#catalog-title").count(), 1,
+        width + ": compact catalog must keep one semantic H1");
+      // The demo catalogue fixture intentionally has no PostgreSQL search form.
+      // Full GET-search is asserted by the Rust/HTTP contract and Node template test.
+      const search = page.locator(".catalog-filters__search input[name='q']");
+      const catalogCard = await page.locator(".catalog-grid .book-mini-card__link").first()
+        .boundingBox();
+      assert(catalogCard && catalogCard.y < 810,
+        width + ": decorative catalog chrome delays books below the useful viewport");
+      if (await search.count()) {
+        const catalogSearch = await search.boundingBox();
+        assert(catalogSearch && catalogSearch.y < catalogCard.y,
+          width + ": catalog results must follow actual search");
+      }
       const catalogBefore = await page.locator(".catalog-grid a[href^='/books/']")
         .evaluateAll(nodes => nodes.map(a => a.getAttribute("href")));
       assert(catalogBefore.length > 0, width + ": catalog missing books");
