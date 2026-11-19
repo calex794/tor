@@ -284,7 +284,10 @@ fn date_bounds(url: &str, html: &str, days: i32) {
     ] {
         let text = period(html, key);
         for age in [start, end] {
-            let date = pg(url, &format!("SELECT ('{snapshot_day}'::date-({age}))::text"));
+            let date = pg(
+                url,
+                &format!("SELECT ('{snapshot_day}'::date-({age}))::text"),
+            );
             assert!(text.contains(&date), "{key}: {date} UTC boundary");
         }
     }
