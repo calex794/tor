@@ -141,7 +141,7 @@ pub(super) async fn my_library(
 /// sensitive authenticated page. Cookie bytes never enter HTML: only a static
 /// enum label is substituted after exact matching.
 fn apply_private_library_theme(html: &mut String, headers: &HeaderMap) {
-    for raw in headers.get_all(axum::http::header::COOKIE) {
+    for raw in headers.get_all(axum::http::header::COOKIE).iter() {
         let Ok(raw) = raw.to_str() else { continue };
         for item in raw.split(';') {
             let Some((name, raw_mode)) = item.trim().split_once('=') else {
