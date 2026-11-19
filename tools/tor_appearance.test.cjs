@@ -175,3 +175,37 @@ test("UI-07: catalog and book detail keep working content without decorative int
   assert(css.includes("UI-07: compact public catalog and book detail"));
   assert(css.includes(":root .book-detail-page .book-hero-card__title"));
 });
+
+
+test("UI-08: compact author surfaces keep all server actions and safeguards", () => {
+  const read = name => fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/" + name), "utf8");
+  const books = read("author_books.html");
+  const workspace = read("author_book_workspace.html");
+  const creation = read("author_new_book.html");
+  const css = fs.readFileSync(path.join(__dirname,
+    "../crates/web/assets/tor-appearance.css"), "utf8");
+  assert(books.includes('class="me-page author-workspace author-books-page"'));
+  assert(!books.includes('ui-page-header__kicker'));
+  assert(!books.includes("Главы, настройки и публикация ваших книг."));
+  for (const slot of ["<!--ACCOUNT_NAVIGATION-->", "<!--BOOK_COUNT-->",
+    "<!--BOOK_LIST-->", "<!--LAYER_SECTION-->"]) assert(books.includes(slot));
+  assert(books.includes('href="/me/books/new"'));
+  assert(!workspace.includes("Кабинет автора · управление книгой"));
+  assert(!workspace.includes("Дополнительные возможности"));
+  for (const slot of ["<!--ACCOUNT_NAVIGATION-->", "<!--BOOK_TITLE-->",
+    "<!--BOOK_STATE-->", "<!--STATE_NOTE-->", "<!--CHAPTER_LIST-->",
+    "<!--PUBLICATION_ACTION-->", "<!--PREPARATION_PANEL-->",
+    "<!--AGE_SETTINGS_LINK-->", "<!--EXTRA_PANELS-->"]) assert(workspace.includes(slot));
+  assert(workspace.includes('href="/me/books/<!--BOOK_ID-->/chapters/new"'));
+  assert(workspace.includes('id="author-book-settings"'));
+  assert(creation.includes('author-new-book-page'));
+  assert(creation.includes("Новая книга будет сохранена как личный черновик"));
+  for (const slot of ['method="post"', 'action="/me/books"',
+    'name="csrf_token"', 'name="command_key"', 'required maxlength="200"'])
+    assert(creation.includes(slot));
+  assert(css.includes("UI-08: author books, workspace and new-book form"));
+  assert(css.includes(":root .author-books-page .author-workspace__book"));
+  assert(css.includes(":root .author-book-workspace .author-book-workspace__hero"));
+  assert(css.includes(":root .author-new-book-page .author-editor__panel"));
+});
