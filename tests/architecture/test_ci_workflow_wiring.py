@@ -825,6 +825,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "bash tools/s061_start_minio.sh",
             "python3 tools/s061_cutover_pg_smoke.py",
             'assert report["distinct_binary_validation"] is True',
+            'assert 202998431705 in report["added_migrations"]',
             'assert report["same_binary_both_slots"] is False',
             'assert report["populated_catalog_verified"] is True',
             'assert report["postcutover_rollback"] is True',
