@@ -83,7 +83,12 @@
       apply();
       // Reparenting the settings row can drop keyboard focus. Restore it
       // to the exact control the reader activated, without jumping the page.
-      target.focus?.({ preventScroll: true });
+      // At the new boundary the Up/Down button may become disabled.
+      // Keep focus inside the same row on the still-operable direction.
+      const focusControl = target.disabled
+        ? target.closest?.('[data-tor-home-order-item]')?.querySelector('button:not(:disabled)')
+        : target;
+      focusControl?.focus?.({ preventScroll: true });
       write(order);
     });
     window.addEventListener('storage', event => {
