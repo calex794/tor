@@ -36,6 +36,17 @@ async function select(page, setting, value) {
   assert.equal(await page.locator("html").getAttribute("data-tor-" + setting), value);
 }
 
+// Screenshots must show the book, not the appearance overlay. Use the same
+// Escape behavior that keyboard users rely on before capturing visual QA.
+async function closeAppearancePicker(page, label) {
+  const picker = page.locator("[data-tor-appearance]");
+  if ((await picker.getAttribute("open")) !== null) {
+    await page.keyboard.press("Escape");
+  }
+  assert.equal(await picker.getAttribute("open"), null,
+    label + ": appearance overlay still obscures page content");
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -68,6 +79,7 @@ async function select(page, setting, value) {
       assert.deepEqual(after, before, width + ": changing presentation changed book links");
       await noOverflow(page, width + ": home minimal");
       if (out && (width === 390 || width === 1440)) {
+        await closeAppearancePicker(page, width + ": home screenshot");
         await page.screenshot({ path: path.join(out, "tor-ui-minimal-" + width + ".png"),
           fullPage: true });
       }
@@ -118,6 +130,55 @@ async function select(page, setting, value) {
       assert.equal((await page.context().cookies(base))
         .filter(c => c.name === "tor-ui-theme-v1").length, 0,
       width + ": restoring system theme must clear appearance cookie");
+
+      // UI-09: real SSR book detail, not three recolorings of one hero.
+      // Preserve every server-owned action/link when switching the composition.
+      const detailHref = catalogBefore.find(href => /^\/books\/\d+(?:[/?#]|$)/.test(href));
+      assert(detailHref, width + ": demo catalog must offer a real book detail");
+      await open(page, detailHref);
+      assert.equal(await page.locator(".book-detail-page .book-hero-card__title").count(), 1,
+        width + ": book title absent");
+      assert.equal(await page.locator(".book-hero-card__cover-col").count(), 1,
+        width + ": book cover slot absent");
+      assert((await page.locator(".book-hero-actions a, .book-hero-actions button").count()) > 0,
+        width + ": book primary action absent");
+      const detailLinks = await page.locator(".book-detail-page a[href]")
+        .evaluateAll(nodes => nodes.map(node => node.getAttribute("href")));
+      const compositions = [];
+      for (const style of ["showcase", "library", "minimal"]) {
+        await select(page, "style", style);
+        // A real first-screen capture must not have the appearance menu covering
+        // the book. The earlier CI screenshots accidentally kept it open.
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator("[data-tor-appearance]").getAttribute("open"), null,
+          width + "/" + style + ": appearance picker obscures the book");
+        const heading = await page.locator(".book-hero-card__title").boundingBox();
+        const primary = await page.locator(".book-hero-actions a, .book-hero-actions button")
+          .first().boundingBox();
+        assert(heading && heading.y >= 0 && heading.y < 900,
+          width + "/" + style + ": the book title is below the first screen");
+        assert(primary && primary.y >= 0 && primary.y < 900,
+          width + "/" + style + ": primary action is below the first screen");
+        assert.deepEqual(await page.locator(".book-detail-page a[href]")
+          .evaluateAll(nodes => nodes.map(node => node.getAttribute("href"))),
+        detailLinks, width + "/" + style + ": appearance changed book or action links");
+        const composition = await page.locator(".book-hero-card").evaluate(node => {
+          const css = getComputedStyle(node);
+          return [css.gridTemplateAreas, css.gridTemplateColumns,
+            css.borderTopWidth, css.borderTopLeftRadius].join("|");
+        });
+        compositions.push(composition);
+        await noOverflow(page, width + ": book " + style);
+        if (out && (width === 390 || width === 1440)) {
+          await closeAppearancePicker(page, width + "/" + style + ": book screenshot");
+          await page.screenshot({
+            path: path.join(out, "tor-ui-book-" + style + "-" + width + ".png"),
+            fullPage: true
+          });
+        }
+      }
+      assert.equal(new Set(compositions).size, 3,
+        width + ": three book designs must have visibly distinct computed layouts");
       await page.close();
     }
 
