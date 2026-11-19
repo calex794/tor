@@ -147,6 +147,18 @@ async function closeAppearancePicker(page, label) {
       const compositions = [];
       for (const style of ["showcase", "library", "minimal"]) {
         await select(page, "style", style);
+        // A real first-screen capture must not have the appearance menu covering
+        // the book. The earlier CI screenshots accidentally kept it open.
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator("[data-tor-appearance]").getAttribute("open"), null,
+          width + "/" + style + ": appearance picker obscures the book");
+        const heading = await page.locator(".book-hero-card__title").boundingBox();
+        const primary = await page.locator(".book-hero-actions a, .book-hero-actions button")
+          .first().boundingBox();
+        assert(heading && heading.y >= 0 && heading.y < 900,
+          width + "/" + style + ": the book title is below the first screen");
+        assert(primary && primary.y >= 0 && primary.y < 900,
+          width + "/" + style + ": primary action is below the first screen");
         assert.deepEqual(await page.locator(".book-detail-page a[href]")
           .evaluateAll(nodes => nodes.map(node => node.getAttribute("href"))),
         detailLinks, width + "/" + style + ": appearance changed book or action links");
