@@ -45,6 +45,12 @@ async function inspectAuthorEditor(page, viewport, width, height, kind) {
   assert(await form.count() === 1, 'shared author form missing');
   assert(await page.locator('.account-sidebar').count() === 1, 'author form lost account navigation');
   const creation = kind === 'book';
+  if (creation) {
+    assert(await page.locator('.author-new-book-page .ui-page-header__text').count() === 1,
+      'draft creation guidance must remain visible after compacting the header');
+    assert(await page.locator('.author-new-book-page .ui-page-header__kicker').count() === 0,
+      'decorative new-book kicker must not return');
+  }
   const active = creation
     ? '.dashboard-nav a[href="/me/books/new"][aria-current="page"]'
     : '.dashboard-nav a[href="/me/books"][aria-current="location"]';
@@ -83,6 +89,9 @@ async function inspectAuthorEditor(page, viewport, width, height, kind) {
 
 async function inspectBookIndex(page, viewport, width, height, count) {
   assert(await page.locator('.account-sidebar').count() === 1, 'author navigation missing');
+  assert(await page.locator('.author-books-page').count() === 1, 'compact author list shell missing');
+  assert(await page.locator('.author-books-page .ui-page-header__kicker').count() === 0,
+    'decorative author list kicker must not return');
   const active = page.locator('.dashboard-nav a[aria-current="page"]');
   assert(await active.count() === 1 && await active.getAttribute('href') === '/me/books',
     'author list must have exactly one current navigation item');
@@ -98,6 +107,11 @@ async function inspectBookIndex(page, viewport, width, height, count) {
           'mobile author navigation hides the workspace');
         const create = await page.locator('.account-main > header .ui-button').boundingBox();
         assert(create.y + create.height <= 844, 'create-book action is below the first screen');
+        if (count > 0) {
+          const firstBook = await page.locator('.author-workspace__book').first().boundingBox();
+          assert(firstBook && firstBook.y < 844,
+            'first owned book must start within the first mobile screen');
+        }
       }
       await inspect(page, viewport + '-' + size + '-' + colorScheme, 'book-index-' + count);
     }
@@ -124,6 +138,10 @@ async function inspectBookIndex(page, viewport, width, height, count) {
 
 async function inspectBookWorkspace(page, viewport, width, height, state, count) {
   assert(await page.locator('.account-sidebar').count() === 1, 'book workspace navigation missing');
+  assert(await page.locator('.author-book-workspace__hero .ui-page-header__kicker').count() === 0,
+    'duplicate author workspace heading must not return');
+  assert(await page.locator('.author-book-workspace__hero .author-book-state').count() === 1,
+    'compact workspace must preserve publication state');
   assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
     'book detail must not mark its parent list as the current page');
   assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
