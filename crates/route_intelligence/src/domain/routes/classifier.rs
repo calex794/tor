@@ -457,6 +457,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/stats/continuations"), "GET") => Some(442),
         (Some("/admin/audience/continuations"), "GET") => Some(443),
         (Some("/assets/tor-appearance.js"), "GET") => Some(444),
+        (Some("/assets/tor-home-order.js"), "GET") => Some(445),
         _ => None,
     };
     index
