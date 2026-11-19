@@ -113,3 +113,14 @@ test("library uses common color tokens across system and manual palettes", () =>
   // Illustrated book covers remain intentionally independent of UI tokens.
   assert(css.includes("linear-gradient(140deg, #315b4c"));
 });
+
+test("private library layout variants are CSS-only and keep all book links", () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-library.css"), "utf8"
+  );
+  for (const mode of ["compact", "cards"]) {
+    assert(css.includes('data-tor-library-layout="' + mode + '"'));
+  }
+  assert(css.includes(".library-display-controls a[aria-current"));
+  assert(!css.includes("display: none; /* hide unauthorized books */"));
+});
