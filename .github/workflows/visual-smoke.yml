@@ -57,6 +57,7 @@ jobs:
             sleep 1
           done
           TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/visual-smoke.cjs
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/tor_appearance_browser_smoke.cjs
           TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/operator_trace_visual_smoke.cjs
           TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/newboo_cover_visual_smoke.cjs
       - name: Upload browser proof
