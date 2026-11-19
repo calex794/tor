@@ -137,6 +137,8 @@ mod tests {
         let proof = delivery_preferences_page(DeliveryMode::Disabled, "csrf", None, false, true).0;
         assert!(proof.contains("/me/notification-email/confirm"));
         assert!(proof.contains("name=\"email_opt_in\" value=\"on\" required"));
-        assert!(!proof.contains("<script"));
+        let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+        assert_eq!(proof.matches(trusted).count(), 1);
+        assert!(!proof.replacen(trusted, "", 1).contains("<script"));
     }
 }
