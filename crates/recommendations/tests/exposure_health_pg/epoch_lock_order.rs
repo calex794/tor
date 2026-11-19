@@ -69,12 +69,11 @@ async fn aggregate_wait_cannot_starve_checkpoint_or_commit_after_epoch_handoff()
     .unwrap();
     let health = PgExposureHealth::new(f.pool.clone());
     let store = PgExposure::new(f.pool.clone());
-    let now: i64 = sqlx::query_scalar(
-        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint",
-    )
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     let epoch = health
         .start_epoch(
             &worker_registration_key().unwrap(),
@@ -167,7 +166,11 @@ async fn aggregate_wait_cannot_starve_checkpoint_or_commit_after_epoch_handoff()
     .fetch_one(&f.pool)
     .await
     .unwrap();
-    assert_eq!(tallies, (1, 1, 0), "retired callback must leave no partial click");
+    assert_eq!(
+        tallies,
+        (1, 1, 0),
+        "retired callback must leave no partial click"
+    );
     sqlx::query("DELETE FROM public.books WHERE id=$1")
         .bind(book)
         .execute(&f.pool)
