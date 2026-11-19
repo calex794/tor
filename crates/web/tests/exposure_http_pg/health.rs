@@ -194,10 +194,9 @@ async fn managed_queue_eof_waits_for_http_drained_witness() {
     f.cleanup().await;
 }
 
-// #1134: reproduce the real PostgreSQL hourly aggregate lock that previously
-// disabled observation callbacks in the browser chain. No restart, fake ACK,
-// or retry-until-green is allowed: one healthy callback must succeed after the
-// collector's next durable checkpoint, and failed requests must not count.
+// #1134: a real hourly row lock must reject its own callback with 503 and
+// leave no durable view, without globally disabling the already healthy worker.
+// After release the same epoch must accept 204 without waiting for a checkpoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires disposable PostgreSQL18 tor_ci"]
 async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly_once() {
@@ -269,9 +268,12 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     .expect("a blocked hourly aggregate must not hang the HTTP reader pool");
     private(&rejected, StatusCode::SERVICE_UNAVAILABLE);
     assert!(
-        !f.runtime.queue_snapshot().ready,
-        "503 must fail closed instead of leaving issuance enabled"
+        f.runtime.queue_snapshot().ready,
+        "a rejected hourly write must not retire a healthy epoch"
     );
+    // The first 1s after proof issuance is intentionally 425 Too Early; wait
+    // until the view becomes eligible before proving a *real* row-lock 503.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     private(
         &f.send("POST", API, "", ORIGIN, &viewed).await,
         StatusCode::SERVICE_UNAVAILABLE,
@@ -296,15 +298,12 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
         .expect("the reader pool must remain usable after the lock")
         .expect("the original proof must remain valid");
 
-    // Wait for a fresh *real* collector health acknowledgement, not repeated
-    // observation POSTs. A dead collector fails this strict deadline.
-    tokio::time::timeout(Duration::from_secs(12), async {
-        while !f.runtime.queue_snapshot().ready {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("the original collector never recovered its database lease");
+    // The original healthy lease must remain usable without restarting the
+    // collector or waiting for a separate 5-second health tick.
+    assert!(
+        f.runtime.queue_snapshot().ready,
+        "a row-local lock timeout must not disable the entire collector"
+    );
     assert_eq!(
         latest(&f),
         epoch,

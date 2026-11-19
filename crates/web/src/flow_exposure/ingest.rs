@@ -59,7 +59,12 @@ pub(super) async fn event(
             .record_in_epoch(&event, &context, actor, epoch)
             .await
     };
-    let status = match tokio::time::timeout(Duration::from_millis(950), work).await {
+    let outcome = tokio::time::timeout(Duration::from_millis(950), work).await;
+    // A rolled-back hourly row lock timeout is one failed callback, not proof
+    // that the PostgreSQL-backed worker epoch itself has retired. Preserve
+    // HTTP 503 and the failed counter, but keep the live issuance lease.
+    let hourly_contention = matches!(&outcome, Ok(Err(ExposureError::Contended)));
+    let status = match outcome {
         Ok(Ok(_)) => StatusCode::NO_CONTENT,
         Ok(Err(ExposureError::Invalid)) => StatusCode::BAD_REQUEST,
         // Missing may be an issuance queue race. The client retries only a fixed number of times.
@@ -69,7 +74,9 @@ pub(super) async fn event(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     if status == StatusCode::SERVICE_UNAVAILABLE {
-        state.gate.disable();
+        if !hourly_contention {
+            state.gate.disable();
+        }
         state.counters.failed.fetch_add(1, Ordering::Release);
     }
     private_response(status, &[])
