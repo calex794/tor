@@ -6,10 +6,10 @@ DECLARE
     owner_id BIGINT;
     buyer_id BIGINT;
     book_id BIGINT;
-    chapter_id BIGINT;
+    fixture_chapter_id BIGINT;
     v1 BIGINT;
     v2 BIGINT;
-    purchase_id BIGINT;
+    fixture_purchase_id BIGINT;
     old_body TEXT := '# Purchased paid V1 - retain unchanged';
     new_body TEXT := '# Newer paid V2 - do not replace V1';
 BEGIN
@@ -24,32 +24,32 @@ BEGIN
     RETURNING id INTO book_id;
     INSERT INTO chapters(book_id, chapter_no, title, visibility, access_level, price_amount)
     VALUES (book_id, 1, 'Historical paid chapter', 'public', 'paid', 150)
-    RETURNING id INTO chapter_id;
+    RETURNING id INTO fixture_chapter_id;
     INSERT INTO chapter_versions(chapter_id, version_no, body_markdown, content_sha256)
-    VALUES (chapter_id, 1, old_body, sha256(convert_to(old_body, 'UTF8')))
+    VALUES (fixture_chapter_id, 1, old_body, sha256(convert_to(old_body, 'UTF8')))
     RETURNING id INTO v1;
     INSERT INTO chapter_publications(chapter_id, version_id)
-    VALUES (chapter_id, v1);
+    VALUES (fixture_chapter_id, v1);
 
     -- The trusted historical purchase fact must pin exact V1, never CURRENT.
     INSERT INTO chapter_purchase_facts
         (user_id, chapter_id, version_id, settlement_reference, amount_minor, currency)
-    VALUES (buyer_id, chapter_id, v1, 'fnd01-retained-paid-v1', 150, 'RUB')
-    RETURNING id INTO purchase_id;
+    VALUES (buyer_id, fixture_chapter_id, v1, 'fnd01-retained-paid-v1', 150, 'RUB')
+    RETURNING id INTO fixture_purchase_id;
     IF NOT EXISTS (
         SELECT 1 FROM library_purchased_chapters
-        WHERE user_id = buyer_id AND chapter_id = chapter_id
-          AND active_version_id = v1 AND purchase_id = purchase_id
+        WHERE user_id = buyer_id AND chapter_id = fixture_chapter_id
+          AND active_version_id = v1 AND purchase_id = fixture_purchase_id
     ) THEN
         RAISE EXCEPTION 'FND01 paid seed did not create the V1 library pointer';
     END IF;
 
     INSERT INTO chapter_versions(chapter_id, version_no, body_markdown, content_sha256)
-    VALUES (chapter_id, 2, new_body, sha256(convert_to(new_body, 'UTF8')))
+    VALUES (fixture_chapter_id, 2, new_body, sha256(convert_to(new_body, 'UTF8')))
     RETURNING id INTO v2;
     UPDATE chapter_publications
        SET version_id = v2, published_at = clock_timestamp()
-     WHERE chapter_publications.chapter_id = chapter_id;
+     WHERE chapter_publications.chapter_id = fixture_chapter_id;
 END
 $fnd01_paid_seed$;
 
