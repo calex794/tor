@@ -75,6 +75,16 @@ async function select(page, setting, value) {
       assert.equal(await page.locator("html").getAttribute("data-tor-style"), "minimal",
         width + ": appearance not restored after reload");
       await open(page, "/catalog");
+      assert.equal(await page.locator("#catalog-title").count(), 1,
+        width + ": compact catalog must keep one semantic H1");
+      const catalogSearch = await page.locator(".catalog-filters__search input[name='q']")
+        .boundingBox();
+      const catalogCard = await page.locator(".catalog-grid .book-mini-card__link").first()
+        .boundingBox();
+      assert(catalogSearch && catalogCard && catalogSearch.y < catalogCard.y,
+        width + ": catalog results must follow actual search");
+      assert(catalogCard.y < 810,
+        width + ": decorative catalog chrome delays books below the useful viewport");
       const catalogBefore = await page.locator(".catalog-grid a[href^='/books/']")
         .evaluateAll(nodes => nodes.map(a => a.getAttribute("href")));
       assert(catalogBefore.length > 0, width + ": catalog missing books");
