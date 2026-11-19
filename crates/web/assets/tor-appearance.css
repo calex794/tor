@@ -23,7 +23,7 @@
   --book-card-border-hover: #94a3b8; --book-card-cover-bg: #f1f5f9;
   --book-card-cover-text: #64748b; --book-card-title: #111827;
   --book-card-meta: #6b7280; --book-card-shadow-hover: 0 16px 34px rgba(15,23,42,.12);
-  --focus-ring-color: rgba(79,70,229,.28);
+  --focus-ring-color: rgba(79,70,229,.28); --tor-danger-ink: #9d4039;
   --neutral-bg: #f1f5f9; --success-bg: #f0fdf4; --success-border: #bbf7d0;
   --info-bg: #eff6ff; --info-border: #bfdbfe;
   --warning-bg: #fef3c7; --warning-border: #fcd34d;
@@ -60,7 +60,7 @@
   --book-card-cover-bg: radial-gradient(circle at top, rgba(139,156,255,.22), transparent 42%), #263348;
   --book-card-cover-text: var(--text-muted); --book-card-title: var(--text-main);
   --book-card-meta: var(--text-muted); --book-card-shadow-hover: 0 12px 30px rgba(0,0,0,.24);
-  --focus-ring-color: rgba(139,156,255,.38);
+  --focus-ring-color: rgba(139,156,255,.38); --tor-danger-ink: #fca5a5;
   --neutral-bg: #263348; --success-bg: #102a1c; --success-border: #14532d;
   --info-bg: #1e2a4a; --info-border: #314585;
   --warning-bg: #3a2b12; --warning-border: #854d0e;
