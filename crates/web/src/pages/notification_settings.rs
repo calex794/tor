@@ -106,7 +106,9 @@ mod tests {
         assert!(!html.contains("<bad>"));
         assert!(html.contains("пока не подключена"));
         assert!(html.contains("/me/library#new-chapters"));
-        assert!(!html.contains("<script"));
+        let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+        assert_eq!(html.matches(trusted).count(), 1);
+        assert!(!html.replacen(trusted, "", 1).contains("<script"));
         let smart =
             delivery_preferences_page(DeliveryMode::SmartTime, "csrf", None, false, false).0;
         assert!(smart.contains("value=\"smart_time\" checked"));
