@@ -225,3 +225,22 @@
     grid-template-columns: repeat(auto-fill,minmax(145px,1fr));
   }
 }
+/* UI-05: the controls follow the true DOM order; no CSS visual-only reordering. */
+.site-appearance__group[hidden],.site-appearance__order-row[hidden] { display: none !important; }
+.site-appearance__order { list-style: decimal; padding-inline-start: 23px; margin: 8px 0 10px; }
+.site-appearance__order-row {
+  display: list-item; padding: 6px 0; border-bottom: 1px solid var(--border-color);
+  color: var(--text-main); font-size: 12px; font-weight: 650;
+}
+.site-appearance__order-row > span:first-child { display: inline-block; max-width: calc(100% - 86px); vertical-align: middle; }
+.site-appearance__order-buttons { display: inline-flex; gap: 4px; float: right; }
+.site-appearance__order-buttons button,.site-appearance__order-reset {
+  cursor: pointer; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+  background: var(--bg-secondary); color: var(--text-main); font-weight: 700;
+}
+.site-appearance__order-buttons button { min-width: 35px; min-height: 35px; }
+.site-appearance__order-reset { min-height: 38px; padding: 7px 10px; }
+.site-appearance__order-buttons button:disabled { cursor: default; opacity: .45; }
+.site-appearance__order-buttons button:focus-visible,.site-appearance__order-reset:focus-visible {
+  outline: 3px solid var(--primary-color); outline-offset: 2px;
+}
