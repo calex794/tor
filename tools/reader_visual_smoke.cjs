@@ -480,6 +480,44 @@ async function inspect(page, name, where) {
       assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
         name + ': personal bookmark missing');
       await inspect(page, name, 'bookmarked');
+      // UI-04: authenticated, script-free library layouts use a native GET
+      // selector. Verify the same real bookmark and protected remove form.
+      const layoutNav = page.getByRole('navigation', { name: 'Вид личной библиотеки' });
+      for (const [title, mode] of [
+        ['Компактный', 'compact'], ['Карточки', 'cards'], ['Обычный', 'standard']
+      ]) {
+        const expected = base + '/me/library?view=saved&layout=' + mode;
+        const navigation = page.waitForResponse(response =>
+          response.url() === expected && response.status() === 200);
+        await layoutNav.getByRole('link', { name: title, exact: true }).click();
+        const response = await navigation;
+        assert((response.headers()['content-security-policy'] || '').includes("script-src 'none'"),
+          name + ': switching layout weakened private CSP');
+        assert.equal(await page.locator('section.library-v2')
+          .getAttribute('data-tor-library-layout'), mode,
+          name + ': selected layout is missing');
+        assert.equal(await page.locator('.library-display-controls a[aria-current="true"]').count(), 1,
+          name + ': layout navigation must expose one selected option');
+        assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
+          name + ': layout switch lost the saved book');
+        assert.equal(await page.locator('form[action="/me/library/1/remove"] input[name="csrf_token"]').count(), 1,
+          name + ': layout switch lost the protected remove form');
+        const preference = (await page.context().cookies(base))
+          .filter(cookie => cookie.name === 'tor-ui-library-v1');
+        assert(preference.length === 1 && preference[0].value === mode &&
+          preference[0].httpOnly === true,
+        name + ': invalid or non-HttpOnly layout preference');
+        const widths = await page.evaluate(() => ({
+          document: document.documentElement.scrollWidth,
+          viewport: document.documentElement.clientWidth
+        }));
+        assert(widths.document <= widths.viewport + 1,
+          name + ': library layout horizontal overflow ' + mode);
+      }
+      await timedGoto(page, base + '/me/library?view=saved');
+      assert.equal(await page.locator('section.library-v2')
+        .getAttribute('data-tor-library-layout'), 'standard',
+        name + ': library did not restore saved native layout');
       checkpoint = reportPhase('library_bookmark', name, checkpoint);
       await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
       await page.waitForURL('**/me/library');
