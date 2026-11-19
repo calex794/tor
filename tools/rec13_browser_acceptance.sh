@@ -134,6 +134,26 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
   node tools/rec_shares_admin_pg_browser.cjs
 ci_rec_step_done "rec_shares_admin_browser_acceptance"
+# Issue #1134: preceding REC/FLOW browser journeys can leave this collector
+# degraded after a bounded PG lock timeout. Require a new real process and
+# durable DB epoch for EDITORIAL, not a retry-until-green of failed callbacks.
+# The following browser still demands genuine HTTP 204 and a persisted view.
+old_editorial_epoch="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c 'SELECT COALESCE(MAX(epoch),0) FROM flow_observation_epochs')"
+stop_server
+mv "$root/server-current.log" "$root/server-current-before-editorial.log"
+start_server "$TEST_DATABASE_URL" current
+new_editorial_epoch="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c 'SELECT COALESCE(MAX(epoch),0) FROM flow_observation_epochs')"
+if [[ ! "$old_editorial_epoch" =~ ^[0-9]+$ || ! "$new_editorial_epoch" =~ ^[0-9]+$ ]] ||
+   (( new_editorial_epoch <= old_editorial_epoch )); then
+  echo 'FAIL: EDITORIAL did not start a fresh durable observation epoch' >&2
+  exit 1
+fi
+editorial_epoch_ready="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c "SELECT EXISTS(SELECT 1 FROM flow_observation_epochs WHERE epoch=$new_editorial_epoch AND NOT retired AND lease_until_ms>floor(extract(epoch FROM clock_timestamp())*1000)::bigint AND confirmed_ms>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-120000)")"
+[[ "$editorial_epoch_ready" == t ]] || {
+  echo 'FAIL: EDITORIAL observation epoch has no valid database lease' >&2
+  exit 1
+}
+echo 'CI_EDITORIAL_FRESH_EPOCH_OK'
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" TOR_EDITORIAL_EXPECT_OBSERVATIONS=1 \
   TOR_EDITORIAL_BASE=http://127.0.0.1:3108 TOR_EDITORIAL_SHOTS="$root/shots" \
   node tools/editorial_pg_browser.cjs

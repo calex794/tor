@@ -98,6 +98,25 @@ class WorkflowWiringTests(unittest.TestCase):
             script.index('if [[ "$rec_lane" != historical ]]; then'),
             script.index('if [[ "$rec_lane" != current ]]; then'),
         )
+        # #1134: keep EDITORIAL acceptance independent of an earlier degraded
+        # collector. The replacement must have a real new SQL epoch and live
+        # lease; the browser must still insist on actual 204/durable counters.
+        fresh = script[script.index('old_editorial_epoch='):
+                       script.index('node tools/editorial_pg_browser.cjs')]
+        for required in (
+            'stop_server',
+            'start_server "$TEST_DATABASE_URL" current',
+            'new_editorial_epoch=',
+            'new_editorial_epoch <= old_editorial_epoch',
+            'lease_until_ms>',
+            "CI_EDITORIAL_FRESH_EPOCH_OK",
+            'TOR_EDITORIAL_EXPECT_OBSERVATIONS=1',
+        ):
+            self.assertIn(required, fresh)
+        editorial = (ROOT / "tools/editorial_pg_browser.cjs").read_text()
+        self.assertIn("event.status===204", editorial)
+        self.assertIn("sums(campaign)[2]>before", editorial)
+        self.assertIn("This card has no accepted view callback", editorial)
         # The specialist workflow invokes the unfiltered all mode.
         specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
