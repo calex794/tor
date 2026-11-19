@@ -126,9 +126,61 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         store.put_immutable(&forged, &other.ciphertext).await,
         Err(StorageError::Conflict)
     );
+    let after_rejected_overwrite = store.get_verified(&record).await;
+    if let Err(error) = &after_rejected_overwrite {
+        // Only on failure: do not insert extra reads between the conflicting
+        // conditional PUT and the original asserted GET (which could hide a race).
+        // Never log the S3 object key, signed URLs, credentials or ciphertext.
+        use aws_sdk_s3::error::ProvideErrorMetadata;
+        eprintln!("G09_DIAGNOSTIC verified_get={error:?}");
+        let key = format!("private/chapter-versions/{ID}.enc");
+        match client.head_object().bucket(BUCKET).key(&key).send().await {
+            Ok(head) => eprintln!(
+                "G09_DIAGNOSTIC raw_head=ok length_matches={} digest_metadata_matches={}",
+                head.content_length() == Some(record.size_bytes as i64),
+                head.metadata()
+                    .and_then(|fields| fields.get("sha256"))
+                    .is_some_and(|digest| digest == &hex::encode(record.sha256_ciphertext))
+            ),
+            Err(fault) => eprintln!(
+                "G09_DIAGNOSTIC raw_head=error category={} service_code={}",
+                if fault.as_service_error().is_some() {
+                    "s3-service"
+                } else {
+                    "sdk-transport-or-response"
+                },
+                fault
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .unwrap_or("none")
+            ),
+        }
+        match client.get_object().bucket(BUCKET).key(&key).send().await {
+            Ok(get) => eprintln!(
+                "G09_DIAGNOSTIC raw_get=ok length_matches={} digest_metadata_matches={}",
+                get.content_length() == Some(record.size_bytes as i64),
+                get.metadata()
+                    .and_then(|fields| fields.get("sha256"))
+                    .is_some_and(|digest| digest == &hex::encode(record.sha256_ciphertext))
+            ),
+            Err(fault) => eprintln!(
+                "G09_DIAGNOSTIC raw_get=error category={} service_code={}",
+                if fault.as_service_error().is_some() {
+                    "s3-service"
+                } else {
+                    "sdk-transport-or-response"
+                },
+                fault
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .unwrap_or("none")
+            ),
+        }
+    }
     assert_eq!(
-        store.get_verified(&record).await.unwrap(),
-        encrypted.ciphertext
+        after_rejected_overwrite.unwrap(),
+        encrypted.ciphertext,
+        "rejected immutable overwrite must not destroy the original paid edition"
     );
     assert_eq!(store.head_verified(&forged).await, Ok(false));
     assert_eq!(
