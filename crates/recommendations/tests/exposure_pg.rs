@@ -220,7 +220,9 @@ async fn live_book_age_explicit_choices_and_database_contention_fail_closed() {
         .store
         .record(&event(&second, EventKind::Click), &ctx, None)
         .await;
-    assert_eq!(result, Err(ExposureError::Unavailable));
+    // The aggregate's own 55P03 is a local, rolled-back contention, not a
+    // worker-epoch failure. Other Unavailable errors remain fail-closed.
+    assert_eq!(result, Err(ExposureError::Contended));
     assert!(before.elapsed() < Duration::from_secs(1));
     lock.rollback().await.unwrap();
     assert_eq!(f.counts(0).await, (2, 1, 0, 1, 0));
