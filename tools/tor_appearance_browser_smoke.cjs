@@ -26,7 +26,7 @@ async function open(page, pathname) {
 
 async function select(page, setting, value) {
   const picker = page.locator("[data-tor-appearance]");
-  if (!(await picker.getAttribute("open"))) {
+  if ((await picker.getAttribute("open")) === null) {
     await picker.locator("summary").click();
   }
   const button = picker.locator('button[data-tor-setting="' + setting +
@@ -85,7 +85,7 @@ async function select(page, setting, value) {
         getComputedStyle(el).getPropertyValue("--bg-main").trim()), "#0b1120",
       width + ": explicit dark did not apply");
       await page.keyboard.press("Escape");
-      assert(!(await page.locator("[data-tor-appearance]").getAttribute("open")),
+      assert((await page.locator("[data-tor-appearance]").getAttribute("open")) === null,
         width + ": Escape must close picker");
       if (out && (width === 390 || width === 1440)) {
         await page.screenshot({ path: path.join(out, "tor-ui-catalog-" + width + ".png"),
