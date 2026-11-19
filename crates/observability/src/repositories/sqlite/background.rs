@@ -119,17 +119,37 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
-            Self(std::env::temp_dir().join(format!(
-                "tor-background-{}-{}.sqlite",
-                std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-            )))
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            loop {
+                // A timestamp alone does not reserve a unique path for tests
+                // starting concurrently. Reserve the file before SQLite opens it.
+                let seq = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir().join(format!(
+                    "tor-background-{}-{stamp}-{seq}.sqlite",
+                    std::process::id()
+                ));
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                {
+                    Ok(_) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("cannot reserve SQLite test archive: {error}"),
+                }
+            }
         }
     }
     impl Drop for Temp {
@@ -174,6 +194,33 @@ mod tests {
         assert_eq!(store.search(SearchFilter::default()).unwrap().archived, 1);
         assert_eq!(store.background_for_parent(16).unwrap().matches, 1);
         assert_eq!(store.background_for_parent(17).unwrap().matches, 0);
+    }
+
+    #[test]
+    fn parallel_test_archives_never_share_a_sqlite_file() {
+        // The archive is reopened after all concurrent constructors finish,
+        // so every worker must have owned a distinct real on-disk database.
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let file = Temp::new();
+                    let mut store = TraceStore::open(&file.0, StorePolicy::default()).unwrap();
+                    assert!(store.append_background(&child(32), 100).unwrap());
+                    drop(store);
+                    file
+                })
+            })
+            .collect();
+        let files: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        let mut paths = std::collections::HashSet::new();
+        for file in &files {
+            assert!(paths.insert(file.0.clone()), "concurrent archives shared a path");
+            let store = TraceStore::open(&file.0, StorePolicy::default()).unwrap();
+            assert_eq!(store.background_for_parent(16).unwrap().matches, 1);
+        }
     }
 
     #[test]
