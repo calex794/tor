@@ -429,7 +429,13 @@ pub async fn stylesheet() -> impl IntoResponse {
 }
 
 mod appearance;
-pub use appearance::{appearance_script, newboo_stylesheet};
+/// Reviewed public asset handlers stay in this module for RIL guard auditing.
+pub async fn newboo_stylesheet() -> impl IntoResponse {
+    appearance::newboo_stylesheet().await
+}
+pub async fn appearance_script() -> impl IntoResponse {
+    appearance::appearance_script().await
+}
 
 /// Public free-reader display settings only.
 mod free_s3_assets;
