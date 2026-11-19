@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """S061: real isolated Rust/PostgreSQL candidate, cutover and rollback drill.
 
-Automatic CI exercises the release switch. The optional two-SHA run first
-installs and populates the previous schema, then tests an upgrade and rollback.
+Mandatory CI exercises restart/cutover/crash rollback with populated FREE V1/V2,
+saved FREE/Layer pins, paid V1 purchase and reader positions in disposable PG18.
+This is a SAME-BINARY rehearsal, not proof of compatibility with an older release.
+The optional two-SHA run installs and populates the previous schema, then
+tests an actual version upgrade and rollback; optional MinIO adds saved FREE
+byte-level browser evidence.
 """
 from __future__ import annotations
 
