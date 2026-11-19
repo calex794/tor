@@ -119,16 +119,22 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    // SystemTime alone is not an exclusive filename allocator: parallel tests
+    // may observe the same clock tick and contend on one SQLite journal.
+    static NEXT_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
             Self(std::env::temp_dir().join(format!(
-                "tor-background-{}-{}.sqlite",
+                "tor-background-{}-{}-{}.sqlite",
                 std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+                NEXT_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
             )))
         }
     }
@@ -148,6 +154,19 @@ mod tests {
             duration_us: 1_000,
             phase_us: [100, 200, 300, 50],
         }
+    }
+
+    #[test]
+    fn temporary_sqlite_names_do_not_collide_under_parallel_test_startup() {
+        let threads: Vec<_> = (0..32)
+            .map(|_| std::thread::spawn(|| Temp::new().0.clone()))
+            .collect();
+        let paths: Vec<_> = threads
+            .into_iter()
+            .map(|handle| handle.join().expect("temporary name allocator"))
+            .collect();
+        let unique: std::collections::HashSet<_> = paths.iter().collect();
+        assert_eq!(unique.len(), paths.len());
     }
 
     #[test]
