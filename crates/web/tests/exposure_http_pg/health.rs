@@ -194,7 +194,6 @@ async fn managed_queue_eof_waits_for_http_drained_witness() {
     f.cleanup().await;
 }
 
-
 // #1134: reproduce the real PostgreSQL hourly aggregate lock that previously
 // disabled observation callbacks in the browser chain. No restart, fake ACK,
 // or retry-until-green is allowed: one healthy callback must succeed after the
@@ -301,7 +300,13 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
         "a recovered callback and replay must count only one durable view"
     );
     assert_eq!(
-        sql(&f.url, &format!("SELECT count(*) FROM rec_subjects WHERE user_id={}", f.actor)),
+        sql(
+            &f.url,
+            &format!(
+                "SELECT count(*) FROM rec_subjects WHERE user_id={}",
+                f.actor
+            )
+        ),
         "0",
         "anonymous observation must not create a reader identity"
     );
