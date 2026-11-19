@@ -193,3 +193,163 @@ async fn managed_queue_eof_waits_for_http_drained_witness() {
     );
     f.cleanup().await;
 }
+
+// #1134: reproduce the real PostgreSQL hourly aggregate lock that previously
+// disabled observation callbacks in the browser chain. No restart, fake ACK,
+// or retry-until-green is allowed: one healthy callback must succeed after the
+// collector's next durable checkpoint, and failed requests must not count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable PostgreSQL18 tor_ci"]
+async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly_once() {
+    let f = Fixture::new().await;
+    let proof = f.proof().await;
+    let epoch = latest(&f);
+    let rendered = payload(&proof, "rendered").to_string();
+    let viewed = payload(&proof, "view").to_string();
+
+    // The original log reported a tuple lock timeout. Use a separate psql
+    // transaction, exactly as the existing authority-lock test does, without
+    // changing shared Cargo dependencies or the production connection pool.
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, ChildStdin, Stdio};
+    struct HeldHourlyRow(Child, Option<ChildStdin>);
+    impl Drop for HeldHourlyRow {
+        fn drop(&mut self) {
+            if let Some(mut stdin) = self.1.take() {
+                let _ = writeln!(stdin, "ROLLBACK;\n\\q");
+                let _ = stdin.flush();
+            }
+            let _ = self.0.wait();
+        }
+    }
+    let mut child = Command::new("psql")
+        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", &f.url])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000",
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(
+        input,
+        "BEGIN; SELECT opportunities FROM flow_observation_hourly WHERE book_id={} FOR UPDATE; SELECT 'LOCKED';",
+        f.book
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let mut locked = false;
+    for _ in 0..4 {
+        let mut line = String::new();
+        assert!(
+            output.read_line(&mut line).unwrap() > 0,
+            "row-lock holder exited"
+        );
+        if line.trim() == "LOCKED" {
+            locked = true;
+            break;
+        }
+        assert_eq!(
+            line.trim(),
+            "1",
+            "expected exactly one persisted opportunity"
+        );
+    }
+    assert!(locked, "the exact aggregate row lock was not acquired");
+    let blocker = HeldHourlyRow(child, Some(input));
+
+    let rejected = tokio::time::timeout(
+        Duration::from_secs(2),
+        f.send("POST", API, "", ORIGIN, &rendered),
+    )
+    .await
+    .expect("a blocked hourly aggregate must not hang the HTTP reader pool");
+    private(&rejected, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        !f.runtime.queue_snapshot().ready,
+        "503 must fail closed instead of leaving issuance enabled"
+    );
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
+
+    drop(blocker);
+    // SQL writes in the aborted HTTP transaction must all roll back, including
+    // proof event flags. The original persisted opportunity remains untouched.
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT opportunities||','||rendered||','||views||','||clicks||','||replayed FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "1,0,0,0,0",
+        "failed callbacks must not invent a rendered card or view"
+    );
+    tokio::time::timeout(Duration::from_secs(1), f.store.describe(&proof))
+        .await
+        .expect("the reader pool must remain usable after the lock")
+        .expect("the original proof must remain valid");
+
+    // Wait for a fresh *real* collector health acknowledgement, not repeated
+    // observation POSTs. A dead collector fails this strict deadline.
+    tokio::time::timeout(Duration::from_secs(12), async {
+        while !f.runtime.queue_snapshot().ready {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the original collector never recovered its database lease");
+    assert_eq!(
+        latest(&f),
+        epoch,
+        "the short SQL lock must recover within the existing collector epoch"
+    );
+
+    private(
+        &f.send("POST", API, "", ORIGIN, &rendered).await,
+        StatusCode::NO_CONTENT,
+    );
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::NO_CONTENT,
+    );
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::NO_CONTENT,
+    );
+    private(
+        &f.send("POST", API, "", "https://evil.invalid", &viewed)
+            .await,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT opportunities||','||rendered||','||views||','||clicks||','||replayed FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "1,1,1,0,1",
+        "a recovered callback and replay must count only one durable view"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT count(*) FROM rec_subjects WHERE user_id={}",
+                f.actor
+            )
+        ),
+        "0",
+        "anonymous observation must not create a reader identity"
+    );
+    f.cleanup().await;
+}
