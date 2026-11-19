@@ -23,7 +23,10 @@ impl PgExposure {
         }
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT set_config('statement_timeout','500ms',true),set_config('lock_timeout','50ms',true)").execute(&mut *tx).await?;
-        epoch_fence(&mut tx, epoch, true).await?;
+        // Check liveness early, but do not pin the epoch while waiting for
+        // proof, capacity or aggregate row locks. A final shared fence below
+        // still serializes retirement with the commit.
+        epoch_fence(&mut tx, epoch, false).await?;
         let live: i64 = sqlx::query_scalar(
             "SELECT live_proofs FROM flow_observation_state WHERE singleton FOR UPDATE",
         )
@@ -69,7 +72,9 @@ impl PgExposure {
             .bind(registered)
             .execute(&mut *tx)
             .await?;
-        epoch_fence(&mut tx, epoch, false).await?;
+        // Any retirement/checkpoint raced during the writes must be observed
+        // before commit. If the epoch changed, the entire transaction rolls back.
+        epoch_fence(&mut tx, epoch, true).await?;
         tx.commit().await?;
         Ok(registered)
     }
@@ -119,7 +124,10 @@ impl PgExposure {
         let hash = digest(&event.proof)?;
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT set_config('statement_timeout','500ms',true),set_config('lock_timeout','50ms',true)").execute(&mut *tx).await?;
-        epoch_fence(&mut tx, epoch, true).await?;
+        // Check liveness early, but do not pin the epoch while waiting for
+        // proof, capacity or aggregate row locks. A final shared fence below
+        // still serializes retirement with the commit.
+        epoch_fence(&mut tx, epoch, false).await?;
         let row=sqlx::query("SELECT *,expires_at>clock_timestamp() AS fresh,issued_at<=clock_timestamp()-interval '1 second' AS old_enough FROM flow_observation_proofs WHERE digest=$1 FOR UPDATE")
             .bind(hash.as_slice()).fetch_optional(&mut *tx).await?.ok_or(ExposureError::Missing)?;
         if !row.try_get::<bool, _>("fresh")? {
@@ -151,7 +159,9 @@ impl PgExposure {
             .bind(hash.as_slice()).bind(event.kind==EventKind::View).bind(event.kind==EventKind::Click).execute(&mut *tx).await?;
         sqlx::query("UPDATE flow_observation_hourly h SET rendered=h.rendered+$2,views=h.views+$3,clicks=h.clicks+$4,replayed=h.replayed+$5 FROM flow_observation_proofs p WHERE p.digest=$1 AND (h.bucket,h.book_id,h.surface,h.campaign_id,h.slot)=(p.bucket,p.book_id,p.surface,p.campaign_id,p.slot)")
             .bind(hash.as_slice()).bind(render_delta).bind(view_delta).bind(click_delta).bind(i64::from(replay)).execute(&mut *tx).await?;
-        epoch_fence(&mut tx, epoch, false).await?;
+        // Any retirement/checkpoint raced during the writes must be observed
+        // before commit. If the epoch changed, the entire transaction rolls back.
+        epoch_fence(&mut tx, epoch, true).await?;
         tx.commit().await?;
         Ok(if replay {
             ObservationReceipt::Replay
@@ -190,8 +200,10 @@ impl PgExposure {
     }
 }
 
-// Production registration/callbacks hold a shared epoch fence for their bounded
-// transaction. A stale worker is unavailable (503), not an expired proof (410).
+// An early liveness check is nonlocking; the final shared row fence pins
+// the live epoch across commit only, never across aggregate/proof contention.
+// If the worker retired in between, the whole transaction rolls back: 503,
+// not an expired proof (410) or an invented observation.
 async fn epoch_fence(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     epoch: Option<i64>,
