@@ -179,7 +179,7 @@ async fn f_05_http_browser_form_skip_and_resume() {
         body_of(send(&app, request("GET", "/me/rankings", "", &cookies, ORIGIN)).await).await;
     assert!(html.contains("Первая лучше") && html.contains("Отложить вторую"));
     // The global appearance asset is allowed; no other executable markup is.
-    const appearance_asset = "<script src=\"/assets/tor-appearance.js\"></script>";
+    let appearance_asset = "<script src=\"/assets/tor-appearance.js\"></script>";
     assert_eq!(html.matches(appearance_asset).count(), 1);
     assert!(!html.replacen(appearance_asset, "", 1).contains("<script"));
     let form=format!(
