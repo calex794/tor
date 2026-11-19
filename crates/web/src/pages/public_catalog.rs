@@ -126,11 +126,18 @@ fn home_body(
                 String::new()
             },
         );
-    layout_with_support_widget(
+    // UI-05 belongs only on the homepage. Other public and account
+    // pages keep their original trusted-script allowlist unchanged.
+    let page = layout_with_support_widget(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
         &content,
-    )
+    );
+    Html(page.0.replacen(
+        "</head>",
+        "  <script defer src=\"/assets/tor-home-order.js\"></script>\n</head>",
+        1,
+    ))
 }
 
 fn recent_release_section(
