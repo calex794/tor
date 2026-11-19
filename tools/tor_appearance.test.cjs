@@ -127,3 +127,26 @@ test("private library layout variants are CSS-only and keep all book links", () 
 
 // UI-05 is part of the existing mandatory appearance test entrypoint.
 require('./tor_home_order.test.cjs');
+
+
+test("UI-06: real books appear immediately after compact search; promo and home ordering survive", () => {
+  const home = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/home.html"), "utf8"
+  );
+  const rust = fs.readFileSync(
+    path.join(__dirname, "../crates/web/src/pages/public_catalog.rs"), "utf8"
+  );
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  assert(home.includes("<!--HOME_PROMO_STRIP-->"));
+  assert(home.includes("<!--EDITORIAL_PROMOTION-->"));
+  assert(home.includes('data-tor-home-blocks'));
+  assert(home.indexOf("home-search-query") < home.indexOf('data-tor-home-block="latest"'));
+  assert(!home.includes("HOME_SPOTLIGHT"));
+  assert(!home.includes('class="home-special"'));
+  assert(!rust.includes("home_spotlight::render_observed"));
+  assert(rust.includes("recent_genre_links(books)"));
+  assert(css.includes("UI-06: content-first public homepage"));
+  assert(css.includes(':root[data-tor-style="library"] .home-genre-navigation'));
+});
