@@ -106,7 +106,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         PgPrivateDelivery::with_keyring(
             pool.clone(),
             store.clone(),
-            ring,
+            ring.clone(),
             BUCKET_BODYLESS_HTTP.to_owned(),
         )
         .unwrap(),
@@ -379,6 +379,82 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
+
+    // FND-00: rolling the operator flag back to OFF must never make a
+    // bodyless V2 editable through the old PostgreSQL Markdown writer.
+    // Reader grants remain version-pinned and independent of this author gate.
+    let legacy_catalog = PgCatalog::connect(&url).await.unwrap();
+    let legacy_writer = PgPaidAuthorPublisher::new(
+        legacy_catalog.clone(),
+        store.clone(),
+        ring.clone(),
+        BUCKET_BODYLESS_HTTP.to_owned(),
+    )
+    .unwrap();
+    let legacy_signer: Arc<dyn PrivateObjectDeliveryPort> = Arc::new(
+        PgPrivateDelivery::with_keyring(
+            pool.clone(),
+            store.clone(),
+            ring.clone(),
+            BUCKET_BODYLESS_HTTP.to_owned(),
+        )
+        .unwrap(),
+    );
+    let rolled_back = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
+        legacy_catalog,
+        PgReader::new(pool.clone()),
+        PgAccounts::from_pool(pool.clone()),
+        (false, ORIGIN.to_owned()),
+        (legacy_signer, ENDPOINT.to_owned()),
+        None,
+        legacy_writer,
+    )
+    .unwrap();
+    let (old_status, old_page) = browse(&rolled_back, &edit_path, &session, &csrf).await;
+    assert_ne!(old_status, StatusCode::OK);
+    assert!(!old_page.contains("Paid bodyless V2 source"));
+    assert!(!old_page.contains(initial_body));
+    let rollback_command = generate_session_token();
+    let rollback_post = format!(
+        "body=Do%20not%20write%20this%20to%20PG&expected_revision=2&command_key={rollback_command}&csrf_token={csrf}"
+    );
+    let rollback_response = rolled_back
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(edit_path.as_str())
+                .method("POST")
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::COOKIE, cookie(&session, &csrf))
+                .body(Body::from(rollback_post))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rollback_response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "flag-OFF legacy author writer must reject edits of bodyless V2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT p.version_id || '|' || c.edit_revision || '|' || count(v.body_markdown)
+                 FROM chapter_publications p
+                 JOIN chapters c ON c.id=p.chapter_id
+                 JOIN chapter_versions v ON v.chapter_id=c.id
+                 WHERE c.id={chapter}
+                 GROUP BY p.version_id,c.edit_revision"
+            ),
+        ),
+        format!("{current_v2}|2|0"),
+        "flag rollback must not overwrite or move the current edition"
+    );
+    let (restored_status, restored_page) = browse(&app, &edit_path, &session, &csrf).await;
+    assert_eq!(restored_status, StatusCode::OK);
+    assert!(restored_page.contains("Paid bodyless V2 source"));
 
     // FND-00: a lost/corrupted private object must deny owner GET rather than
     // disclose a stale edition or silently fall back to PostgreSQL Markdown.
