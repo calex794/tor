@@ -36,7 +36,9 @@ function fixture(saved, missing = []) {
   picker.querySelector = name => name === '[data-tor-home-order-list]' ? list : null;
   const blocks = IDS.map(id => {
     const item = node({ 'data-tor-home-block': id });
-    item.section = missing.includes(id) ? null : node();
+    item.tagName = id === 'latest' ? 'SECTION' : 'DIV';
+    // The canonical latest section has no nested section; test that it is still available.
+    item.section = id === 'latest' || missing.includes(id) ? null : node();
     item.proof = 'proof-' + id;
     return item;
   });
@@ -97,6 +99,7 @@ test('tampered and truncated orders fall back to SSR', () => {
 test('up/down moves only visible shelves, preserving hidden and storage', () => {
   const f = fixture(null, ['editorial', 'rising']);
   assert.equal(f.picker.hidden, false);
+  assert.equal(f.rows[0].hidden, false, 'top-level section remains accessible');
   assert.equal(f.rows[2].hidden, true);
   assert.equal(f.rows[3].hidden, true);
   f.click('genres', 'up');
