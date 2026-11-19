@@ -81,6 +81,9 @@
         [order[a], order[b]] = [order[b], order[a]];
       }
       apply();
+      // Reparenting the settings row can drop keyboard focus. Restore it
+      // to the exact control the reader activated, without jumping the page.
+      target.focus?.({ preventScroll: true });
       write(order);
     });
     window.addEventListener('storage', event => {
