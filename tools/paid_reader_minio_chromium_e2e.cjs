@@ -44,6 +44,7 @@ const orderedNewbooFiles = [
   "account-ui.css",
   "author-layers.css",
   "newboo-library.css",
+  "tor-appearance.css",
 ];
 // Extract the actual Rust handler's include_str! order, so future changes
 // cannot silently turn this Chromium smoke into a stale visual fixture.
@@ -51,11 +52,14 @@ const pageSource = fs.readFileSync("crates/web/src/pages.rs", "utf8");
 assert(pageSource.includes('include_str!("../assets/newboo-paid-reader.mjs")') &&
   pageSource.includes('include_str!("../assets/newboo-paid-toc.js")'),
   "Real paid-reader asset handler must serve both module sources");
-const start = pageSource.indexOf("pub async fn newboo_stylesheet()");
-const end = pageSource.indexOf("pub async fn paid_reader_script()", start);
+const styleSource = fs.readFileSync("crates/web/src/pages/appearance.rs", "utf8");
+assert(pageSource.includes("appearance::newboo_stylesheet().await"),
+  "Public CSS handler must delegate to the reviewed appearance module");
+const start = styleSource.indexOf("pub async fn newboo_stylesheet()");
+const end = styleSource.indexOf("pub async fn appearance_script()", start);
 assert(start >= 0 && end > start, "NEwBOO Rust CSS handler missing");
-const sourceOrder = [...pageSource.slice(start, end).matchAll(
-  /include_str!\("\.\.\/assets\/([^"]+\.css)"\)/g
+const sourceOrder = [...styleSource.slice(start, end).matchAll(
+  /include_str!\("\.\.\/\.\.\/assets\/([^"]+\.css)"\)/g
 )].map((match) => match[1]);
 assert.deepEqual(sourceOrder, orderedNewbooFiles,
   "Rust pages::newboo_stylesheet CSS list changed: update visual baseline");
