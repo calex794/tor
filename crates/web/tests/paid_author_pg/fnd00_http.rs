@@ -416,7 +416,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert!(!old_page.contains(initial_body));
     let rollback_command = generate_session_token();
     let rollback_post = format!(
-        "body=Do%20not%20write%20this%20to%20PG&expected_revision=2&command_key={rollback_command}&csrf_token={csrf}"
+        "number=1&title=Immutable%20paid%20editor&body=Do%20not%20write%20this%20to%20PG&expected_revision=2&command_key={rollback_command}&csrf_token={csrf}"
     );
     let rollback_response = rolled_back
         .clone()
