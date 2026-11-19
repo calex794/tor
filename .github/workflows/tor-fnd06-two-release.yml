@@ -36,7 +36,6 @@ jobs:
       # A previously accepted TOR main commit, with the same SQLx migrations
       # as the original 2026-11-19 candidate. Never replace this with HEAD.
       TOR_S061_PREVIOUS_SHA: '3e86df5c75e24f41434ccbdbad4f70610602a9b1'
-      TOR_S061_PREVIOUS_BINARY: ${{ runner.temp }}/s061-previous-tor-web
       TOR_S061_S3_ENDPOINT: http://127.0.0.1:9012
       PGHOST: 127.0.0.1
       PGUSER: postgres
@@ -112,6 +111,8 @@ jobs:
       - name: Start checksum-verified loopback MinIO
         run: bash tools/s061_start_minio.sh
       - name: Two real binaries, installed SQLx upgrade, private S3 and crash rollback
+        env:
+          TOR_S061_PREVIOUS_BINARY: ${{ runner.temp }}/s061-previous-tor-web
         run: |
           set -euo pipefail
           python3 tools/s061_cutover_pg_smoke.py
