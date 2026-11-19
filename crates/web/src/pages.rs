@@ -437,6 +437,10 @@ pub async fn appearance_script() -> impl IntoResponse {
     appearance::appearance_script().await
 }
 
+pub async fn home_order_script() -> impl IntoResponse {
+    appearance::home_order_script().await
+}
+
 /// Public free-reader display settings only.
 mod free_s3_assets;
 pub async fn free_s3_progress_script() -> impl IntoResponse {

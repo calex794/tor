@@ -53,3 +53,18 @@ pub async fn appearance_script() -> impl IntoResponse {
         include_str!("../../assets/tor-appearance.js"),
     )
 }
+
+/// UI-05 public-only home layout order. No account or analytics data is exposed.
+pub async fn home_order_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        include_str!("../../assets/tor-home-order.js"),
+    )
+}

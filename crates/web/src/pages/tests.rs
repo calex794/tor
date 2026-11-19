@@ -531,3 +531,29 @@ fn ui_01_appearance_picker_is_progressive_and_does_not_change_reader_shell() {
     let script = include_str!("../../assets/tor-appearance.js");
     assert!(script.contains("torAppearance.v1"));
 }
+
+#[test]
+fn ui_05_home_order_preserves_ssr_cards_and_private_reader_shell() {
+    let html = home(&[PublicBookCard {
+        id: 44,
+        title: "Реальная книга".into(),
+        language: "ru".into(),
+        author_name: None,
+        genres: Vec::new(),
+    }])
+    .0;
+    for name in ["latest", "releases", "editorial", "rising", "genres"] {
+        assert!(html.contains(&format!(r#"data-tor-home-block="{name}""#)));
+        assert!(html.contains(&format!(r#"data-tor-home-order-item="{name}""#)));
+    }
+    assert!(html.contains("data-tor-home-blocks"));
+    assert!(html.contains(r#"href="/books/44""#));
+    assert!(html.contains(r#"src="/assets/tor-home-order.js""#));
+    assert!(html.contains("data-tor-home-order hidden"));
+    assert!(!layout("Кабинет", "Описание", "<p>Защищённая форма</p>")
+        .0
+        .contains("tor-home-order.js"));
+    assert!(!include_str!("../../templates/reader_layout.html").contains("tor-home-order.js"));
+    assert!(!include_str!("../../assets/tor-home-order.js").contains("innerHTML"));
+    assert!(!include_str!("../../assets/tor-home-order.js").contains("cloneNode"));
+}

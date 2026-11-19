@@ -139,6 +139,41 @@ async function observedCard(page,card,campaign,before,response,events){
     await card.screenshot({path:path.join(shots,`editorial-${campaign}-${width}.png`)});
    }
   }
+  // UI-05: verify moving the actual observed node retains its proof and URL.
+  await publicPage.goto(base+'/');
+  const homeBlocks=publicPage.locator('[data-tor-home-blocks]');
+  const homeOrder=()=>homeBlocks.locator(':scope > [data-tor-home-block]').evaluateAll(
+    nodes=>nodes.map(node=>node.getAttribute('data-tor-home-block')));
+  assert((await homeOrder()).indexOf('editorial')>(await homeOrder()).indexOf('latest'));
+  const editorialCard=publicPage.locator('[data-editorial-campaign="'+campaigns[0]+'"]');
+  const originalProof=await editorialCard.getAttribute('data-flow-proof');
+  const originalHref=await editorialCard.locator('a').first().getAttribute('href');
+  const orderPicker=publicPage.locator('[data-tor-appearance]');
+  await orderPicker.locator('summary').click();
+  const up=orderPicker.locator('button[data-tor-home-id="editorial"][data-tor-home-direction="up"]');
+  assert(await up.isEnabled());
+  // One step may cross the releases shelf first; move until editorial
+  // actually precedes the latest shelf in DOM and keyboard focus order.
+  for(let step=0;step<4;step++){
+   const order=await homeOrder();
+   if(order.indexOf('editorial')<order.indexOf('latest'))break;
+   await up.focus();
+   await publicPage.keyboard.press('Enter');
+   assert(await up.evaluate(button=>{
+    const active=document.activeElement;
+    return active instanceof HTMLButtonElement && !active.disabled &&
+      button.closest('[data-tor-home-order-item]')?.contains(active);
+   }),'keyboard focus left the moved row');
+  }
+  assert((await homeOrder()).indexOf('editorial')<(await homeOrder()).indexOf('latest'));
+  assert.equal(await editorialCard.getAttribute('data-flow-proof'),originalProof);
+  assert.equal(await editorialCard.locator('a').first().getAttribute('href'),originalHref);
+  assert.equal(await publicPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await publicPage.reload({waitUntil:'networkidle'});
+  assert((await homeOrder()).indexOf('editorial')<(await homeOrder()).indexOf('latest'));
+  await orderPicker.locator('summary').click();
+  await orderPicker.locator('[data-tor-home-reset]').click();
+  assert((await homeOrder()).indexOf('editorial')>(await homeOrder()).indexOf('latest'));
   await publicPage.goto(base+'/');await publicPage.locator(`[data-editorial-campaign="${campaigns[0]}"] a`).click();await publicPage.waitForURL(base+`/books/${promoted}`);
   assert.equal(await publicPage.locator('.editorial-promotion').count(),0);
   if(expectObservations){await poll(()=>{const [opportunities,rendered,views,clicks]=sums(campaigns[0]);assert.ok(opportunities>=1&&rendered>=1&&views>=1&&clicks>=1);});await privateResponse(await page.goto(base+`/admin/audience/exposure?source=editorial&campaign=${campaigns[0]}&days=7`));}

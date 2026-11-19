@@ -516,6 +516,7 @@ fn make_router_with_paid_checkout(
         )
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/tor-appearance.js", get(pages::appearance_script))
+        .route("/assets/tor-home-order.js", get(pages::home_order_script))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
             "/assets/newboo-paid-reader.mjs",
