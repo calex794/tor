@@ -224,7 +224,10 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     }
     let mut child = Command::new("psql")
         .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", &f.url])
-        .env("PGOPTIONS", "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000",
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -241,12 +244,19 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     let mut locked = false;
     for _ in 0..4 {
         let mut line = String::new();
-        assert!(output.read_line(&mut line).unwrap() > 0, "row-lock holder exited");
+        assert!(
+            output.read_line(&mut line).unwrap() > 0,
+            "row-lock holder exited"
+        );
         if line.trim() == "LOCKED" {
             locked = true;
             break;
         }
-        assert_eq!(line.trim(), "1", "expected exactly one persisted opportunity");
+        assert_eq!(
+            line.trim(),
+            "1",
+            "expected exactly one persisted opportunity"
+        );
     }
     assert!(locked, "the exact aggregate row lock was not acquired");
     let blocker = HeldHourlyRow(child, Some(input));
