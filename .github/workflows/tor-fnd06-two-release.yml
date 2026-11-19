@@ -1,0 +1,148 @@
+name: TOR FND-06 two-release rollback acceptance
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tor-fnd06-two-release.yml'
+      - 'tools/s061_*'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tor-fnd06-two-release.yml'
+      - 'tools/s061_*'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fnd06-two-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  populated-two-release-rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # An accepted main ancestor before the FND-00 bodyless SQLx migration.
+      # Test the actual additive installed-schema upgrade while old TOR is live.
+      TOR_S061_PREVIOUS_SHA: 'e71f4c2faab07ec7101ebf12ba4dc4524657d0b8'
+      TOR_S061_S3_ENDPOINT: http://127.0.0.1:9012
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fnd06-dual-s3-paid-free-v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium for saved FREE V1 S3 browser checks
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --only-shell chromium
+      - name: Prepare isolated PG18 roles and database
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Build real previous server and migrator from a distinct ancestor
+        run: |
+          set -euo pipefail
+          [[ "$TOR_S061_PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$TOR_S061_PREVIOUS_SHA" != "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$TOR_S061_PREVIOUS_SHA" HEAD
+          git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$TOR_S061_PREVIOUS_SHA"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
+            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
+              -p tor-web --bin tor-web --features 's3-free,s3-paid' \
+              -p tor-migrations --bin tor-migrate
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
+            "$RUNNER_TEMP/s061-previous-tor-web"
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-migrate" \
+            "$RUNNER_TEMP/s061-previous-tor-migrate"
+          rm -rf "$RUNNER_TEMP/s061-previous-target"
+      - name: Build the actual candidate server and migrator
+        run: |
+          set -euo pipefail
+          cargo build -p tor-web --bin tor-web --features 's3-free,s3-paid' \
+            -p tor-migrations --bin tor-migrate
+          test -x target/debug/tor-web
+          test -x target/debug/tor-migrate
+          ! cmp -s "$RUNNER_TEMP/s061-previous-tor-web" target/debug/tor-web
+      - name: Start checksum-verified loopback MinIO
+        run: bash tools/s061_start_minio.sh
+      - name: Two real binaries, installed SQLx upgrade, private S3 and crash rollback
+        env:
+          TOR_S061_PREVIOUS_BINARY: ${{ runner.temp }}/s061-previous-tor-web
+        run: |
+          set -euo pipefail
+          python3 tools/s061_cutover_pg_smoke.py
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) /
+                               "s061-real-cutover/report.json").read_text())
+          assert report["distinct_binary_validation"] is True
+          assert report["same_binary_both_slots"] is False
+          assert 202998431705 in report["added_migrations"], report["added_migrations"]
+          assert report["populated_catalog_verified"] is True
+          assert report["previous_source_sha"] == os.environ["TOR_S061_PREVIOUS_SHA"]
+          assert report["saved_v1_s3_read_stages"] == [
+              "previous_before_migration",
+              "previous_after_migration",
+              "parallel_candidate",
+              "promoted_candidate",
+              "rolled_back_previous",
+          ], report["saved_v1_s3_read_stages"]
+          assert report["postcutover_rollback"] is True
+          assert "catalog_survived_on_upgraded_schema" in report["events"]
+          print("FND06_TWO_BINARY_PRIVATE_S3_ROLLBACK_OK")
+          PY
+      - name: Save isolated rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fnd06-two-release-${{ github.sha }}
+          path: ${{ runner.temp }}/s061-real-cutover/report.json
+          retention-days: 14
+          if-no-files-found: warn
