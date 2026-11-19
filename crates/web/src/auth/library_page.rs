@@ -142,7 +142,9 @@ pub(super) async fn my_library(
 /// enum label is substituted after exact matching.
 fn apply_private_library_theme(html: &mut String, headers: &HeaderMap) {
     for raw in headers.get_all(axum::http::header::COOKIE).iter() {
-        let Ok(raw) = raw.to_str() else { continue };
+        let Ok(raw) = raw.to_str() else {
+            continue;
+        };
         for item in raw.split(';') {
             let Some((name, raw_mode)) = item.trim().split_once('=') else {
                 continue;
