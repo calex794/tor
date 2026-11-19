@@ -15,6 +15,18 @@ fn latest(f: &Fixture) -> i64 {
 #[ignore = "requires disposable PostgreSQL18 tor_ci"]
 async fn managed_stop_drains_queued_cards_before_retiring_the_epoch() {
     let f = Fixture::new().await;
+    // Fixture::new already starts an unmanaged observation worker sharing the
+    // singleton PG state row. Its tick/prune can contend with the second worker
+    // under test, even though this is the no-contention 64/64 drain scenario.
+    // Stop that fixture-only worker before testing the managed collector.
+    f.worker.abort();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !f.worker.is_finished() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the fixture-only worker must stop before the managed drain");
     let accounts = accounts(&f).await;
     let (runtime, mut worker) = Runtime::new(accounts.clone(), ORIGIN.into(), false, None);
     worker.prepare().await.unwrap();
@@ -30,6 +42,11 @@ async fn managed_stop_drains_queued_cards_before_retiring_the_epoch() {
     assert!(!probe.snapshot().ready);
     assert_eq!(probe.snapshot().queued, 64);
     assert_eq!(probe.snapshot().persisted, 64);
+    assert_eq!(
+        probe.snapshot().failed,
+        0,
+        "the isolated drain must not silently mark any proof as failed"
+    );
     assert_eq!(
         sql(
             &f.url,
