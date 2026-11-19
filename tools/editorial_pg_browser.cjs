@@ -157,8 +157,13 @@ async function observedCard(page,card,campaign,before,response,events){
   for(let step=0;step<4;step++){
    const order=await homeOrder();
    if(order.indexOf('editorial')<order.indexOf('latest'))break;
-   await up.click();
-   assert(await up.evaluate(button=>button===document.activeElement),'keyboard focus lost after moving row');
+   await up.focus();
+   await publicPage.keyboard.press('Enter');
+   assert(await up.evaluate(button=>{
+    const active=document.activeElement;
+    return active instanceof HTMLButtonElement && !active.disabled &&
+      button.closest('[data-tor-home-order-item]')?.contains(active);
+   }),'keyboard focus left the moved row');
   }
   assert((await homeOrder()).indexOf('editorial')<(await homeOrder()).indexOf('latest'));
   assert.equal(await editorialCard.getAttribute('data-flow-proof'),originalProof);
