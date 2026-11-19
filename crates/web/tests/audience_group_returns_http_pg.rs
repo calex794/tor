@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 #[path = "support/legacy_analytics.rs"]
 mod legacy_analytics;
+#[path = "support/audience_return_dates.rs"]
+mod return_dates;
 
 use axum::{
     body::{to_bytes, Body},
@@ -311,21 +313,6 @@ async fn get(app: &Router, path: &str, cookie: &str) -> String {
     body(response).await
 }
 
-fn date_bounds(url: &str, html: &str, days: i32) {
-    for (key, start, end) in [
-        ("current", days - 1, -1),
-        ("previous", 2 * days - 1, days - 1),
-    ] {
-        for age in [start, end] {
-            let date = pg(url, &format!("SELECT ({TODAY}-({age}))::text"));
-            assert!(
-                period(html, key).contains(&date),
-                "{key}: {date} UTC boundary"
-            );
-        }
-    }
-}
-
 const ZERO: Counts = Counts {
     enrolled: 0,
     days: [[0; 4]; 2],
@@ -397,6 +384,7 @@ fn create_book(fixtures: &mut Fixtures, stamp: u128, key: &str, genres: &str, ta
 #[ignore = "requires explicit legacy analytics baseline 191"]
 async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_private_access() {
     let url = legacy_analytics::url();
+    return_dates::wait_for_fixture_day().await;
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -674,7 +662,12 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
         ] {
             let html = report(&app, &cookies[0], kind, Some(selected_label), days).await;
             assert_eq!(book_count(&html), members.len() as i64);
-            date_bounds(&url, &html, days);
+            return_dates::assert_period_bounds(
+                &html,
+                period(&html, "current"),
+                period(&html, "previous"),
+                days,
+            );
             exact(&html, &facts, &members, days);
         }
         let html = report(&app, &cookies[0], "genres", Some(&label), days).await;

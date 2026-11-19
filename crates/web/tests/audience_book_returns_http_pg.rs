@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 #[path = "support/legacy_analytics.rs"]
 mod legacy_analytics;
+#[path = "support/audience_return_dates.rs"]
+mod return_dates;
 
 use axum::{
     body::{to_bytes, Body},
@@ -253,23 +255,11 @@ async fn report(app: &Router, cookie: &str, book: i64, days: i32) -> String {
     html
 }
 
-fn date_bounds(url: &str, html: &str, days: i32) {
-    for (key, start, end) in [
-        ("current", days - 1, -1),
-        ("previous", 2 * days - 1, days - 1),
-    ] {
-        let text = period(html, key);
-        for age in [start, end] {
-            let date = pg(url, &format!("SELECT ({TODAY}-({age}))::text"));
-            assert!(text.contains(&date), "{key}: {date} UTC boundary");
-        }
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit legacy analytics baseline 191"]
 async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     let url = legacy_analytics::url();
+    return_dates::wait_for_fixture_day().await;
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -506,7 +496,12 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
         ),
     ] {
         let html = report(&app, &cookies[0], book, days).await;
-        date_bounds(&url, &html, days);
+        return_dates::assert_period_bounds(
+            &html,
+            period(&html, "current"),
+            period(&html, "previous"),
+            days,
+        );
         for (key, expected) in ["current", "previous"].into_iter().zip(expected) {
             assert_eq!(counts(&html, key), expected, "{days} days, {key}");
         }
