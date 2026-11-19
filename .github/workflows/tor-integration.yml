@@ -829,6 +829,16 @@ jobs:
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
         if: ${{ matrix.lane == 'historical' }}
         run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+      - name: Record lock-holder diagnostics on disposable PostgreSQL 18
+        if: ${{ matrix.lane == 'current' }}
+        run: |
+          # Only this isolated container: log blocking PIDs after 10ms waits.
+          # No change to production SQL timeouts, credentials, or server config.
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          ALTER SYSTEM SET log_lock_waits = on;
+          ALTER SYSTEM SET deadlock_timeout = '10ms';
+          SELECT pg_reload_conf();
+          SQL
       - name: REC13 real Chromium and historical HTTP acceptance
         env:
           TOR_REC13_LANE: ${{ matrix.lane }}
