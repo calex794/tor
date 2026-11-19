@@ -155,6 +155,136 @@ async fn managed_stop_with_bounded_pg_loss_retires_but_marks_degraded_measuremen
     f.cleanup().await;
 }
 
+// #1079: intentionally split one 64-proof wave into a committed prefix and
+// a blocked suffix. This reproduces the observed 7/64 *accounting*, not the
+// unknown identity of the original external/fixture lock holder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable PostgreSQL18 tor_ci"]
+async fn seven_of_sixty_four_proofs_mark_bounded_lock_loss_not_success() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, ChildStdin, Stdio};
+
+    struct HeldStateRow(Child, Option<ChildStdin>);
+    impl Drop for HeldStateRow {
+        fn drop(&mut self) {
+            if let Some(mut input) = self.1.take() {
+                let _ = writeln!(input, "ROLLBACK;\n\\q");
+                let _ = input.flush();
+            }
+            let _ = self.0.wait();
+        }
+    }
+
+    let f = Fixture::new().await;
+    // A separate fixture worker would introduce an uncontrolled second locker.
+    // Only the deliberately held PostgreSQL transaction may block this test.
+    f.worker.abort();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !f.worker.is_finished() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("fixture worker did not exit");
+
+    let accounts = accounts(&f).await;
+    let (runtime, mut worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+    worker.prepare().await.unwrap();
+    let epoch = latest(&f);
+    let collector = worker.spawn_managed();
+    let probe = collector.probe();
+    let issuer = runtime.issuer();
+
+    // Let the worker finish its initial housekeeping before testing the batch.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(probe.snapshot().failed, 0);
+    for _ in 0..7 {
+        assert!(issuer.issue(f.card()).is_some());
+    }
+    for _ in 0..100 {
+        if probe.snapshot().persisted == 7 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(probe.snapshot().persisted, 7, "the first seven must commit");
+    assert_eq!(probe.snapshot().failed, 0);
+
+    let mut child = Command::new("psql")
+        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", &f.url])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000",
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(
+        input,
+        "BEGIN; SELECT 'LOCKED' FROM flow_observation_state WHERE singleton FOR UPDATE;"
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let mut line = String::new();
+    assert!(
+        output.read_line(&mut line).unwrap() > 0 && line.trim() == "LOCKED",
+        "controlled row-lock holder did not start"
+    );
+    let blocker = HeldStateRow(child, Some(input));
+
+    // Lock is definitely held before any of the remaining 57 registrations.
+    for _ in 0..57 {
+        assert!(issuer.issue(f.card()).is_some());
+    }
+    assert!(
+        collector.shutdown_after_http_drained().await,
+        "settled-but-failed work still needs a durable retirement witness"
+    );
+    let snapshot = probe.snapshot();
+    assert!(!snapshot.ready);
+    assert_eq!(snapshot.queued, 64);
+    assert_eq!(snapshot.persisted, 7, "57 rejected proofs must never be counted");
+    assert!(
+        snapshot.failed >= 57,
+        "each rejected registration must be marked failed"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT coalesce(sum(opportunities),0) FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "7",
+        "the durable hourly aggregate must contain only committed proofs"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "t",
+        "retirement must be durable after all queue entries settled"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT coalesce(bool_or(failed),false) FROM flow_observation_health_hourly WHERE epoch={epoch}"
+            )
+        ),
+        "t",
+        "7/64 cannot be reported as a complete healthy measurement"
+    );
+
+    drop(blocker);
+    f.cleanup().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires disposable PostgreSQL18 tor_ci"]
 async fn forced_abort_disables_issuance_and_keeps_the_epoch_unresolved() {
