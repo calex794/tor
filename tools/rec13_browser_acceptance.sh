@@ -60,6 +60,11 @@ stop_pg_lock_probe() {
 # actor IDs or credentials. This captures the blocker missing from #1134 logs.
 start_pg_lock_probe() {
   [[ "$rec_lane" == current ]] || return 0
+  # GitHub Actions and the disposable tor_ci URL are mandatory above. Logging
+  # affects only this disposable PostgreSQL service, never a deployed server.
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "ALTER SYSTEM SET log_lock_waits = on"
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "ALTER SYSTEM SET deadlock_timeout = '10ms'"
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "SELECT pg_reload_conf()"
   psql -XAtq -v ON_ERROR_STOP=1 -d postgres >"$root/flow-pg-locks.log" 2>&1 <<'SQL' &
 SELECT 'FLOW_PG_LOCK_WAIT at='||to_char(clock_timestamp(),'HH24:MI:SS.MS')
  ||' waiter='||w.pid
