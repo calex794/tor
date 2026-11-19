@@ -571,3 +571,17 @@
 @media (max-width:1024px) {
   .author-release__options { grid-template-columns:minmax(0,1fr); }
 }
+
+
+/* UI-MOB-01: compact mobile author navigation. The global signed-in header
+   already exposes Logout; do not duplicate its button and ornamental heading
+   above the actual author books/chapters/actions. Native details and links stay. */
+@media (max-width:800px) {
+  .author-workspace .account-sidebar { padding:8px 10px 9px; }
+  .author-workspace .account-sidebar__header,
+  .author-workspace .account-sidebar__logout { display:none; }
+  .author-workspace .account-sidebar .dashboard-nav { gap:3px; }
+  .author-workspace .account-nav-primary { padding:2px 0 4px; }
+  .author-workspace .account-nav-groups { gap:6px; }
+  .author-workspace .account-nav-group { margin-top:0; padding-top:0; }
+}
