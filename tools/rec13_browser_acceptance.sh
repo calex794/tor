@@ -121,6 +121,26 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
   node tools/contextual_recommendations_pg_browser.cjs
 ci_rec_step_done "contextual_recommendations_browser_acceptance"
+# Earlier REC/FLOW browser journeys may put this collector into a genuine
+# fail-closed 503 state after a bounded PG lock timeout. Run the exposure
+# scenario on a fresh real worker and a newer, live database epoch instead of
+# retrying its denied callbacks or accepting 503 in place of the required 403.
+old_exposure_epoch="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c 'SELECT COALESCE(MAX(epoch),0) FROM flow_observation_epochs')"
+stop_server
+mv "$root/server-current.log" "$root/server-current-before-exposure.log"
+start_server "$TEST_DATABASE_URL" current
+new_exposure_epoch="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c 'SELECT COALESCE(MAX(epoch),0) FROM flow_observation_epochs')"
+if [[ ! "$old_exposure_epoch" =~ ^[0-9]+$ || ! "$new_exposure_epoch" =~ ^[0-9]+$ ]] ||
+   (( new_exposure_epoch <= old_exposure_epoch )); then
+  echo 'FAIL: EXPOSURE did not start a fresh durable observation epoch' >&2
+  exit 1
+fi
+exposure_epoch_ready="$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 -c "SELECT EXISTS(SELECT 1 FROM flow_observation_epochs WHERE epoch=$new_exposure_epoch AND NOT retired AND lease_until_ms>floor(extract(epoch FROM clock_timestamp())*1000)::bigint AND confirmed_ms>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-120000)")"
+[[ "$exposure_epoch_ready" == t ]] || {
+  echo 'FAIL: EXPOSURE observation epoch has no valid database lease' >&2
+  exit 1
+}
+echo 'CI_EXPOSURE_FRESH_EPOCH_OK'
 node --test tools/exposure_client.test.cjs
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
