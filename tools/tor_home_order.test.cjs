@@ -124,7 +124,12 @@ test('HTML and CSS wire the same allowlist without visual-only order', () => {
   const layout = fs.readFileSync(path.join(__dirname,'../crates/web/templates/layout.html'),'utf8');
   const home = fs.readFileSync(path.join(__dirname,'../crates/web/templates/home.html'),'utf8');
   const css = fs.readFileSync(path.join(__dirname,'../crates/web/assets/tor-appearance.css'),'utf8');
-  assert(layout.includes('<script defer src="/assets/tor-home-order.js"></script>'));
+  const homeRenderer = fs.readFileSync(path.join(__dirname,
+    '../crates/web/src/pages/public_catalog.rs'), 'utf8');
+  assert(!layout.includes('<script defer src="/assets/tor-home-order.js"></script>'),
+    'do not modify the trusted script allowlist of account or library pages');
+  assert(homeRenderer.includes('tor-home-order.js'),
+    'only the homepage renderer may opt in');
   assert(home.includes('data-tor-home-blocks'));
   assert(home.indexOf('HOME_PROMO_STRIP') < home.indexOf('data-tor-home-blocks'));
   for (const id of IDS) {
