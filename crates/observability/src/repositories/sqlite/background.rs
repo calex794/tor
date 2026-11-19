@@ -119,17 +119,30 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    // Parallel unit tests may observe the same clock tick. A monotonic suffix
+    // keeps isolated SQLite fixtures from opening the same database file.
+    static NEXT_TEMP_DB: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_db_path(nanos: u128) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "tor-background-{}-{nanos}-{}.sqlite",
+            std::process::id(),
+            NEXT_TEMP_DB.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
-            Self(std::env::temp_dir().join(format!(
-                "tor-background-{}-{}.sqlite",
-                std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-            )))
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            Self(temp_db_path(nanos))
         }
     }
     impl Drop for Temp {
@@ -148,6 +161,13 @@ mod tests {
             duration_us: 1_000,
             phase_us: [100, 200, 300, 50],
         }
+    }
+
+    #[test]
+    fn identical_clock_ticks_still_get_independent_sqlite_files() {
+        let paths: std::collections::HashSet<_> =
+            (0..128).map(|_| temp_db_path(0)).collect();
+        assert_eq!(paths.len(), 128);
     }
 
     #[test]
