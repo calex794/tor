@@ -166,3 +166,101 @@
   .library-v2 .library-shelf-card { flex-direction: row; align-items: flex-start; }
   .library-v2 .library-shelf-card .library-book-art { width: 84px; flex: 0 0 84px; }
 }
+
+/* UI-04: CSS-only reader library variants, preserving DOM and private CSP. */
+.library-v2 .library-display-controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  margin: 0 0 18px; color: var(--text-secondary);
+}
+.library-v2 .library-display-controls__label {
+  font-size: 13px; font-weight: 750; margin-right: 5px;
+}
+.library-v2 .library-display-controls a {
+  min-height: 39px; padding: 9px 12px; display: inline-flex; align-items: center;
+  border: 1px solid var(--border-color); border-radius: 9px;
+  background: var(--bg-surface); color: var(--text-main);
+  text-decoration: none; font-size: 13px; font-weight: 700;
+}
+.library-v2 .library-display-controls a:hover {
+  background: var(--bg-secondary); border-color: var(--primary-color);
+}
+.library-v2 .library-display-controls a[aria-current="true"] {
+  background: var(--bg-secondary); color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+.library-v2 .library-display-controls a:focus-visible {
+  outline: 3px solid var(--focus-ring-color); outline-offset: 2px;
+}
+
+/* Compact: dense reading history and one-row saved titles. */
+.library-v2[data-tor-library-layout="compact"] .library-reading-list,
+.library-v2[data-tor-library-layout="compact"] .library-update-list {
+  gap: 7px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-reading-card,
+.library-v2[data-tor-library-layout="compact"] .library-update-card {
+  gap: 12px; padding: 10px 12px; border-radius: 10px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-reading-card .library-book-art,
+.library-v2[data-tor-library-layout="compact"] .library-update-card .library-book-art {
+  width: 52px; flex: 0 0 52px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-reading-card h3,
+.library-v2[data-tor-library-layout="compact"] .library-update-card h3 {
+  margin-block: 3px; font-size: 15px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-books-grid {
+  grid-template-columns: 1fr; gap: 8px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-shelf-card {
+  flex-direction: row; align-items: center; gap: 15px; padding: 10px 12px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-shelf-card .library-book-art {
+  width: 54px; max-width: 54px; flex: 0 0 54px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-shelf-card__body {
+  flex: 1 1 auto; min-width: 0;
+}
+.library-v2[data-tor-library-layout="compact"] .library-shelf-card h3 {
+  font-size: 14px;
+}
+.library-v2[data-tor-library-layout="compact"] .library-shelf-card form {
+  margin: 0 0 0 auto;
+}
+
+/* Cards: larger discovery-oriented tiles using existing links and covers. */
+.library-v2[data-tor-library-layout="cards"] .library-reading-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 285px), 1fr)); gap: 18px;
+}
+.library-v2[data-tor-library-layout="cards"] .library-reading-card {
+  flex-direction: column; align-items: flex-start; min-width: 0;
+}
+.library-v2[data-tor-library-layout="cards"] .library-reading-card .library-book-art {
+  flex: 0 0 auto; width: 105px;
+}
+.library-v2[data-tor-library-layout="cards"] .library-reading-card__copy {
+  flex: 1; min-width: 0;
+}
+.library-v2[data-tor-library-layout="cards"] .library-reading-card .button {
+  width: 100%; text-align: center; justify-content: center;
+}
+.library-v2[data-tor-library-layout="cards"] .library-books-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 20px;
+}
+.library-v2[data-tor-library-layout="cards"] .library-shelf-card .library-book-art {
+  max-width: 185px;
+}
+@media (max-width: 760px) {
+  .library-v2[data-tor-library-layout="compact"] .library-shelf-card {
+    flex-wrap: wrap;
+  }
+  .library-v2[data-tor-library-layout="compact"] .library-shelf-card form {
+    flex: 1 1 100%; margin: 0;
+  }
+  .library-v2[data-tor-library-layout="compact"] .library-reading-card .button {
+    flex: 1 1 100%;
+  }
+  .library-v2[data-tor-library-layout="cards"] .library-reading-list {
+    grid-template-columns: 1fr;
+  }
+}
