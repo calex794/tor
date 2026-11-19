@@ -207,26 +207,49 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     let rendered = payload(&proof, "rendered").to_string();
     let viewed = payload(&proof, "view").to_string();
 
-    // The failing PG log reported a row (tuple) lock timeout, not a table
-    // lock. Hold the exact persisted hourly row on a separate real connection
-    // while the web instance keeps running with its existing three-connection pool.
-    let lock_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&f.url)
-        .await
+    // The original log reported a tuple lock timeout. Use a separate psql
+    // transaction, exactly as the existing authority-lock test does, without
+    // changing shared Cargo dependencies or the production connection pool.
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, ChildStdin, Stdio};
+    struct HeldHourlyRow(Child, Option<ChildStdin>);
+    impl Drop for HeldHourlyRow {
+        fn drop(&mut self) {
+            if let Some(mut stdin) = self.1.take() {
+                let _ = writeln!(stdin, "ROLLBACK;\n\\q");
+                let _ = stdin.flush();
+            }
+            let _ = self.0.wait();
+        }
+    }
+    let mut child = Command::new("psql")
+        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", &f.url])
+        .env("PGOPTIONS", "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
         .unwrap();
-    let mut blocker = lock_pool.begin().await.unwrap();
-    let locked: i64 = sqlx::query_scalar(
-        "SELECT opportunities FROM flow_observation_hourly WHERE book_id=$1 FOR UPDATE",
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(
+        input,
+        "BEGIN; SELECT opportunities FROM flow_observation_hourly WHERE book_id={} FOR UPDATE; SELECT 'LOCKED';",
+        f.book
     )
-    .bind(f.book)
-    .fetch_one(&mut *blocker)
-    .await
     .unwrap();
-    assert_eq!(
-        locked, 1,
-        "the callback must contend on its own hourly tuple"
-    );
+    input.flush().unwrap();
+    let mut locked = false;
+    for _ in 0..4 {
+        let mut line = String::new();
+        assert!(output.read_line(&mut line).unwrap() > 0, "row-lock holder exited");
+        if line.trim() == "LOCKED" {
+            locked = true;
+            break;
+        }
+        assert_eq!(line.trim(), "1", "expected exactly one persisted opportunity");
+    }
+    assert!(locked, "the exact aggregate row lock was not acquired");
+    let blocker = HeldHourlyRow(child, Some(input));
 
     let rejected = tokio::time::timeout(
         Duration::from_secs(2),
@@ -244,7 +267,7 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
         StatusCode::SERVICE_UNAVAILABLE,
     );
 
-    blocker.rollback().await.unwrap();
+    drop(blocker);
     // SQL writes in the aborted HTTP transaction must all roll back, including
     // proof event flags. The original persisted opportunity remains untouched.
     assert_eq!(
@@ -318,6 +341,5 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
         "0",
         "anonymous observation must not create a reader identity"
     );
-    lock_pool.close().await;
     f.cleanup().await;
 }
