@@ -36,6 +36,17 @@ async function select(page, setting, value) {
   assert.equal(await page.locator("html").getAttribute("data-tor-" + setting), value);
 }
 
+// Screenshots must show the book, not the appearance overlay. Use the same
+// Escape behavior that keyboard users rely on before capturing visual QA.
+async function closeAppearancePicker(page, label) {
+  const picker = page.locator("[data-tor-appearance]");
+  if ((await picker.getAttribute("open")) !== null) {
+    await page.keyboard.press("Escape");
+  }
+  assert.equal(await picker.getAttribute("open"), null,
+    label + ": appearance overlay still obscures page content");
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -68,6 +79,7 @@ async function select(page, setting, value) {
       assert.deepEqual(after, before, width + ": changing presentation changed book links");
       await noOverflow(page, width + ": home minimal");
       if (out && (width === 390 || width === 1440)) {
+        await closeAppearancePicker(page, width + ": home screenshot");
         await page.screenshot({ path: path.join(out, "tor-ui-minimal-" + width + ".png"),
           fullPage: true });
       }
@@ -146,6 +158,7 @@ async function select(page, setting, value) {
         compositions.push(composition);
         await noOverflow(page, width + ": book " + style);
         if (out && (width === 390 || width === 1440)) {
+          await closeAppearancePicker(page, width + "/" + style + ": book screenshot");
           await page.screenshot({
             path: path.join(out, "tor-ui-book-" + style + "-" + width + ".png"),
             fullPage: true
