@@ -39,8 +39,18 @@
   function mirrorThemeCookie() {
     try {
       const secure = window.location?.protocol === "https:" ? "; Secure" : "";
-      document.cookie = "tor-ui-theme-v1=" + settings.theme +
-        "; Path=/; Max-Age=31536000; SameSite=Lax" + secure;
+      const hasThemeCookie = (document.cookie || "").split(";").some(
+        item => item.trim().startsWith("tor-ui-theme-v1=")
+      );
+      if (settings.theme === "system") {
+        // The OS theme needs no cookie. Remove a previously selected theme.
+        if (hasThemeCookie) {
+          document.cookie = "tor-ui-theme-v1=; Path=/; Max-Age=0; SameSite=Lax" + secure;
+        }
+      } else {
+        document.cookie = "tor-ui-theme-v1=" + settings.theme +
+          "; Path=/; Max-Age=31536000; SameSite=Lax" + secure;
+      }
     } catch (_) {
       // Storage/cookies may be disabled; system theme remains the fallback.
     }
