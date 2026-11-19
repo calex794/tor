@@ -223,7 +223,10 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     .fetch_one(&mut *blocker)
     .await
     .unwrap();
-    assert_eq!(locked, 1, "the callback must contend on its own hourly tuple");
+    assert_eq!(
+        locked, 1,
+        "the callback must contend on its own hourly tuple"
+    );
 
     let rejected = tokio::time::timeout(
         Duration::from_secs(2),
