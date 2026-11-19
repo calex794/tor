@@ -217,7 +217,10 @@ mod tests {
             .collect();
         let mut paths = std::collections::HashSet::new();
         for file in &files {
-            assert!(paths.insert(file.0.clone()), "concurrent archives shared a path");
+            assert!(
+                paths.insert(file.0.clone()),
+                "concurrent archives shared a path"
+            );
             let store = TraceStore::open(&file.0, StorePolicy::default()).unwrap();
             assert_eq!(store.background_for_parent(16).unwrap().matches, 1);
         }
