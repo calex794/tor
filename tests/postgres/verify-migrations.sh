@@ -70,15 +70,35 @@ SQL
   apply tor_migrations_upgrade "${migrations[@]:6:$((split_index-6))}"
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
     -f tests/postgres/fnd01-seed-retained-s3.sql
-  apply tor_migrations_upgrade "${migrations[@]:split_index}"
+  # The final additive FND-00 migration enables paid bodyless versions.
+  # First preserve an actual historical PG-backed PAID V1 purchase and V2
+  # publication in the installed prior schema; then apply the new guards.
+  local paid_index=-1
+  for (( i=split_index; i<${#migrations[@]}; i++ )); do
+    if [[ ${migrations[i]##*/} == \
+         202998431705_paid_bodyless_verified_edition.sql ]]; then
+      paid_index=$i
+      break
+    fi
+  done
+  if (( paid_index <= split_index )); then
+    echo 'FND-01 paid bodyless upgrade boundary not found in SQLx tree' >&2
+    exit 1
+  fi
+  apply tor_migrations_upgrade "${migrations[@]:split_index:$((paid_index-split_index))}"
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/fnd01-seed-paid-legacy.sql
+  apply tor_migrations_upgrade "${migrations[@]:paid_index}"
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
     -f tests/postgres/fnd01-verify-retained-s3.sql
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/fnd01-verify-paid-legacy.sql
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -Atqc \
     "SELECT count(*) FROM books WHERE source_identity='ci-preexisting'" | grep -qx '1'
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -f tests/postgres/migrations-smoke.sql
 
   bash tests/postgres/verify-migration-modes.sh
-  echo 'PG18: fresh SQL migrations PASS, retained S3-only V1/V2 upgrade PASS, privacy/constraints PASS'
+  echo 'PG18: fresh SQL migrations PASS, retained FREE S3-only V1/V2 + purchased PAID V1/V2 upgrade PASS, privacy/constraints PASS'
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
