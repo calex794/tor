@@ -263,17 +263,20 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
     saved_s3 = None
     saved_s3_stages = []
     s3_env = {}
-    if distinct:
-        ids = sql((SQL_DIR / "s061_seed_populated_catalog.sql").read_text(), database)
-        chapter, paid_chapter, saved, current_version = map(int, ids.split("|"))
-        if os.environ.get("TOR_S061_S3_ENDPOINT"):
-            from s061_saved_s3 import AWS_ENV, SavedChapterS3
+    # The normal mandatory foundation job must exercise a POPULATED database.
+    # Previously only manually triggered two-SHA drills seeded free V1/V2,
+    # the saved/LAYER pin, paid purchase and reader positions. An empty DB
+    # cannot prove that a restart or rollback preserved reader entitlements.
+    ids = sql((SQL_DIR / "s061_seed_populated_catalog.sql").read_text(), database)
+    chapter, paid_chapter, saved, current_version = map(int, ids.split("|"))
+    if os.environ.get("TOR_S061_S3_ENDPOINT"):
+        from s061_saved_s3 import AWS_ENV, SavedChapterS3
 
-            saved_s3 = SavedChapterS3(chapter, saved, current_version)
-            saved_s3.seed(sql, database)
-            s3_env = AWS_ENV
-        original_catalog = catalog_snapshot(database)
-        require(all(original_catalog.values()), "S061 catalog fixture must populate every check")
+        saved_s3 = SavedChapterS3(chapter, saved, current_version)
+        saved_s3.seed(sql, database)
+        s3_env = AWS_ENV
+    original_catalog = catalog_snapshot(database)
+    require(all(original_catalog.values()), "S061 catalog fixture must populate every check")
 
     def assert_release(port: int, stage: str) -> None:
         assert_http(port, public_id, private_id)
@@ -366,9 +369,8 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
             wait_ready(promoted, LIVE_PORT)
             assert_release(LIVE_PORT, "promoted_candidate")
             require(current.resolve() == candidate, "candidate was not activated")
-            if distinct:
-                require(catalog_snapshot(database) == original_catalog,
-                        "persistent catalog changed during cutover")
+            require(catalog_snapshot(database) == original_catalog,
+                    "persistent catalog changed during cutover")
             events.append("atomic_cutover_ready")
 
             # Force a real post-switch process failure and restore the old binary.
@@ -382,10 +384,9 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
             events.append("rollback_after_crash_verified")
             require(migration_state(database) == upgraded,
                     "SQLx migration history changed during version switching")
-            if distinct:
-                require(catalog_snapshot(database) == original_catalog,
-                        "persistent catalog changed during rollback")
-                events.append("catalog_survived_on_upgraded_schema")
+            require(catalog_snapshot(database) == original_catalog,
+                    "persistent catalog changed during rollback")
+            events.append("catalog_survived_on_upgraded_schema")
             events.append("postgresql_and_acl_survived")
             report = {
                 "scenario": "S061",
@@ -399,7 +400,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
                 "same_binary_both_slots": not distinct,
                 "distinct_binary_validation": distinct,
                 "previous_source_sha": os.environ.get("TOR_S061_PREVIOUS_SHA", "") if distinct else "",
-                "populated_catalog_verified": distinct,
+                "populated_catalog_verified": True,
                 "saved_v1_s3_read_stages": saved_s3_stages,
                 "added_migrations": sorted(upgraded.keys() - before.keys()),
                 "no_production_or_tls_staging_claim": True,
