@@ -124,3 +124,6 @@ test("private library layout variants are CSS-only and keep all book links", () 
   assert(css.includes(".library-display-controls a[aria-current"));
   assert(!css.includes("display: none; /* hide unauthorized books */"));
 });
+
+// UI-05 is part of the existing mandatory appearance test entrypoint.
+require('./tor_home_order.test.cjs');
