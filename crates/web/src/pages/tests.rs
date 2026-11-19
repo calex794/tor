@@ -550,7 +550,11 @@ fn ui_05_home_order_preserves_ssr_cards_and_private_reader_shell() {
     assert!(html.contains(r#"href="/books/44""#));
     assert!(html.contains(r#"src="/assets/tor-home-order.js""#));
     assert!(html.contains("data-tor-home-order hidden"));
-    assert!(!layout("Кабинет", "Описание", "<p>Защищённая форма</p>").0.contains("tor-home-order.js"));
+    assert!(
+        !layout("Кабинет", "Описание", "<p>Защищённая форма</p>")
+            .0
+            .contains("tor-home-order.js")
+    );
     assert!(!include_str!("../../templates/reader_layout.html").contains("tor-home-order.js"));
     assert!(!include_str!("../../assets/tor-home-order.js").contains("innerHTML"));
     assert!(!include_str!("../../assets/tor-home-order.js").contains("cloneNode"));
