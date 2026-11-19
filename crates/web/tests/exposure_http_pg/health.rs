@@ -207,18 +207,23 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
     let rendered = payload(&proof, "rendered").to_string();
     let viewed = payload(&proof, "view").to_string();
 
-    // A separate real PG connection holds ACCESS EXCLUSIVE while the web
-    // instance continues running with its original three-connection pool.
+    // The failing PG log reported a row (tuple) lock timeout, not a table
+    // lock. Hold the exact persisted hourly row on a separate real connection
+    // while the web instance keeps running with its existing three-connection pool.
     let lock_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect(&f.url)
         .await
         .unwrap();
     let mut blocker = lock_pool.begin().await.unwrap();
-    sqlx::query("LOCK TABLE flow_observation_hourly IN ACCESS EXCLUSIVE MODE")
-        .execute(&mut *blocker)
-        .await
-        .unwrap();
+    let locked: i64 = sqlx::query_scalar(
+        "SELECT opportunities FROM flow_observation_hourly WHERE book_id=$1 FOR UPDATE",
+    )
+    .bind(f.book)
+    .fetch_one(&mut *blocker)
+    .await
+    .unwrap();
+    assert_eq!(locked, 1, "the callback must contend on its own hourly tuple");
 
     let rejected = tokio::time::timeout(
         Duration::from_secs(2),
