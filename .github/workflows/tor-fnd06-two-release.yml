@@ -33,9 +33,9 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      # A previously accepted TOR main commit, with the same SQLx migrations
-      # as the original 2026-11-19 candidate. Never replace this with HEAD.
-      TOR_S061_PREVIOUS_SHA: '3e86df5c75e24f41434ccbdbad4f70610602a9b1'
+      # An accepted main ancestor before the FND-00 bodyless SQLx migration.
+      # Test the actual additive installed-schema upgrade while old TOR is live.
+      TOR_S061_PREVIOUS_SHA: 'e71f4c2faab07ec7101ebf12ba4dc4524657d0b8'
       TOR_S061_S3_ENDPOINT: http://127.0.0.1:9012
       PGHOST: 127.0.0.1
       PGUSER: postgres
@@ -124,6 +124,7 @@ jobs:
                                "s061-real-cutover/report.json").read_text())
           assert report["distinct_binary_validation"] is True
           assert report["same_binary_both_slots"] is False
+          assert 202998431705 in report["added_migrations"], report["added_migrations"]
           assert report["populated_catalog_verified"] is True
           assert report["previous_source_sha"] == os.environ["TOR_S061_PREVIOUS_SHA"]
           assert report["saved_v1_s3_read_stages"] == [
