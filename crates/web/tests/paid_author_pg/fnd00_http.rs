@@ -370,7 +370,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
     };
-    assert!(PgPaidStorage::new(pool)
+    assert!(PgPaidStorage::new(pool.clone())
         .encrypted_chapter(first)
         .await
         .unwrap()
