@@ -107,7 +107,10 @@ async fn managed_stop_with_bounded_pg_loss_retires_but_marks_degraded_measuremen
     let snapshot = probe.snapshot();
     assert!(!snapshot.ready);
     assert_eq!(snapshot.queued, 64);
-    assert_eq!(snapshot.persisted, 0, "failed proofs must not count as stored");
+    assert_eq!(
+        snapshot.persisted, 0,
+        "failed proofs must not count as stored"
+    );
     assert!(
         snapshot.failed >= 64,
         "each failed registration must increment the error counter"
