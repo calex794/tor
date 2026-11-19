@@ -271,6 +271,9 @@ async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly
         f.runtime.queue_snapshot().ready,
         "a rejected hourly write must not retire a healthy epoch"
     );
+    // The first 1s after proof issuance is intentionally 425 Too Early; wait
+    // until the view becomes eligible before proving a *real* row-lock 503.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     private(
         &f.send("POST", API, "", ORIGIN, &viewed).await,
         StatusCode::SERVICE_UNAVAILABLE,
