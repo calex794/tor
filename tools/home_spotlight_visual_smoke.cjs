@@ -50,7 +50,10 @@ function assert(ok, why) {
       assert(metrics.cover, name + ': foreground book cover placeholder missing');
       assert(metrics.doc <= metrics.viewport + 1 && metrics.body <= metrics.viewport + 1,
         name + ': horizontal page overflow ' + JSON.stringify(metrics));
-      const firstShelf = await page.locator('.home-hero + .section').boundingBox();
+      // UI-05 keeps the intro fixed and mounts shelves in one movable DOM region.
+      const shelves = page.locator('.home-hero + [data-tor-home-blocks]');
+      assert(await shelves.count() === 1, name + ': home shelves must follow the hero');
+      const firstShelf = await shelves.locator(':scope > [data-tor-home-block="latest"].section').boundingBox();
       assert(firstShelf && firstShelf.y < height - 100,
         name + ': home intro pushes the first book shelf below the viewport');
       await page.screenshot({
