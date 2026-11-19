@@ -84,3 +84,32 @@ test("a valid choice updates presentation, not the page content", () => {
   run.events.click({ target: { closest() { return bad; } } });
   assert.equal(run.attributes.torTheme, "light");
 });
+
+test("library uses common color tokens across system and manual palettes", () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-library.css"), "utf8"
+  );
+  const base = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-port.css"), "utf8"
+  );
+  const manual = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  const inherited = ["primary-color", "text-muted", "border-color",
+    "text-main", "bg-surface", "bg-secondary"];
+  for (const name of inherited) {
+    assert(base.includes("--" + name + ":"), name + " requires a default");
+    assert(!css.includes("var(--" + name + ","),
+      name + " must not fall back to legacy green styling");
+  }
+  assert(css.includes("color: var(--tor-danger-ink)"));
+  assert(!css.includes("color: #9d4039"));
+  assert(base.includes("--tor-danger-ink: #9d4039;"));
+  assert(base.includes("--tor-danger-ink: #fca5a5;"));
+  const light = manual.split(':root[data-tor-theme="light"] {')[1].split("}")[0];
+  const dark = manual.split(':root[data-tor-theme="dark"] {')[1].split("}")[0];
+  assert(light.includes("--tor-danger-ink: #9d4039"));
+  assert(dark.includes("--tor-danger-ink: #fca5a5"));
+  // Illustrated book covers remain intentionally independent of UI tokens.
+  assert(css.includes("linear-gradient(140deg, #315b4c"));
+});

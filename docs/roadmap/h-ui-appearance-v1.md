@@ -1,6 +1,6 @@
 # UI-01 — переключение оформления TOR
 
-Status: PR candidate. Existing server-rendered book data and all access rules are unchanged.
+Status: UI-01 accepted and merged in PR #1126 at main@7fd52aac. Existing server-rendered book data and all access rules remain unchanged.
 
 ## Behavior
 - A single, keyboard-operable header picker provides homepage style (showcase/library/minimal), global color (system/light/dark), card density and an independent catalog layout (grid/list/large covers).
@@ -19,3 +19,11 @@ Status: PR candidate. Existing server-rendered book data and all access rules ar
 - UI-02: unify appearance design tokens and eliminate remaining hardcoded styles; add layout-specific component templates only where CSS is inadequate.
 - UI-03: independent reading-library layout and authenticated cross-device preference sync.
 - UI-04: compare variants using real browser and accessibility acceptance before enabling layout reordering. This first slice deliberately does not reorder functional DOM sections.
+
+## UI-02A — личная библиотека: семантические цветовые токены
+
+- Replace legacy green fallback colors in library controls/cards with guaranteed shared theme tokens.
+- Introduce a semantic danger-ink token for the removal hover state, including system dark and explicit light/dark.
+- Preserve decorative book-cover gradients rather than recoloring artwork, as this is content styling rather than interface chrome.
+- No changes to browser preferences, content data, auth, database, reader controls or chapter grants.
+- Acceptance: structural Node contract, existing responsive Chromium and real-reader regression suite.

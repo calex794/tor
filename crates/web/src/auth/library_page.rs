@@ -171,11 +171,7 @@ fn apply_private_library_theme(html: &mut String, headers: &HeaderMap) {
     }
     // The canonical layout contains this asset for public pages, but the
     // private library must not even request it under script-src 'none'.
-    *html = html.replacen(
-        "<script src=\"/assets/tor-appearance.js\"></script>",
-        "",
-        1,
-    );
+    *html = html.replacen("<script src=\"/assets/tor-appearance.js\"></script>", "", 1);
 }
 
 #[cfg(test)]
@@ -206,9 +202,7 @@ mod private_library_appearance_tests {
             headers.insert(header::COOKIE, HeaderValue::from_str(&header).unwrap());
             let mut html = String::from("<html lang=\"ru\"><body>Без скрипта</body></html>");
             apply_private_library_theme(&mut html, &headers);
-            assert!(html.starts_with(&format!(
-                "<html lang=\"ru\" data-tor-theme=\"{mode}\">"
-            )));
+            assert!(html.starts_with(&format!("<html lang=\"ru\" data-tor-theme=\"{mode}\">")));
         }
         assert_eq!(
             rendered(None).matches("data-tor-theme").count(),
