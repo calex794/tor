@@ -158,8 +158,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         }
         match client.get_object().bucket(BUCKET).key(&key).send().await {
             Ok(get) => {
-                let content_length_matches =
-                    get.content_length() == Some(record.size_bytes as i64);
+                let content_length_matches = get.content_length() == Some(record.size_bytes as i64);
                 let metadata_matches = get
                     .metadata()
                     .and_then(|fields| fields.get("sha256"))
@@ -180,7 +179,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
                         metadata_matches
                     ),
                 }
-            },
+            }
             Err(fault) => eprintln!(
                 "G09_DIAGNOSTIC raw_get=error category={} service_code={}",
                 if fault.as_service_error().is_some() {
