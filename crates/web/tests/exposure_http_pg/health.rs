@@ -40,6 +40,101 @@ async fn managed_stop_drains_queued_cards_before_retiring_the_epoch() {
     f.cleanup().await;
 }
 
+// #1079: a drained queue can have failed writes. Durable retirement is not
+// evidence that every issued proof was persisted. The affected UTC period must
+// remain explicitly unmeasurable, and the counters must not claim 64/64.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable PostgreSQL18 tor_ci"]
+async fn managed_stop_with_bounded_pg_loss_retires_but_marks_degraded_measurement() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, ChildStdin, Stdio};
+
+    struct HeldStateRow(Child, Option<ChildStdin>);
+    impl Drop for HeldStateRow {
+        fn drop(&mut self) {
+            if let Some(mut input) = self.1.take() {
+                let _ = writeln!(input, "ROLLBACK;\n\\q");
+                let _ = input.flush();
+            }
+            let _ = self.0.wait();
+        }
+    }
+
+    let f = Fixture::new().await;
+    let accounts = accounts(&f).await;
+    let (runtime, mut worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+    worker.prepare().await.unwrap();
+    let epoch = latest(&f);
+    let collector = worker.spawn_managed();
+    let probe = collector.probe();
+    let issuer = runtime.issuer();
+
+    // Allow the worker's initial housekeeping tick to finish before forcing
+    // the exact row-lock conflict during the 64 queued proof registrations.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut child = Command::new("psql")
+        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", &f.url])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000",
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(
+        input,
+        "BEGIN; SELECT 'LOCKED' FROM flow_observation_state WHERE singleton FOR UPDATE;"
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let mut line = String::new();
+    assert!(
+        output.read_line(&mut line).unwrap() > 0 && line.trim() == "LOCKED",
+        "the disposable PostgreSQL row-lock holder did not start"
+    );
+    let blocker = HeldStateRow(child, Some(input));
+
+    for _ in 0..64 {
+        assert!(issuer.issue(f.card()).is_some());
+    }
+    assert!(
+        collector.shutdown_after_http_drained().await,
+        "a durably loss-marked retirement is still a complete HTTP stop witness"
+    );
+    let snapshot = probe.snapshot();
+    assert!(!snapshot.ready);
+    assert_eq!(snapshot.queued, 64);
+    assert_eq!(snapshot.persisted, 0, "failed proofs must not count as stored");
+    assert!(
+        snapshot.failed >= 64,
+        "each failed registration must increment the error counter"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "t",
+        "the managed collector must retire only after the queue settled"
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT coalesce(bool_or(failed),false) FROM flow_observation_health_hourly WHERE epoch={epoch}"
+            )
+        ),
+        "t",
+        "retirement must durably record the affected window as failed"
+    );
+
+    drop(blocker);
+    f.cleanup().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires disposable PostgreSQL18 tor_ci"]
 async fn forced_abort_disables_issuance_and_keeps_the_epoch_unresolved() {
