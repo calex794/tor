@@ -50,7 +50,7 @@ PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
 ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
-ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
+ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml", "tor-fnd06-two-release.yml"}
 POSTGRES_SUITES = {
     "postgres", "rec_browser", "reading_analytics", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
