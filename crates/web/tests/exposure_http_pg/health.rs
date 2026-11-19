@@ -193,3 +193,118 @@ async fn managed_queue_eof_waits_for_http_drained_witness() {
     );
     f.cleanup().await;
 }
+
+
+// #1134: reproduce the real PostgreSQL hourly aggregate lock that previously
+// disabled observation callbacks in the browser chain. No restart, fake ACK,
+// or retry-until-green is allowed: one healthy callback must succeed after the
+// collector's next durable checkpoint, and failed requests must not count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable PostgreSQL18 tor_ci"]
+async fn hourly_aggregate_lock_fails_closed_then_same_collector_recovers_exactly_once() {
+    let f = Fixture::new().await;
+    let proof = f.proof().await;
+    let epoch = latest(&f);
+    let rendered = payload(&proof, "rendered").to_string();
+    let viewed = payload(&proof, "view").to_string();
+
+    // A separate real PG connection holds ACCESS EXCLUSIVE while the web
+    // instance continues running with its original three-connection pool.
+    let lock_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&f.url)
+        .await
+        .unwrap();
+    let mut blocker = lock_pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE flow_observation_hourly IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+
+    let rejected = tokio::time::timeout(
+        Duration::from_secs(2),
+        f.send("POST", API, "", ORIGIN, &rendered),
+    )
+    .await
+    .expect("a blocked hourly aggregate must not hang the HTTP reader pool");
+    private(&rejected, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        !f.runtime.queue_snapshot().ready,
+        "503 must fail closed instead of leaving issuance enabled"
+    );
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
+
+    blocker.rollback().await.unwrap();
+    // SQL writes in the aborted HTTP transaction must all roll back, including
+    // proof event flags. The original persisted opportunity remains untouched.
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT opportunities||','||rendered||','||views||','||clicks||','||replayed FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "1,0,0,0,0",
+        "failed callbacks must not invent a rendered card or view"
+    );
+    tokio::time::timeout(Duration::from_secs(1), f.store.describe(&proof))
+        .await
+        .expect("the reader pool must remain usable after the lock")
+        .expect("the original proof must remain valid");
+
+    // Wait for a fresh *real* collector health acknowledgement, not repeated
+    // observation POSTs. A dead collector fails this strict deadline.
+    tokio::time::timeout(Duration::from_secs(12), async {
+        while !f.runtime.queue_snapshot().ready {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the original collector never recovered its database lease");
+    assert_eq!(
+        latest(&f),
+        epoch,
+        "the short SQL lock must recover within the existing collector epoch"
+    );
+
+    private(
+        &f.send("POST", API, "", ORIGIN, &rendered).await,
+        StatusCode::NO_CONTENT,
+    );
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::NO_CONTENT,
+    );
+    private(
+        &f.send("POST", API, "", ORIGIN, &viewed).await,
+        StatusCode::NO_CONTENT,
+    );
+    private(
+        &f.send("POST", API, "", "https://evil.invalid", &viewed)
+            .await,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT opportunities||','||rendered||','||views||','||clicks||','||replayed FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "1,1,1,0,1",
+        "a recovered callback and replay must count only one durable view"
+    );
+    assert_eq!(
+        sql(&f.url, &format!("SELECT count(*) FROM rec_subjects WHERE user_id={}", f.actor)),
+        "0",
+        "anonymous observation must not create a reader identity"
+    );
+    lock_pool.close().await;
+    f.cleanup().await;
+}
