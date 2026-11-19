@@ -120,7 +120,14 @@ fn home_body(
 ) -> Html<String> {
     let observer = issuer.map(|issuer| (issuer, ExposureSurface::Home));
     let content = include_str!("../../templates/home.html")
-        .replace("<!--HOME_GENRE_NAV-->", &if latest { recent_genre_links(books) } else { String::new() })
+        .replace(
+            "<!--HOME_GENRE_NAV-->",
+            &if latest {
+                recent_genre_links(books)
+            } else {
+                String::new()
+            },
+        )
         .replace(
             "<!--BOOKS_HEADING-->",
             if latest {
@@ -392,7 +399,6 @@ mod home_tests {
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&quot; onclick=&quot;evil"));
     }
-
 
     #[test]
     fn library_genre_shortcuts_are_bounded_and_escaped() {
