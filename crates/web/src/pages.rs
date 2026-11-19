@@ -455,6 +455,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/author-layers.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-library.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/tor-appearance.css"));
         css
     });
     (
@@ -463,6 +465,17 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         CSS.as_str(),
+    )
+}
+
+/// Public preferences script runs before CSS to apply the saved appearance without flash.
+pub async fn appearance_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/tor-appearance.js"),
     )
 }
 
