@@ -228,7 +228,6 @@ async fn epoch_fence(
     Ok(())
 }
 
-
 /// PostgreSQL 55P03 here means the *aggregate row* is busy. The transaction
 /// has not committed a proof bit or a view, but the worker's epoch may still
 /// be healthy; the HTTP layer must not treat this as a collector-wide outage.
