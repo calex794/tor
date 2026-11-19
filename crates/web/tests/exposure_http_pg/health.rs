@@ -246,7 +246,10 @@ async fn seven_of_sixty_four_proofs_mark_bounded_lock_loss_not_success() {
     let snapshot = probe.snapshot();
     assert!(!snapshot.ready);
     assert_eq!(snapshot.queued, 64);
-    assert_eq!(snapshot.persisted, 7, "57 rejected proofs must never be counted");
+    assert_eq!(
+        snapshot.persisted, 7,
+        "57 rejected proofs must never be counted"
+    );
     assert!(
         snapshot.failed >= 57,
         "each rejected registration must be marked failed"
