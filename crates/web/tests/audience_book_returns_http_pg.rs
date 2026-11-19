@@ -254,13 +254,37 @@ async fn report(app: &Router, cookie: &str, book: i64, days: i32) -> String {
 }
 
 fn date_bounds(url: &str, html: &str, days: i32) {
+    // Every HTTP report freezes "today" in its own PostgreSQL snapshot.
+    // A separate psql NOW() can cross 00:00 UTC between the HTTP request and
+    // this assertion; compare dates against the report's measured_at instead.
+    let measured = html
+        .split("data-testid=\"audience-book-returns\"")
+        .nth(1)
+        .expect("book return report")
+        .split("<time datetime=\"")
+        .nth(1)
+        .expect("snapshot measurement time")
+        .split('"')
+        .next()
+        .unwrap();
+    let snapshot_day = measured.get(..10).expect("ISO date prefix");
+    assert!(
+        snapshot_day.bytes().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        }),
+        "report must contain a well-formed UTC snapshot day"
+    );
     for (key, start, end) in [
         ("current", days - 1, -1),
         ("previous", 2 * days - 1, days - 1),
     ] {
         let text = period(html, key);
         for age in [start, end] {
-            let date = pg(url, &format!("SELECT ({TODAY}-({age}))::text"));
+            let date = pg(url, &format!("SELECT ('{snapshot_day}'::date-({age}))::text"));
             assert!(text.contains(&date), "{key}: {date} UTC boundary");
         }
     }
