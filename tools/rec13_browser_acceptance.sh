@@ -47,6 +47,57 @@ ci_rec_step_done "playwright_setup"
 : "${LEGACY_ANALYTICS_DATABASE_URL:?explicit legacy 192 database required}"
 : "${COLLECTION_RETIREMENT_APP_DATABASE_URL:?installed 190 to current upgrade database required}"
 pid=''
+lock_probe_pid=''
+stop_pg_lock_probe() {
+  if [[ -n "$lock_probe_pid" ]]; then
+    kill "$lock_probe_pid" 2>/dev/null || true
+    wait "$lock_probe_pid" 2>/dev/null || true
+    lock_probe_pid=''
+  fi
+}
+# A single read-only observer on the disposable PG18 runner. The output contains
+# only PID, wait metadata and whitelisted query *categories*, never raw SQL,
+# actor IDs or credentials. This captures the blocker missing from #1134 logs.
+start_pg_lock_probe() {
+  [[ "$rec_lane" == current ]] || return 0
+  # GitHub Actions and the disposable tor_ci URL are mandatory above. Logging
+  # affects only this disposable PostgreSQL service, never a deployed server.
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "ALTER SYSTEM SET log_lock_waits = on"
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "ALTER SYSTEM SET deadlock_timeout = '10ms'"
+  psql -X -v ON_ERROR_STOP=1 -d postgres -c "SELECT pg_reload_conf()"
+  psql -XAtq -v ON_ERROR_STOP=1 -d postgres >"$root/flow-pg-locks.log" 2>&1 <<'SQL' &
+SELECT 'FLOW_PG_LOCK_WAIT at='||to_char(clock_timestamp(),'HH24:MI:SS.MS')
+ ||' waiter='||w.pid
+ ||' blocker='||bp.pid
+ ||' wait_event='||coalesce(w.wait_event,'none')
+ ||' blocker_state='||coalesce(b.state,'gone')
+ ||' blocker_age_ms='||coalesce((extract(epoch FROM clock_timestamp()-b.xact_start)*1000)::bigint::text,'none')
+ ||' waiter_sql='||CASE
+   WHEN w.query ILIKE '%flow_observation_hourly%' THEN 'observation_hourly'
+   WHEN w.query ILIKE '%flow_observation_epochs%' THEN 'observation_epochs'
+   WHEN w.query ILIKE '%flow_observation_proofs%' THEN 'observation_proofs'
+   WHEN w.query ILIKE '%flow_observation_state%' THEN 'observation_state'
+   ELSE 'other' END
+ ||' blocker_sql='||CASE
+   WHEN b.query ILIKE '%flow_observation_hourly%' THEN 'observation_hourly'
+   WHEN b.query ILIKE '%flow_observation_epochs%' THEN 'observation_epochs'
+   WHEN b.query ILIKE '%flow_observation_proofs%' THEN 'observation_proofs'
+   WHEN b.query ILIKE '%flow_observation_state%' THEN 'observation_state'
+   ELSE 'other' END
+FROM pg_stat_activity w
+CROSS JOIN LATERAL unnest(pg_blocking_pids(w.pid)) AS bp(pid)
+LEFT JOIN pg_stat_activity b ON b.pid=bp.pid
+WHERE w.datname='tor_ci';
+\watch 0.1
+SQL
+  lock_probe_pid=$!
+  sleep 0.2
+  if ! kill -0 "$lock_probe_pid" 2>/dev/null; then
+    echo 'FAIL: the isolated PostgreSQL lock-graph witness did not start' >&2
+    cat "$root/flow-pg-locks.log" >&2
+    exit 1
+  fi
+}
 stop_server() {
   if [[ -n "$pid" ]]; then
     kill "$pid" 2>/dev/null || true
@@ -56,6 +107,7 @@ stop_server() {
 }
 cleanup() {
   result=$?
+  stop_pg_lock_probe
   stop_server
   if (( result != 0 )); then
     for server_log in "$root"/server-*.log; do
@@ -98,6 +150,7 @@ APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tool
 ci_rec_step_done "flow_process_lifecycle"
 # Current business behavior is always exercised behind the installed SQL barrier.
 start_server "$TEST_DATABASE_URL" current
+start_pg_lock_probe
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
 ci_rec_step_done "browser_acceptance"
