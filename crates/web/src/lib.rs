@@ -371,13 +371,11 @@ async fn register() -> impl axum::response::IntoResponse {
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
 }
-/// Bounded process-local diagnostic traces, without user IDs or raw SQL.
-/// This is an internal Rust API, not an unauthenticated HTTP endpoint.
+/// Process-local traces without user IDs or raw SQL (internal, not HTTP).
 pub fn trace_snapshots_for_diagnostics() -> Vec<tor_observability::services::trace::RequestTrace> {
     observability::snapshot_traces()
 }
-/// Activates numeric-only SQLx route metrics; must run once before opening PG.
-/// If the process already uses another subscriber, RIL SQL metrics stay OFF.
+/// Enable numeric-only SQLx metrics before PG; stays OFF if a subscriber exists.
 pub fn activate_ril_sqlx_observation() -> bool {
     ril::activate_sqlx_observation()
 }
