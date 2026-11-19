@@ -27,3 +27,12 @@ Status: UI-01 accepted and merged in PR #1126 at main@7fd52aac. Existing server-
 - Preserve decorative book-cover gradients rather than recoloring artwork, as this is content styling rather than interface chrome.
 - No changes to browser preferences, content data, auth, database, reader controls or chapter grants.
 - Acceptance: structural Node contract, existing responsive Chromium and real-reader regression suite.
+
+## UI-05 — настраиваемый порядок секций главной (candidate)
+
+- Состояние: отдельный PR на основе `main@8cb93766`; принять только после Node, Rust, реального PostgreSQL/Chromium и полного CI.
+- Переставляемые секции: недавно добавленные, обновления, редакционная подборка, набирающие читателей, жанры. Поиск, spotlight и промополоса остаются в исходном месте. Отсутствующие/пустые секции не получают доступных кнопок.
+- Параметр `torHomeOrder.v1` — локальная полная перестановка пяти фиксированных идентификаторов. Любая неверная, повторная, неполная или недоступная запись сбрасывается в исходный порядок. Нет SQL, cookies, профилирования, персональных данных или новых permission checks.
+- Перемещение выполняется `appendChild` существующих секций, не `order` и не `innerHTML`; фокус и Tab-очерёдность совпадают с визуальным DOM. Ссылки книг, авторизованные карточки, editorial кампании и выданные сервером индивидуальные `data-flow-proof` остаются прежними. Фактический view по-прежнему определяет независимый IntersectionObserver (60% / 1010 ms), а не изменение настроек.
+- Без JavaScript порядок SSR неизменён, средства перестановки скрыты. Частные страницы и отдельный reader layout не приобретают бизнес-изменений.
+- Проверки: `node --test tools/tor_appearance.test.cjs` включает UI-05; `cargo test -p tor-web ui_05_`; в `tools/editorial_pg_browser.cjs` подтверждается реальная PostgreSQL редакционная карточка, перестановка DOM, сохранение её proof/href, persistence и reset.
