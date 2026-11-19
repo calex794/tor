@@ -165,8 +165,7 @@ mod tests {
 
     #[test]
     fn identical_clock_ticks_still_get_independent_sqlite_files() {
-        let paths: std::collections::HashSet<_> =
-            (0..128).map(|_| temp_db_path(0)).collect();
+        let paths: std::collections::HashSet<_> = (0..128).map(|_| temp_db_path(0)).collect();
         assert_eq!(paths.len(), 128);
     }
 
