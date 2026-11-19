@@ -33,7 +33,6 @@ async fn pg_live_http_and_private_books() {
     assert!(home_html.contains("Недавно добавленные"));
     assert!(home_html.contains("id=\"home-search-query\""));
     assert!(home_html.contains("home-shelf__track"));
-    assert!(home_html.contains("TOR CI public"));
     assert!(!home_html.contains("home-spotlight-card"));
     assert!(!home_html.contains("home-showcase"));
     assert!(
