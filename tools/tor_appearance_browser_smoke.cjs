@@ -47,11 +47,17 @@ async function select(page, setting, value) {
       const picker = page.locator("[data-tor-appearance]");
       assert(await picker.isVisible(), width + ": switcher missing");
       assert.equal(await page.locator("html").getAttribute("data-tor-theme"), "system");
+      assert.equal((await page.context().cookies(base))
+        .filter(c => c.name === "tor-ui-theme-v1").length, 0,
+      width + ": anonymous system theme must not create a cookie");
       assert((await page.locator("a[href^='/books/']").count()) > 0,
         width + ": no real demo book links");
       const before = await page.locator("a[href^='/books/']")
         .evaluateAll(nodes => nodes.map(a => a.getAttribute("href")));
       await select(page, "theme", "light");
+      assert.deepEqual((await page.context().cookies(base))
+        .filter(c => c.name === "tor-ui-theme-v1").map(c => c.value),
+      ["light"], width + ": explicit light theme must persist in validated cookie");
       await select(page, "style", "minimal");
       await select(page, "density", "compact");
       assert.equal(await page.locator("html").evaluate(el =>
@@ -81,6 +87,9 @@ async function select(page, setting, value) {
       catalogBefore, width + ": catalog layout changed book destinations");
       await noOverflow(page, width + ": catalog list");
       await select(page, "theme", "dark");
+      assert.deepEqual((await page.context().cookies(base))
+        .filter(c => c.name === "tor-ui-theme-v1").map(c => c.value),
+      ["dark"], width + ": explicit dark theme must replace the cookie");
       assert.equal(await page.locator("html").evaluate(el =>
         getComputedStyle(el).getPropertyValue("--bg-main").trim()), "#0b1120",
       width + ": explicit dark did not apply");
@@ -91,6 +100,10 @@ async function select(page, setting, value) {
         await page.screenshot({ path: path.join(out, "tor-ui-catalog-" + width + ".png"),
           fullPage: true });
       }
+      await select(page, "theme", "system");
+      assert.equal((await page.context().cookies(base))
+        .filter(c => c.name === "tor-ui-theme-v1").length, 0,
+      width + ": restoring system theme must clear appearance cookie");
       await page.close();
     }
 
