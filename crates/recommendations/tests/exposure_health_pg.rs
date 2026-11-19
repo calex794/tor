@@ -422,3 +422,6 @@ async fn registration_and_callback_fences_distinguish_worker_expiry_from_proof_e
         .unwrap();
     f.cleanup().await;
 }
+
+#[path = "exposure_health_pg/epoch_lock_order.rs"]
+mod epoch_lock_order;
