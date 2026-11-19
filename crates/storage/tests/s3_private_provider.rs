@@ -8,6 +8,7 @@ use aws_sdk_s3::{
     Client,
 };
 use std::{process::Command, time::Duration};
+use tokio::io::AsyncReadExt;
 use tor_contracts::paid_delivery::{
     ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef, PositiveId,
 };
@@ -156,13 +157,30 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
             ),
         }
         match client.get_object().bucket(BUCKET).key(&key).send().await {
-            Ok(get) => eprintln!(
-                "G09_DIAGNOSTIC raw_get=ok length_matches={} digest_metadata_matches={}",
-                get.content_length() == Some(record.size_bytes as i64),
-                get.metadata()
+            Ok(get) => {
+                let content_length_matches =
+                    get.content_length() == Some(record.size_bytes as i64);
+                let metadata_matches = get
+                    .metadata()
                     .and_then(|fields| fields.get("sha256"))
-                    .is_some_and(|digest| digest == &hex::encode(record.sha256_ciphertext))
-            ),
+                    .is_some_and(|digest| digest == &hex::encode(record.sha256_ciphertext));
+                let mut bytes = Vec::new();
+                let mut reader = get.body.into_async_read().take(record.size_bytes + 1);
+                match reader.read_to_end(&mut bytes).await {
+                    Ok(_) => eprintln!(
+                        "G09_DIAGNOSTIC raw_get=ok length_matches={} digest_metadata_matches={} body_length_matches={} body_sha_matches={}",
+                        content_length_matches,
+                        metadata_matches,
+                        bytes.len() as u64 == record.size_bytes,
+                        sha256_bytes(&bytes) == record.sha256_ciphertext
+                    ),
+                    Err(_) => eprintln!(
+                        "G09_DIAGNOSTIC raw_get=body_stream_error length_matches={} digest_metadata_matches={}",
+                        content_length_matches,
+                        metadata_matches
+                    ),
+                }
+            },
             Err(fault) => eprintln!(
                 "G09_DIAGNOSTIC raw_get=error category={} service_code={}",
                 if fault.as_service_error().is_some() {
