@@ -43,7 +43,11 @@
 
     // Empty or disabled shelves are not user controls. Their wrappers stay
     // intact and the canonical SSR order remains the fallback without JS.
-    const available = id => blocks.get(id).querySelector('section') !== null;
+    const available = id => {
+      const block = blocks.get(id);
+      // The canonical latest shelf IS a section; other shelves wrap sections.
+      return block.tagName === 'SECTION' || block.querySelector('section') !== null;
+    };
     let order = read();
 
     function apply() {
