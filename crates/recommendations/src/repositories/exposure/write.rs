@@ -158,7 +158,7 @@ impl PgExposure {
         sqlx::query("UPDATE flow_observation_proofs SET rendered=true,viewed=viewed OR $2,clicked=clicked OR $3 WHERE digest=$1")
             .bind(hash.as_slice()).bind(event.kind==EventKind::View).bind(event.kind==EventKind::Click).execute(&mut *tx).await?;
         sqlx::query("UPDATE flow_observation_hourly h SET rendered=h.rendered+$2,views=h.views+$3,clicks=h.clicks+$4,replayed=h.replayed+$5 FROM flow_observation_proofs p WHERE p.digest=$1 AND (h.bucket,h.book_id,h.surface,h.campaign_id,h.slot)=(p.bucket,p.book_id,p.surface,p.campaign_id,p.slot)")
-            .bind(hash.as_slice()).bind(render_delta).bind(view_delta).bind(click_delta).bind(i64::from(replay)).execute(&mut *tx).await?;
+            .bind(hash.as_slice()).bind(render_delta).bind(view_delta).bind(click_delta).bind(i64::from(replay)).execute(&mut *tx).await.map_err(hourly_write_error)?;
         // Any retirement/checkpoint raced during the writes must be observed
         // before commit. If the epoch changed, the entire transaction rolls back.
         epoch_fence(&mut tx, epoch, true).await?;
@@ -226,4 +226,21 @@ async fn epoch_fence(
         return Err(ExposureError::Unavailable);
     }
     Ok(())
+}
+
+
+/// PostgreSQL 55P03 here means the *aggregate row* is busy. The transaction
+/// has not committed a proof bit or a view, but the worker's epoch may still
+/// be healthy; the HTTP layer must not treat this as a collector-wide outage.
+fn hourly_write_error(error: sqlx::Error) -> ExposureError {
+    if error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .as_deref()
+        == Some("55P03")
+    {
+        ExposureError::Contended
+    } else {
+        ExposureError::Unavailable
+    }
 }
