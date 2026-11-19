@@ -43,6 +43,13 @@ const path = require('node:path');
     await require('./shared_controls_visual.cjs').checkSharedControls(
       browser, 'http://127.0.0.1:3099', out
     );
+    // UI-01 must run against the real demo server, not merely exist in CI source.
+    const { spawnSync } = require('node:child_process');
+    const result = spawnSync(process.execPath,
+      [path.join(__dirname, 'tor_appearance_browser_smoke.cjs')],
+      { stdio: 'inherit', env: process.env });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error('UI-01 Chromium appearance acceptance failed');
     console.log('Visual smoke PASS: desktop + mobile, 8 screenshots, no horizontal overflow');
   } finally {
     await browser.close();

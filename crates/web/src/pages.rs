@@ -428,42 +428,13 @@ pub async fn stylesheet() -> impl IntoResponse {
     )
 }
 
-/// NEwBOO public design tokens, components and layout, kept separate from
-/// the functioning reader/author styles until their port is independently tested.
+mod appearance;
+/// Reviewed public asset handlers stay in this module for RIL guard auditing.
 pub async fn newboo_stylesheet() -> impl IntoResponse {
-    static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        let mut css = String::from(include_str!("../assets/newboo-port.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-home-carousel.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-book-detail.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-comments.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-support-widget.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-reader.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-archive-toc.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-cover-picker.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/account-ui.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/author-layers.css"));
-        css.push('\n');
-        css.push_str(include_str!("../assets/newboo-library.css"));
-        css
-    });
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        CSS.as_str(),
-    )
+    appearance::newboo_stylesheet().await
+}
+pub async fn appearance_script() -> impl IntoResponse {
+    appearance::appearance_script().await
 }
 
 /// Public free-reader display settings only.

@@ -207,6 +207,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/tor-appearance.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::appearance_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/organic_discovery.js",
       "handler": "organic::script",
       "policy": "public",

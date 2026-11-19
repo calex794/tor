@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn restored_ne_wboo_auth_panda_is_present_without_client_script() {
+    fn restored_ne_wboo_auth_panda_has_no_client_side_auth_logic() {
         for html in [
             registration_form("csrf-value").0,
             login_form("csrf-value").0,
@@ -411,7 +411,9 @@ mod tests {
             assert!(html.contains("name=\"website\""));
             assert!(html.contains("auth-form__website-trap"));
             assert!(!html.contains("<!--AUTH_PANDA-->"));
-            assert!(!html.contains("<script"));
+            let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+            assert_eq!(html.matches(trusted).count(), 1);
+            assert!(!html.replacen(trusted, "", 1).contains("<script"));
         }
     }
 

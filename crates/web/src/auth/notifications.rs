@@ -401,7 +401,9 @@ mod tests {
         assert!(!html.contains("<img"));
         assert!(html.contains("внутри сайта"));
         assert!(!html.contains("name=\"body\""));
-        assert!(!html.contains("<script"));
+        let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+        assert_eq!(html.matches(trusted).count(), 1);
+        assert!(!html.replacen(trusted, "", 1).contains("<script"));
         let empty = render_previous_day_digest(&[]).0;
         assert!(empty.contains("доступных выпусков нет"));
     }
