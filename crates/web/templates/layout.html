@@ -81,6 +81,18 @@
               <button type="button" data-tor-setting="catalog" data-tor-value="covers" aria-pressed="false">Крупные</button>
             </div>
           </fieldset>
+          <fieldset class="site-appearance__group" data-tor-home-order hidden>
+            <legend>Порядок блоков главной</legend>
+            <p class="site-appearance__hint">Перемещайте полки кнопками вверх и вниз. Поиск и промополоса остаются сверху.</p>
+            <ol class="site-appearance__order" data-tor-home-order-list>
+              <li class="site-appearance__order-row" data-tor-home-order-item="latest"><span>Недавно добавленные</span><span class="site-appearance__order-buttons"><button type="button" data-tor-home-id="latest" data-tor-home-direction="up" aria-label="Переместить «Недавно добавленные» выше">↑</button><button type="button" data-tor-home-id="latest" data-tor-home-direction="down" aria-label="Переместить «Недавно добавленные» ниже">↓</button></span></li>
+              <li class="site-appearance__order-row" data-tor-home-order-item="releases"><span>Обновились</span><span class="site-appearance__order-buttons"><button type="button" data-tor-home-id="releases" data-tor-home-direction="up" aria-label="Переместить «Обновились» выше">↑</button><button type="button" data-tor-home-id="releases" data-tor-home-direction="down" aria-label="Переместить «Обновились» ниже">↓</button></span></li>
+              <li class="site-appearance__order-row" data-tor-home-order-item="editorial"><span>Выбор редакции</span><span class="site-appearance__order-buttons"><button type="button" data-tor-home-id="editorial" data-tor-home-direction="up" aria-label="Переместить «Выбор редакции» выше">↑</button><button type="button" data-tor-home-id="editorial" data-tor-home-direction="down" aria-label="Переместить «Выбор редакции» ниже">↓</button></span></li>
+              <li class="site-appearance__order-row" data-tor-home-order-item="rising"><span>Набирают читателей</span><span class="site-appearance__order-buttons"><button type="button" data-tor-home-id="rising" data-tor-home-direction="up" aria-label="Переместить «Набирают читателей» выше">↑</button><button type="button" data-tor-home-id="rising" data-tor-home-direction="down" aria-label="Переместить «Набирают читателей» ниже">↓</button></span></li>
+              <li class="site-appearance__order-row" data-tor-home-order-item="genres"><span>Новинки по жанрам</span><span class="site-appearance__order-buttons"><button type="button" data-tor-home-id="genres" data-tor-home-direction="up" aria-label="Переместить «Новинки по жанрам» выше">↑</button><button type="button" data-tor-home-id="genres" data-tor-home-direction="down" aria-label="Переместить «Новинки по жанрам» ниже">↓</button></span></li>
+            </ol>
+            <button class="site-appearance__order-reset" type="button" data-tor-home-reset>Исходный порядок</button>
+          </fieldset>
           <p class="site-appearance__hint">Настройки сохраняются в этом браузере. Оформление читалки настраивается отдельно.</p>
         </div>
       </details>
