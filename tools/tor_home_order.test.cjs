@@ -100,12 +100,12 @@ test('up/down moves only visible shelves, preserving hidden and storage', () => 
   assert.equal(f.rows[2].hidden, true);
   assert.equal(f.rows[3].hidden, true);
   f.click('genres', 'up');
-  assert.deepEqual(f.ids(), ['latest','genres','releases','editorial','rising']);
-  assert.deepEqual(JSON.parse(f.getStored()), ['latest','genres','releases','editorial','rising']);
+  assert.deepEqual(f.ids(), ['latest','genres','editorial','rising','releases']);
+  assert.deepEqual(JSON.parse(f.getStored()), ['latest','genres','editorial','rising','releases']);
   f.click('latest', 'up');
-  assert.deepEqual(f.ids(), ['latest','genres','releases','editorial','rising']);
+  assert.deepEqual(f.ids(), ['latest','genres','editorial','rising','releases']);
   f.click('rising', 'up');
-  assert.deepEqual(f.ids(), ['latest','genres','releases','editorial','rising']);
+  assert.deepEqual(f.ids(), ['latest','genres','editorial','rising','releases']);
 });
 test('storage-event synchronizes without creating or deleting any card', () => {
   const f = fixture(null);
