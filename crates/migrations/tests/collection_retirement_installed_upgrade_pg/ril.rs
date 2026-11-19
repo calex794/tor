@@ -3,31 +3,51 @@ use super::fixtures::{count, run, text, Fixture, TestResult};
 use sqlx::PgPool;
 
 pub async fn seed(pool: &PgPool, batch: &str) -> TestResult {
-    stage(pool, batch, 11).await?;
+    stage(pool, batch, 11, None).await?;
+    // The historical hourly rows must use the same captured hour as the
+    // staged batch: now() can cross an hour boundary between SQL calls.
     run(
         pool,
-        "INSERT INTO ril_flow_hourly(bucket,surface_code,acquisition_hint,html_requests,
+        &format!(
+            "INSERT INTO ril_flow_hourly(bucket,surface_code,acquisition_hint,html_requests,
              opted_in_html_requests,observed_opted_in_visit_starts)
-         VALUES(date_trunc('hour',now()),1,0,20,5,2);
-         INSERT INTO ril_transition_hourly(bucket,from_code,to_code,gap_group,transition_count)
-         VALUES(date_trunc('hour',now()),1,2,0,2)",
+             SELECT bucket,1,0,20,5,2 FROM ril_flush_batches WHERE batch_id='{batch}';
+             INSERT INTO ril_transition_hourly(bucket,from_code,to_code,gap_group,transition_count)
+             SELECT bucket,1,2,0,2 FROM ril_flush_batches WHERE batch_id='{batch}'"
+        ),
     )
     .await
 }
 
-async fn stage(pool: &PgPool, batch: &str, requests: i64) -> TestResult {
-    run(pool, &format!(
-        "INSERT INTO ril_flush_batches(batch_id,bucket) VALUES('{batch}',date_trunc('hour',now()));
-         INSERT INTO ril_flush_routes(batch_id,route_code,status_group,latency_group,request_count)
-         VALUES('{batch}',1,2,0,{requests});
-         INSERT INTO ril_flush_sql_costs(batch_id,route_code,observed_requests,observed_queries,sqlx_elapsed_us)
-         VALUES('{batch}',1,{requests},{requests}*2,{requests}*100);
-         INSERT INTO ril_flush_flow(batch_id,surface_code,acquisition_hint,html_requests,
+async fn stage(
+    pool: &PgPool,
+    batch: &str,
+    requests: i64,
+    anchor_batch: Option<&str>,
+) -> TestResult {
+    // Explicitly anchor the second synthetic batch to the first. Otherwise
+    // a test crossing XX:59 -> XX:00 accidentally tests two hourly buckets,
+    // while downstream assertions expect one merged hourly aggregate.
+    let bucket = anchor_batch.map_or_else(
+        || "date_trunc('hour',now())".to_owned(),
+        |anchor| format!("(SELECT bucket FROM ril_flush_batches WHERE batch_id='{anchor}')"),
+    );
+    run(
+        pool,
+        &format!(
+            "INSERT INTO ril_flush_batches(batch_id,bucket) VALUES('{batch}',{bucket});
+             INSERT INTO ril_flush_routes(batch_id,route_code,status_group,latency_group,request_count)
+             VALUES('{batch}',1,2,0,{requests});
+             INSERT INTO ril_flush_sql_costs(batch_id,route_code,observed_requests,observed_queries,sqlx_elapsed_us)
+             VALUES('{batch}',1,{requests},{requests}*2,{requests}*100);
+             INSERT INTO ril_flush_flow(batch_id,surface_code,acquisition_hint,html_requests,
              opted_in_html_requests,observed_opted_in_visit_starts)
-         VALUES('{batch}',1,0,{requests},5,2);
-         INSERT INTO ril_flush_transitions(batch_id,from_code,to_code,gap_group,transition_count)
-         VALUES('{batch}',1,2,0,4)"
-    )).await
+             VALUES('{batch}',1,0,{requests},5,2);
+             INSERT INTO ril_flush_transitions(batch_id,from_code,to_code,gap_group,transition_count)
+             VALUES('{batch}',1,2,0,4)"
+        ),
+    )
+    .await
 }
 
 async fn materialize(pool: &PgPool, batch: &str) -> TestResult<bool> {
@@ -80,7 +100,20 @@ async fn materialize(pool: &PgPool, batch: &str) -> TestResult<bool> {
 
 pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
     let new_batch = text(pool, "SELECT gen_random_uuid()::text").await?;
-    stage(pool, &new_batch, 5).await?;
+    stage(pool, &new_batch, 5, Some(&fixture.ril_batch)).await?;
+    assert_eq!(
+        count(
+            pool,
+            &format!(
+                "SELECT count(DISTINCT bucket) FROM ril_flush_batches
+                 WHERE batch_id IN ('{}','{}')",
+                fixture.ril_batch, new_batch
+            )
+        )
+        .await?,
+        1,
+        "synthetic batches must share their captured hour even across clock rollover"
+    );
     assert_eq!(
         text(
             pool,
