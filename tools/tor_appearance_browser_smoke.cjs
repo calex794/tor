@@ -118,6 +118,42 @@ async function select(page, setting, value) {
       assert.equal((await page.context().cookies(base))
         .filter(c => c.name === "tor-ui-theme-v1").length, 0,
       width + ": restoring system theme must clear appearance cookie");
+
+      // UI-09: real SSR book detail, not three recolorings of one hero.
+      // Preserve every server-owned action/link when switching the composition.
+      const detailHref = catalogBefore.find(href => /^\/books\/\d+(?:[/?#]|$)/.test(href));
+      assert(detailHref, width + ": demo catalog must offer a real book detail");
+      await open(page, detailHref);
+      assert.equal(await page.locator(".book-detail-page .book-hero-card__title").count(), 1,
+        width + ": book title absent");
+      assert.equal(await page.locator(".book-hero-card__cover-col").count(), 1,
+        width + ": book cover slot absent");
+      assert((await page.locator(".book-hero-actions a, .book-hero-actions button").count()) > 0,
+        width + ": book primary action absent");
+      const detailLinks = await page.locator(".book-detail-page a[href]")
+        .evaluateAll(nodes => nodes.map(node => node.getAttribute("href")));
+      const compositions = [];
+      for (const style of ["showcase", "library", "minimal"]) {
+        await select(page, "style", style);
+        assert.deepEqual(await page.locator(".book-detail-page a[href]")
+          .evaluateAll(nodes => nodes.map(node => node.getAttribute("href"))),
+        detailLinks, width + "/" + style + ": appearance changed book or action links");
+        const composition = await page.locator(".book-hero-card").evaluate(node => {
+          const css = getComputedStyle(node);
+          return [css.gridTemplateAreas, css.gridTemplateColumns,
+            css.borderTopWidth, css.borderTopLeftRadius].join("|");
+        });
+        compositions.push(composition);
+        await noOverflow(page, width + ": book " + style);
+        if (out && (width === 390 || width === 1440)) {
+          await page.screenshot({
+            path: path.join(out, "tor-ui-book-" + style + "-" + width + ".png"),
+            fullPage: true
+          });
+        }
+      }
+      assert.equal(new Set(compositions).size, 3,
+        width + ": three book designs must have visibly distinct computed layouts");
       await page.close();
     }
 

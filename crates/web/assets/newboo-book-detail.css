@@ -177,3 +177,100 @@ img.book-cover-xl { display: block; height: auto; object-fit: cover; }
 .book-related-grid__item { min-width: 0; }
 .book-related-grid__link { display: block; height: 100%; padding: 14px; border: 1px solid var(--border-color, #d9dee8); border-radius: 10px; color: var(--text-main); text-decoration: none; font-weight: 700; overflow-wrap: anywhere; }
 .book-related-grid__link:hover, .book-related-grid__link:focus-visible { border-color: var(--primary-color); text-decoration: underline; }
+
+
+/* UI-09: three visibly different, content-first book detail compositions.
+   Styles change layout only. The canonical SSR actions, prices, grants and
+   editorial panels remain untouched and the no-JS layout remains the base. */
+:root[data-tor-style="showcase"] .book-detail-page .book-hero-card {
+  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-areas: "cover info" "cover actions" "cover secondary" "cover description";
+  gap: 12px 18px;
+  padding: 16px;
+  border-radius: 18px;
+}
+:root[data-tor-style="showcase"] .book-detail-page .book-cover-xl { border-radius: 13px; }
+:root[data-tor-style="showcase"] .book-detail-page .book-section-card { border-radius: 16px; }
+
+:root[data-tor-style="library"] .book-detail-page .book-hero-card {
+  grid-template-columns: 108px minmax(0, 1fr);
+  grid-template-areas: "cover info" "cover actions" "secondary secondary" "description description";
+  gap: 8px 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+:root[data-tor-style="library"] .book-detail-page .book-cover-xl { border-radius: 7px; }
+:root[data-tor-style="library"] .book-detail-page .book-hero-card__title {
+  font-size: clamp(22px, 2.2vw, 29px);
+  line-height: 1.18;
+}
+:root[data-tor-style="library"] .book-detail-page .book-section-card {
+  padding: 14px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+:root[data-tor-style="library"] .book-detail-page .book-section-card__title {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+
+:root[data-tor-style="minimal"] .book-detail-page .book-hero-card {
+  grid-template-columns: minmax(0, 1fr) 100px;
+  grid-template-areas: "info cover" "actions cover" "secondary secondary" "description description";
+  gap: 8px 16px;
+  padding: 12px 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-tor-style="minimal"] .book-detail-page .book-cover-xl { border-radius: 6px; }
+:root[data-tor-style="minimal"] .book-detail-page .book-hero-card__title {
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.18;
+}
+:root[data-tor-style="minimal"] .book-detail-page .book-section-card {
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-tor-style="minimal"] .book-detail-page .book-section-card__title {
+  font-size: 19px;
+  margin-bottom: 9px;
+}
+@media (max-width: 760px) {
+  :root[data-tor-style="showcase"] .book-detail-page .book-hero-card {
+    grid-template-columns: 92px minmax(0, 1fr);
+    grid-template-areas: "info info" "cover actions" "secondary secondary" "description description";
+    gap: 10px 12px;
+    padding: 12px;
+  }
+  :root[data-tor-style="library"] .book-detail-page .book-hero-card {
+    grid-template-columns: 80px minmax(0, 1fr);
+    grid-template-areas: "cover info" "actions actions" "secondary secondary" "description description";
+    gap: 8px 12px;
+    padding: 12px;
+  }
+  :root[data-tor-style="minimal"] .book-detail-page .book-hero-card {
+    grid-template-columns: minmax(0, 1fr) 76px;
+    grid-template-areas: "info cover" "actions actions" "secondary secondary" "description description";
+    gap: 8px 10px;
+    padding: 8px 0 12px;
+  }
+  :root[data-tor-style="library"] .book-detail-page .book-hero-actions,
+  :root[data-tor-style="minimal"] .book-detail-page .book-hero-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  :root[data-tor-style="library"] .book-detail-page .book-hero-actions .ui-button,
+  :root[data-tor-style="minimal"] .book-detail-page .book-hero-actions .ui-button {
+    width: auto;
+    min-height: 44px;
+  }
+}
