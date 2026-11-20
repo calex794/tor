@@ -239,7 +239,7 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
     }
     println!("FND07_MULTI_BOOK_IMPORT_OK books={BOOKS} chapters={chapters} versions={chapters} objects={} missing=0 unexpected=0", expected_keys.len());
     if endpoint == provider::YANDEX_ENDPOINT {
-        println!("FND07_YANDEX_FREE_CATALOG_OK provider=Yandex versioning=enabled signed_download=verified");
+        println!("FND07_YANDEX_FREE_CATALOG_OK provider=Yandex versioning=never-enabled signed_download=verified");
     }
 }
 
