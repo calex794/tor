@@ -2,13 +2,12 @@
 use super::super::support::{pg, Fixture};
 use aws_sdk_s3::{
     config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Credentials, Region},
-    types::{BucketVersioningStatus, VersioningConfiguration},
     Client,
 };
 use std::{env, time::Duration};
 
 pub(super) const YANDEX_ENDPOINT: &str = "https://storage.yandexcloud.net";
-pub(super) const BUCKET_NOT_EMPTY: &str = "FND-07 bucket already contains object history";
+pub(super) const BUCKET_NOT_EMPTY: &str = "FND-07 bucket already contains objects";
 const DISPOSABLE_DATABASE: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_test";
 
 fn valid_scope(mode: &str, in_ci: bool, bucket: &str, database: &str) -> bool {
@@ -80,22 +79,12 @@ pub(super) async fn requested_fixture(label: &str) -> Option<(Fixture, String)> 
 }
 
 pub(super) async fn loopback_fixture(label: &str, bucket: &str) -> Fixture {
+    // Match TOR's real non-versioned S3 target. Do not enable versioning,
+    // even for disposable MinIO buckets: the live provider cannot undo it.
     let fixture = Fixture::new_in_bucket(label, bucket).await;
-    fixture
-        .client
-        .put_bucket_versioning()
-        .bucket(bucket)
-        .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
-        )
-        .send()
-        .await
-        .expect("enable versioning on the disposable loopback bucket");
     check_bucket(&fixture.client, bucket)
         .await
-        .expect("FND-07 loopback preflight");
+        .expect("FND-07 loopback non-versioned preflight");
     fixture
 }
 
@@ -106,19 +95,20 @@ pub(super) async fn check_bucket(client: &Client, bucket: &str) -> Result<(), &'
         .send()
         .await
         .map_err(|_| "could not read FND-07 bucket versioning")?;
-    if versioning.status() != Some(&BucketVersioningStatus::Enabled) {
-        return Err("FND-07 bucket requires active versioning");
+    // A never-versioned bucket has no status; Enabled and Suspended
+    // both fail, because historical versions might still exist.
+    if versioning.status().is_some() {
+        return Err("FND-07 bucket must be never-versioned");
     }
     let contents = client
-        .list_object_versions()
+        .list_objects_v2()
         .bucket(bucket)
         .max_keys(1)
         .send()
         .await
-        .map_err(|_| "could not inspect FND-07 bucket history")?;
-    if contents.is_truncated() != Some(false)
-        || !contents.versions().is_empty()
-        || !contents.delete_markers().is_empty()
+        .map_err(|_| "could not inspect FND-07 bucket objects")?;
+    if contents.is_truncated().unwrap_or(false)
+        || !contents.contents().is_empty()
         || !contents.common_prefixes().is_empty()
     {
         return Err(BUCKET_NOT_EMPTY);
