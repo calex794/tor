@@ -677,3 +677,213 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
         Err(StorageError::Invalid)
     );
 }
+
+/// #533: failure-only probes run after the *first* strict GET assertion has
+/// already failed. They must never be used as a retry before that assertion.
+async fn g09_conflict_repro_failure_evidence(client: &Client, bucket: &str, record: &ObjectRef) {
+    use aws_sdk_s3::error::ProvideErrorMetadata;
+
+    let key = format!("private/chapter-versions/{}.enc", record.object_id.as_str());
+    match client.head_object().bucket(bucket).key(&key).send().await {
+        Ok(head) => eprintln!(
+            "G09_REPRO raw_head=ok size_matches={} sha_metadata_matches={}",
+            head.content_length() == Some(record.size_bytes as i64),
+            head.metadata()
+                .and_then(|m| m.get("sha256"))
+                .is_some_and(|sha| sha == &hex::encode(record.sha256_ciphertext))
+        ),
+        Err(error) => eprintln!(
+            "G09_REPRO raw_head=error category={} service_code={}",
+            if error.as_service_error().is_some() {
+                "s3-service"
+            } else {
+                "sdk-transport-or-response"
+            },
+            error
+                .as_service_error()
+                .and_then(|value| value.code())
+                .unwrap_or("none")
+        ),
+    }
+    match client.get_object().bucket(bucket).key(&key).send().await {
+        Ok(get) => {
+            let metadata_matches = get
+                .metadata()
+                .and_then(|m| m.get("sha256"))
+                .is_some_and(|sha| sha == &hex::encode(record.sha256_ciphertext));
+            match get.body.collect().await {
+                Ok(body) => {
+                    let bytes = body.into_bytes();
+                    eprintln!(
+                        "G09_REPRO raw_get=ok length_matches={} metadata_matches={} sha_matches={}",
+                        bytes.len() as u64 == record.size_bytes,
+                        metadata_matches,
+                        sha256_bytes(&bytes) == record.sha256_ciphertext
+                    );
+                }
+                Err(_) => {
+                    eprintln!("G09_REPRO raw_get=stream_error metadata_matches={metadata_matches}")
+                }
+            }
+        }
+        Err(error) => eprintln!(
+            "G09_REPRO raw_get=error category={} service_code={}",
+            if error.as_service_error().is_some() {
+                "s3-service"
+            } else {
+                "sdk-transport-or-response"
+            },
+            error
+                .as_service_error()
+                .and_then(|value| value.code())
+                .unwrap_or("none")
+        ),
+    }
+}
+
+async fn g09_conflict_first_get_round(
+    client: &Client,
+    store: &S3PrivateStore,
+    bucket: &str,
+    round: u16,
+    mode: &str,
+) {
+    // Every round uses a distinct canonical immutable key; background
+    // traffic never writes this key or shares its ObjectId.
+    let id = ObjectId::parse(&format!("c0f10000-0000-4000-8000-{round:012x}")).unwrap();
+    let original = seal_chapter(
+        version(),
+        id.clone(),
+        &format!("original private synthetic fixture round {round}"),
+        &ContentKek::from_bytes([53; 32]),
+    )
+    .unwrap();
+    let expected = object(&original.ciphertext, id.clone());
+    assert_eq!(
+        store.put_immutable(&expected, &original.ciphertext).await,
+        Ok(()),
+        "first immutable PUT must succeed in {mode} round {round}"
+    );
+    let competing = seal_chapter(
+        version(),
+        id.clone(),
+        &format!("different immutable writer round {round}"),
+        &ContentKek::from_bytes([53; 32]),
+    )
+    .unwrap();
+    let forged = object(&competing.ciphertext, id);
+    assert_ne!(forged.sha256_ciphertext, expected.sha256_ciphertext);
+    assert_eq!(
+        store.put_immutable(&forged, &competing.ciphertext).await,
+        Err(StorageError::Conflict),
+        "conditional competing PUT must fail in {mode} round {round}"
+    );
+
+    // CRITICAL: the very next request touching this target is the first
+    // exact GET. No HEAD, wait or retry between the 412 and this GET.
+    let first_get = store.get_verified(&expected).await;
+    if let Err(error) = &first_get {
+        eprintln!("G09_REPRO mode={mode} round={round} first_get={error:?}");
+        g09_conflict_repro_failure_evidence(client, bucket, &expected).await;
+    }
+    assert!(
+        first_get
+            .as_ref()
+            .is_ok_and(|bytes| bytes == &original.ciphertext),
+        "first GET after rejected overwrite failed integrity in {mode} round {round}"
+    );
+}
+
+/// #533: bounded one-key PUT -> rejected conflicting PUT -> first exact GET.
+/// Both the quiet baseline and parallel traffic use disposable loopback MinIO.
+/// This diagnostic does not alter the storage adapter or retry a failed GET.
+#[tokio::test]
+#[ignore = "only against disposable loopback MinIO from s3-provider"]
+async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO required");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "never target external S3"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test-only access key");
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").expect("test-only secret");
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(Credentials::new(
+            access,
+            secret,
+            None,
+            None,
+            "g09-loopback-only",
+        ))
+        .endpoint_url(&endpoint)
+        .force_path_style(true)
+        .retry_config(RetryConfig::standard().with_max_attempts(1))
+        .build();
+    let client = Client::from_conf(config);
+    let bucket = "tor-g09-conflict-repro-ci";
+    client
+        .create_bucket()
+        .bucket(bucket)
+        .send()
+        .await
+        .expect("new disposable G09 bucket");
+    let store = S3PrivateStore::new(client.clone(), bucket.to_owned()).unwrap();
+
+    for round in 1..=8 {
+        g09_conflict_first_get_round(&client, &store, bucket, round, "isolated").await;
+    }
+
+    // Independent, bounded GET traffic on four other keys. No background
+    // request can touch a target key and all operations must complete.
+    let counter = Arc::new(AtomicUsize::new(0));
+    let barrier = Arc::new(tokio::sync::Barrier::new(5));
+    let mut workers = Vec::new();
+    for worker in 0..4 {
+        let load_key = format!("g09-load-fixture-{worker}");
+        client
+            .put_object()
+            .bucket(bucket)
+            .key(&load_key)
+            .body(ByteStream::from_static(b"bounded-g09-load-fixture"))
+            .send()
+            .await
+            .expect("create isolated background key");
+        let background = client.clone();
+        let bg_bucket = bucket.to_owned();
+        let bg_counter = Arc::clone(&counter);
+        let bg_barrier = Arc::clone(&barrier);
+        workers.push(tokio::spawn(async move {
+            bg_barrier.wait().await;
+            for _ in 0..96 {
+                let response = background
+                    .get_object()
+                    .bucket(&bg_bucket)
+                    .key(&load_key)
+                    .send()
+                    .await
+                    .expect("background GET must succeed");
+                let body = response.body.collect().await.expect("background body");
+                assert!(
+                    &body.into_bytes()[..] == b"bounded-g09-load-fixture",
+                    "background fixture integrity mismatch"
+                );
+                bg_counter.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+    }
+    barrier.wait().await;
+    for round in 9..=24 {
+        g09_conflict_first_get_round(&client, &store, bucket, round, "parallel").await;
+    }
+    for worker in workers {
+        worker.await.expect("bounded load task");
+    }
+    assert_eq!(counter.load(Ordering::Relaxed), 4 * 96);
+    eprintln!("G09_REPRO baseline=8 parallel=16 load_gets=384 first_get_failures=0");
+}
