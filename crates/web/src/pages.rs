@@ -565,6 +565,9 @@ pub fn book_detail_with_chapters(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "pages/ui12_book_secondary_tests.rs"]
+mod ui12_book_secondary_tests;
 
 mod profile_settings;
 pub use profile_settings::profile_settings;
