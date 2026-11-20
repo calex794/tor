@@ -683,10 +683,7 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
 async fn g09_conflict_repro_failure_evidence(client: &Client, bucket: &str, record: &ObjectRef) {
     use aws_sdk_s3::error::ProvideErrorMetadata;
 
-    let key = format!(
-        "private/chapter-versions/{}.enc",
-        record.object_id.as_str()
-    );
+    let key = format!("private/chapter-versions/{}.enc", record.object_id.as_str());
     match client.head_object().bucket(bucket).key(&key).send().await {
         Ok(head) => eprintln!(
             "G09_REPRO raw_head=ok size_matches={} sha_metadata_matches={}",
@@ -724,9 +721,9 @@ async fn g09_conflict_repro_failure_evidence(client: &Client, bucket: &str, reco
                         sha256_bytes(&bytes) == record.sha256_ciphertext
                     );
                 }
-                Err(_) => eprintln!(
-                    "G09_REPRO raw_get=stream_error metadata_matches={metadata_matches}"
-                ),
+                Err(_) => {
+                    eprintln!("G09_REPRO raw_get=stream_error metadata_matches={metadata_matches}")
+                }
             }
         }
         Err(error) => eprintln!(
@@ -809,8 +806,7 @@ async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
     };
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO required");
     assert!(
-        endpoint.starts_with("http://127.0.0.1:")
-            || endpoint.starts_with("http://localhost:"),
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
         "never target external S3"
     );
     let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test-only access key");
