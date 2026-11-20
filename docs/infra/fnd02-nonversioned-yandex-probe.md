@@ -139,8 +139,8 @@ TOR_FND07_YANDEX_PROBE=READ_WRITE \
   catalog_import::fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes --nocapture
 ```
 
-The test refuses invocation through GitHub Actions, a non-loopback DB
-target, a wrong bucket name, a populated catalog or a populated bucket.
+The test rejects CI hosts (`GITHUB_ACTIONS` or `CI` set), a non-loopback
+DB target, a wrong bucket name, a populated catalog or a populated bucket.
 Do **not** run it until the dedicated credentials, policy and test
 environment have been reviewed. It writes synthetic books and objects;
 cleanup is a separate approval and the test must never delete durable
