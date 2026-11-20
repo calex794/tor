@@ -86,6 +86,65 @@ production DATA-READY. Those are separate operator gates. Physical
 DELETE/GC remains OFF and is **not required** merely to enable
 read/write-only S3 storage with restricted IAM.
 
+## External IAM non-overwrite gate (FND-02 and FND-07)
+
+**Operator-only, not covered by `FND02_YANDEX_NONVERSIONED_READ_PASS` or
+`FND07_YANDEX_FREE_CATALOG_OK`.** The standard probes establish conditional
+PUT/replay and byte-accurate reads. They do **not** prove that all other S3
+write APIs are unable to replace an existing published object. Do not declare
+external provider acceptance based only on their markers.
+
+Yandex's [CopyObject API](https://yandex.cloud/en/docs/storage/s3/api-ref/object/copy)
+documents `X-Amz-Copy-Source-If-None-Match` as a condition on the **source
+object ETag**, not on the destination key's absence. The provider explicitly
+allows successive copies targeting the same key if effective permissions allow
+them. Its [conditional-write bucket-policy guide](https://yandex.cloud/en/docs/storage/concepts/policy)
+documents `s3:if-none-match` enforcement for **upload** and **completeUpload**;
+do not assume that a policy protecting those methods automatically prevents
+destination overwrite by `CopyObject` or multipart copy.
+
+Before any DATA-READY approval, and **only** on a separately authorized,
+new, empty, never-versioned **disposable Yandex test bucket**:
+
+1. Record the reviewed effective IAM permissions and bucket policy for the
+   **same restricted identity** that the publisher would actually use.
+   Published PACK, sidecar, chapter, paid V1, manifest and backup prefixes must
+   not grant DELETE, versioning/policy administration or blanket S3 rights.
+   The S023 temporary staging deletion exception must remain confined to
+   `staging/chapters/`. Keep credentials and bucket IDs in the private
+   operator vault, not CI, GitHub comments or screenshots.
+2. First write only synthetic source and target objects. Record target
+   SHA-256 and byte length independently; use a distinct source with different
+   contents. Attempt `CopyObject` **to the occupied published target key**
+   using the intended publisher identity, including a source-side conditional
+   header if that operation is authorized. Require a provider-side denial;
+   re-read the entire target and require the original SHA and length.
+   A source ETag precondition is **not** a destination immutability control.
+3. If the effective publisher profile permits multipart, check that
+   `CompleteMultipartUpload` without `If-None-Match: *` is denied by policy;
+   completion targeting an occupied key with that header must fail with a
+   conflict/precondition response (e.g. 409/412), and `UploadPartCopy`
+   must not offer an alternate replacement path. Re-read the target after
+   every attempt. If multipart/copy is not granted, record its actual denial
+   without widening IAM just to make the test run. Incomplete uploads are
+   handled only by separately approved cleanup, never by widening publisher
+   DELETE rights.
+4. Confirm that ordinary `PutObject` without the required header is denied,
+   conditional first PUT succeeds, conflicting PUT fails, private GET/Range
+   remain authorized only as intended, and anonymous GET/Range are denied.
+   Require no unexplained altered or missing published objects in the final
+   inventory.
+
+**NO-GO** if any accessible API changes the pre-existing target bytes, if the
+publisher can delete immutable published objects, if effective policy cannot be
+verified, or if the evidence is incomplete. Investigate and narrow IAM/policy;
+do **not** relax the SHA/rights checks or switch on bucket versioning to hide
+the problem. These are *required external negative controls*, not a claim that
+a copy-overwrite vulnerability has already been reproduced. Record only
+redacted status codes, verified hashes and evidence references. Independent
+offsite backup and restore are a separate mandatory gate (I-11/#739) even if
+these tests pass.
+
 ## FND-07: ten-book FREE catalog acceptance
 
 This separate FND-07 probe tests the **ordinary S023 import workflow**, not
