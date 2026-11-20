@@ -91,8 +91,7 @@ async fn assert_exact_bytes(client: &Client, bucket: &str, key: &str, expected: 
         .key(key)
         .send()
         .await
-        .ok()
-        .expect("full-object HEAD must succeed");
+        .unwrap_or_else(|_| panic!("full-object HEAD must succeed"));
     assert!(
         head.version_id().is_none_or(|version| version == "null"),
         "unversioned HEAD cannot rely on S3 VersionId"
@@ -106,8 +105,7 @@ async fn assert_exact_bytes(client: &Client, bucket: &str, key: &str, expected: 
         .key(key)
         .send()
         .await
-        .ok()
-        .expect("full-object GET must succeed");
+        .unwrap_or_else(|_| panic!("full-object GET must succeed"));
     assert!(
         get.version_id().is_none_or(|version| version == "null"),
         "unversioned GET cannot rely on S3 VersionId"
@@ -169,8 +167,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
         .bucket(&bucket)
         .send()
         .await
-        .ok()
-        .expect("read-only bucket versioning inspection failed");
+        .unwrap_or_else(|_| panic!("read-only bucket versioning inspection failed"));
     assert!(
         versioning.status().is_none(),
         "FND-02 requires a never-versioned private disposable bucket"
@@ -181,8 +178,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
         .max_keys(1)
         .send()
         .await
-        .ok()
-        .expect("read-only empty-bucket inspection failed");
+        .unwrap_or_else(|_| panic!("read-only empty-bucket inspection failed"));
     assert!(listing.contents().is_empty(), "probe bucket must be empty");
 
     let pack_key = new_key();
@@ -227,8 +223,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
     let initial = writer
         .upload_and_verify(&prepared)
         .await
-        .ok()
-        .expect("conditional PUT and full-pack proof failed");
+        .unwrap_or_else(|_| panic!("conditional PUT and full-pack proof failed"));
     assert_eq!(initial.placement_receipt(), *prepared.receipt());
     let first_ms = started.elapsed().as_millis();
 
@@ -243,8 +238,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
     let identical = writer
         .upload_and_verify(&prepared)
         .await
-        .ok()
-        .expect("identical conditional replay must reconcile by full GET");
+        .unwrap_or_else(|_| panic!("identical conditional replay must reconcile by full GET"));
     assert_eq!(identical.placement_receipt(), *prepared.receipt());
     let divergent_put = client
         .put_object()
@@ -285,8 +279,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
     S3PackProofStore::new(client.clone())
         .verify_independent_full_get(prepared.target(), prepared.editions())
         .await
-        .ok()
-        .expect("original PACK and manifest must remain intact");
+        .unwrap_or_else(|_| panic!("original PACK and manifest must remain intact"));
 
     let frame_store = S3PackFrameStore::new(client.clone());
     let mut latencies = Vec::with_capacity(RANGES);
@@ -298,8 +291,7 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
         let encoded = frame_store
             .fetch_frame(frame)
             .await
-            .ok()
-            .expect("exact private Range GET failed");
+            .unwrap_or_else(|_| panic!("exact private Range GET failed"));
         returned_bytes += encoded.len();
         let decoded =
             decode_exact_frame(frame, &encoded).expect("strict Range frame decompression failed");
