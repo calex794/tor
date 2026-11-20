@@ -240,9 +240,7 @@ fn ui_12_book_secondary_actions_are_accessible_without_js() {
         .expect("script-free collapsed secondary control");
     let close = html[start..].find("</details>").expect("closed details");
     let menu = &html[start..start + close + "</details>".len()];
-    assert!(menu.contains(
-        "<summary class=\"ui-button ui-button--ghost\">Ещё действия</summary>"
-    ));
+    assert!(menu.contains("<summary class=\"ui-button ui-button--ghost\">Ещё действия</summary>"));
     assert!(!menu.contains("<script"));
     assert_eq!(menu.matches("href=\"/me/referrals?book=15\"").count(), 1);
     assert_eq!(menu.matches("href=\"/books/15/share\"").count(), 1);
