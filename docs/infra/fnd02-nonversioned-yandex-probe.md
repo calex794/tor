@@ -1,7 +1,10 @@
 # FND-02 — isolated Yandex S3 without bucket versioning
 
 This procedure is a **manual, opt-in external provider test**, not a
-deployment or a general-purpose S3 migration. Do not use an existing
+deployment or a general-purpose S3 migration. The existing working
+[`tore` bucket operator preparation](tor-s3-existing-tore-activation.md) is a
+**separate read-only onboarding path**; do not redirect this disposable
+acceptance probe to `tore`. Do not use an existing
 bucket, a production VPS, permanent PostgreSQL, live reader data, payments,
 or a production S3 credential. Tracking: [#1101](https://github.com/calex794/tor/issues/1101).
 
