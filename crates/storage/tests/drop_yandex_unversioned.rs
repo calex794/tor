@@ -29,25 +29,51 @@ use tor_storage::{
 const ENDPOINT: &str = "https://storage.yandexcloud.net";
 const RANGES: usize = 24;
 
-fn disposable_bucket() -> String {
-    assert_eq!(
-        env::var("TOR_FND02_YANDEX_PROBE").as_deref(),
-        Ok("READ_WRITE"),
-        "explicit TOR_FND02_YANDEX_PROBE=READ_WRITE required"
-    );
-    let bucket = env::var("TOR_FND02_YANDEX_BUCKET").expect("separate disposable bucket required");
-    assert!(
-        bucket
+fn valid_probe_scope(mode: &str, in_ci: bool, bucket: &str) -> bool {
+    mode == "READ_WRITE"
+        && !in_ci
+        && bucket
             .strip_prefix("tor-fnd02-probe-")
             .is_some_and(|suffix| {
                 (8..=40).contains(&suffix.len())
                     && suffix
                         .bytes()
                         .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-            }),
-        "only tor-fnd02-probe-<8..40 lowercase alphanumerics> is allowed"
+            })
+}
+
+fn disposable_bucket() -> String {
+    let mode = env::var("TOR_FND02_YANDEX_PROBE").unwrap_or_default();
+    let bucket = env::var("TOR_FND02_YANDEX_BUCKET").unwrap_or_default();
+    assert!(
+        valid_probe_scope(
+            &mode,
+            env::var_os("GITHUB_ACTIONS").is_some() || env::var_os("CI").is_some(),
+            &bucket,
+        ),
+        "FND-02 requires READ_WRITE, a disposable tor-fnd02-probe bucket and a host outside CI"
     );
     bucket
+}
+
+#[test]
+fn fnd02_yandex_scope_rejects_ci_and_unsafe_targets() {
+    const BUCKET: &str = "tor-fnd02-probe-01abc234";
+    assert!(valid_probe_scope("READ_WRITE", false, BUCKET));
+    assert!(!valid_probe_scope("READ_WRITE", true, BUCKET));
+    assert!(!valid_probe_scope("YES", false, BUCKET));
+    assert!(!valid_probe_scope("READ_ONLY", false, BUCKET));
+    assert!(!valid_probe_scope("READ_WRITE", false, "tor-prod-books"));
+    assert!(!valid_probe_scope(
+        "READ_WRITE",
+        false,
+        "tor-fnd02-probe-01abc234.extra"
+    ));
+    assert!(!valid_probe_scope(
+        "READ_WRITE",
+        false,
+        "tor-fnd07-probe-01abc234"
+    ));
 }
 
 fn probe_client() -> Client {
