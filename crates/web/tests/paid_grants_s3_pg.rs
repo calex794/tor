@@ -64,6 +64,8 @@ mod d06_lost_ack;
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/paid_reader_html_assertions.rs"]
+mod paid_reader_html_assertions;
 #[path = "paid_grants_s3_pg/ret03_paid_home.rs"]
 mod ret03_paid_home;
 #[path = "paid_grants_s3_pg/s020_paid_completion_age.rs"]
@@ -76,6 +78,8 @@ mod s035_browser;
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
 mod s065_admin_browser;
+#[path = "paid_grants_s3_pg/ui10b_mixed_public_visual.rs"]
+mod ui10b_mixed_public_visual;
 
 use completion_helpers::request_completion;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
@@ -840,28 +844,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .to_vec(),
     )
     .unwrap();
-    assert!(reader_html.contains("data-paid-chapter-reader"));
-    assert!(reader_html.contains("data-paid-toc"));
-    assert!(reader_html.contains("Оглавление книги"));
-    // Republished Book restores public reader metadata.
-    assert!(reader_html.contains("data-toc-state=\"free\""));
-    assert!(reader_html.contains("data-toc-state=\"locked\""));
-    assert!(reader_html.contains(&format!(
-        "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
-    )));
-    assert!(reader_html.contains("Вторая купленная глава &lt;script&gt;опасно&lt;/script&gt;"));
-    assert!(!reader_html.contains("<script>опасно</script>"));
-    assert!(reader_html.contains("<body class=\"reader-standalone\">"));
-    assert!(reader_html.contains("<main id=\"main\" class=\"reader-standalone__main\">"));
-    assert!(!reader_html.contains("class=\"site-header\""));
-    assert!(!reader_html.contains("class=\"site-footer\""));
-    assert!(reader_html.contains("Невбу &lt;img src=x onerror=window.__xss=true&gt; книга"));
-    assert!(reader_html.contains(CHAPTER_TITLE));
-    assert!(reader_html.contains("Глава 1. Редакция «V1»"));
-    assert!(reader_html.contains("Купленная редакция 1"));
-    assert!(!reader_html.contains("<img src=x"));
-    assert!(!reader_html.contains(MARKDOWN));
-    assert!(!reader_html.contains("dek_b64u"));
+    paid_reader_html_assertions::verify(&reader_html, chapter_two, purchase_two_id);
     let expiry_probe_url = serde_json::to_value(
         short_store
             .presign_verified(&reference, Duration::from_secs(30))
@@ -885,6 +868,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // Freeze TWO extra verified S3 FREE publications in the same Book as
     // the two paid ciphertext editions, before the real deletion workflow.
     let unified_free = d05_four_chapter_free::publish(&url, book, &free_store).await;
+    // Run on the same verified paid and S3 free objects BEFORE BR-060
+    // removes the public metadata. Do not simulate a mixed Book in HTML.
+    ui10b_mixed_public_visual::verify(
+        &app,
+        &url,
+        book,
+        [chapter, chapter_two],
+        unified_free,
+        &buyer_cookie,
+    )
+    .await;
     let archived_v1 = br060_ordinary_deleted::verify(
         &app,
         &url,
