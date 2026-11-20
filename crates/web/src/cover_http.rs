@@ -151,11 +151,9 @@ fn book_appearance_from_cookie(
     }
     if script_free {
         // Do not request a script that the private book CSP intentionally blocks.
-        html.0 = html.0.replacen(
-            "<script src=\"/assets/tor-appearance.js\"></script>",
-            "",
-            1,
-        );
+        html.0 = html
+            .0
+            .replacen("<script src=\"/assets/tor-appearance.js\"></script>", "", 1);
     }
     html
 }
@@ -407,14 +405,11 @@ mod cdn_html_tests {
                 .expect("valid header"),
         );
         let source = "<html lang=\"ru\"><head><script src=\"/assets/tor-appearance.js\"></script></head><body><a href=\"/reader/41\">Читать</a></body></html>";
-        let html = book_appearance_from_cookie(
-            axum::response::Html(source.to_owned()),
-            &headers,
-            true,
-        );
-        assert!(html.0.contains(
-            "<html lang=\"ru\" data-tor-style=\"library\" data-tor-theme=\"dark\">"
-        ));
+        let html =
+            book_appearance_from_cookie(axum::response::Html(source.to_owned()), &headers, true);
+        assert!(html
+            .0
+            .contains("<html lang=\"ru\" data-tor-style=\"library\" data-tor-theme=\"dark\">"));
         assert!(!html.0.contains("tor-appearance.js"));
         assert!(html.0.contains("href=\"/reader/41\""));
         let private = auth_cookies::private_response(html, &[]);
@@ -456,15 +451,10 @@ mod cdn_html_tests {
     fn public_script_enabled_page_keeps_existing_picker() {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(header::COOKIE, "tor-ui-style-v1=minimal".parse().unwrap());
-        let source =
-            "<html lang=\"ru\"><script src=\"/assets/tor-appearance.js\"></script></html>";
-        let html = book_appearance_from_cookie(
-            axum::response::Html(source.into()),
-            &headers,
-            false,
-        );
+        let source = "<html lang=\"ru\"><script src=\"/assets/tor-appearance.js\"></script></html>";
+        let html =
+            book_appearance_from_cookie(axum::response::Html(source.into()), &headers, false);
         assert!(html.0.contains("data-tor-style=\"minimal\""));
         assert!(html.0.contains("tor-appearance.js"));
     }
-
 }
