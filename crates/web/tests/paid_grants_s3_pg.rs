@@ -58,6 +58,8 @@ mod d05_four_chapter_browser;
 mod d05_four_chapter_expiry;
 #[path = "paid_grants_s3_pg/d05_four_chapter_free.rs"]
 mod d05_four_chapter_free;
+#[path = "paid_grants_s3_pg/ui10b_mixed_public_visual.rs"]
+mod ui10b_mixed_public_visual;
 #[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
 mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -885,6 +887,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // Freeze TWO extra verified S3 FREE publications in the same Book as
     // the two paid ciphertext editions, before the real deletion workflow.
     let unified_free = d05_four_chapter_free::publish(&url, book, &free_store).await;
+    // Run on the same verified paid and S3 free objects BEFORE BR-060
+    // removes the public metadata. Do not simulate a mixed Book in HTML.
+    ui10b_mixed_public_visual::verify(
+        &app,
+        &url,
+        book,
+        [chapter, chapter_two],
+        unified_free,
+        &buyer_cookie,
+    )
+    .await;
     let archived_v1 = br060_ordinary_deleted::verify(
         &app,
         &url,
