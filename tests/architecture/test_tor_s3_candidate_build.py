@@ -12,7 +12,7 @@ RUNBOOK = (ROOT / "docs/infra/tor-s3-existing-tore-activation.md").read_text()
 
 class S3CandidateBuildTests(unittest.TestCase):
     def test_manual_dispatch_only_with_read_only_git(self):
-        events = WORKFLOW.split("\npermissions:", 1)[0]
+        events = WORKFLOW.split("\npermissions:", 1)[0] + "\n"
         self.assertIn("  workflow_dispatch:\n", events)
         for forbidden in ("  pull_request:", "  pull_request_target:", "  push:",
                           "  workflow_run:", "  schedule:"):
