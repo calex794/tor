@@ -64,6 +64,15 @@ pub(super) async fn verify(
     );
     let purchased_before = super::scalar(url, &count_sql);
     assert!(purchased_before > 0 && purchase > 0);
+    let library_before =
+        super::private_get(app, "/me/library?view=purchased", Some(buyer_cookie)).await;
+    assert_eq!(library_before.status(), StatusCode::OK);
+    assert!(
+        super::html_body(library_before)
+            .await
+            .contains(&format!("href=\"/me/library/{book}/saved\"")),
+        "before admin hold the purchased Library must link to this exact Book"
+    );
     assert_eq!(
         super::paid_page(app, chapter, purchase, buyer_cookie)
             .await
@@ -109,6 +118,15 @@ pub(super) async fn verify(
             .await
             .contains(&format!("data-ret-purchased-book=\"{book}\"")),
         "removing admin hold restores the authorized Home shortcut"
+    );
+    let restored_library =
+        super::private_get(app, "/me/library?view=purchased", Some(buyer_cookie)).await;
+    assert_eq!(restored_library.status(), StatusCode::OK);
+    assert!(
+        super::html_body(restored_library)
+            .await
+            .contains(&format!("href=\"/me/library/{book}/saved\"")),
+        "removing admin hold must restore the purchased Library Book link"
     );
     assert_eq!(
         super::paid_page(app, chapter, purchase, buyer_cookie)
