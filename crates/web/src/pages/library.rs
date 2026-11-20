@@ -267,8 +267,8 @@ fn my_library_inner(
     let html = format!(
         "<section class=\"section library-v2\"><div class=\"container library-shell\">\
          <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav>\
-         <div class=\"library-topline\"><div><p class=\"library-kicker\">Моё чтение</p><h1>Моя библиотека</h1><p class=\"library-intro\">Истории, к которым хочется возвращаться</p></div><div class=\"library-top-actions\"><a class=\"button button--small\" href=\"/catalog\">Найти книгу</a></div></div>\
-         <div class=\"library-quick-links\">{purchased_link}{layers_link}<a href=\"/library/shared\">Рекомендации друзей</a></div>\
+         <div class=\"library-topline\"><h1>Моя библиотека</h1><div class=\"library-top-actions\"><a class=\"button button--small\" href=\"/catalog\">Найти книгу</a><a class=\"library-friends-link\" href=\"/library/shared\">Рекомендации друзей</a></div></div>\
+         <div class=\"library-quick-links\">{purchased_link}{layers_link}</div>\
          <nav class=\"library-tabs\" aria-label=\"Разделы библиотеки\">{nav}</nav>{main}</div></section>"
     );
     layout(

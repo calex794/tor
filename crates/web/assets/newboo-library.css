@@ -1,29 +1,29 @@
 /* TOR reader workspace. Script-free: private pages enforce script-src 'none'. */
-.library-v2 { min-height: 64vh; padding-block: 32px 86px; }
+.library-v2 { min-height: 64vh; padding-block: 24px 86px; }
 .library-v2 .library-shell { max-width: 1120px; }
-.library-v2 .breadcrumbs { margin-bottom: 30px; }
+.library-v2 .breadcrumbs { margin-bottom: 16px; }
 .library-v2 .library-topline {
   display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 18px; margin-bottom: 26px;
-}
-.library-v2 .library-kicker {
-  margin: 0 0 9px; color: var(--primary-color);
-  font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  gap: 18px; margin-bottom: 18px;
 }
 .library-v2 h1 { margin: 0; font-size: clamp(28px, 3vw, 38px); line-height: 1.18; letter-spacing: -.035em; }
-.library-v2 .library-intro { margin: 10px 0 0; color: var(--text-muted); font-size: 14px; }
 .library-v2 .library-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .library-v2 .library-top-actions .button { white-space: nowrap; }
+.library-v2 .library-friends-link {
+  color: var(--text-muted); font-size: 13px; font-weight: 650;
+  text-decoration: underline; text-underline-offset: 3px;
+}
 .library-v2 .library-quick-links {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
-  margin: 0 0 24px; font-size: 13px;
+  margin: 0 0 12px; font-size: 13px;
 }
+.library-v2 .library-quick-links:empty { display: none; }
 .library-v2 .library-quick-links a { color: var(--text-muted); text-decoration: none; }
 .library-v2 .library-quick-links a:hover { color: var(--primary-color); text-decoration: underline; }
 .library-v2 .library-tabs {
   display: flex; align-items: center; gap: 4px; overflow-x: auto;
   border-bottom: 1px solid var(--border-color); scrollbar-width: thin;
-  margin-bottom: 29px;
+  margin-bottom: 21px;
 }
 .library-v2 .library-tab {
   display: inline-flex; flex: 0 0 auto; min-height: 48px; align-items: center;
@@ -145,10 +145,9 @@
 .library-v2 .library-onboarding h2 { margin: 0 0 9px; font-size: 23px; }
 .library-v2 .library-onboarding p { max-width: 475px; margin: 0 auto 22px; line-height: 1.65; color: var(--text-muted); font-size: 14px; }
 @media (max-width: 760px) {
-  .library-v2 { padding-block: 22px 58px; }
-  .library-v2 .breadcrumbs { margin-bottom: 21px; }
-  .library-v2 .library-topline { align-items: flex-start; flex-direction: column; gap: 15px; }
-  .library-v2 .library-intro { margin-top: 7px; }
+  .library-v2 { padding-block: 16px 58px; }
+  .library-v2 .breadcrumbs { margin-bottom: 12px; }
+  .library-v2 .library-topline { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 12px; }
   .library-v2 .library-tabs { min-width: 0; width: 100%; max-width: 100%; margin-inline: 0; padding-inline: 0; margin-bottom: 22px; }
   .library-v2 .library-tab { padding-inline: 14px; }
   .library-v2 .library-reading-card { gap: 14px; padding: 15px; flex-wrap: wrap; align-items: flex-start; }
@@ -170,7 +169,7 @@
 /* UI-04: CSS-only reader library variants, preserving DOM and private CSP. */
 .library-v2 .library-display-controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
-  margin: 0 0 18px; color: var(--text-secondary);
+  margin: 0 0 12px; color: var(--text-secondary);
 }
 .library-v2 .library-display-controls__label {
   font-size: 13px; font-weight: 750; margin-right: 5px;
@@ -262,5 +261,27 @@
   }
   .library-v2[data-tor-library-layout="cards"] .library-reading-list {
     grid-template-columns: 1fr;
+  }
+}
+
+/* UI-13: every private-library tab is visible even at 320px; no JS or scroll trap. */
+@media (max-width: 760px) {
+  .library-v2 .library-display-controls {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px; margin-bottom: 10px;
+  }
+  .library-v2 .library-display-controls__label { display: none; }
+  .library-v2 .library-display-controls a {
+    justify-content: center; min-width: 0; min-height: 36px;
+    padding: 7px 3px; text-align: center;
+  }
+  .library-v2 .library-tabs {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0; overflow: visible; margin-bottom: 14px;
+  }
+  .library-v2 .library-tab {
+    justify-content: center; min-width: 0; min-height: 44px;
+    padding: 8px 2px; font-size: 12px; line-height: 1.2;
+    text-align: center; white-space: normal; overflow-wrap: anywhere;
   }
 }

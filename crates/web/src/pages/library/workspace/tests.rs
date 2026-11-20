@@ -106,3 +106,30 @@ fn public_library_cover_requires_confirmed_public_slot() {
     assert!(!private.contains("/covers/13/card.webp"));
     assert!(private.contains("library-book-art__glyph"));
 }
+
+#[test]
+fn ui13_library_header_shows_actions_without_decorative_copy() {
+    let updates = blank_updates();
+    let purchases = blank_purchased();
+    let html = my_library_with_updates_and_layers_and_purchased_only_selected(
+        &[],
+        &blank_saved(),
+        "csrf",
+        (false, false),
+        false,
+        (&updates, &[]),
+        (&purchases, None, None),
+    )
+    .0;
+    assert!(html.contains("<h1>Моя библиотека</h1>"));
+    assert!(!html.contains("library-kicker"));
+    assert!(!html.contains("library-intro"));
+    assert!(!html.contains("Истории, к которым хочется возвращаться"));
+    assert_eq!(html.matches("href=\"/library/shared\"").count(), 1);
+    assert!(html.contains("href=\"/catalog\""));
+    assert!(html.contains("class=\"library-quick-links\"></div>"));
+    for tab in ["reading", "saved", "updates", "purchased"] {
+        assert!(html.contains(&format!("href=\"/me/library?view={tab}\"")));
+    }
+    assert!(html.contains("aria-label=\"Разделы библиотеки\""));
+}
