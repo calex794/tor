@@ -56,12 +56,34 @@
     }
   }
 
+  // Do not set a persistent cookie for a visitor who never changed layout.
+  // Script-free PG book pages render the default showcase layout themselves.
+  function mirrorStyleCookie() {
+    try {
+      const secure = window.location?.protocol === "https:" ? "; Secure" : "";
+      const hasStyleCookie = (document.cookie || "").split(";").some(
+        item => item.trim().startsWith("tor-ui-style-v1=")
+      );
+      if (settings.style === DEFAULTS.style) {
+        if (hasStyleCookie) {
+          document.cookie = "tor-ui-style-v1=; Path=/; Max-Age=0; SameSite=Lax" + secure;
+        }
+      } else {
+        document.cookie = "tor-ui-style-v1=" + settings.style +
+          "; Path=/; Max-Age=31536000; SameSite=Lax" + secure;
+      }
+    } catch (_) {
+      // Cookie denial never blocks reading or navigation.
+    }
+  }
+
   function apply() {
     root.dataset.torStyle = settings.style;
     root.dataset.torTheme = settings.theme;
     root.dataset.torDensity = settings.density;
     root.dataset.torCatalog = settings.catalog;
     mirrorThemeCookie();
+    mirrorStyleCookie();
   }
 
   // This script intentionally loads before CSS to avoid a light/dark flash.

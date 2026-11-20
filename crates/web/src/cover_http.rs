@@ -98,6 +98,69 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
     response
 }
 
+/// Honor only exact presentation enums in script-free PostgreSQL book HTML.
+/// Never interpolate untrusted cookie bytes or weaken the existing page CSP.
+fn book_cookie_mode(headers: &axum::http::HeaderMap, name: &str) -> Option<&'static str> {
+    for raw in headers.get_all(header::COOKIE) {
+        let Ok(raw) = raw.to_str() else {
+            continue;
+        };
+        for pair in raw.split(';') {
+            let Some((key, value)) = pair.trim().split_once('=') else {
+                continue;
+            };
+            if key != name {
+                continue;
+            }
+            return match (name, value) {
+                ("tor-ui-style-v1", "showcase") => Some("showcase"),
+                ("tor-ui-style-v1", "library") => Some("library"),
+                ("tor-ui-style-v1", "minimal") => Some("minimal"),
+                ("tor-ui-theme-v1", "system") => Some("system"),
+                ("tor-ui-theme-v1", "light") => Some("light"),
+                ("tor-ui-theme-v1", "dark") => Some("dark"),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+fn book_appearance_from_cookie(
+    mut html: axum::response::Html<String>,
+    headers: &axum::http::HeaderMap,
+    script_free: bool,
+) -> axum::response::Html<String> {
+    let mut attrs = String::new();
+    // The guest default needs no cookie. Render the same showcase composition
+    // that public pages use when their appearance script is enabled.
+    let style = book_cookie_mode(headers, "tor-ui-style-v1");
+    if let Some(style) = style.or(script_free.then_some("showcase")) {
+        attrs.push_str(" data-tor-style=\"");
+        attrs.push_str(style);
+        attrs.push('"');
+    }
+    if let Some(theme) = book_cookie_mode(headers, "tor-ui-theme-v1") {
+        attrs.push_str(" data-tor-theme=\"");
+        attrs.push_str(theme);
+        attrs.push('"');
+    }
+    if !attrs.is_empty() {
+        html.0 = html.0.replacen(
+            "<html lang=\"ru\">",
+            &format!("<html lang=\"ru\"{attrs}>"),
+            1,
+        );
+    }
+    if script_free {
+        // Do not request a script that the private book CSP intentionally blocks.
+        html.0 = html
+            .0
+            .replacen("<script src=\"/assets/tor-appearance.js\"></script>", "", 1);
+    }
+    html
+}
+
 pub(super) async fn homepage_with_cdn(
     state: &AppState,
     cards: &[pages::PublicBookCard],
@@ -128,8 +191,12 @@ pub(super) async fn book_html(
         Ok(value) => value,
         Err(status) => return book_error(state, status).await,
     };
+    let script_free = state.follow_control.is_some() && !crate::auth::surprise_http::enabled();
+    let html = book_appearance_from_cookie(html, headers, script_free);
     let mut response =
         book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
+    // Preserve the preexisting opt-in Surprise-only exception. Other real
+    // book responses retain script-src 'none', just like other private pages.
     if crate::auth::surprise_http::enabled() {
         if let Some(value) = response.headers().get("content-security-policy") {
             if let Ok(policy) = value.to_str() {
@@ -329,5 +396,82 @@ mod cdn_html_tests {
         let public = "public".into_response();
         let response = cdn_image_csp(public, Some("https://covers.example"));
         assert!(response.headers().get("content-security-policy").is_none());
+    }
+
+    #[test]
+    fn script_free_book_applies_only_allowlisted_presentation_cookies() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "csrf=unchanged; tor-ui-style-v1=library; tor-ui-theme-v1=dark"
+                .parse()
+                .expect("valid header"),
+        );
+        let source = "<html lang=\"ru\"><head><script src=\"/assets/tor-appearance.js\"></script></head><body><a href=\"/reader/41\">Читать</a></body></html>";
+        let html =
+            book_appearance_from_cookie(axum::response::Html(source.to_owned()), &headers, true);
+        assert!(html
+            .0
+            .contains("<html lang=\"ru\" data-tor-style=\"library\" data-tor-theme=\"dark\">"));
+        assert!(!html.0.contains("tor-appearance.js"));
+        assert!(html.0.contains("href=\"/reader/41\""));
+        let private = auth_cookies::private_response(html, &[]);
+        let csp = private.headers()["content-security-policy"]
+            .to_str()
+            .expect("valid CSP");
+        assert!(csp.contains("script-src 'none'"));
+        assert!(!csp.contains("unsafe-inline"));
+    }
+
+    #[test]
+    fn script_free_book_rejects_untrusted_presentation_cookies() {
+        let source = "<html lang=\"ru\"><a href=\"/reader/41\">Читать</a></html>";
+        for hostile in [
+            "tor-ui-style-v1=showcase%22%3E%3Cscript%3E",
+            "tor-ui-style-v1=library\"",
+            "tor-ui-style-v1=unknown",
+            "tor-ui-theme-v1=dark%22",
+            "tor-ui-theme-v1=autodark",
+        ] {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(header::COOKIE, hostile.parse().expect("valid header"));
+            let html = book_appearance_from_cookie(
+                axum::response::Html(source.to_owned()),
+                &headers,
+                true,
+            );
+            // Invalid cookie bytes are never reflected. The public default is
+            // a fixed, server-owned showcase enum with the same reader link.
+            let expected = source.replacen(
+                "<html lang=\"ru\">",
+                "<html lang=\"ru\" data-tor-style=\"showcase\">",
+                1,
+            );
+            assert_eq!(html.0, expected, "invalid cookie altered book HTML");
+        }
+        let original = book_appearance_from_cookie(
+            axum::response::Html(source.to_owned()),
+            &axum::http::HeaderMap::new(),
+            true,
+        );
+        assert_eq!(
+            original.0,
+            source.replacen(
+                "<html lang=\"ru\">",
+                "<html lang=\"ru\" data-tor-style=\"showcase\">",
+                1,
+            )
+        );
+    }
+
+    #[test]
+    fn public_script_enabled_page_keeps_existing_picker() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(header::COOKIE, "tor-ui-style-v1=minimal".parse().unwrap());
+        let source = "<html lang=\"ru\"><script src=\"/assets/tor-appearance.js\"></script></html>";
+        let html =
+            book_appearance_from_cookie(axum::response::Html(source.into()), &headers, false);
+        assert!(html.0.contains("data-tor-style=\"minimal\""));
+        assert!(html.0.contains("tor-appearance.js"));
     }
 }

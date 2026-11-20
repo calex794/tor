@@ -65,6 +65,96 @@ async function inspectCompactAuthorNav(page, label) {
     label + ': primary account links were removed');
 }
 
+// UI-10A: the demo /books/1 card has no chapters. Verify all three
+// appearances against the actual PG-published, two-chapter public book.
+// This test does not simulate paid chapters: their MinIO-backed journey is a
+// separate UI-10B acceptance. Never claim paid coverage from this free fixture.
+async function inspectRealBookAppearances(page, viewport, bookId, secondChapterHref) {
+  const where = viewport + '/real-book-' + bookId;
+  const hero = page.locator('.book-detail-page .book-hero-card');
+  assert(await hero.count() === 1, where + ': missing public book hero');
+  assert(await page.locator('.chapter-toc__item').count() === 2,
+    where + ': published PG book must expose both real free chapters');
+  assert(await page.locator('.chapter-toc__item--paid').count() === 0,
+    where + ': free fixture unexpectedly contains paid chapters');
+  assert(await page.locator('.chapter-toc__item a[href="' + secondChapterHref + '"]').count() === 1,
+    where + ': real second chapter reader link lost');
+  const primary = page.locator('.book-hero-actions a[href^="/reader/"]').first();
+  assert(await primary.count() === 1,
+    where + ': real published book is missing its primary read action');
+  const expectedLinks = await page.locator('.book-detail-page a[href]')
+    .evaluateAll(nodes => nodes.map(node => node.getAttribute('href')));
+  const bookResponse = await page.context().request.get(base + '/books/' + bookId);
+  assert(bookResponse.status() === 200, where + ': book GET probe failed');
+  const bookCsp = bookResponse.headers()['content-security-policy'] || '';
+  assert(bookCsp.includes("default-src 'none'") &&
+    bookCsp.includes("script-src 'none'") &&
+    !bookCsp.includes('unsafe-inline') && !bookCsp.includes('unsafe-eval'),
+    where + ': real personalized book lost its strict no-script CSP');
+  const picker = page.locator('[data-tor-appearance]');
+  assert(await picker.isHidden(),
+    where + ': script-free real book shows a nonfunctional picker');
+  const setAppearance = async (setting, value) => {
+    // Same cookie name and exact enum emitted by the public first-party picker.
+    const name = setting === 'style' ? 'tor-ui-style-v1' : 'tor-ui-theme-v1';
+    await page.context().addCookies([{name, value, url: base, sameSite: 'Lax'}]);
+    const response = await page.reload({waitUntil: 'networkidle'});
+    assert(response && response.status() === 200,
+      where + ': style cookie made protected book unavailable');
+    assert(await page.locator('html').getAttribute('data-tor-' + setting) === value,
+      where + ': real SSR did not honor ' + setting + '=' + value);
+    assert(await picker.isHidden(),
+      where + ': a disabled script-only picker appeared');
+  };
+  const compositions = [];
+  for (const style of ['showcase', 'library', 'minimal']) {
+    await setAppearance('style', style);
+    for (const theme of ['light', 'dark']) {
+      await setAppearance('theme', theme);
+      await page.evaluate(() => window.scrollTo({top: 0, behavior: 'instant'}));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      const view = await page.evaluate(() => ({
+        width: document.documentElement.clientWidth,
+        root: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        height: innerHeight,
+      }));
+      assert(view.root <= view.width + 1 && view.body <= view.width + 1,
+        where + '/' + style + '/' + theme + ': horizontal overflow ' + JSON.stringify(view));
+      const titleBox = await page.locator('.book-hero-card__title').boundingBox();
+      const primaryBox = await primary.boundingBox();
+      assert(titleBox && titleBox.y >= 0 && titleBox.y < view.height,
+        where + '/' + style + '/' + theme + ': real book title is below first screen');
+      assert(primaryBox && primaryBox.y >= 0 && primaryBox.y + primaryBox.height <= view.height,
+        where + '/' + style + '/' + theme + ': real read action is below first screen');
+      assert(await primary.getAttribute('href') !== null,
+        where + '/' + style + '/' + theme + ': primary action lost its href');
+      assert(JSON.stringify(await page.locator('.book-detail-page a[href]')
+        .evaluateAll(nodes => nodes.map(node => node.getAttribute('href')))) ===
+        JSON.stringify(expectedLinks),
+        where + '/' + style + '/' + theme + ': style or theme changed real book links');
+      const signature = await hero.evaluate(node => {
+        const css = getComputedStyle(node);
+        return css.gridTemplateAreas + '|' + css.gridTemplateColumns + '|' + css.borderTopWidth;
+      });
+      if (theme === 'light') compositions.push(signature);
+      await page.screenshot({
+        path: path.join(out, 'ui10a-' + viewport + '-' + style + '-' + theme + '.png'),
+        fullPage: true,
+      });
+    }
+  }
+  assert(new Set(compositions).size === 3,
+    where + ': all three styles must have distinct real-book grid geometries');
+  await setAppearance('theme', 'system');
+  await setAppearance('style', 'showcase');
+  await page.reload({waitUntil: 'networkidle'});
+  assert(await page.locator('.chapter-toc__item').count() === 2,
+    where + ': reload after changing appearance lost published TOC');
+  assert(await page.locator('.book-hero-actions a[href^="/reader/"]').count() === 1,
+    where + ': reload after changing appearance lost read action');
+}
+
 async function inspectAuthorEditor(page, viewport, width, height, kind) {
   const form = page.locator('.author-editor__form');
   assert(await form.count() === 1, 'shared author form missing');
@@ -376,6 +466,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       assert(href && /^\/reader\/\d+$/.test(href),
         viewport + ': released chapter reader link invalid');
       await inspect(page, viewport, 'second-public-toc');
+      await inspectRealBookAppearances(page, viewport, bookId, href);
       await secondLink.click();
       await page.waitForURL(/\/reader\/\d+$/);
       assert(await page.getByText('PUBLIC B06 new').isVisible(),
