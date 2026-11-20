@@ -13,12 +13,14 @@ use tor_storage::{
     repositories::{
         free_pack_proof_s3::S3PackProofStore,
         free_pack_range_s3::{response_metadata_matches, S3PackFrameStore},
+        free_pack_write_s3::S3FreePackWriter,
     },
     services::{
         crypto::sha256_bytes,
         free_chapter::FreeChapterObject,
         free_pack_proof::PackProofTarget,
         free_pack_read::read_reauthorized_pack,
+        free_pack_write::prepare_free_pack,
         free_placement::{plan_after_acl, FreePhysicalPlacement},
     },
 };
@@ -234,5 +236,140 @@ async fn drop_r3a_real_private_minio_range_reads_only_selected_zstd_frame() {
             .err(),
         Some(StorageError::Corrupt),
         "full object readback must detect corruption before any PG receipt"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO with bucket versioning disabled"]
+async fn fnd02_unversioned_pack_replay_conflict_preserves_private_range() {
+    let (client, endpoint) = test_client();
+    const BUCKET: &str = "tor-private-fnd02-nonversioned-ci";
+    const PACK_KEY: &str = "private/free-packs/ci/fnd02-nonversioned-immutable.zst";
+    client.create_bucket().bucket(BUCKET).send().await.unwrap();
+
+    // A newly created bucket must not silently inherit the versioned DROP-09
+    // fixture. All reader and publisher checks below use object keys only.
+    let bucket_versioning = client
+        .get_bucket_versioning()
+        .bucket(BUCKET)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        bucket_versioning.status().is_none(),
+        "the non-versioned acceptance must never run on a versioned bucket"
+    );
+
+    let first_text = "Saved FREE V1 stays pinned even after another PACK is proposed";
+    let second_text = "Exactly one authorized frame: 中文 😀";
+    let sources = vec![
+        (
+            FreeChapterObject::for_markdown(8201, 9201, first_text).unwrap(),
+            first_text.as_bytes().to_vec(),
+        ),
+        (
+            FreeChapterObject::for_markdown(8202, 9202, second_text).unwrap(),
+            second_text.as_bytes().to_vec(),
+        ),
+    ];
+    let prepared = prepare_free_pack(BUCKET, PACK_KEY, &sources).unwrap();
+    let writer = S3FreePackWriter::new(client.clone());
+    let verified = writer.upload_and_verify(&prepared).await.unwrap();
+    assert_eq!(verified.placement_receipt(), *prepared.receipt());
+
+    for key in [
+        prepared.target().pack_key.as_str(),
+        prepared.target().manifest_key.as_str(),
+    ] {
+        let head = client
+            .head_object()
+            .bucket(BUCKET)
+            .key(key)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            head.version_id().is_none_or(|version| version == "null"),
+            "unversioned PACK and manifest cannot rely on an opaque S3 VersionId"
+        );
+    }
+
+    // A lost ACK or identical replay must be resolved by an independent full
+    // GET, never by unconditional overwrite or an invented provider version.
+    let replay = writer.upload_and_verify(&prepared).await.unwrap();
+    assert_eq!(replay.placement_receipt(), *prepared.receipt());
+
+    // Directly verify the provider's overwrite protection before exercising
+    // the worker's digest-bound conflict path.
+    let conflict = client
+        .put_object()
+        .bucket(BUCKET)
+        .key(PACK_KEY)
+        .if_none_match("*")
+        .body(ByteStream::from_static(b"not the original PACK"))
+        .send()
+        .await
+        .expect_err("a second conditional PUT must not overwrite a PACK");
+    assert_eq!(
+        conflict.raw_response().map(|response| response.status().as_u16()),
+        Some(412),
+        "the unversioned provider must return PreconditionFailed"
+    );
+
+    let changed = "Attacker supplies a different source under the same edition IDs";
+    let different = vec![
+        (
+            FreeChapterObject::for_markdown(8201, 9201, changed).unwrap(),
+            changed.as_bytes().to_vec(),
+        ),
+        sources[1].clone(),
+    ];
+    let forged = prepare_free_pack(BUCKET, PACK_KEY, &different).unwrap();
+    assert_ne!(forged.target().pack_sha256, prepared.target().pack_sha256);
+    assert_eq!(
+        writer.upload_and_verify(&forged).await.err(),
+        Some(StorageError::Corrupt),
+        "a conflicting body must not turn into a valid B placement receipt"
+    );
+
+    // The first PACK and its sidecar remain byte-identical and readable by
+    // exact key. Range GET has no versionId argument, and C reauthorizes.
+    let intact = S3PackProofStore::new(client.clone())
+        .verify_independent_full_get(prepared.target(), &[
+            sources[0].0.clone(),
+            sources[1].0.clone(),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(intact.placement_receipt(), *prepared.receipt());
+    let frame = intact.frames()[1].clone();
+    let plan = plan_after_acl(&sources[1].0, FreePhysicalPlacement::Pack(frame.clone())).unwrap();
+    let read = read_reauthorized_pack(
+        || ready(Ok(Some(plan.clone()))),
+        &S3PackFrameStore::new(client.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(read, second_text.as_bytes());
+
+    let anonymous = format!("{endpoint}/{BUCKET}/{PACK_KEY}");
+    let curl = Command::new("curl")
+        .args([
+            "--silent",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            "--header",
+            &format!("Range: {}", frame.gateway_range()),
+            &anonymous,
+        ])
+        .output()
+        .unwrap();
+    assert!(curl.status.success());
+    assert_eq!(
+        String::from_utf8(curl.stdout).unwrap(),
+        "403",
+        "anonymous Range must never expose a private multi-book PACK"
     );
 }
