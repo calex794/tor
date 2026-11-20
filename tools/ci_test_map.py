@@ -307,6 +307,7 @@ READING_ANALYTICS_TEST_FILES = frozenset({
     "crates/web/tests/recommendations_admin_policy_http_pg.rs",
 })
 TEST_SUITES.update({path: {"rust", "reading_analytics"} for path in READING_ANALYTICS_TEST_FILES})
+TEST_SUITES["crates/web/tests/support/audience_return_dates.rs"] = {"rust", "reading_analytics"}
 
 # Only prose in these locations is cheap. Contracts/fixtures/configuration are not.
 PROSE_FILES = {"README.md", "AGENTS.md", "docs/development.md"}

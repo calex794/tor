@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 #[path = "support/legacy_analytics.rs"]
 mod legacy_analytics;
+#[path = "support/audience_return_dates.rs"]
+mod return_dates;
 
 use axum::{
     body::{to_bytes, Body},
@@ -313,6 +315,7 @@ fn book_returns_snapshot_day_does_not_jump_when_next_utc_day_appears() {
 #[ignore = "requires explicit legacy analytics baseline 191"]
 async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     let url = legacy_analytics::url();
+    return_dates::wait_for_fixture_day().await;
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -550,6 +553,12 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     ] {
         let html = report(&app, &cookies[0], book, days).await;
         date_bounds(&url, &html, days);
+        return_dates::assert_period_bounds(
+            &html,
+            period(&html, "current"),
+            period(&html, "previous"),
+            days,
+        );
         for (key, expected) in ["current", "previous"].into_iter().zip(expected) {
             assert_eq!(counts(&html, key), expected, "{days} days, {key}");
         }
