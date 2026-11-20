@@ -80,7 +80,17 @@ async function referralStats(page) {
     assert(before.active === 0 && before.invitation.url === firstUrl,
       'first invite missing from owner account');
     await first.goto(base + '/books/1');
-    const shareAction = first.getByRole('link', { name: 'Поделиться книгой' });
+    const more = first.locator('.book-hero-more');
+    assert(await more.count() === 1, 'published book is missing more actions');
+    assert(!(await more.evaluate(node => node.open)),
+      'secondary actions must start collapsed');
+    const summary = more.locator('summary');
+    assert(await summary.isVisible(), 'secondary actions summary missing');
+    await summary.focus();
+    await first.keyboard.press('Enter');
+    assert(await more.evaluate(node => node.open),
+      'keyboard could not expand secondary actions');
+    const shareAction = more.getByRole('link', { name: 'Поделиться книгой' });
     assert(await shareAction.isVisible(), 'published book is missing share action');
     await shareAction.click();
     await first.waitForURL(base + '/me/referrals?book=1');

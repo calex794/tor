@@ -94,6 +94,28 @@ async function inspectRealBookAppearances(page, viewport, bookId, secondChapterH
   const picker = page.locator('[data-tor-appearance]');
   assert(await picker.isHidden(),
     where + ': script-free real book shows a nonfunctional picker');
+  // UI-12: native details must reveal all three distinct public actions,
+  // work from keyboard with strict no-script CSP, and return to closed state.
+  const more = page.locator('.book-hero-more');
+  assert(await more.count() === 1, where + ': missing compact secondary actions');
+  const moreSummary = more.locator('summary');
+  assert(await moreSummary.isVisible(), where + ': more control invisible');
+  assert(!(await more.evaluate(el => el.open)), where + ': more menu opened by default');
+  for (const href of [
+    '/me/referrals?book=' + bookId,
+    '/books/' + bookId + '/share',
+    '/books/' + bookId + '/report',
+  ]) {
+    assert(await more.locator('a[href="' + href + '"]').count() === 1,
+      where + ': secondary action route missing: ' + href);
+  }
+  await moreSummary.focus();
+  await page.keyboard.press('Enter');
+  assert(await more.evaluate(el => el.open), where + ': Enter did not expand details');
+  assert(await more.locator('a[href="/books/' + bookId + '/report"]').isVisible(),
+    where + ': expanded secondary actions are hidden');
+  await page.keyboard.press('Enter');
+  assert(!(await more.evaluate(el => el.open)), where + ': Enter did not close details');
   const setAppearance = async (setting, value) => {
     // Same cookie name and exact enum emitted by the public first-party picker.
     const name = setting === 'style' ? 'tor-ui-style-v1' : 'tor-ui-theme-v1';

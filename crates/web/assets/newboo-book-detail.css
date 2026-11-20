@@ -38,6 +38,15 @@
 .book-hero-secondary-actions .ui-button { min-height: 38px; padding: 7px 11px; font-size: 13px; text-align: center; }
 .book-hero-secondary-actions form { margin: 0; }
 .book-hero-secondary-actions .book-owner-actions { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: 8px; }
+/* UI-12: native, script-free secondary controls preserve distinct links and CSP. */
+.book-hero-more { min-width: 0; }
+.book-hero-more[open] { flex: 1 0 100%; }
+.book-hero-more > summary { display: inline-flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.book-hero-more > summary::-webkit-details-marker { display: none; }
+.book-hero-more > summary::after { content: "+"; font-weight: 800; }
+.book-hero-more[open] > summary::after { content: "−"; }
+.book-hero-more > summary:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+.book-hero-more__links { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
 .book-hero-card__description-group { grid-area: description; min-width: 0; }
 .book-hero-actions .ui-button--ghost {
   border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
