@@ -264,7 +264,7 @@
   }
 }
 
-// UI-13: every private-library tab is visible even at 320px; no JS or scroll trap.
+/* UI-13: every private-library tab is visible even at 320px; no JS or scroll trap. */
 @media (max-width: 760px) {
   .library-v2 .library-display-controls {
     display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
