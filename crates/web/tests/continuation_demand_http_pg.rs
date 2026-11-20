@@ -855,6 +855,39 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "2",
         "completion outbox is recipient-specific, not a shared book event"
     );
+    // RET-02 source-to-outcome acceptance: one real B release must link to
+    // two independent C-verified completions for that exact published V1.
+    // Counting notification opens, bookmarks or bare chapter GETs is forbidden.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*)
+                 FROM chapter_first_release_events first_release
+                 JOIN outbox_events published
+                   ON published.event_type='ChapterPublished'
+                  AND published.aggregate_id=first_release.chapter_id
+                  AND published.payload->>'first_release'='true'
+                 JOIN reader_chapter_completions completed
+                   ON completed.chapter_id=first_release.chapter_id
+                  AND completed.book_id={book}
+                 JOIN outbox_events outcome
+                   ON outcome.id=completed.source_event_id
+                  AND outcome.event_type='ChapterCompletedV1'
+                  AND outcome.aggregate_id=completed.chapter_id
+                 WHERE first_release.chapter_id={released}
+                   AND completed.first_version_id={released_version}
+                   AND completed.user_id IN ({reader},{observer})
+                   AND outcome.payload->>'user_id'=completed.user_id::text
+                   AND outcome.payload->>'book_id'='{book}'
+                   AND outcome.payload->>'chapter_id'='{released}'
+                   AND outcome.payload->>'version_id'='{released_version}'
+                   AND outcome.payload->>'authority'='C-verified-free-position'"
+            )
+        ),
+        "2",
+        "only exact-version, release-linked A/B completion events fulfill the reader outcome"
+    );
     assert_eq!(
         pg(
             &url,
