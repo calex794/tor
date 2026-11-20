@@ -117,11 +117,13 @@ Never run them against production objects or from CI.
    separately approved cleanup/lifecycle plan, not deleted by the
    application writer.
 3. **Effective permissions:** Inspect the test identity and bucket policy,
-   rather than inferring security from role names. On published prefixes
-   there must be no `DeleteObject`, `DeleteObjectVersion`,
-   `PutBucketVersioning`, `PutBucketPolicy`, ACL administration or
-   wildcard `s3:*` access. The narrow S023 staging-source cleanup
-   exception applies only to `staging/chapters/`, never published keys.
+   rather than inferring security from role names. For published object
+   prefixes, deny `s3:DeleteObject`, `s3:DeleteObjectVersion`,
+   `s3:PutObjectAcl` and `s3:PutObjectVersionAcl`; at **bucket scope**,
+   the publisher must not have policy administration, versioning changes
+   or bucket ACL writes. There must be no wildcard `s3:*` grant.
+   The narrow S023 staging-source `DeleteObject` exception applies only
+   to `staging/chapters/`, never published keys.
 4. **Decision and evidence:** Record sanitized API method/status,
    effective principal/policy review, object SHA-256/length **before and
    after** each negative test, exact TOR commit, UTC time and bucket scope.
