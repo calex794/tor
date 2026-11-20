@@ -1893,7 +1893,6 @@ jobs:
           node --check tools/d05_layer_free_live_chromium.cjs
           node --check tools/d05_four_live_layer_chromium.cjs
           node --check tools/d05_four_archived_layer_live_chromium.cjs
-          node --check tools/ui10b_mixed_public_book_chromium.cjs
           node tools/drop_06b_pack_chromium.cjs
           # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
           # without public /reader links, escaped titles, or full PACK URLs.
