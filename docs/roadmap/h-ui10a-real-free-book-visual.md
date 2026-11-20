@@ -1,6 +1,6 @@
 # UI-10A — genuine published-free-book visual acceptance
 
-Status: CI-only proposed test; based on the main after UI-09 and UI-MOB-01.
+Status: CI-only acceptance plus narrowly scoped public-book CSP fix; based on main after UI-09 and UI-MOB-01.
 
 ## Why
 
@@ -19,7 +19,8 @@ through the TOR UI and the book passed isolated site moderation.
   static lookalike or a mock chapter list. No horizontal overflow, no lost href,
   no menu overlap; screenshots persist as existing reader-browser artifacts.
 - Restore system theme and showcase layout, reload, and confirm chapter counts.
-- No changes to users, access rules, publication, grant issuance, S3 or paid code.
+- Public book CSP correction: PG/visitor-personalized book HTML previously inherited `script-src 'none'` and the existing style picker stayed hidden. For successful public book HTML only, allow `script-src 'self'` (and existing optional Surprise `connect-src 'self'`); preserve strict CSP on errors, private readers and every other private page. No inline or third-party script sources.
+- No changes to user authorization, publication, grant issuance, S3 or paid code. Real PG/Chromium asserts the public book response CSP and visible working switcher.
 
 ## Scope boundary
 

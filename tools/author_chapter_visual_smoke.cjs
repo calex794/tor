@@ -84,6 +84,13 @@ async function inspectRealBookAppearances(page, viewport, bookId, secondChapterH
     where + ': real published book is missing its primary read action');
   const expectedLinks = await page.locator('.book-detail-page a[href]')
     .evaluateAll(nodes => nodes.map(node => node.getAttribute('href')));
+  const bookResponse = await page.context().request.get(base + '/books/' + bookId);
+  assert(bookResponse.status() === 200, where + ': public book HEAD probe failed');
+  const bookCsp = bookResponse.headers()['content-security-policy'] || '';
+  assert(bookCsp.includes("default-src 'none'") &&
+    bookCsp.includes("script-src 'self'") &&
+    !bookCsp.includes('unsafe-inline') && !bookCsp.includes('unsafe-eval'),
+    where + ': public book CSP must allow only same-origin presentation JS');
   const picker = page.locator('[data-tor-appearance]');
   assert(await picker.isVisible(), where + ': real book lost appearance controls');
   const setAppearance = async (setting, value) => {

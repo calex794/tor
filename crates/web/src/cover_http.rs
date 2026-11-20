@@ -98,6 +98,35 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
     response
 }
 
+/// Only a verified, successfully rendered public Book may run same-origin
+/// presentation JavaScript. Do not relax inline scripts, third-party scripts,
+/// style/image/form rules, or CSP on errors and private reader routes.
+fn public_book_appearance_csp(mut response: Response, surprise_enabled: bool) -> Response {
+    if response.status() != StatusCode::OK {
+        return response;
+    }
+    let Some(header) = response.headers().get("content-security-policy") else {
+        return response;
+    };
+    let Ok(policy) = header.to_str() else {
+        return response;
+    };
+    let updated = if surprise_enabled {
+        // The opt-in Surprise widget's existing first-party API needs connect-src.
+        policy.replace(
+            "script-src 'none';",
+            "script-src 'self'; connect-src 'self';",
+        )
+    } else {
+        // The appearance chooser uses only first-party JS and local preferences.
+        policy.replace("script-src 'none';", "script-src 'self';")
+    };
+    if let Ok(header) = axum::http::HeaderValue::from_str(&updated) {
+        response.headers_mut().insert("content-security-policy", header);
+    }
+    response
+}
+
 pub(super) async fn homepage_with_cdn(
     state: &AppState,
     cards: &[pages::PublicBookCard],
@@ -128,23 +157,16 @@ pub(super) async fn book_html(
         Ok(value) => value,
         Err(status) => return book_error(state, status).await,
     };
-    let mut response =
+    let response =
         book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
-    if crate::auth::surprise_http::enabled() {
-        if let Some(value) = response.headers().get("content-security-policy") {
-            if let Ok(policy) = value.to_str() {
-                let updated = policy.replace(
-                    "script-src 'none';",
-                    "script-src 'self'; connect-src 'self';",
-                );
-                if let Ok(value) = axum::http::HeaderValue::from_str(&updated) {
-                    response
-                        .headers_mut()
-                        .insert("content-security-policy", value);
-                }
-            }
-        }
-    }
+    // The real PG book page uses private_response's script-src 'none' because
+    // reader-specific follow state makes it uncacheable. That unintentionally
+    // disabled the already-rendered, same-origin appearance chooser on every
+    // live book. Apply the narrow permission only after public visibility and
+    // successful follow decoration; leave denial responses and private readers
+    // on their existing CSP.
+    let response =
+        public_book_appearance_csp(response, crate::auth::surprise_http::enabled());
     crate::recommendation_http::visits::book_response(
         cdn_image_csp(response, origin.as_deref()),
         book_id,
@@ -329,5 +351,46 @@ mod cdn_html_tests {
         let public = "public".into_response();
         let response = cdn_image_csp(public, Some("https://covers.example"));
         assert!(response.headers().get("content-security-policy").is_none());
+    }
+
+    #[test]
+    fn public_book_can_use_own_appearance_script_without_weakening_private_csp() {
+        let response = public_book_appearance_csp(auth_cookies::private_response("book", &[]), false);
+        let csp = response.headers()["content-security-policy"].to_str().unwrap();
+        assert!(csp.contains("default-src 'none';"));
+        assert!(csp.contains("script-src 'self';"));
+        assert!(!csp.contains("script-src 'none'"));
+        assert!(!csp.contains("connect-src 'self'"));
+        assert!(csp.contains("form-action 'self';"));
+        assert!(csp.contains("frame-ancestors 'none'"));
+        assert!(!csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"));
+
+        let with_surprise = public_book_appearance_csp(
+            auth_cookies::private_response("book", &[]),
+            true,
+        );
+        let csp = with_surprise.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("script-src 'self'; connect-src 'self';"));
+
+        let denied = public_book_appearance_csp(
+            auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+            true,
+        );
+        assert!(denied.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("script-src 'none'"));
+
+        let plain = public_book_appearance_csp("public".into_response(), false);
+        assert!(plain.headers().get("content-security-policy").is_none());
+
+        // Other pages still use auth_cookies::private_response untouched.
+        let private = auth_cookies::private_response("private", &[]);
+        assert!(private.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("script-src 'none'"));
     }
 }
