@@ -70,7 +70,10 @@ pub(super) async fn verify(
             .status(),
         StatusCode::OK
     );
-    super::pg(url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    super::pg(
+        url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     let held_home = super::private_get(app, "/me", Some(buyer_cookie)).await;
     assert_eq!(held_home.status(), StatusCode::OK);
     assert!(
@@ -95,7 +98,10 @@ pub(super) async fn verify(
         StatusCode::FORBIDDEN,
         "admin hold must deny the exact purchased Reader"
     );
-    super::pg(url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    super::pg(
+        url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
     let restored_home = super::private_get(app, "/me", Some(buyer_cookie)).await;
     assert_eq!(restored_home.status(), StatusCode::OK);
     assert!(
