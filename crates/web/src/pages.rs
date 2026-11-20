@@ -222,27 +222,33 @@ pub fn book_likes_strip(book_id: u64, count: i64) -> String {
 
 fn book_star_strip(book_id: u64, stars: &tor_recommendations::repositories::BookStars) -> String {
     use tor_recommendations::repositories::StarTotal;
+    // Empty aggregates must not occupy two large cards above the chapter list.
+    // Keep the action discoverable and render the actual aggregate when voted.
     fn value(score: StarTotal, kind: &str, label: &str) -> String {
-        let (number, details) = if let Some(average) = score.display_average() {
-            (average, format!("Голосов: {}", score.votes))
-        } else {
-            ("—".to_owned(), "Пока нет оценок".to_owned())
+        let Some(number) = score.display_average() else {
+            return String::new();
         };
         format!(
             "<div class=\"book-rating-summary__item book-rating-summary__item--{kind}\">
              <span class=\"book-rating-summary__glyph\" aria-hidden=\"true\">☆</span>
              <span class=\"book-rating-summary__name\">{label}</span>
              <strong class=\"book-rating-summary__value\" aria-label=\"{label}: {number} из 5\">{number}</strong>
-             <span class=\"book-rating-summary__votes\">{details}</span></div>"
+             <span class=\"book-rating-summary__votes\">Голосов: {}</span></div>",
+            score.votes
         )
     }
+    let work = value(stars.work, "work", "Произведение");
+    let translation = value(stars.translation, "translation", "Перевод");
+    let empty_class = if work.is_empty() && translation.is_empty() {
+        " book-rating-summary--empty"
+    } else {
+        ""
+    };
     format!(
-        "<section class=\"book-rating-summary\" aria-label=\"Оценки книги\">
+        "<section class=\"book-rating-summary{empty_class}\" aria-label=\"Оценки книги\">
          {work}{translation}
          <a class=\"book-rating-summary__action\" href=\"/me/books/{book_id}/rate\">
           Оценить произведение и перевод</a></section>",
-        work = value(stars.work, "work", "Произведение"),
-        translation = value(stars.translation, "translation", "Перевод"),
     )
 }
 
