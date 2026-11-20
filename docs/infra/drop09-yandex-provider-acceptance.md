@@ -1,4 +1,79 @@
-# DROP-09a — disposable Yandex Object Storage acceptance probe
+# FND-02 — Yandex S3 without mandatory bucket versioning
+
+**Current TOR decision (2026-11-20):** do not require or enable S3 bucket
+versioning for ordinary immutable PACK and sidecar storage. PostgreSQL owns
+edition identity, exact object keys and SHA-256 receipts. The provider's S3
+`VersionId` is a separate, optional storage feature, not the chapter's
+`version_id`.
+
+**Operator STOP:** The historical DROP-09a commands below are explicitly for
+**versioned** disposable buckets and assert non-null S3 `VersionId`.
+They are **not an acceptance test** for TOR's unversioned target configuration.
+Do **not** create a versioned bucket or run those commands as the default
+FND-02 cutover. Enabling Yandex bucket versioning is irreversible (it may
+only be suspended). Never switch any existing live bucket, VPS, PostgreSQL,
+KEK, deployment flag or payment path as part of this work.
+
+## INTERNAL — what is already supported
+
+The current `S3FreePackWriter` sends conditional `PUT If-None-Match: *`
+for both the PACK and its sidecar, then performs an independent full GET
+and validates exact bytes, digests and all edition frames. The reader
+performs private server-side Range GET by exact object key and validates
+the decoded chapter; neither path requires provider `VersionId`.
+The `free_storage_packs` PostgreSQL table already has immutable,
+unique `object_key` and `manifest_key` columns.
+
+[PR #1160](https://github.com/calex794/tor/pull/1160) adds an ignored
+**loopback MinIO** test, not an external Yandex provider approval:
+
+`fnd02_unversioned_pack_replay_conflict_preserves_private_range`
+
+Run it only in disposable CI with the ordinary `TOR_TEST_S3_ENDPOINT`
+and `TOR_TEST_S3_ACCESS_KEY`/`TOR_TEST_S3_SECRET_KEY` pointing to an
+isolated 127.0.0.1 MinIO instance, using the registered `s3-provider`
+workflow. The test requires a never-versioned bucket, successful exact
+PACK/manifest PUT and replay, 412 on an altered conditional PUT, denial
+of a digest-divergent replay, valid private Range and anonymous 403.
+
+## EXTERNAL — pending, not yet approved
+
+Before any operator run against Yandex:
+
+1. Implement and review a *separate* ignored Yandex acceptance probe for a
+   **new empty private disposable bucket with versioning disabled**; do
+   not reuse `drop_09_yandex_private_pack_read_write_acceptance` while
+   it expects non-null `VersionId`.
+2. Verify bucket status is never-versioned. Require `HEAD/GET/Range` by
+   exact object key with actual PACK/sidecar SHA-256 and bounded lengths;
+   a null/absent S3 VersionId must not cause fallback or rejection.
+3. Test conditional first PUT, same-byte reconciliation and altered PUT 412
+   under distinct credentials. Require bucket policy for the relevant
+   prefix to reject writes *missing* `If-None-Match` using Yandex's
+   `s3:if-none-match` policy condition. Confirm unsigned GET and Range
+   are denied. Evaluate provider behavior, don't infer it from MinIO.
+4. Keep the normal writer/reader identity without `DeleteObject` or
+   `DeleteObjectVersion`. **Physical DELETE/GC stays disabled**.
+   Yandex's public DeleteObject reference does not specify a conditional
+   `If-Match` guarantee for unversioned objects. Never assume AWS/MinIO's
+   version-specific retirement flow applies.
+5. Require independent recovery evidence for committed and pinned
+   historical editions before production DATA-READY. Collect sanitized
+   probe results and costs; never publish keys, signed URLs or reader data.
+
+Source guidance:
+[Yandex versioning](https://yandex.cloud/en/docs/storage/concepts/versioning),
+[conditional PUT](https://yandex.cloud/en/docs/storage/s3/api-ref/object/upload),
+[conditional-write bucket policy](https://yandex.cloud/en/docs/storage/concepts/policy),
+[DeleteObject](https://yandex.cloud/en/docs/storage/s3/api-ref/object/delete).
+Tracking: [FND-02 #1101](https://github.com/calex794/tor/issues/1101).
+
+---
+
+# Archived DROP-09a — versioned-bucket acceptance (not the default TOR path)
+
+The following steps document the previously scoped **versioned** provider
+experiment. They do not enable non-versioned production cutover or DELETE/GC.
 
 Run the ignored `drop_yandex_provider` tests from an approved isolated host
 against a precreated private bucket named `tor-drop-probe-<unique suffix>`
