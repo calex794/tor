@@ -227,19 +227,7 @@ async function observedCard(page,card,campaign,before,response,events){
   await page.goto(base+PAGE);assert.equal(await page.locator(`[data-editorial-state="${campaigns[0]}"]`).count(),0);
   sql(`UPDATE account_roles SET is_active=false WHERE user_id=${actor} AND role='administrator'`);await privateResponse(await page.goto(base+PAGE),403);
   assert.equal(sql('SELECT (SELECT count(*) FROM reader_wallet_entries)||\'|\'||(SELECT count(*) FROM reader_chapter_completions)||\'|\'||(SELECT count(*) FROM rec_subjects)'),baseline);
-  // UI-10A uses a fixed CSS enum for script-free public book pages,
-  // never a session or analytics ID. Reject all other anonymous cookies.
-  const guestCookies = await guest.cookies();
-  assert(guestCookies.length <= 1, 'guest gained extra cookies');
-  for (const cookie of guestCookies) {
-    assert.equal(cookie.name, 'tor-ui-style-v1', 'unexpected guest identity cookie');
-    assert.ok(['showcase', 'library', 'minimal'].includes(cookie.value),
-      'unexpected book appearance value');
-    assert.equal(cookie.path, '/', 'appearance cookie must use public path');
-    assert.equal(cookie.sameSite, 'Lax', 'appearance cookie must be same-site');
-    assert.equal(cookie.httpOnly, false, 'appearance cookie is not a session secret');
-  }
-  assert.ok((await admin.cookies()).every(c=>['tor-dev-session','tor-dev-csrf'].includes(c.name)));
+  assert.ok((await guest.cookies()).length===0);assert.ok((await admin.cookies()).every(c=>['tor-dev-session','tor-dev-csrf'].includes(c.name)));
   await guest.close();await admin.close();
   console.log(`PASS editorial native no-JS create/activate/pause/update/end; four real slots;390/1440;live safety;shared observations=${expectObservations}`);
  } finally {

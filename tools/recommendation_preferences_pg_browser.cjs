@@ -100,15 +100,6 @@ async function submit(page,form,endpoint) {
 }
 async function checkStorage(context,page) {
   for (const cookie of await context.cookies()) {
-    if (cookie.name === 'tor-ui-style-v1') {
-      // Only a non-identifying presentation enum may bypass the prior allowlist.
-      assert.ok(['showcase', 'library', 'minimal'].includes(cookie.value),
-        'unexpected book appearance value');
-      assert.equal(cookie.path, '/', 'appearance cookie must use public path');
-      assert.equal(cookie.sameSite, 'Lax', 'appearance cookie must be same-site');
-      assert.equal(cookie.httpOnly, false, 'appearance cookie is not a session secret');
-      continue;
-    }
     assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),
       'unexpected browser cookie '+cookie.name);
   }
