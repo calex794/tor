@@ -86,6 +86,56 @@ production DATA-READY. Those are separate operator gates. Physical
 DELETE/GC remains OFF and is **not required** merely to enable
 read/write-only S3 storage with restricted IAM.
 
+## External IAM write-path negative controls (operator-only)
+
+The `FND02_YANDEX_NONVERSIONED_READ_PASS` marker proves the bounded
+`PutObject`/read/Range scenario **only**. It does not certify the effective
+publisher IAM/bucket policy against other ways of replacing an existing
+published PACK or sidecar. The following manual negative controls are
+**required before FND-02 external IAM acceptance**, on the same newly
+created disposable bucket and with the same restricted publisher identity.
+Never run them against production objects or from CI.
+
+1. **CopyObject:** First preserve the exact SHA-256 and length of a
+   synthetic published target PACK and sidecar using an independent GET.
+   Attempt a copy of a different synthetic source over each existing target
+   with the *publisher* identity. The request must be denied by effective
+   IAM/policy; a source-side `X-Amz-Copy-Source-If-None-Match` header is not
+   evidence that the destination is protected. If the copy API is
+   intentionally unavailable, record that denial without granting new
+   permissions. Re-read both targets and require identical SHA-256/length.
+2. **Multipart completion:** Check whether the publisher can initiate and
+   complete a multipart upload into the same published prefix. If forbidden,
+   record the actual denial and do not expand IAM merely to test it. If
+   allowed, use **only synthetic disposable keys** to verify that completion
+   without `If-None-Match: *` is denied (expected policy 403), that an
+   attempted completion on an existing target with the condition fails
+   (typically 412, or a rejected concurrent-conflict response), and that
+   its original SHA-256/length remain unchanged. Never interpret a
+   successful upload of a *different new key* as proof of no overwrite.
+   An incomplete test upload must be accounted for in the test bucket's
+   separately approved cleanup/lifecycle plan, not deleted by the
+   application writer.
+3. **Effective permissions:** Inspect the test identity and bucket policy,
+   rather than inferring security from role names. On published prefixes
+   there must be no `DeleteObject`, `DeleteObjectVersion`,
+   `PutBucketVersioning`, `PutBucketPolicy`, ACL administration or
+   wildcard `s3:*` access. The narrow S023 staging-source cleanup
+   exception applies only to `staging/chapters/`, never published keys.
+4. **Decision and evidence:** Record sanitized API method/status,
+   effective principal/policy review, object SHA-256/length **before and
+   after** each negative test, exact TOR commit, UTC time and bucket scope.
+   Missing verification, unexpectedly allowed replacement, or changed
+   target bytes means **NOT ACCEPTED**, even when the Rust probe passed.
+   Do not upload credentials, signed URLs, real object keys or private
+   data to GitHub or CI artifacts.
+
+Provider references: [Yandex conditional writes](https://yandex.cloud/en/docs/storage/concepts/object),
+[Yandex bucket-policy conditions](https://yandex.cloud/en/docs/storage/concepts/policy),
+and [CompleteMultipartUpload](https://yandex.cloud/en/docs/storage/s3/api-ref/multipart/completeupload).
+These controls do not enable physical DELETE/GC or replace independent
+offsite recovery under [I-11 #739](https://github.com/calex794/tor/issues/739).
+
 ## FND-07: ten-book FREE catalog acceptance
 
 This separate FND-07 probe tests the **ordinary S023 import workflow**, not
