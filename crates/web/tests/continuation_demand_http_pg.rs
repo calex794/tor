@@ -859,7 +859,15 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     // The test-only proof binds source/payload/version/actor and exposes
     // explicit supply, reader and deduplication counts in CI.
-    ret02_causal_proof::verify(&url, owner, book, released, released_version, reader, observer);
+    ret02_causal_proof::verify(
+        &url,
+        owner,
+        book,
+        released,
+        released_version,
+        reader,
+        observer,
+    );
     assert_eq!(
         pg(
             &url,
