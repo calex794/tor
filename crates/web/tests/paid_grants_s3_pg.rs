@@ -58,8 +58,6 @@ mod d05_four_chapter_browser;
 mod d05_four_chapter_expiry;
 #[path = "paid_grants_s3_pg/d05_four_chapter_free.rs"]
 mod d05_four_chapter_free;
-#[path = "paid_grants_s3_pg/ui10b_mixed_public_visual.rs"]
-mod ui10b_mixed_public_visual;
 #[path = "paid_grants_s3_pg/d06_lost_ack.rs"]
 mod d06_lost_ack;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -80,6 +78,8 @@ mod s035_browser;
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
 mod s065_admin_browser;
+#[path = "paid_grants_s3_pg/ui10b_mixed_public_visual.rs"]
+mod ui10b_mixed_public_visual;
 
 use completion_helpers::request_completion;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
