@@ -81,3 +81,74 @@ restored historical Saved FREE/Layer pins, paid content acceptance or
 production DATA-READY. Those are separate operator gates. Physical
 DELETE/GC remains OFF and is **not required** merely to enable
 read/write-only S3 storage with restricted IAM.
+
+## FND-07: ten-book FREE catalog acceptance
+
+This separate FND-07 probe tests the **ordinary S023 import workflow**, not
+the two-chapter PACK fixture above. It must also use a new, empty,
+never-versioned Yandex bucket. The previous versioned FND-07 procedure
+in [DROP-09](drop09-yandex-provider-acceptance.md) is superseded.
+
+### Isolation and access
+
+- On an isolated operator host (not GitHub Actions, not TOR VPS), provision
+  a fresh local PostgreSQL 18 `tor_test` database with the schema of the
+  candidate commit and the dedicated `tor_app` fixture role. The test
+  refuses any nonempty book catalog or chapter import queue and does not
+  run migrations on the live server.
+- Provision a **new private empty bucket** with a name matching
+  `tor-fnd07-probe-<8..40 lowercase alphanumerics>`. **Never enable**
+  bucket versioning. The Rust preflight reads `GetBucketVersioning` and
+  requires an absent status, then verifies `ListObjectsV2` is empty.
+  Enabled and Suspended statuses are both rejected. No
+  `PutBucketVersioning` or provider `VersionId` is used.
+- Use an isolated read/write identity with `GetBucketVersioning` and
+  `ListBucket`, plus `PutObject` and private `GetObject/HeadObject`
+  only on `staging/chapters/` and `private/free-chapters/` in
+  this bucket.
+  The **existing S023 worker** removes its successfully imported
+  temporary source: it needs `DeleteObject` **only for
+  `staging/chapters/`**. This exception is not permission to delete
+  published editions, PACKs, manifests, purchased versions, or backups.
+  Do not grant `DeleteObjectVersion`, bucket-versioning administration,
+  or any broad wildcard delete right to the publishing identity.
+- In a later runtime setup separate the publisher and temporary staging
+  cleanup roles if IAM granularity or blast-radius analysis requires it.
+  Do not change current production IAM just to run this disposable probe.
+- Record actual private bucket-policy checks (anonymous GET denied;
+  conditional immutable writes and non-overwrite behavior). The test
+  validates object hashes and signed download, but does not itself
+  constitute a complete review of bucket policy or independent recovery.
+
+### Explicit isolated operator run
+
+Load `TOR_FND07_YANDEX_BUCKET`, `TOR_FND07_YANDEX_ACCESS_KEY`
+and `TOR_FND07_YANDEX_SECRET_KEY` from a secure, non-logging secret store.
+Set `TOR_FND07_YANDEX_PROBE=READ_WRITE` for this test only. The code
+requires exactly the disposable `tor_test` URL:
+
+```sh
+TEST_DATABASE_URL=postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_test \
+TOR_FND07_YANDEX_PROBE=READ_WRITE \
+  cargo test -p tor-web --features s3-free,s3-chapter-import \
+  --test drop_04d_worker_pg_minio -- --ignored --exact \
+  catalog_import::fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes --nocapture
+```
+
+The test refuses invocation through GitHub Actions, a non-loopback DB
+target, a wrong bucket name, a populated catalog or a populated bucket.
+Do **not** run it until the dedicated credentials, policy and test
+environment have been reviewed. It writes synthetic books and objects;
+cleanup is a separate approval and the test must never delete durable
+editions.
+
+Success requires the `FND07_YANDEX_FREE_CATALOG_OK` marker with
+`versioning=never-enabled`, ten FREE books, thirty chapters/editions,
+thirty byte-verified private objects, a clean restart/resume of the
+import worker, zero missing/unexpected keys, an anonymous access denial,
+and a real signed reader GET of the correct chapter. Capture sanitized
+evidence, exact SHA, elapsed time, request quantities and provider costs.
+
+**This is still not a DATA-READY sign-off.** Paid, PACK-direct bulk,
+historical Saved FREE/Layer pins after independent recovery, off-site
+backups, WAL PITR and production rollout gates remain separate.
