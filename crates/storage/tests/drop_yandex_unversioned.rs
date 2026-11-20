@@ -16,8 +16,7 @@ use tokio::io::AsyncReadExt;
 use tor_storage::{
     domain::provider::StorageError,
     repositories::{
-        free_pack_proof_s3::S3PackProofStore,
-        free_pack_range_s3::S3PackFrameStore,
+        free_pack_proof_s3::S3PackProofStore, free_pack_range_s3::S3PackFrameStore,
         free_pack_write_s3::S3FreePackWriter,
     },
     services::{
@@ -58,7 +57,13 @@ fn probe_client() -> Client {
         aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new("ru-central1"))
-            .credentials_provider(Credentials::new(access, secret, None, None, "fnd02-isolated"))
+            .credentials_provider(Credentials::new(
+                access,
+                secret,
+                None,
+                None,
+                "fnd02-isolated",
+            ))
             .endpoint_url(ENDPOINT)
             .force_path_style(true)
             .retry_config(RetryConfig::standard().with_max_attempts(1))
@@ -117,7 +122,10 @@ async fn assert_exact_bytes(client: &Client, bucket: &str, key: &str, expected: 
         .read_to_end(&mut actual)
         .await;
     assert!(read.is_ok(), "bounded full GET stream failed");
-    assert_eq!(actual, expected, "provider changed immutable exact-key bytes");
+    assert_eq!(
+        actual, expected,
+        "provider changed immutable exact-key bytes"
+    );
 }
 
 fn assert_anonymous_denied(bucket: &str, key: &str, range: Option<&str>) {
@@ -138,8 +146,14 @@ fn assert_anonymous_denied(bucket: &str, key: &str, range: Option<&str>) {
         .arg(format!("{ENDPOINT}/{bucket}/{key}"))
         .output()
         .expect("curl installed on approved operator host");
-    assert!(response.status.success(), "anonymous probe transport failed");
-    assert_eq!(response.stdout, b"403", "anonymous object read must be denied");
+    assert!(
+        response.status.success(),
+        "anonymous probe transport failed"
+    );
+    assert_eq!(
+        response.stdout, b"403",
+        "anonymous object read must be denied"
+    );
 }
 
 #[tokio::test]
@@ -192,23 +206,22 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
         "bucket policy must deny any PUT missing If-None-Match"
     );
 
-    let sources: Vec<_> = ["Synthetic FREE chapter one 中文", "Synthetic FREE chapter two 😀"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, text)| {
-            (
-                FreeChapterObject::for_markdown(
-                    index as i64 + 30_001,
-                    index as i64 + 40_001,
-                    text,
-                )
+    let sources: Vec<_> = [
+        "Synthetic FREE chapter one 中文",
+        "Synthetic FREE chapter two 😀",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, text)| {
+        (
+            FreeChapterObject::for_markdown(index as i64 + 30_001, index as i64 + 40_001, text)
                 .expect("synthetic edition"),
-                text.as_bytes().to_vec(),
-            )
-        })
-        .collect();
-    let prepared = prepare_free_pack(&bucket, &pack_key, &sources)
-        .expect("valid synthetic seekable PACK");
+            text.as_bytes().to_vec(),
+        )
+    })
+    .collect();
+    let prepared =
+        prepare_free_pack(&bucket, &pack_key, &sources).expect("valid synthetic seekable PACK");
     let writer = S3FreePackWriter::new(client.clone());
     let started = Instant::now();
     let initial = writer
@@ -288,8 +301,8 @@ async fn fnd02_yandex_nonversioned_pack_put_replay_full_and_range_acceptance() {
             .ok()
             .expect("exact private Range GET failed");
         returned_bytes += encoded.len();
-        let decoded = decode_exact_frame(frame, &encoded)
-            .expect("strict Range frame decompression failed");
+        let decoded =
+            decode_exact_frame(frame, &encoded).expect("strict Range frame decompression failed");
         assert_eq!(decoded, sources[member].1);
         latencies.push(start.elapsed().as_micros());
         if index == 0 {
