@@ -16,7 +16,9 @@ pub(super) async fn verify(
     let uri = format!("/books/{book}");
     let response = private_get(app, &uri, None).await;
     assert_eq!(response.status(), StatusCode::OK);
-    let csp = response.headers()["content-security-policy"].to_str().unwrap();
+    let csp = response.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
     assert!(csp.contains("script-src 'none'") && !csp.contains("unsafe-inline"));
     let html = html_body(response).await;
     assert!(html.contains("data-tor-style=\"showcase\""));
@@ -24,11 +26,19 @@ pub(super) async fn verify(
     assert!(html.matches("chapter-toc__item--paid").count() >= 2);
     assert!(html.matches("chapter-toc__badge--free").count() >= 2);
     for id in paid.into_iter().chain(free) {
-        assert!(html.contains(&format!("href=\"/reader/{id}\"")), "missing chapter link");
+        assert!(
+            html.contains(&format!("href=\"/reader/{id}\"")),
+            "missing chapter link"
+        );
     }
     for secret in [
-        MARKDOWN, "Second paid edition content", "New V2, not purchased",
-        "dek_b64u", "X-Amz-Signature", "data-paid-chapter-reader", "<img src=x onerror=",
+        MARKDOWN,
+        "Second paid edition content",
+        "New V2, not purchased",
+        "dek_b64u",
+        "X-Amz-Signature",
+        "data-paid-chapter-reader",
+        "<img src=x onerror=",
     ] {
         assert!(!html.contains(secret), "public Book leaked paid content");
     }
@@ -36,13 +46,18 @@ pub(super) async fn verify(
     assert_eq!(buyer.status(), StatusCode::OK);
     let buyer_html = html_body(buyer).await;
     for secret in [MARKDOWN, "dek_b64u", "X-Amz-Signature"] {
-        assert!(!buyer_html.contains(secret), "buyer public metadata leaked private data");
+        assert!(
+            !buyer_html.contains(secret),
+            "buyer public metadata leaked private data"
+        );
     }
     for id in paid.into_iter().chain(free) {
         assert!(buyer_html.contains(&format!("href=\"/reader/{id}\"")));
     }
     assert!(Path::new(&env::var("RUNNER_TEMP").expect("disposable CI only")).is_dir());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3119").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3119")
+        .await
+        .unwrap();
     let router = app.clone();
     let server = tokio::spawn(async move {
         axum::serve(
