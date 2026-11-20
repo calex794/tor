@@ -1,5 +1,7 @@
 //! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
+#[path = "support/ret02_causal_proof.rs"]
+mod ret02_causal_proof;
 #[path = "support/ret02_notification_retries.rs"]
 mod ret02_notification_retries;
 #[path = "support/ret02_return_chromium.rs"]
@@ -855,21 +857,16 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "2",
         "completion outbox is recipient-specific, not a shared book event"
     );
-    // RET-02: only the first release and two C-verified V1 outcomes count.
-    assert_eq!(
-        pg(&url, &format!(
-            "SELECT count(*)
-             FROM chapter_first_release_events f
-             JOIN outbox_events p ON p.aggregate_id=f.chapter_id AND p.event_type='ChapterPublished' AND p.payload->>'first_release'='true'
-             JOIN reader_chapter_completions c ON c.chapter_id=f.chapter_id AND c.book_id={book} AND c.first_version_id={released_version}
-             JOIN outbox_events o ON o.id=c.source_event_id AND o.event_type='ChapterCompletedV1' AND o.aggregate_id=c.chapter_id
-             WHERE f.chapter_id={released} AND c.user_id IN ({reader},{observer})
-               AND o.payload->>'user_id'=c.user_id::text AND o.payload->>'book_id'='{book}'
-               AND o.payload->>'chapter_id'='{released}' AND o.payload->>'version_id'='{released_version}'
-               AND o.payload->>'authority'='C-verified-free-position'"
-        )),
-        "2",
-        "only exact-version, release-linked A/B completion events fulfill the reader outcome"
+    // The test-only proof binds source/payload/version/actor and exposes
+    // explicit supply, reader and deduplication counts in CI.
+    ret02_causal_proof::verify(
+        &url,
+        owner,
+        book,
+        released,
+        released_version,
+        reader,
+        observer,
     );
     assert_eq!(
         pg(
