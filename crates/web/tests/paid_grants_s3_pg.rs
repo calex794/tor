@@ -845,13 +845,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .unwrap();
     paid_reader_html_assertions::verify(&reader_html, chapter_two, purchase_two_id);
-    let expiry_probe_url = serde_json::to_value(
-        short_store
-            .presign_verified(&reference, Duration::from_secs(30))
-            .await
-            .unwrap(),
-    )
-    .unwrap();
     // Capture a genuine D-authorized Layer grant separately from the direct
     // purchase. The disposable Chromium fixture must never reuse V1 evidence.
     let (layer_buyer, layer_cookie) =
@@ -889,22 +882,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &csrf,
     )
     .await;
-    fixture_writer::save_ephemeral_fixture(
-        archived_v1,
-        v1,
-        purchase_id,
-        (visible_html, reader_csp),
-        layer_evidence,
-        expiry_probe_url,
-        (
-            chapter_two,
-            purchase_two_id,
-            free_chapter,
-            locked_chapter,
-            draft_chapter,
-        ),
-    );
-
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
@@ -987,4 +964,29 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
     pool.close().await;
+    // The 30-second URL is a test-only G/S3 bearer, not a new D grant.
+    // Issue it only after all slow PG and browser-fixture work is complete;
+    // a newly added UI acceptance must not expire it before Node begins.
+    let expiry_probe_url = serde_json::to_value(
+        short_store
+            .presign_verified(&reference, Duration::from_secs(30))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    fixture_writer::save_ephemeral_fixture(
+        archived_v1,
+        v1,
+        purchase_id,
+        (visible_html, reader_csp),
+        layer_evidence,
+        expiry_probe_url,
+        (
+            chapter_two,
+            purchase_two_id,
+            free_chapter,
+            locked_chapter,
+            draft_chapter,
+        ),
+    );
 }
