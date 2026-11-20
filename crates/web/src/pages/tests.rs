@@ -226,6 +226,34 @@ fn ne_wboo_book_detail_uses_original_hero_without_fake_cover_or_leaked_html() {
 }
 
 #[test]
+fn ui_12_book_secondary_actions_are_accessible_without_js() {
+    let html = book_detail(&PublicBookCard {
+        id: 15,
+        title: "Книга".into(),
+        language: "ru".into(),
+        author_name: None,
+        genres: vec![],
+    })
+    .0;
+    let start = html
+        .find("<details class=\"book-hero-more\">")
+        .expect("script-free collapsed secondary control");
+    let end = start + html[start..].find("</details>").expect("closed details") + "</details>".len();
+    let menu = &html[start..end];
+    assert!(menu.contains("<summary class=\"ui-button ui-button--ghost\">Ещё действия</summary>"));
+    assert!(!menu.contains("<script"));
+    assert_eq!(menu.matches("href=\"/me/referrals?book=15\"").count(), 1);
+    assert_eq!(menu.matches("href=\"/books/15/share\"").count(), 1);
+    assert_eq!(menu.matches("href=\"/books/15/report\"").count(), 1);
+    assert!(html.find("<!--BOOK_FOLLOW_ACTION-->").unwrap() < start);
+    assert!(html.find("<!--BOOK_OWNER_ACTIONS-->").unwrap() < start);
+    assert!(!html.contains("<details class=\"book-hero-more\" open"));
+    let css = include_str!("../../assets/newboo-book-detail.css");
+    assert!(css.contains(".book-hero-more > summary:focus-visible"));
+    assert!(css.contains(".book-hero-more[open]"));
+}
+
+#[test]
 fn book_detail_toc_keeps_approved_library_action_and_free_only_policy() {
     let book = tor_reading::services::PublicBookPage {
         id: 7,
