@@ -311,7 +311,9 @@ async fn fnd02_unversioned_pack_replay_conflict_preserves_private_range() {
         .await
         .expect_err("a second conditional PUT must not overwrite a PACK");
     assert_eq!(
-        conflict.raw_response().map(|response| response.status().as_u16()),
+        conflict
+            .raw_response()
+            .map(|response| response.status().as_u16()),
         Some(412),
         "the unversioned provider must return PreconditionFailed"
     );
@@ -335,10 +337,10 @@ async fn fnd02_unversioned_pack_replay_conflict_preserves_private_range() {
     // The first PACK and its sidecar remain byte-identical and readable by
     // exact key. Range GET has no versionId argument, and C reauthorizes.
     let intact = S3PackProofStore::new(client.clone())
-        .verify_independent_full_get(prepared.target(), &[
-            sources[0].0.clone(),
-            sources[1].0.clone(),
-        ])
+        .verify_independent_full_get(
+            prepared.target(),
+            &[sources[0].0.clone(), sources[1].0.clone()],
+        )
         .await
         .unwrap();
     assert_eq!(intact.placement_receipt(), *prepared.receipt());
