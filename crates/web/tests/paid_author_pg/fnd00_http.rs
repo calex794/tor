@@ -26,6 +26,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         .retry_config(RetryConfig::standard().with_max_attempts(1))
         .build();
     let client = Client::from_conf(config);
+    let failure_client = client.clone();
     client
         .create_bucket()
         .bucket(BUCKET_BODYLESS_HTTP)
@@ -105,7 +106,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         PgPrivateDelivery::with_keyring(
             pool.clone(),
             store.clone(),
-            ring,
+            ring.clone(),
             BUCKET_BODYLESS_HTTP.to_owned(),
         )
         .unwrap(),
@@ -226,6 +227,40 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
             .unwrap();
         assert_eq!(response.status(), expected);
     }
+    // The same command is idempotent only for identical source bytes.
+    // A mutated body must not reuse its published V1 or attached image.
+    let mut changed = payload.clone();
+    let original = b"Paid V1 with a sealed image";
+    let offset = changed
+        .windows(original.len())
+        .position(|part| part == original)
+        .expect("multipart has the original paid source");
+    changed.splice(
+        offset..offset + original.len(),
+        b"Altered V1 with a sealed image".iter().copied(),
+    );
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/me/books/{book}/chapters/illustrated"))
+                .method("POST")
+                .header(header::ORIGIN, ORIGIN)
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header(header::COOKIE, cookie(&session, &csrf))
+                .body(Body::from(changed))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected.status(),
+        StatusCode::CONFLICT,
+        "changed Markdown must never replay a published illustrated paid command"
+    );
     let picture = pg(
         &url,
         &format!(
@@ -335,7 +370,7 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
     };
-    assert!(PgPaidStorage::new(pool)
+    assert!(PgPaidStorage::new(pool.clone())
         .encrypted_chapter(first)
         .await
         .unwrap()
@@ -344,4 +379,120 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
+
+    // FND-00: rolling the operator flag back to OFF must never make a
+    // bodyless V2 editable through the old PostgreSQL Markdown writer.
+    // Reader grants remain version-pinned and independent of this author gate.
+    let legacy_catalog = PgCatalog::connect(&url).await.unwrap();
+    let legacy_writer = PgPaidAuthorPublisher::new(
+        legacy_catalog.clone(),
+        store.clone(),
+        ring.clone(),
+        BUCKET_BODYLESS_HTTP.to_owned(),
+    )
+    .unwrap();
+    let legacy_signer: Arc<dyn PrivateObjectDeliveryPort> = Arc::new(
+        PgPrivateDelivery::with_keyring(
+            pool.clone(),
+            store.clone(),
+            ring.clone(),
+            BUCKET_BODYLESS_HTTP.to_owned(),
+        )
+        .unwrap(),
+    );
+    let rolled_back = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
+        legacy_catalog,
+        PgReader::new(pool.clone()),
+        PgAccounts::from_pool(pool.clone()),
+        (false, ORIGIN.to_owned()),
+        (legacy_signer, ENDPOINT.to_owned()),
+        None,
+        legacy_writer,
+    )
+    .unwrap();
+    let (old_status, old_page) = browse(&rolled_back, &edit_path, &session, &csrf).await;
+    assert_ne!(old_status, StatusCode::OK);
+    assert!(!old_page.contains("Paid bodyless V2 source"));
+    assert!(!old_page.contains(initial_body));
+    let rollback_command = generate_session_token();
+    let rollback_post = format!(
+        "number=1&title=Immutable%20paid%20editor&body=Do%20not%20write%20this%20to%20PG&expected_revision=2&command_key={rollback_command}&csrf_token={csrf}"
+    );
+    let rollback_response = rolled_back
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(edit_path.as_str())
+                .method("POST")
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::COOKIE, cookie(&session, &csrf))
+                .body(Body::from(rollback_post))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rollback_response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "flag-OFF legacy author writer must reject edits of bodyless V2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT p.version_id || '|' || c.edit_revision || '|' || count(v.body_markdown)
+                 FROM chapter_publications p
+                 JOIN chapters c ON c.id=p.chapter_id
+                 JOIN chapter_versions v ON v.chapter_id=c.id
+                 WHERE c.id={chapter}
+                 GROUP BY p.version_id,c.edit_revision"
+            ),
+        ),
+        format!("{current_v2}|2|0"),
+        "flag rollback must not overwrite or move the current edition"
+    );
+    let (restored_status, restored_page) = browse(&app, &edit_path, &session, &csrf).await;
+    assert_eq!(restored_status, StatusCode::OK);
+    assert!(restored_page.contains("Paid bodyless V2 source"));
+
+    // FND-00: a lost/corrupted private object must deny owner GET rather than
+    // disclose a stale edition or silently fall back to PostgreSQL Markdown.
+    // Only the disposable CI bucket is touched.
+    let current_object_key = pg(
+        &url,
+        &format!(
+            "SELECT o.object_key
+             FROM chapter_versions v
+             JOIN storage_objects o ON o.id=v.storage_object_id
+             WHERE v.chapter_id={chapter} AND v.id={current_v2}"
+        ),
+    );
+    assert!(current_object_key.starts_with("private/chapter-versions/"));
+    failure_client
+        .delete_object()
+        .bucket(BUCKET_BODYLESS_HTTP)
+        .key(&current_object_key)
+        .send()
+        .await
+        .unwrap();
+
+    let (failure_status, failure_page) = browse(&app, &edit_path, &session, &csrf).await;
+    assert_eq!(
+        failure_status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "owner GET must fail closed when the current S3 ciphertext vanishes"
+    );
+    assert!(!failure_page.contains("Paid bodyless V2 source"));
+    assert!(!failure_page.contains(initial_body));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(body_markdown) FROM chapter_versions WHERE chapter_id={chapter}"
+            ),
+        ),
+        "0",
+        "S3 loss must never activate a PostgreSQL paid-body fallback"
+    );
 }

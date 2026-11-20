@@ -29,6 +29,12 @@ const ORIGIN: &str = "http://127.0.0.1:3109";
 const API: &str = "/api/v1/flow/observations";
 const REPORT: &str = "/admin/audience/exposure";
 
+// Every fixture manipulates the same durable observation-epoch state.  In
+// particular, health tests expire the latest epoch, so running fixtures in
+// parallel can invalidate an unrelated authority-lock recovery test.
+static EPOCH_FIXTURE_LOCK: std::sync::LazyLock<Arc<tokio::sync::Mutex<()>>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(())));
+
 struct Guard {
     allowed: AtomicBool,
     expected: CardObservation,
@@ -47,6 +53,9 @@ impl EditorialObservationGuard for Guard {
     }
 }
 struct Fixture {
+    // Hold across the complete test, including cleanup; internal HTTP fan-out
+    // and PostgreSQL lock-concurrency assertions remain fully concurrent.
+    _epoch_fixture_guard: tokio::sync::OwnedMutexGuard<()>,
     url: String,
     app: Router,
     actor: i64,
@@ -59,6 +68,7 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        let epoch_fixture_guard = EPOCH_FIXTURE_LOCK.clone().lock_owned().await;
         let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
         assert!(
             url.starts_with("postgresql://tor_app:")
@@ -100,6 +110,7 @@ impl Fixture {
         let app = runtime.clone().attach(app);
         let worker = tokio::spawn(worker.run());
         Self {
+            _epoch_fixture_guard: epoch_fixture_guard,
             url,
             app,
             actor,
@@ -646,21 +657,49 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
         f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
         StatusCode::OK
     );
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
-    while !f.runtime.queue_snapshot().ready {
+    // Collector readiness is a durable F-epoch witness, not an A-session
+    // recovery witness. A previous 503 can invalidate the lease while the
+    // worker has not yet reached its next five-second checkpoint. Do not
+    // require immediate authenticated success at the first ready snapshot.
+    // Retry only bounded, instrumented 503 responses: no forbidden/invalid
+    // response can turn into a success and every missing ACK keeps CI red.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+    let mut unavailable = 0_usize;
+    loop {
+        if f.runtime.queue_snapshot().ready {
+            let response = f.send("POST", API, &f.cookie, ORIGIN, &body).await;
+            match response.status() {
+                StatusCode::NO_CONTENT => {
+                    private(&response, StatusCode::NO_CONTENT);
+                    break;
+                }
+                StatusCode::SERVICE_UNAVAILABLE => {
+                    private(&response, StatusCode::SERVICE_UNAVAILABLE);
+                    unavailable += 1;
+                }
+                status => panic!("unexpected post-lock ingestion response: {status}"),
+            }
+        }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "collector did not re-acknowledge its healthy source"
+            "collector/auth path did not recover within 12s ({unavailable} bounded 503s)"
         );
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(
         f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
         StatusCode::OK
     );
-    private(
-        &f.send("POST", API, &f.cookie, ORIGIN, &body).await,
-        StatusCode::NO_CONTENT,
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!(
+                "SELECT coalesce(sum(clicks),0) FROM flow_observation_hourly WHERE book_id={}",
+                f.book
+            )
+        ),
+        "1",
+        "one successfully recovered callback must record exactly one click"
     );
     f.cleanup().await;
 }

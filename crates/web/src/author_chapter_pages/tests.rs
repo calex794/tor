@@ -158,7 +158,9 @@ fn paid_controls_only_appear_in_enabled_author_pages() {
     assert!(illustrated.contains("enctype=\"multipart/form-data\""));
     assert!(illustrated.contains("name=\"illustration\""));
     assert!(illustrated.contains("name=\"csrf_token\" value=\"csrf\""));
-    assert!(!illustrated.contains("<script"));
+    let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+    assert_eq!(illustrated.matches(trusted).count(), 1);
+    assert!(!illustrated.replacen(trusted, "", 1).contains("<script"));
 }
 
 #[test]

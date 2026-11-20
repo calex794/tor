@@ -65,6 +65,17 @@ VALUES ('ci:i11:backup-private', 'ru', 'TOR Backup Private Canary', 'draft', 'ba
 ON CONFLICT (source_identity, target_language) DO NOTHING;
 SQL
 
+# Create a buyer whose purchased historical paid V1 stays pinned while the
+# public chapter points at V2. This is isolated fixture data, not a checkout.
+psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 \
+  -f tools/i11_seed_paid_restore.sql
+source_paid_facts="$(psql "$TEST_DATABASE_URL" -X -At \
+  -v ON_ERROR_STOP=1 -f tools/i11_paid_restore_facts.sql)"
+[[ -n "$source_paid_facts" ]] || {
+  echo 'FAIL: source paid V1 purchase snapshot is empty' >&2
+  exit 1
+}
+
 source_history="$(psql "$MIGRATOR_URL" -X -At -v ON_ERROR_STOP=1 \
   -c "SELECT count(*) || ':' || max(version) FROM _sqlx_migrations WHERE success=true")"
 [[ "$source_history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
@@ -116,6 +127,13 @@ restored_history="$(psql "$app_url" -X -At -v ON_ERROR_STOP=1 \
   echo 'FAIL: restored SQLx migration history differs from the original' >&2
   exit 1
 }
+restored_paid_facts="$(psql "$app_url" -X -At \
+  -v ON_ERROR_STOP=1 -f tools/i11_paid_restore_facts.sql)"
+[[ "$restored_paid_facts" == "$source_paid_facts" ]] || {
+  echo 'FAIL: restored paid V1/V2, purchased rights or reader position differ' >&2
+  exit 1
+}
+echo 'I11_PG18_RESTORE_PAID_V1_ACL_POSITION_OK'
 if psql "$app_url" -X -v ON_ERROR_STOP=1 -q \
   -c 'CREATE TABLE public.i11_forbidden_ddl (id integer)' >/dev/null 2>&1; then
   echo 'FAIL: restored app role acquired unintended CREATE privilege' >&2
@@ -170,6 +188,12 @@ source_id="$(psql "$TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 \
   -c "SELECT id FROM books WHERE source_identity='ci:i11:backup-public'")"
 [[ "$source_id" == "$public_id" ]] || {
   echo 'FAIL: source database changed or identifiers diverged' >&2
+  exit 1
+}
+source_paid_after="$(psql "$TEST_DATABASE_URL" -X -At \
+  -v ON_ERROR_STOP=1 -f tools/i11_paid_restore_facts.sql)"
+[[ "$source_paid_after" == "$source_paid_facts" ]] || {
+  echo 'FAIL: independent restore mutated the source paid purchase or editions' >&2
   exit 1
 }
 echo 'I11_PG18_RESTORE_SOURCE_UNCHANGED_OK'

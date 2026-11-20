@@ -512,3 +512,48 @@ fn s019_header_has_book_registration_on_desktop_and_mobile() {
     assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
     assert!(html.contains("Создать книгу"));
 }
+
+#[test]
+fn ui_01_appearance_picker_is_progressive_and_does_not_change_reader_shell() {
+    let html = layout("Каталог", "Описание", "<p>Текст</p>").0;
+    assert!(html.contains("src=\"/assets/tor-appearance.js\""));
+    assert!(html.contains("data-tor-appearance hidden"));
+    assert!(html.contains("data-tor-setting=\"style\""));
+    assert!(html.contains("data-tor-setting=\"catalog\""));
+    assert!(html.contains("href=\"/assets/newboo.css\""));
+    assert!(html.contains("<p>Текст</p>"));
+    let reader_shell = include_str!("../../templates/reader_layout.html");
+    assert!(!reader_shell.contains("tor-appearance.js"));
+    assert!(!reader_shell.contains("data-tor-appearance"));
+    let styles = include_str!("../../assets/tor-appearance.css");
+    assert!(styles.contains(":root[data-tor-theme=\"light\"]"));
+    assert!(styles.contains(":root[data-tor-theme=\"dark\"]"));
+    let script = include_str!("../../assets/tor-appearance.js");
+    assert!(script.contains("torAppearance.v1"));
+}
+
+#[test]
+fn ui_05_home_order_preserves_ssr_cards_and_private_reader_shell() {
+    let html = home(&[PublicBookCard {
+        id: 44,
+        title: "Реальная книга".into(),
+        language: "ru".into(),
+        author_name: None,
+        genres: Vec::new(),
+    }])
+    .0;
+    for name in ["latest", "releases", "editorial", "rising", "genres"] {
+        assert!(html.contains(&format!(r#"data-tor-home-block="{name}""#)));
+        assert!(html.contains(&format!(r#"data-tor-home-order-item="{name}""#)));
+    }
+    assert!(html.contains("data-tor-home-blocks"));
+    assert!(html.contains(r#"href="/books/44""#));
+    assert!(html.contains(r#"src="/assets/tor-home-order.js""#));
+    assert!(html.contains("data-tor-home-order hidden"));
+    assert!(!layout("Кабинет", "Описание", "<p>Защищённая форма</p>")
+        .0
+        .contains("tor-home-order.js"));
+    assert!(!include_str!("../../templates/reader_layout.html").contains("tor-home-order.js"));
+    assert!(!include_str!("../../assets/tor-home-order.js").contains("innerHTML"));
+    assert!(!include_str!("../../assets/tor-home-order.js").contains("cloneNode"));
+}

@@ -30,6 +30,7 @@
   --book-card-meta: #6b7280;
   --book-card-shadow-hover: 0 16px 34px rgba(15, 23, 42, .12);
   --focus-ring-color: rgba(79, 70, 229, .28);
+  --tor-danger-ink: #9d4039;
 }
 html { background: var(--bg-main); }
 body {
@@ -818,6 +819,7 @@ body {
     --book-card-meta: var(--text-muted);
     --book-card-shadow-hover: 0 12px 30px rgba(0, 0, 0, .24);
     --focus-ring-color: rgba(139, 156, 255, .38);
+    --tor-danger-ink: #fca5a5;
     --neutral-bg: #263348;
     --success-bg: #102a1c;
     --success-border: #14532d;

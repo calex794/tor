@@ -20,8 +20,8 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    // RET-R03 adds two independent, protected continuation-statistics routes.
-    assert_eq!(unique.len(), 444);
+    // RET-R03 adds two protected routes; UI-01 adds one reviewed static asset.
+    assert_eq!(unique.len(), 446);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;

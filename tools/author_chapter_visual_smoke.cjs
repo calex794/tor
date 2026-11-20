@@ -40,11 +40,42 @@ async function inspect(page, viewport, name) {
   });
 }
 
+// UI-MOB-01: keep the full navigable account menu, but not duplicate
+// global logout/header chrome on author pages in narrow viewports.
+async function inspectCompactAuthorNav(page, label) {
+  const nav = page.locator('.author-workspace .account-sidebar');
+  const box = await nav.boundingBox();
+  assert(box && box.height <= 160,
+    label + ': author navigation uses too much of the first screen (' +
+    (box ? box.height : 'missing') + 'px)');
+  assert(await nav.locator('.account-sidebar__header').isHidden(),
+    label + ': decorative author nav heading still consumes space');
+  assert(await nav.locator('.account-sidebar__logout').isHidden(),
+    label + ': redundant logout still consumes author nav space');
+  assert(await page.locator('.site-header__auth').getByText('Выйти', { exact:true }).isVisible(),
+    label + ': compact author navigation lost accessible logout');
+  const groups = nav.locator('.account-nav-group summary');
+  assert(await groups.count() === 2, label + ': native account menu groups missing');
+  for (let i = 0; i < 2; i++) {
+    const summary = await groups.nth(i).boundingBox();
+    assert(summary && summary.height >= 44,
+      label + ': collapsed menu group has an unusable touch target');
+  }
+  assert(await nav.locator('.account-nav-primary a').count() >= 4,
+    label + ': primary account links were removed');
+}
+
 async function inspectAuthorEditor(page, viewport, width, height, kind) {
   const form = page.locator('.author-editor__form');
   assert(await form.count() === 1, 'shared author form missing');
   assert(await page.locator('.account-sidebar').count() === 1, 'author form lost account navigation');
   const creation = kind === 'book';
+  if (creation) {
+    assert(await page.locator('.author-new-book-page .ui-page-header__text').count() === 1,
+      'draft creation guidance must remain visible after compacting the header');
+    assert(await page.locator('.author-new-book-page .ui-page-header__kicker').count() === 0,
+      'decorative new-book kicker must not return');
+  }
   const active = creation
     ? '.dashboard-nav a[href="/me/books/new"][aria-current="page"]'
     : '.dashboard-nav a[href="/me/books"][aria-current="location"]';
@@ -62,6 +93,7 @@ async function inspectAuthorEditor(page, viewport, width, height, kind) {
         const sidebar = await page.locator('.account-sidebar').boundingBox();
         assert(sidebar.y >= 0 && sidebar.y <= 180, 'sticky navigation did not settle before capture');
       }
+      if (size === 390) await inspectCompactAuthorNav(page, 'author form');
       const title = form.locator('input[name="title"]');
       assert((await title.boundingBox()).height >= 44, 'author title control is too small');
       if (creation && size === 390) {
@@ -83,6 +115,9 @@ async function inspectAuthorEditor(page, viewport, width, height, kind) {
 
 async function inspectBookIndex(page, viewport, width, height, count) {
   assert(await page.locator('.account-sidebar').count() === 1, 'author navigation missing');
+  assert(await page.locator('.author-books-page').count() === 1, 'compact author list shell missing');
+  assert(await page.locator('.author-books-page .ui-page-header__kicker').count() === 0,
+    'decorative author list kicker must not return');
   const active = page.locator('.dashboard-nav a[aria-current="page"]');
   assert(await active.count() === 1 && await active.getAttribute('href') === '/me/books',
     'author list must have exactly one current navigation item');
@@ -94,10 +129,17 @@ async function inspectBookIndex(page, viewport, width, height, count) {
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme });
       if (size === 390) {
-        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
-          'mobile author navigation hides the workspace');
+        await inspectCompactAuthorNav(page, 'author book index');
+        const titleBox = await page.locator('.account-main .ui-page-header__title').boundingBox();
+        assert(titleBox && titleBox.y < 285,
+          'author book index still starts below redundant mobile navigation');
         const create = await page.locator('.account-main > header .ui-button').boundingBox();
         assert(create.y + create.height <= 844, 'create-book action is below the first screen');
+        if (count > 0) {
+          const firstBook = await page.locator('.author-workspace__book').first().boundingBox();
+          assert(firstBook && firstBook.y < 844,
+            'first owned book must start within the first mobile screen');
+        }
       }
       await inspect(page, viewport + '-' + size + '-' + colorScheme, 'book-index-' + count);
     }
@@ -124,6 +166,10 @@ async function inspectBookIndex(page, viewport, width, height, count) {
 
 async function inspectBookWorkspace(page, viewport, width, height, state, count) {
   assert(await page.locator('.account-sidebar').count() === 1, 'book workspace navigation missing');
+  assert(await page.locator('.author-book-workspace__hero .ui-page-header__kicker').count() === 0,
+    'duplicate author workspace heading must not return');
+  assert(await page.locator('.author-book-workspace__hero .author-book-state').count() === 1,
+    'compact workspace must preserve publication state');
   assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
     'book detail must not mark its parent list as the current page');
   assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
@@ -137,8 +183,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
     for (const colorScheme of ['light','dark']) {
       await page.emulateMedia({colorScheme});
       if (size === 390) {
-        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
-          'book workspace navigation obscures the first screen');
+        await inspectCompactAuthorNav(page, 'author book workspace');
         const add = await page.getByRole('link',{name:'Добавить главу',exact:true}).boundingBox();
         assert(add.y + add.height <= 844, 'add-chapter action is below the first screen');
       }

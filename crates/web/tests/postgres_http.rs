@@ -31,8 +31,15 @@ async fn pg_live_http_and_private_books() {
     let (home_status, home_html) = get(app.clone(), "/").await;
     assert_eq!(home_status, StatusCode::OK);
     assert!(home_html.contains("Недавно добавленные"));
-    assert!(home_html.contains("home-spotlight-card"));
+    assert!(home_html.contains("id=\"home-search-query\""));
     assert!(home_html.contains("home-shelf__track"));
+    assert!(!home_html.contains("home-spotlight-card"));
+    assert!(!home_html.contains("home-showcase"));
+    assert!(
+        home_html.find("id=\"home-search-query\"").unwrap()
+            < home_html.find("home-shelf__track").unwrap(),
+        "the authorized book shelf must follow compact search"
+    );
     assert!(!home_html.contains("TOR CI hidden"));
     assert!(!home_html.contains("TOR CI held"));
 

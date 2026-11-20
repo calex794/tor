@@ -1,0 +1,230 @@
+/* UI-01: test first-paint preferences without external DOM packages. */
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const source = fs.readFileSync(
+  path.join(__dirname, "../crates/web/assets/tor-appearance.js"), "utf8"
+);
+
+function boot(value, storageBroken = false) {
+  const attributes = {};
+  const handlers = {};
+  const events = {};
+  let stored = value;
+  const panel = {
+    hidden: true,
+    querySelectorAll() { return []; },
+    addEventListener(kind, handler) { events[kind] = handler; },
+    contains() { return true; },
+    querySelector() { return null; }
+  };
+  const document = {
+    documentElement: { dataset: attributes },
+    addEventListener(kind, handler) { handlers[kind] = handler; },
+    querySelector() { return panel; }
+  };
+  const window = {
+    localStorage: {
+      getItem() { if (storageBroken) throw Error("blocked"); return stored; },
+      setItem(_, next) { if (storageBroken) throw Error("blocked"); stored = next; }
+    },
+    addEventListener(kind, handler) { handlers["window:" + kind] = handler; }
+  };
+  vm.runInNewContext(source, { window, document });
+  return { attributes, handlers, events, panel, getStored: () => stored };
+}
+
+test("defaults preserve the real homepage and system theme", () => {
+  const run = boot(null);
+  assert.deepEqual({ ...run.attributes }, {
+    torStyle: "showcase", torTheme: "system",
+    torDensity: "normal", torCatalog: "grid"
+  });
+  run.handlers.DOMContentLoaded();
+  assert.equal(run.panel.hidden, false);
+});
+
+test("persisted choices are applied before DOMContentLoaded", () => {
+  const run = boot(JSON.stringify({
+    style: "minimal", theme: "dark", density: "compact", catalog: "list"
+  }));
+  assert.equal(run.attributes.torStyle, "minimal");
+  assert.equal(run.attributes.torTheme, "dark");
+  assert.equal(run.attributes.torCatalog, "list");
+});
+
+test("unknown, malformed and hostile values are ignored", () => {
+  for (const input of [
+    "{", JSON.stringify({ style: "<img>", theme: "evil", density: 999 }),
+    JSON.stringify(["minimal", "dark"])
+  ]) {
+    const run = boot(input);
+    assert.equal(run.attributes.torStyle, "showcase");
+    assert.equal(run.attributes.torTheme, "system");
+  }
+});
+
+test("blocked localStorage cannot break page rendering", () => {
+  const run = boot(null, true);
+  assert.equal(run.attributes.torStyle, "showcase");
+  run.handlers.DOMContentLoaded();
+  assert.equal(run.panel.hidden, false);
+});
+
+test("a valid choice updates presentation, not the page content", () => {
+  const run = boot(null);
+  run.handlers.DOMContentLoaded();
+  const button = { dataset: { torSetting: "theme", torValue: "light" } };
+  run.events.click({ target: { closest() { return button; } } });
+  assert.equal(run.attributes.torTheme, "light");
+  assert.equal(JSON.parse(run.getStored()).theme, "light");
+  const bad = { dataset: { torSetting: "theme", torValue: "<script>" } };
+  run.events.click({ target: { closest() { return bad; } } });
+  assert.equal(run.attributes.torTheme, "light");
+});
+
+test("library uses common color tokens across system and manual palettes", () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-library.css"), "utf8"
+  );
+  const base = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-port.css"), "utf8"
+  );
+  const manual = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  const inherited = ["primary-color", "text-muted", "border-color",
+    "text-main", "bg-surface", "bg-secondary"];
+  for (const name of inherited) {
+    assert(base.includes("--" + name + ":"), name + " requires a default");
+    assert(!css.includes("var(--" + name + ","),
+      name + " must not fall back to legacy green styling");
+  }
+  assert(css.includes("color: var(--tor-danger-ink)"));
+  assert(!css.includes("color: #9d4039"));
+  assert(base.includes("--tor-danger-ink: #9d4039;"));
+  assert(base.includes("--tor-danger-ink: #fca5a5;"));
+  const light = manual.split(':root[data-tor-theme="light"] {')[1].split("}")[0];
+  const dark = manual.split(':root[data-tor-theme="dark"] {')[1].split("}")[0];
+  assert(light.includes("--tor-danger-ink: #9d4039"));
+  assert(dark.includes("--tor-danger-ink: #fca5a5"));
+  // Illustrated book covers remain intentionally independent of UI tokens.
+  assert(css.includes("linear-gradient(140deg, #315b4c"));
+});
+
+test("private library layout variants are CSS-only and keep all book links", () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/newboo-library.css"), "utf8"
+  );
+  for (const mode of ["compact", "cards"]) {
+    assert(css.includes('data-tor-library-layout="' + mode + '"'));
+  }
+  assert(css.includes(".library-display-controls a[aria-current"));
+  assert(!css.includes("display: none; /* hide unauthorized books */"));
+});
+
+// UI-05 is part of the existing mandatory appearance test entrypoint.
+require('./tor_home_order.test.cjs');
+
+
+test("UI-06: real books appear immediately after compact search; promo and home ordering survive", () => {
+  const home = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/home.html"), "utf8"
+  );
+  const rust = fs.readFileSync(
+    path.join(__dirname, "../crates/web/src/pages/public_catalog.rs"), "utf8"
+  );
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  assert(home.includes("<!--HOME_PROMO_STRIP-->"));
+  assert(home.includes("<!--EDITORIAL_PROMOTION-->"));
+  assert(home.includes('data-tor-home-blocks'));
+  assert(home.indexOf("home-search-query") < home.indexOf('data-tor-home-block="latest"'));
+  assert(!home.includes("HOME_SPOTLIGHT"));
+  assert(!home.includes('class="home-special"'));
+  assert(!rust.includes("home_spotlight::render_observed"));
+  assert(rust.includes("recent_genre_links(books)"));
+  assert(css.includes("UI-06: content-first public homepage"));
+  assert(css.includes(':root[data-tor-style="library"] .home-genre-navigation'));
+});
+
+test("UI-07: catalog and book detail keep working content without decorative intro", () => {
+  const catalog = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/catalog.html"), "utf8"
+  );
+  const book = fs.readFileSync(
+    path.join(__dirname, "../crates/web/templates/book_detail.html"), "utf8"
+  );
+  const css = fs.readFileSync(
+    path.join(__dirname, "../crates/web/assets/tor-appearance.css"), "utf8"
+  );
+  assert(catalog.includes('id="catalog-title"'));
+  assert(!catalog.includes("Библиотека платформы"));
+  assert(!catalog.includes("Ищите книги по названию"));
+  assert(catalog.indexOf("<!--SEARCH_FORM-->") < catalog.indexOf("<!--PUBLIC_BOOKS-->"));
+  for (const slot of ["<!--SEARCH_FORM-->", "<!--ACTIVE_FILTERS-->",
+    "<!--PUBLIC_BOOKS-->", "<!--PAGINATION-->"]) assert(catalog.includes(slot));
+  assert(!book.includes('class="book-hero-card__kicker"'));
+  assert(book.includes('class="breadcrumbs__current" aria-current="page"'));
+  for (const slot of ["<!--BOOK_TITLE-->", "<!--BOOK_COVER-->",
+    "<!--PRIMARY_ACTION-->", "<!--CHAPTERS-->", "<!--EDITORIAL_PROMOTION-->"])
+    assert(book.includes(slot));
+  assert(css.includes("UI-07: compact public catalog and book detail"));
+  assert(css.includes(":root .book-detail-page .book-hero-card__title"));
+});
+
+
+test("UI-08: compact author surfaces keep all server actions and safeguards", () => {
+  const read = name => fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/" + name), "utf8");
+  const books = read("author_books.html");
+  const workspace = read("author_book_workspace.html");
+  const creation = read("author_new_book.html");
+  const css = fs.readFileSync(path.join(__dirname,
+    "../crates/web/assets/tor-appearance.css"), "utf8");
+  assert(books.includes('class="me-page author-workspace author-books-page"'));
+  assert(!books.includes('ui-page-header__kicker'));
+  assert(!books.includes("Главы, настройки и публикация ваших книг."));
+  for (const slot of ["<!--ACCOUNT_NAVIGATION-->", "<!--BOOK_COUNT-->",
+    "<!--BOOK_LIST-->", "<!--LAYER_SECTION-->"]) assert(books.includes(slot));
+  assert(books.includes('href="/me/books/new"'));
+  assert(!workspace.includes("Кабинет автора · управление книгой"));
+  assert(!workspace.includes("Дополнительные возможности"));
+  for (const slot of ["<!--ACCOUNT_NAVIGATION-->", "<!--BOOK_TITLE-->",
+    "<!--BOOK_STATE-->", "<!--STATE_NOTE-->", "<!--CHAPTER_LIST-->",
+    "<!--PUBLICATION_ACTION-->", "<!--PREPARATION_PANEL-->",
+    "<!--AGE_SETTINGS_LINK-->", "<!--EXTRA_PANELS-->"]) assert(workspace.includes(slot));
+  assert(workspace.includes('href="/me/books/<!--BOOK_ID-->/chapters/new"'));
+  assert(workspace.includes('id="author-book-settings"'));
+  assert(creation.includes('author-new-book-page'));
+  assert(creation.includes("Новая книга будет сохранена как личный черновик"));
+  for (const slot of ['method="post"', 'action="/me/books"',
+    'name="csrf_token"', 'name="command_key"', 'required maxlength="200"'])
+    assert(creation.includes(slot));
+  assert(css.includes("UI-08: author books, workspace and new-book form"));
+  assert(css.includes(":root .author-books-page .author-workspace__book"));
+  assert(css.includes(":root .author-book-workspace .author-book-workspace__hero"));
+  assert(css.includes(":root .author-new-book-page .author-editor__panel"));
+});
+
+
+test("UI-MOB-01: compact author navigation keeps native groups, links and safe logout", () => {
+  const css = fs.readFileSync(path.join(__dirname,
+    "../crates/web/assets/account-ui.css"), "utf8");
+  const nav = fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/account_nav.html"), "utf8");
+  const layout = fs.readFileSync(path.join(__dirname,
+    "../crates/web/templates/layout.html"), "utf8");
+  assert(css.includes("UI-MOB-01: compact mobile author navigation"));
+  assert(css.includes(".author-workspace .account-sidebar__header"));
+  assert(css.includes(".author-workspace .account-sidebar__logout"));
+  assert(nav.includes('aria-label="Меню личного кабинета"'));
+  assert(nav.includes('method="post" action="/logout"'));
+  for (const link of ['/me/books', '/me/books/new', '/me/finance',
+    '/me/library', '/me/settings/password'])
+    assert(nav.includes('href="' + link + '"'));
+  assert(layout.includes("<!--HEADER_DESKTOP_AUTH-->"));
+});

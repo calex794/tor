@@ -98,6 +98,25 @@ class WorkflowWiringTests(unittest.TestCase):
             script.index('if [[ "$rec_lane" != historical ]]; then'),
             script.index('if [[ "$rec_lane" != current ]]; then'),
         )
+        # #1134: keep EDITORIAL acceptance independent of an earlier degraded
+        # collector. The replacement must have a real new SQL epoch and live
+        # lease; the browser must still insist on actual 204/durable counters.
+        fresh = script[script.index('old_editorial_epoch='):
+                       script.index('node tools/editorial_pg_browser.cjs')]
+        for required in (
+            'stop_server',
+            'start_server "$TEST_DATABASE_URL" current',
+            'new_editorial_epoch=',
+            'new_editorial_epoch <= old_editorial_epoch',
+            'lease_until_ms>',
+            "CI_EDITORIAL_FRESH_EPOCH_OK",
+            'TOR_EDITORIAL_EXPECT_OBSERVATIONS=1',
+        ):
+            self.assertIn(required, fresh)
+        editorial = (ROOT / "tools/editorial_pg_browser.cjs").read_text()
+        self.assertIn("event.status===204", editorial)
+        self.assertIn("sums(campaign)[2]>before", editorial)
+        self.assertIn("This card has no accepted view callback", editorial)
         # The specialist workflow invokes the unfiltered all mode.
         specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
@@ -751,7 +770,10 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("node tools/flow_visits_pg_browser.cjs", browser)
 
     def test_rec13_acceptance_tests_committed_source_without_rewriting(self):
-        self.assertEqual(ACCEPTANCE_WORKFLOWS, {"rec-feedback-acceptance.yml"})
+        self.assertEqual(ACCEPTANCE_WORKFLOWS, {
+            "rec-feedback-acceptance.yml",
+            "tor-fnd06-two-release.yml",
+        })
         text = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         self.assertIn("contents: read", text)
         self.assertNotIn("contents: write", text)
@@ -803,6 +825,36 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("  postgres-runtime:", core)
         self.assertIn("  migrations:", core)
         self.assertIn("    needs: [select, preflight]", core)
+
+    def test_fnd06_two_release_acceptance_isolated_and_uses_real_distinct_binaries(self):
+        text = (WORKFLOWS / "tor-fnd06-two-release.yml").read_text()
+        for required in (
+            "  pull_request:",
+            "  push:",
+            "  workflow_dispatch:",
+            "    branches: [main]",
+            "contents: read",
+            "image: postgres:18",
+            "TOR_S061_PREVIOUS_SHA:",
+            "TOR_S061_PREVIOUS_BINARY:",
+            "TOR_S061_S3_ENDPOINT: http://127.0.0.1:9012",
+            "git merge-base --is-ancestor",
+            "git worktree add --detach",
+            "! cmp -s",
+            "bash tools/s061_start_minio.sh",
+            "python3 tools/s061_cutover_pg_smoke.py",
+            'assert report["distinct_binary_validation"] is True',
+            'assert 202998431705 in report["added_migrations"]',
+            'assert report["same_binary_both_slots"] is False',
+            'assert report["populated_catalog_verified"] is True',
+            'assert report["postcutover_rollback"] is True',
+        ):
+            self.assertIn(required, text)
+        for forbidden in (
+            "contents: write", "pull_request_target:", "secrets.",
+            "ssh ", "sudo systemctl", "TOR_S061_S3_ENDPOINT: https://",
+        ):
+            self.assertNotIn(forbidden, text)
 
     def test_nightly_full_acceptance_is_scheduled_and_never_deploys(self):
         nightly = (WORKFLOWS / "tor-nightly.yml").read_text()

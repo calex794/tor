@@ -44,7 +44,9 @@ fn empty_library_has_one_onboarding_state_and_csp_safe_navigation() {
     assert!(!html.contains("После подписки новые главы появятся здесь"));
     assert!(html.contains("href=\"/me/library?view=saved\""));
     assert!(html.contains("aria-current=\"page\""));
-    assert!(!html.contains("<script"));
+    let trusted = r#"<script src="/assets/tor-appearance.js"></script>"#;
+    assert_eq!(html.matches(trusted).count(), 1);
+    assert!(!html.replacen(trusted, "", 1).contains("<script"));
 }
 
 #[test]

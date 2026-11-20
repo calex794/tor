@@ -16,6 +16,9 @@ pub enum ExposureError {
     TooEarly,
     Forbidden,
     Capacity,
+    /// A rolled-back hourly aggregate lock wait (SQLSTATE 55P03). The
+    /// observation is rejected, but this alone does not retire the worker.
+    Contended,
     Unavailable,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]

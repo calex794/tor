@@ -17,7 +17,10 @@ impl ObservationCollector {
         self.probe.clone()
     }
     /// Invoke only after the real HTTP server stopped accepting and drained all
-    /// requests. Drop/abort is deliberately not equivalent to this witness.
+    /// requests. A true result means a *durable retirement acknowledgement*,
+    /// not that every queued observation reached PostgreSQL. Inspect the
+    /// snapshot's persisted/failed/dropped counters and durable hourly health
+    /// before claiming complete measurement. Drop/abort is not this witness.
     pub async fn shutdown_after_http_drained(mut self) -> bool {
         let (ack, done) = oneshot::channel();
         if self.stop.send(ack).is_err() {

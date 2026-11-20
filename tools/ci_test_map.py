@@ -50,7 +50,7 @@ PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
 ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
-ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
+ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml", "tor-fnd06-two-release.yml"}
 POSTGRES_SUITES = {
     "postgres", "rec_browser", "reading_analytics", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
@@ -141,6 +141,7 @@ TEST_SUITES = {
     "crates/web/tests/drop_04e_worker_faults.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04e_worker_faults/proxy.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/support.rs": {"rust", "paid_e2e"},
+    "crates/web/tests/drop_04d_worker_pg_minio/catalog_concurrency.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_import.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_provider.rs": {"rust", "paid_e2e"},
     "crates/books/tests/free_import_transport_pg.rs": {"rust", "paid_e2e"},

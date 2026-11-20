@@ -80,8 +80,23 @@ pub async fn serve(
             }
         }
         if let Some(observations) = observations {
+            let probe = observations.probe();
             if !observations.shutdown_after_http_drained().await {
                 tracing::warn!("FLOW card collector stopped without a durable acknowledgement");
+            } else {
+                // Durable retirement means the tail is accounted for, not that
+                // all proof registrations were persisted. Lost/failed hours
+                // remain unmeasurable and must be visible to operators.
+                let counters = probe.snapshot();
+                if counters.dropped > 0 || counters.failed > 0 {
+                    tracing::warn!(
+                        queued = counters.queued,
+                        persisted = counters.persisted,
+                        dropped = counters.dropped,
+                        failed = counters.failed,
+                        "FLOW card collector durably retired with degraded observation health"
+                    );
+                }
             }
         }
     }
