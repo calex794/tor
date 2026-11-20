@@ -1,6 +1,6 @@
 # UI-10A — genuine published-free-book visual acceptance
 
-Status: CI-only acceptance plus narrowly scoped public-book CSP fix; based on main after UI-09 and UI-MOB-01.
+Status: Real-book CI plus script-free SSR preference, retaining strict private CSP.
 
 ## Why
 
@@ -19,8 +19,8 @@ through the TOR UI and the book passed isolated site moderation.
   static lookalike or a mock chapter list. No horizontal overflow, no lost href,
   no menu overlap; screenshots persist as existing reader-browser artifacts.
 - Restore system theme and showcase layout, reload, and confirm chapter counts.
-- Public book CSP correction: PG/visitor-personalized book HTML previously inherited `script-src 'none'` and the existing style picker stayed hidden. For successful public book HTML only, allow `script-src 'self'` (and existing optional Surprise `connect-src 'self'`); preserve strict CSP on errors, private readers and every other private page. No inline or third-party script sources.
-- No changes to user authorization, publication, grant issuance, S3 or paid code. Real PG/Chromium asserts the public book response CSP and visible working switcher.
+- The real PostgreSQL book keeps `script-src 'none'`. The public picker mirrors only the fixed style enum to a SameSite=Lax cookie. The book's HTML root receives exact allowlisted style/theme attributes server-side, with no raw cookie interpolation or JavaScript.
+- No change to user authorization, publication, grant issuance, S3 or paid code. Real PG/Chromium asserts strict CSP, computed SSR geometry, intact book/reader links and a hidden script-only picker. The public browser test verifies the cookie writer.
 
 ## Scope boundary
 

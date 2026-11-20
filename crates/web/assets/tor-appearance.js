@@ -56,12 +56,24 @@
     }
   }
 
+  // Fixed, non-sensitive style enum for real book SSR under script-src 'none'.
+  function mirrorStyleCookie() {
+    try {
+      const secure = window.location?.protocol === "https:" ? "; Secure" : "";
+      document.cookie = "tor-ui-style-v1=" + settings.style +
+        "; Path=/; Max-Age=31536000; SameSite=Lax" + secure;
+    } catch (_) {
+      // Cookie denial never blocks reading or navigation.
+    }
+  }
+
   function apply() {
     root.dataset.torStyle = settings.style;
     root.dataset.torTheme = settings.theme;
     root.dataset.torDensity = settings.density;
     root.dataset.torCatalog = settings.catalog;
     mirrorThemeCookie();
+    mirrorStyleCookie();
   }
 
   // This script intentionally loads before CSS to avoid a light/dark flash.

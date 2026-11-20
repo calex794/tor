@@ -70,6 +70,9 @@ async function closeAppearancePicker(page, label) {
         .filter(c => c.name === "tor-ui-theme-v1").map(c => c.value),
       ["light"], width + ": explicit light theme must persist in validated cookie");
       await select(page, "style", "minimal");
+      assert.deepEqual((await page.context().cookies(base))
+        .filter(c => c.name === "tor-ui-style-v1").map(c => c.value),
+      ["minimal"], width + ": public picker must persist style for SSR book");
       await select(page, "density", "compact");
       assert.equal(await page.locator("html").evaluate(el =>
         getComputedStyle(el).getPropertyValue("--bg-main").trim()), "#f7f7f8",

@@ -98,35 +98,66 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
     response
 }
 
-/// Only a verified, successfully rendered public Book may run same-origin
-/// presentation JavaScript. Do not relax inline scripts, third-party scripts,
-/// style/image/form rules, or CSP on errors and private reader routes.
-fn public_book_appearance_csp(mut response: Response, surprise_enabled: bool) -> Response {
-    if response.status() != StatusCode::OK {
-        return response;
+/// Honor only exact presentation enums in script-free PostgreSQL book HTML.
+/// Never interpolate untrusted cookie bytes or weaken the existing page CSP.
+fn book_cookie_mode(headers: &axum::http::HeaderMap, name: &str) -> Option<&'static str> {
+    for raw in headers.get_all(header::COOKIE) {
+        let Ok(raw) = raw.to_str() else {
+            continue;
+        };
+        for pair in raw.split(';') {
+            let Some((key, value)) = pair.trim().split_once('=') else {
+                continue;
+            };
+            if key != name {
+                continue;
+            }
+            return match (name, value) {
+                ("tor-ui-style-v1", "showcase") => Some("showcase"),
+                ("tor-ui-style-v1", "library") => Some("library"),
+                ("tor-ui-style-v1", "minimal") => Some("minimal"),
+                ("tor-ui-theme-v1", "system") => Some("system"),
+                ("tor-ui-theme-v1", "light") => Some("light"),
+                ("tor-ui-theme-v1", "dark") => Some("dark"),
+                _ => None,
+            };
+        }
     }
-    let Some(header) = response.headers().get("content-security-policy") else {
-        return response;
-    };
-    let Ok(policy) = header.to_str() else {
-        return response;
-    };
-    let updated = if surprise_enabled {
-        // The opt-in Surprise widget's existing first-party API needs connect-src.
-        policy.replace(
-            "script-src 'none';",
-            "script-src 'self'; connect-src 'self';",
-        )
-    } else {
-        // The appearance chooser uses only first-party JS and local preferences.
-        policy.replace("script-src 'none';", "script-src 'self';")
-    };
-    if let Ok(header) = axum::http::HeaderValue::from_str(&updated) {
-        response
-            .headers_mut()
-            .insert("content-security-policy", header);
+    None
+}
+
+fn book_appearance_from_cookie(
+    mut html: axum::response::Html<String>,
+    headers: &axum::http::HeaderMap,
+    script_free: bool,
+) -> axum::response::Html<String> {
+    let mut attrs = String::new();
+    if let Some(style) = book_cookie_mode(headers, "tor-ui-style-v1") {
+        attrs.push_str(" data-tor-style=\"");
+        attrs.push_str(style);
+        attrs.push('"');
     }
-    response
+    if let Some(theme) = book_cookie_mode(headers, "tor-ui-theme-v1") {
+        attrs.push_str(" data-tor-theme=\"");
+        attrs.push_str(theme);
+        attrs.push('"');
+    }
+    if !attrs.is_empty() {
+        html.0 = html.0.replacen(
+            "<html lang=\"ru\">",
+            &format!("<html lang=\"ru\"{attrs}>"),
+            1,
+        );
+    }
+    if script_free {
+        // Do not request a script that the private book CSP intentionally blocks.
+        html.0 = html.0.replacen(
+            "<script src=\"/assets/tor-appearance.js\"></script>",
+            "",
+            1,
+        );
+    }
+    html
 }
 
 pub(super) async fn homepage_with_cdn(
@@ -159,14 +190,27 @@ pub(super) async fn book_html(
         Ok(value) => value,
         Err(status) => return book_error(state, status).await,
     };
-    let response = book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
-    // The real PG book page uses private_response's script-src 'none' because
-    // reader-specific follow state makes it uncacheable. That unintentionally
-    // disabled the already-rendered, same-origin appearance chooser on every
-    // live book. Apply the narrow permission only after public visibility and
-    // successful follow decoration; leave denial responses and private readers
-    // on their existing CSP.
-    let response = public_book_appearance_csp(response, crate::auth::surprise_http::enabled());
+    let script_free = state.follow_control.is_some() && !crate::auth::surprise_http::enabled();
+    let html = book_appearance_from_cookie(html, headers, script_free);
+    let mut response =
+        book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
+    // Preserve the preexisting opt-in Surprise-only exception. Other real
+    // book responses retain script-src 'none', just like other private pages.
+    if crate::auth::surprise_http::enabled() {
+        if let Some(value) = response.headers().get("content-security-policy") {
+            if let Ok(policy) = value.to_str() {
+                let updated = policy.replace(
+                    "script-src 'none';",
+                    "script-src 'self'; connect-src 'self';",
+                );
+                if let Ok(value) = axum::http::HeaderValue::from_str(&updated) {
+                    response
+                        .headers_mut()
+                        .insert("content-security-policy", value);
+                }
+            }
+        }
+    }
     crate::recommendation_http::visits::book_response(
         cdn_image_csp(response, origin.as_deref()),
         book_id,
@@ -354,44 +398,73 @@ mod cdn_html_tests {
     }
 
     #[test]
-    fn public_book_can_use_own_appearance_script_without_weakening_private_csp() {
-        let response =
-            public_book_appearance_csp(auth_cookies::private_response("book", &[]), false);
-        let csp = response.headers()["content-security-policy"]
-            .to_str()
-            .unwrap();
-        assert!(csp.contains("default-src 'none';"));
-        assert!(csp.contains("script-src 'self';"));
-        assert!(!csp.contains("script-src 'none'"));
-        assert!(!csp.contains("connect-src 'self'"));
-        assert!(csp.contains("form-action 'self';"));
-        assert!(csp.contains("frame-ancestors 'none'"));
-        assert!(!csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"));
-
-        let with_surprise =
-            public_book_appearance_csp(auth_cookies::private_response("book", &[]), true);
-        let csp = with_surprise.headers()["content-security-policy"]
-            .to_str()
-            .unwrap();
-        assert!(csp.contains("script-src 'self'; connect-src 'self';"));
-
-        let denied = public_book_appearance_csp(
-            auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+    fn script_free_book_applies_only_allowlisted_presentation_cookies() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "csrf=unchanged; tor-ui-style-v1=library; tor-ui-theme-v1=dark"
+                .parse()
+                .expect("valid header"),
+        );
+        let source = "<html lang=\"ru\"><head><script src=\"/assets/tor-appearance.js\"></script></head><body><a href=\"/reader/41\">Читать</a></body></html>";
+        let html = book_appearance_from_cookie(
+            axum::response::Html(source.to_owned()),
+            &headers,
             true,
         );
-        assert!(denied.headers()["content-security-policy"]
+        assert!(html.0.contains(
+            "<html lang=\"ru\" data-tor-style=\"library\" data-tor-theme=\"dark\">"
+        ));
+        assert!(!html.0.contains("tor-appearance.js"));
+        assert!(html.0.contains("href=\"/reader/41\""));
+        let private = auth_cookies::private_response(html, &[]);
+        let csp = private.headers()["content-security-policy"]
             .to_str()
-            .unwrap()
-            .contains("script-src 'none'"));
-
-        let plain = public_book_appearance_csp("public".into_response(), false);
-        assert!(plain.headers().get("content-security-policy").is_none());
-
-        // Other pages still use auth_cookies::private_response untouched.
-        let private = auth_cookies::private_response("private", &[]);
-        assert!(private.headers()["content-security-policy"]
-            .to_str()
-            .unwrap()
-            .contains("script-src 'none'"));
+            .expect("valid CSP");
+        assert!(csp.contains("script-src 'none'"));
+        assert!(!csp.contains("unsafe-inline"));
     }
+
+    #[test]
+    fn script_free_book_rejects_untrusted_presentation_cookies() {
+        let source = "<html lang=\"ru\"><a href=\"/reader/41\">Читать</a></html>";
+        for hostile in [
+            "tor-ui-style-v1=showcase%22%3E%3Cscript%3E",
+            "tor-ui-style-v1=library\"",
+            "tor-ui-style-v1=unknown",
+            "tor-ui-theme-v1=dark%22",
+            "tor-ui-theme-v1=autodark",
+        ] {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(header::COOKIE, hostile.parse().expect("valid header"));
+            let html = book_appearance_from_cookie(
+                axum::response::Html(source.to_owned()),
+                &headers,
+                true,
+            );
+            assert_eq!(html.0, source, "invalid cookie altered book HTML");
+        }
+        let original = book_appearance_from_cookie(
+            axum::response::Html(source.to_owned()),
+            &axum::http::HeaderMap::new(),
+            true,
+        );
+        assert_eq!(original.0, source);
+    }
+
+    #[test]
+    fn public_script_enabled_page_keeps_existing_picker() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(header::COOKIE, "tor-ui-style-v1=minimal".parse().unwrap());
+        let source =
+            "<html lang=\"ru\"><script src=\"/assets/tor-appearance.js\"></script></html>";
+        let html = book_appearance_from_cookie(
+            axum::response::Html(source.into()),
+            &headers,
+            false,
+        );
+        assert!(html.0.contains("data-tor-style=\"minimal\""));
+        assert!(html.0.contains("tor-appearance.js"));
+    }
+
 }

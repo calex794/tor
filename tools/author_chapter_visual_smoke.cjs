@@ -85,25 +85,26 @@ async function inspectRealBookAppearances(page, viewport, bookId, secondChapterH
   const expectedLinks = await page.locator('.book-detail-page a[href]')
     .evaluateAll(nodes => nodes.map(node => node.getAttribute('href')));
   const bookResponse = await page.context().request.get(base + '/books/' + bookId);
-  assert(bookResponse.status() === 200, where + ': public book HEAD probe failed');
+  assert(bookResponse.status() === 200, where + ': book GET probe failed');
   const bookCsp = bookResponse.headers()['content-security-policy'] || '';
   assert(bookCsp.includes("default-src 'none'") &&
-    bookCsp.includes("script-src 'self'") &&
+    bookCsp.includes("script-src 'none'") &&
     !bookCsp.includes('unsafe-inline') && !bookCsp.includes('unsafe-eval'),
-    where + ': public book CSP must allow only same-origin presentation JS');
+    where + ': real personalized book lost its strict no-script CSP');
   const picker = page.locator('[data-tor-appearance]');
-  assert(await picker.isVisible(), where + ': real book lost appearance controls');
+  assert(await picker.isHidden(),
+    where + ': script-free real book shows a nonfunctional picker');
   const setAppearance = async (setting, value) => {
-    if ((await picker.getAttribute('open')) === null) await picker.locator('summary').click();
-    const option = picker.locator('button[data-tor-setting="' + setting +
-      '"][data-tor-value="' + value + '"]');
-    assert(await option.isVisible(), where + ': missing ' + setting + '=' + value);
-    await option.click();
+    // Same cookie name and exact enum emitted by the public first-party picker.
+    const name = setting === 'style' ? 'tor-ui-style-v1' : 'tor-ui-theme-v1';
+    await page.context().addCookies([{name, value, url: base, sameSite: 'Lax'}]);
+    const response = await page.reload({waitUntil: 'networkidle'});
+    assert(response && response.status() === 200,
+      where + ': style cookie made protected book unavailable');
     assert(await page.locator('html').getAttribute('data-tor-' + setting) === value,
-      where + ': selection did not apply: ' + setting + '=' + value);
-    await page.keyboard.press('Escape');
-    assert((await picker.getAttribute('open')) === null,
-      where + ': appearance menu obscures the book');
+      where + ': real SSR did not honor ' + setting + '=' + value);
+    assert(await picker.isHidden(),
+      where + ': a disabled script-only picker appeared');
   };
   const compositions = [];
   for (const style of ['showcase', 'library', 'minimal']) {
