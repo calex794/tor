@@ -1,0 +1,48 @@
+name: "TOR S3 candidate build (NO DEPLOY)"
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tor-s3-candidate-build-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  s3-build-only:
+    name: "Build FREE S3 runtime without credentials or deployment"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Enforce feature boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Compile S3-enabled TOR without paid or runtime opt-in
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers"
+          test -x target/release/tor-web
+          sha256sum target/release/tor-web | sed 's#target/release/##' > "$RUNNER_TEMP/tor-s3-build.sha256"
+          {
+            printf 'TOR_S3_BUILD_ONLY=1\n'
+            printf 'TOR_COMMIT_SHA=%s\n' "$(git rev-parse HEAD)"
+            printf 'TOR_S3_FEATURES=s3-free,s3-chapter-import,s3-covers\n'
+            printf 'TOR_S3_PAID=OFF\n'
+            printf 'TOR_PROVIDER_ACCEPTED=NO\n'
+            printf 'TOR_DATA_READY=NO\n'
+            printf 'TOR_DEPLOYMENT=NONE\n'
+          } > "$RUNNER_TEMP/tor-s3-build-evidence.txt"
+      - name: Store checksums and profile only (no binaries or secrets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-s3-build-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/tor-s3-build.sha256
+            ${{ runner.temp }}/tor-s3-build-evidence.txt
+          if-no-files-found: error
+          retention-days: 7

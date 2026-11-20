@@ -44,6 +44,8 @@ SUITE_JOB_IDS = {
 
 # Deployment workflows contact the VPS: operator dispatch only, never automatic CI.
 MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml", "chapter-import-s3.yml"}
+# Isolated manual build proof only: no release/signing, environment, SSH or S3 access.
+BUILD_ONLY_WORKFLOWS = {"tor-s3-candidate-build.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
