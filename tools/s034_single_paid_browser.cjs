@@ -572,6 +572,14 @@ async function verify(browser, buyer, viewport) {
     const revokedHtml = await revokedLibrary.text();
     assert(revokedHtml.includes("Доступных покупок пока нет"));
     assert(!revokedHtml.includes('href="' + purchasedHref + '"'));
+    // RET-02: the same revoked D entitlement must disappear from private Home.
+    // A stale purchased-only shortcut would contradict Library's live D resolver.
+    const revokedHome = await context.request.get(SITE + "/me");
+    assert.equal(revokedHome.status(), 200);
+    const revokedHomeHtml = await revokedHome.text();
+    assert(!revokedHomeHtml.includes(
+      'data-ret-purchased-book="' + fixture.book_id + '"'),
+      "refunded purchase must not remain a Home purchased-only shortcut");
     assert.equal(balance(), 600 - price, "revocation alone must never pretend to refund money");
     assert.equal(purchases(), 1);
     const width = viewport.width === 1440 ? "desktop" : "mobile";
