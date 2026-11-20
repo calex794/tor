@@ -54,6 +54,10 @@ cargo test -p tor-storage --features s3 \
 ```
 
 Never run this test in the default CI, or with arbitrary endpoints/buckets.
+The probe now refuses to run when either `GITHUB_ACTIONS` or `CI` is present,
+even if the explicit opt-in and provider credentials were accidentally set.
+The two regular S3 lanes run only its separate pure scope-rejection unit test;
+that test does not read credentials or send any network requests.
 The client uses the fixed official `https://storage.yandexcloud.net`
 endpoint and short bounded S3 operation timeouts. If the probe fails,
 do **not** weaken checksum, privacy, conditional PUT or permission assertions
