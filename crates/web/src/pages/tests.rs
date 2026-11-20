@@ -557,3 +557,44 @@ fn ui_05_home_order_preserves_ssr_cards_and_private_reader_shell() {
     assert!(!include_str!("../../assets/tor-home-order.js").contains("innerHTML"));
     assert!(!include_str!("../../assets/tor-home-order.js").contains("cloneNode"));
 }
+
+#[test]
+fn ui_11_unrated_book_keeps_rating_action_without_two_empty_cards() {
+    use tor_recommendations::repositories::{BookStars, StarTotal};
+    let zero = StarTotal { sum: 0, votes: 0 };
+    let book = BookStars {
+        title: "Книга".into(),
+        work: zero,
+        translation: zero,
+    };
+    let empty = book_star_strip(91, &book);
+    assert!(empty.contains("book-rating-summary--empty"));
+    assert!(!empty.contains("book-rating-summary__item"));
+    assert!(!empty.contains("Пока нет оценок"));
+    assert!(empty.contains("href=\"/me/books/91/rate\""));
+
+    let one_kind = book_star_strip(
+        91,
+        &BookStars {
+            work: StarTotal { sum: 5, votes: 1 },
+            ..book.clone()
+        },
+    );
+    assert!(one_kind.contains("book-rating-summary__item--work"));
+    assert!(!one_kind.contains("book-rating-summary__item--translation"));
+    assert!(one_kind.contains("5.00") && one_kind.contains("Голосов: 1"));
+    assert!(!one_kind.contains("book-rating-summary--empty"));
+
+    let both = book_star_strip(
+        91,
+        &BookStars {
+            work: StarTotal { sum: 8, votes: 2 },
+            translation: StarTotal { sum: 3, votes: 1 },
+            ..book
+        },
+    );
+    assert!(both.contains("book-rating-summary__item--work"));
+    assert!(both.contains("book-rating-summary__item--translation"));
+    assert!(both.contains("4.00") && both.contains("3.00"));
+    assert!(both.contains("href=\"/me/books/91/rate\""));
+}

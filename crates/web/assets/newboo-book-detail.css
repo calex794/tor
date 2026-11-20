@@ -124,6 +124,7 @@ img.book-cover-xl { display: block; height: auto; object-fit: cover; }
   margin-top: 22px;
   max-width: 540px;
 }
+.book-rating-summary--empty { margin-top: 10px; }
 .book-rating-summary__item {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
