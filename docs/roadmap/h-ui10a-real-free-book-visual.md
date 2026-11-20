@@ -19,7 +19,7 @@ through the TOR UI and the book passed isolated site moderation.
   static lookalike or a mock chapter list. No horizontal overflow, no lost href,
   no menu overlap; screenshots persist as existing reader-browser artifacts.
 - Restore system theme and showcase layout, reload, and confirm chapter counts.
-- The real PostgreSQL book keeps `script-src 'none'`. The public picker mirrors only the fixed style enum to a SameSite=Lax cookie. The book's HTML root receives exact allowlisted style/theme attributes server-side, with no raw cookie interpolation or JavaScript.
+- The real PostgreSQL book keeps `script-src 'none'`. The public picker creates no style cookie for the default `showcase` design, and writes a SameSite=Lax style cookie only for explicit `library`/`minimal` settings. Returning to default deletes it. The book SSR uses a server-owned `showcase` fallback and exact allowlisted cookie values, never arbitrary cookie bytes or JavaScript.
 - No change to user authorization, publication, grant issuance, S3 or paid code. Real PG/Chromium asserts strict CSP, computed SSR geometry, intact book/reader links and a hidden script-only picker. The public browser test verifies the cookie writer.
 
 ## Scope boundary

@@ -203,17 +203,7 @@ async function assertReport(page, days) {
     assert.deepEqual(optionalSnapshot(reader),before,
       'all HTML, reports, browser restarts and old client commands leave optional stores empty');
     for (const cookie of await readerContext.cookies()) {
-      if (cookie.name === 'tor-ui-style-v1') {
-        // A presentation-only enum is not an identity, visit or consent
-        // cookie. Reject all other values and keep the existing allowlist.
-        assert.ok(['showcase', 'library', 'minimal'].includes(cookie.value),
-          'unexpected book appearance value');
-        assert.equal(cookie.path, '/', 'appearance cookie must use the public path');
-        assert.equal(cookie.sameSite, 'Lax', 'appearance cookie must be same-site');
-        continue;
-      }
-      assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),
-        'unexpected cookie ' + cookie.name);
+      assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),'unexpected cookie '+cookie.name);
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${admin} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience/visits'),403);

@@ -72,22 +72,23 @@ function firstPaint(choice, protocol, initialCookie = "") {
   };
 }
 
-test("anonymous system theme creates no theme cookie; style remains a safe enum", () => {
+test("default visitor creates no cookie; changing style creates only its enum", () => {
   for (const protocol of ["http:", "https:"]) {
     const rendered = firstPaint(null, protocol);
-    assert.deepEqual(rendered.cookie, { "tor-ui-style-v1": "showcase" });
+    assert.deepEqual(rendered.cookie, {});
     assert.equal(rendered.attrs.torTheme, "system");
+    assert.equal(rendered.attrs.torStyle, "showcase");
     rendered.select("style", "minimal");
     assert.deepEqual(rendered.cookie, { "tor-ui-style-v1": "minimal" });
+    rendered.select("style", "showcase");
+    assert.deepEqual(rendered.cookie, {}, "returning to default removes style cookie");
   }
 });
 
 test("explicit theme and style are independent, and system clears only theme", () => {
   for (const theme of ["light", "dark"]) {
     const rendered = firstPaint({ theme }, "https:");
-    assert.deepEqual(rendered.cookie, {
-      "tor-ui-theme-v1": theme, "tor-ui-style-v1": "showcase"
-    });
+    assert.deepEqual(rendered.cookie, { "tor-ui-theme-v1": theme });
     assert.equal(rendered.attrs.torTheme, theme);
   }
   const first = firstPaint(null, "https:");
@@ -101,7 +102,7 @@ test("explicit theme and style are independent, and system clears only theme", (
   const invalid = firstPaint({
     theme: "<script>alert(1)</script>", style: "library\" onclick=\"alert(1)"
   }, "https:");
-  assert.deepEqual(invalid.cookie, { "tor-ui-style-v1": "showcase" });
+  assert.deepEqual(invalid.cookie, {});
   assert.equal(invalid.attrs.torTheme, "system");
   assert.equal(invalid.attrs.torStyle, "showcase");
 });
@@ -117,6 +118,7 @@ test("http and https only carry presentation enums and honor Secure", () => {
     "tor-ui-theme-v1": "light", "tor-ui-style-v1": "library"
   });
   assert(https.writes.every(write => write.includes("; Secure")));
-  const stale = firstPaint(null, "https:", "tor-ui-theme-v1=dark");
-  assert.deepEqual(stale.cookie, { "tor-ui-style-v1": "showcase" });
+  const stale = firstPaint(null, "https:",
+    "tor-ui-theme-v1=dark; tor-ui-style-v1=minimal");
+  assert.deepEqual(stale.cookie, {}, "stale explicit preferences are cleared");
 });

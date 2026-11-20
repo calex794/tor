@@ -132,7 +132,10 @@ fn book_appearance_from_cookie(
     script_free: bool,
 ) -> axum::response::Html<String> {
     let mut attrs = String::new();
-    if let Some(style) = book_cookie_mode(headers, "tor-ui-style-v1") {
+    // The guest default needs no cookie. Render the same showcase composition
+    // that public pages use when their appearance script is enabled.
+    let style = book_cookie_mode(headers, "tor-ui-style-v1");
+    if let Some(style) = style.or(script_free.then_some("showcase")) {
         attrs.push_str(" data-tor-style=\"");
         attrs.push_str(style);
         attrs.push('"');
@@ -437,14 +440,28 @@ mod cdn_html_tests {
                 &headers,
                 true,
             );
-            assert_eq!(html.0, source, "invalid cookie altered book HTML");
+            // Invalid cookie bytes are never reflected. The public default is
+            // a fixed, server-owned showcase enum with the same reader link.
+            let expected = source.replacen(
+                "<html lang=\"ru\">",
+                "<html lang=\"ru\" data-tor-style=\"showcase\">",
+                1,
+            );
+            assert_eq!(html.0, expected, "invalid cookie altered book HTML");
         }
         let original = book_appearance_from_cookie(
             axum::response::Html(source.to_owned()),
             &axum::http::HeaderMap::new(),
             true,
         );
-        assert_eq!(original.0, source);
+        assert_eq!(
+            original.0,
+            source.replacen(
+                "<html lang=\"ru\">",
+                "<html lang=\"ru\" data-tor-style=\"showcase\">",
+                1,
+            )
+        );
     }
 
     #[test]
