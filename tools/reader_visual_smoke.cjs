@@ -50,6 +50,16 @@ function assert(ok, why) {
   if (!ok) throw new Error(why);
 }
 
+async function inspectLibraryNoOverflow(page, label) {
+  const widths = await page.evaluate(() => ({
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+    viewport: document.documentElement.clientWidth
+  }));
+  assert(widths.root <= widths.viewport + 1 && widths.body <= widths.viewport + 1,
+    label + ': private library horizontal overflow ' + JSON.stringify(widths));
+}
+
 async function inspectBookTocContrast(page, name) {
   const failures = await page.locator('.chapter-toc__item').evaluateAll(rows => {
     const luminance = color => {
@@ -465,6 +475,32 @@ async function inspect(page, name, where) {
       checkpoint = reportPhase('registration_success', name, checkpoint);
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
+      // UI-13: at 320 and 390px all four native GET tabs must fit without
+      // hidden horizontal scrolling or a script-dependent overflow menu.
+      const libraryTabs = page.getByRole('navigation', { name: 'Разделы библиотеки' });
+      for (const checkWidth of (name === 'mobile' ? [390, 320] : [1440])) {
+        await page.setViewportSize({ width: checkWidth, height });
+        const navBox = await libraryTabs.boundingBox();
+        assert(navBox, name + ': missing private library tabs');
+        for (const label of ['Читаю', 'Сохранено', 'Обновления', 'Куплено']) {
+          const tab = libraryTabs.getByRole('link', { name: label, exact: true });
+          const box = await tab.boundingBox();
+          assert(box && box.x >= navBox.x - 1 &&
+            box.x + box.width <= navBox.x + navBox.width + 1,
+          name + '/' + checkWidth + ': tab is clipped or off-screen: ' + label);
+        }
+        const choices = page.getByRole('navigation', { name: 'Вид личной библиотеки' });
+        for (const label of ['Обычный', 'Компактный', 'Карточки']) {
+          assert(await choices.getByRole('link', { name: label, exact: true }).isVisible(),
+            name + '/' + checkWidth + ': native library layout action lost: ' + label);
+        }
+        await inspectLibraryNoOverflow(page, name + '/' + checkWidth);
+      }
+      await page.setViewportSize({ width, height });
+      assert((await page.locator('.library-intro, .library-kicker').count()) === 0,
+        name + ': decorative private-library header returned');
+      assert(await page.getByRole('link', { name: 'Рекомендации друзей' }).isVisible(),
+        name + ': friend recommendations link is lost');
       assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
       // S007: a book can be saved before any progress or purchase is recorded.
