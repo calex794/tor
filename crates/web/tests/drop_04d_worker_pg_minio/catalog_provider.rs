@@ -24,6 +24,10 @@ fn valid_scope(mode: &str, in_ci: bool, bucket: &str, database: &str) -> bool {
             })
 }
 
+fn in_ci_environment(github_actions: bool, generic_ci: bool) -> bool {
+    github_actions || generic_ci
+}
+
 pub(super) async fn requested_fixture(label: &str) -> Option<(Fixture, String)> {
     let mode = match env::var("TOR_FND07_YANDEX_PROBE") {
         Ok(mode) => mode,
@@ -33,8 +37,16 @@ pub(super) async fn requested_fixture(label: &str) -> Option<(Fixture, String)> 
     let bucket = env::var("TOR_FND07_YANDEX_BUCKET").expect("dedicated FND-07 bucket required");
     let url = env::var("TEST_DATABASE_URL").expect("isolated FND-07 PostgreSQL required");
     assert!(
-        valid_scope(&mode, env::var_os("GITHUB_ACTIONS").is_some(), &bucket, &url),
-        "FND-07 provider run requires READ_WRITE, a disposable local tor_test DB and a dedicated tor-fnd07-probe bucket outside GitHub Actions"
+        valid_scope(
+            &mode,
+            in_ci_environment(
+                env::var_os("GITHUB_ACTIONS").is_some(),
+                env::var_os("CI").is_some(),
+            ),
+            &bucket,
+            &url,
+        ),
+        "FND-07 provider run requires READ_WRITE, a disposable local tor_test DB and a dedicated tor-fnd07-probe bucket outside CI"
     );
     assert_eq!(
         pg(
@@ -119,6 +131,10 @@ pub(super) async fn check_bucket(client: &Client, bucket: &str) -> Result<(), &'
 #[test]
 fn fnd07_provider_scope_rejects_shared_targets_and_implicit_execution() {
     const BUCKET: &str = "tor-fnd07-probe-01abc234";
+    assert!(!in_ci_environment(false, false));
+    assert!(in_ci_environment(true, false));
+    assert!(in_ci_environment(false, true));
+    assert!(in_ci_environment(true, true));
     assert!(valid_scope(
         "READ_WRITE",
         false,
