@@ -186,7 +186,8 @@ impl PgAuthoring {
         } else {
             let existing: Option<i64> = sqlx::query_scalar(
                 "SELECT id FROM chapter_versions
-                 WHERE chapter_id=$1 AND content_sha256=$2",
+                 WHERE chapter_id=$1 AND content_sha256=$2
+                   AND body_markdown IS NOT NULL",
             )
             .bind(chapter_id)
             .bind(body_hash.as_slice())
