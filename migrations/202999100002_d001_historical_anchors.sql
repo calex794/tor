@@ -121,3 +121,57 @@ JOIN d001_chapter_historical_anchors anchors
 
 COMMENT ON VIEW d001_chapter_materialization_roles IS
     'D-001: current, working, scheduled, exact reader rights and historical discussion/issue anchors determine logical retention. Not ACL, physical deletion or object-store GC authorization.';
+
+-- Read-only *registered* byte overhang. This is the gap between logical
+-- retention and immutable S3 receipts, not permission to reclaim storage.
+-- A FREE SINGLE may also have been copied into an active PACK; billing,
+-- PACK utilization, offsite DR and open signed URLs are not represented.
+CREATE VIEW d001_registered_storage_overhang AS
+SELECT v.chapter_id,
+       v.id AS version_id,
+       v.version_no,
+       f.object_key AS free_single_key,
+       f.size_bytes AS free_single_registered_bytes,
+       paid.object_key AS paid_ciphertext_key,
+       paid.size_bytes AS paid_ciphertext_registered_bytes,
+       roles.has_cursor_reference,
+       roles.has_idempotency_reference,
+       roles.has_first_release_fact,
+       EXISTS (
+           SELECT 1 FROM free_edition_active_storage active
+           JOIN free_edition_storage_generations generation
+             ON generation.chapter_id=active.chapter_id
+            AND generation.version_id=active.version_id
+            AND generation.generation=active.generation
+           WHERE active.chapter_id=v.chapter_id
+             AND active.version_id=v.id
+             AND generation.placement_kind='pack'
+       ) AS has_active_pack_placement
+FROM chapter_versions v
+JOIN d001_chapter_materialization_roles roles
+  ON roles.chapter_id=v.chapter_id AND roles.version_id=v.id
+LEFT JOIN free_chapter_storage_objects f
+  ON f.chapter_id=v.chapter_id AND f.version_id=v.id
+LEFT JOIN storage_objects paid ON paid.id=v.storage_object_id
+WHERE NOT roles.is_logically_retained;
+
+COMMENT ON VIEW d001_registered_storage_overhang IS
+    'Read-only D-001 obsolete immutable receipts and bytes. Does not prove physical S3 bytes exist, are reclaimable, have DR copies, or lack in-flight grants; never use as DELETE candidate without additional fencing.';
+
+CREATE VIEW d001_registered_overhang_by_chapter AS
+SELECT c.id AS chapter_id,
+       count(overhang.version_id) AS superseded_unpinned_materializations,
+       COALESCE(sum(overhang.free_single_registered_bytes),0)::bigint
+           AS registered_free_single_bytes,
+       COALESCE(sum(overhang.paid_ciphertext_registered_bytes),0)::bigint
+           AS registered_paid_ciphertext_bytes,
+       count(overhang.version_id) FILTER (
+           WHERE overhang.has_active_pack_placement
+       ) AS also_in_active_pack
+FROM chapters c
+LEFT JOIN d001_registered_storage_overhang overhang
+  ON overhang.chapter_id=c.id
+GROUP BY c.id;
+
+COMMENT ON VIEW d001_registered_overhang_by_chapter IS
+    'Inventory of exact unpinned version receipts, not a storage bill nor GC eligibility; counts exclude preserved discussion and correction anchors.';
