@@ -68,6 +68,15 @@ async fn d001_comments_and_text_issues_preserve_exact_historical_editions() {
     .await
     .unwrap();
     assert_eq!(before, (1, 1, 3));
+    let unpinned_before: i64 = sqlx::query_scalar(
+        "SELECT superseded_unpinned_materializations
+         FROM d001_registered_overhang_by_chapter WHERE chapter_id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unpinned_before, 2);
 
     sqlx::query(
         "INSERT INTO discussion_comments
@@ -107,6 +116,15 @@ async fn d001_comments_and_text_issues_preserve_exact_historical_editions() {
     .await
     .unwrap();
     assert_eq!(after, (3, 1, 3), "anchors preserve bytes, not reader licenses");
+    let unpinned_after: i64 = sqlx::query_scalar(
+        "SELECT superseded_unpinned_materializations
+         FROM d001_registered_overhang_by_chapter WHERE chapter_id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unpinned_after, 0);
 
     let flags: (bool, bool) = sqlx::query_as(
         "SELECT has_discussion_anchor,has_text_issue_anchor
