@@ -759,6 +759,14 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     assert_eq!(
         pg(
             &url,
+            &format!("SELECT logical_editions FROM d001_chapter_logical_counts WHERE chapter_id={chapter_id}"),
+        ),
+        "2",
+        "purchased encrypted V1 and published encrypted V2 must be retained",
+    );
+    assert_eq!(
+        pg(
+            &url,
             &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}"),
         ),
         "2",
