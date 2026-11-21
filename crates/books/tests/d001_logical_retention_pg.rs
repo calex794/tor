@@ -355,3 +355,68 @@ async fn d001_purchased_and_layer_archive_pins_are_distinct_from_old_materializa
     assert_eq!(counts(&pool, free).await, (2, 2, 2));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_s3_only_reversion_preserves_fresh_physical_identity_and_old_receipts() {
+    let pool = pool().await;
+    let owner = user(&pool, "revert-owner").await;
+    let book_id = book(&pool, owner, "revert-book").await;
+    let store = PgFreeS3Publication::new(pool.clone());
+
+    let initial = save(book_id, None, 0, "Original text A", 'p');
+    let first = store.prepare_new(owner, &initial).await.unwrap();
+    store
+        .attach_verified_and_publish(
+            owner,
+            book_id,
+            (first.chapter_id, first.version_id),
+            metadata(&initial.body),
+        )
+        .await
+        .unwrap();
+
+    let to_b = save(book_id, Some(first.chapter_id), 1, "Changed text B", 'q');
+    let second = store.prepare_edit(owner, &to_b).await.unwrap();
+    store
+        .attach_edit(owner, &to_b, &second, metadata(&to_b.body))
+        .await
+        .unwrap();
+
+    // Returning to identical bytes A must NOT reuse version_id V1:
+    // immutable S3 keys, SHA receipts, command replay and future pins
+    // must continue to refer to their original physical materializations.
+    let to_a = save(book_id, Some(first.chapter_id), 2, "Original text A", 'r');
+    let third = store.prepare_edit(owner, &to_a).await.unwrap();
+    assert_ne!(third.version_id, first.version_id);
+    assert_ne!(third.version_id, second.version_id);
+    assert_eq!(published(&pool, first.chapter_id).await, second.version_id);
+    store
+        .attach_edit(owner, &to_a, &third, metadata(&to_a.body))
+        .await
+        .unwrap();
+    assert_eq!(published(&pool, first.chapter_id).await, third.version_id);
+    assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
+
+    let receipts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*)::bigint,
+                count(*) FILTER (WHERE v.content_sha256=$2)::bigint,
+                count(DISTINCT f.object_key)::bigint
+         FROM chapter_versions v
+         JOIN free_chapter_storage_objects f
+           ON f.chapter_id=v.chapter_id AND f.version_id=v.id
+         WHERE v.chapter_id=$1",
+    )
+    .bind(first.chapter_id)
+    .bind(Sha256::digest(initial.body.as_bytes()).as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipts, (3, 2, 3));
+
+    let replay = store.prepare_edit(owner, &to_a).await.unwrap();
+    assert!(replay.published);
+    assert_eq!(replay.version_id, third.version_id);
+    assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
+    pool.close().await;
+}
