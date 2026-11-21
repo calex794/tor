@@ -115,7 +115,11 @@ async fn d001_comments_and_text_issues_preserve_exact_historical_editions() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(after, (3, 1, 3), "anchors preserve bytes, not reader licenses");
+    assert_eq!(
+        after,
+        (3, 1, 3),
+        "anchors preserve bytes, not reader licenses"
+    );
     let unpinned_after: i64 = sqlx::query_scalar(
         "SELECT superseded_unpinned_materializations
          FROM d001_registered_overhang_by_chapter WHERE chapter_id=$1",
@@ -138,12 +142,11 @@ async fn d001_comments_and_text_issues_preserve_exact_historical_editions() {
     .unwrap();
     assert_eq!(flags, (true, false));
 
-    let rejected = sqlx::query(
-        "UPDATE chapter_versions SET body_markdown='Unsafe rewrite' WHERE id=$1",
-    )
-    .bind(versions[0])
-    .execute(&pool)
-    .await;
+    let rejected =
+        sqlx::query("UPDATE chapter_versions SET body_markdown='Unsafe rewrite' WHERE id=$1")
+            .bind(versions[0])
+            .execute(&pool)
+            .await;
     assert!(rejected.is_err(), "retained text still immutable");
 
     sqlx::query(
