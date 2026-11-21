@@ -398,6 +398,7 @@ async fn d001_s3_only_reversion_preserves_fresh_physical_identity_and_old_receip
     assert_eq!(published(&pool, first.chapter_id).await, third.version_id);
     assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
 
+    let original_sha: [u8; 32] = Sha256::digest(initial.body.as_bytes()).into();
     let receipts: (i64, i64, i64) = sqlx::query_as(
         "SELECT count(*)::bigint,
                 count(*) FILTER (WHERE v.content_sha256=$2)::bigint,
@@ -408,7 +409,7 @@ async fn d001_s3_only_reversion_preserves_fresh_physical_identity_and_old_receip
          WHERE v.chapter_id=$1",
     )
     .bind(first.chapter_id)
-    .bind(Sha256::digest(initial.body.as_bytes()).as_slice())
+    .bind(original_sha.as_slice())
     .fetch_one(&pool)
     .await
     .unwrap();
