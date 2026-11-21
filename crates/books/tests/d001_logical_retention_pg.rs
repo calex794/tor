@@ -23,7 +23,11 @@ async fn user(pool: &PgPool, label: &str) -> i64 {
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'D001 retention','$argon2id$fixture') RETURNING id",
     )
-    .bind(format!("d001-{}-{}@example.invalid", label, std::process::id()))
+    .bind(format!(
+        "d001-{}-{}@example.invalid",
+        label,
+        std::process::id()
+    ))
     .fetch_one(pool)
     .await
     .unwrap()
