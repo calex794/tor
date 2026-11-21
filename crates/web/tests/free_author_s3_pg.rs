@@ -408,6 +408,14 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "session":session,"previous":MARKDOWN,"markdown":v2}),
     );
     assert_eq!(edited["edited"], true);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT logical_editions FROM d001_chapter_logical_counts WHERE chapter_id={chapter}"),
+        ),
+        "2",
+        "saved FREE V1 and verified current S3 V2 are two logical editions",
+    );
     let issue: i64 = pg(
         &url,
         &format!("SELECT id FROM text_issues WHERE chapter_id={chapter}"),
