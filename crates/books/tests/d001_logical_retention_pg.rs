@@ -420,3 +420,46 @@ async fn d001_s3_only_reversion_preserves_fresh_physical_identity_and_old_receip
     assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
+    let pool = pool().await;
+    let owner = user(&pool, "paid-revert-owner").await;
+    let book_id = book(&pool, owner, "paid-revert-book").await;
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters
+         (book_id,chapter_no,title,access_level,price_amount,visibility)
+         VALUES($1,1,'Paid revert','paid',100,'draft') RETURNING id",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let hash: [u8; 32] = Sha256::digest(b"Identical paid bytes A").into();
+    for number in 1..=2_i32 {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapter_versions
+             (chapter_id,version_no,body_markdown,content_sha256)
+             VALUES($1,$2,NULL,$3) RETURNING id",
+        )
+        .bind(chapter)
+        .bind(number)
+        .bind(hash.as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(id > 0);
+    }
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_versions
+         WHERE chapter_id=$1 AND content_sha256=$2 AND body_markdown IS NULL",
+    )
+    .bind(chapter)
+    .bind(hash.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 2, "each paid AES-GCM AAD binds its own physical version");
+    pool.close().await;
+}
