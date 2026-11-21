@@ -25,6 +25,8 @@
 
 Никакой client-provided `actor_id` не принимается как право пользователя. В основе — `users.email_normalized`, `sessions.token_hash` и `auth_attempts.key_hash` из донорских SQL.
 
+> **D-001 supersedes the old every-edit-retained rule (21.11.2026):** repeated edits of an unpinned current chapter count as one *retained logical edition*, not permanently accumulating V2/V3/etc. Purchases, saved free editions and historical Layer grants pin exact bytes. Existing `version_id`, idempotency results, verified S3 receipts, and in-flight grants must remain referentially consistent; this table records the **target contract**, not an implemented change. See [#1178](https://github.com/calex794/tor/issues/1178) and [Notion decision](https://app.notion.com/p/41d32a84beec812d9e4ac80f08e6809). S3 versioning and physical GC remain disabled.
+
 ## B — книги, главы, команды (tor-books, tor-teams)
 
 | Метод+путь | Request / response | Права/commit | Негативный случай |
@@ -32,7 +34,7 @@
 | POST `/api/v1/books` | `{source_identity,target_language,title,visibility:"draft"}` → `{id,revision:1}` | Actor с правом авторства; одна каноническая книга | same identity/language 409; чужой не редактирует |
 | PATCH `/api/v1/books/{book_id}` | `{title?,description?,genre_ids?,visibility?,expected_revision}` → `{id,revision}` | Владелец/автор с разрешением | stale rev 409; blocked/draft не раскрывать гостю |
 | POST `/api/v1/books/{book_id}/chapters` | `{chapter_no,title,body_markdown,access_level:"free|paid",price_minor,expected_book_revision}` → `{chapter_id,version_id,edit_revision}` | Пользователь с правом редактирования, не использовать JSON-суммы в float | body>50000 chars/price mismatch 422; повтор same key даёт тот же ID |
-| PATCH `/api/v1/chapters/{id}` | `{title,body_markdown,expected_revision}` → `{version_id,edit_revision}` | Запись **новой** immutable версии | 409 concurrent editor; тело V1 никогда не меняется |
+| PATCH `/api/v1/chapters/{id}` | `{title,body_markdown,expected_revision}` → `{version_id,edit_revision}` | Verified immutable physical materialization; old unpinned head retires *logically* under D-001, pinned editions stay available | 409 stale editor; never mutate a pinned body/SHA/AAD or expose unfinished S3 upload |
 | POST `/api/v1/chapters/{id}/publish` | `{expected_revision,version_id}` → `{published_version_id,published_at}` | Владелец + атомарный outbox event | 2 одновременных publish ≠ 2 release events |
 | POST `/api/v1/chapters/{id}/schedule` | `{version_id,publish_at_utc,expected_revision}` → `{schedule_id,status:"scheduled"}` | Владелец, worker через G | отменённое расписание, отозванная роль, просроченный lease — не публиковать |
 | DELETE `/api/v1/chapters/{id}/schedule` | `{expected_revision}` → `204` | Только actor с правом управления | stale scheduler не выпускает |
