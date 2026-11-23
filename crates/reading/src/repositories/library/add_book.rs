@@ -19,6 +19,19 @@ impl PgLibrary {
         super::super::flow_capture::prepare_action(&mut tx, self.flow_collection)
             .await
             .map_err(|_| LibraryError::Unavailable)?;
+        // A single CTE statement takes its MVCC snapshot before waiting for
+        // the Book lock. If an author publishes V2 while this request waits,
+        // selecting chapter_publications in that same statement can pin stale
+        // V1. Acquire the Book lock in a separate READ COMMITTED statement;
+        // the subsequent eligibility and pin query then gets a fresh snapshot.
+        // Keep the final eligibility guards: a Book lock never grants access.
+        let _book_lock: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM books WHERE id=$1 FOR SHARE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| LibraryError::Unavailable)?;
         let saved: Option<i64> = sqlx::query_scalar(
             "WITH eligible AS MATERIALIZED ( \
                 SELECT b.id FROM books AS b \
