@@ -201,7 +201,6 @@ async fn grant(
     response
 }
 
-
 /// A FREE S3 shell cannot prove bytes were displayed. The verified browser
 /// reports only after a successful GET, byte count, SHA-256 and render.
 /// The server rechecks exact active B/C metadata, session, CSRF and age.
@@ -212,7 +211,8 @@ async fn confirm_open(
     headers: HeaderMap,
     Json(confirm): Json<ConfirmedOpen>,
 ) -> Response {
-    if chapter <= 0 || !state.cookies.same_origin(&headers)
+    if chapter <= 0
+        || !state.cookies.same_origin(&headers)
         || !headers
             .get("x-csrf-token")
             .and_then(|value| value.to_str().ok())
@@ -239,7 +239,10 @@ async fn confirm_open(
         Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
-    let pack = state.references.for_active_pack_session(chapter, Some(&digest)).await;
+    let pack = state
+        .references
+        .for_active_pack_session(chapter, Some(&digest))
+        .await;
     let selection = match pack {
         Ok(Some(record)) => Ok(Some(record)),
         Ok(None) => state.references.for_session(chapter, Some(&digest)).await,
@@ -251,7 +254,9 @@ async fn confirm_open(
     }) else {
         return private_response(StatusCode::NOT_FOUND, &[]);
     };
-    let exact_sha = reference.sha256.iter()
+    let exact_sha = reference
+        .sha256
+        .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     if reference.version_id != version || exact_sha != confirm.sha256 {

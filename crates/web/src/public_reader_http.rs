@@ -8,8 +8,8 @@ use axum::{
 use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
-use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
+use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
 
 /// A cookie is not an entitlement: PgReader rechecks session, account and
 /// grant in the SAME statement that returns a chapter body or Book metadata.

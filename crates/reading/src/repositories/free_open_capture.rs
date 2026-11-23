@@ -24,12 +24,10 @@ impl PgFreeOpenCapture {
         if actor <= 0 || chapter <= 0 || edition <= 0 {
             return Ok(false);
         }
-        let book: Option<i64> = sqlx::query_scalar(
-            "SELECT book_id FROM chapters WHERE id=$1",
-        )
-        .bind(chapter)
-        .fetch_optional(&self.pool)
-        .await?;
+        let book: Option<i64> = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+            .bind(chapter)
+            .fetch_optional(&self.pool)
+            .await?;
         let Some(book) = book else {
             return Ok(false);
         };

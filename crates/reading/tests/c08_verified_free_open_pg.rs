@@ -4,13 +4,11 @@ use sqlx::PgPool;
 use tor_reading::repositories::{free_open_capture::PgFreeOpenCapture, PgLibrary};
 
 async fn count(pool: &PgPool, actor: i64) -> i64 {
-    sqlx::query_scalar(
-        "SELECT count(*) FROM reader_saved_free_chapters WHERE user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(pool)
-    .await
-    .unwrap()
+    sqlx::query_scalar("SELECT count(*) FROM reader_saved_free_chapters WHERE user_id=$1")
+        .bind(actor)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn saved_version(pool: &PgPool, actor: i64, chapter: i64) -> Option<i64> {
@@ -34,42 +32,60 @@ async fn c08_book_save_only_opened_exact_free_editions_and_races() {
     let pool = PgPool::connect(&url).await.unwrap();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap().as_nanos();
+        .unwrap()
+        .as_nanos();
     let user1: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'C08 reader 1','$argon2id$test') RETURNING id",
     )
     .bind(format!("c08-opened-1-{nonce}@example.invalid"))
-    .fetch_one(&pool).await.unwrap();
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let user2: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'C08 reader 2','$argon2id$test') RETURNING id",
     )
     .bind(format!("c08-opened-2-{nonce}@example.invalid"))
-    .fetch_one(&pool).await.unwrap();
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES($1,'ru','C08 only opened','public','basic') RETURNING id",
     )
     .bind(format!("ci:c08:open-only:{nonce}"))
-    .fetch_one(&pool).await.unwrap();
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let mut chapters = Vec::new();
     for number in 1..=100_i32 {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
              VALUES($1,$2,'free','public','free',0) RETURNING id",
         )
-        .bind(book).bind(number).fetch_one(&pool).await.unwrap();
+        .bind(book)
+        .bind(number)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let edition: i64 = sqlx::query_scalar(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES($1,1,'Exact first FREE text') RETURNING id",
         )
-        .bind(id).fetch_one(&pool).await.unwrap();
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO chapter_publications(chapter_id,version_id)
              VALUES($1,$2)",
         )
-        .bind(id).bind(edition).execute(&pool).await.unwrap();
+        .bind(id)
+        .bind(edition)
+        .execute(&pool)
+        .await
+        .unwrap();
         chapters.push((id, edition));
     }
     let open = PgFreeOpenCapture::new(pool.clone());
@@ -95,11 +111,16 @@ async fn c08_book_save_only_opened_exact_free_editions_and_races() {
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,2,'Exact replacement V2') RETURNING id",
     )
-    .bind(chapter3).fetch_one(&pool).await.unwrap();
-    sqlx::query(
-        "UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1",
-    )
-    .bind(chapter3).bind(new3).execute(&pool).await.unwrap();
+    .bind(chapter3)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter3)
+        .bind(new3)
+        .execute(&pool)
+        .await
+        .unwrap();
     library.add_book(user2, book).await.unwrap();
     assert_eq!(saved_version(&pool, user2, chapter3).await, Some(v3));
     assert_eq!(count(&pool, user2).await, 1);
@@ -129,7 +150,10 @@ async fn c08_book_save_only_opened_exact_free_editions_and_races() {
         "SELECT logical_editions,reader_retained_editions,physical_materializations
          FROM d001_chapter_logical_counts WHERE chapter_id=$1",
     )
-    .bind(chapter3).fetch_one(&pool).await.unwrap();
+    .bind(chapter3)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!((logical, reader, physical), (2, 2, 2));
     pool.close().await;
 }
