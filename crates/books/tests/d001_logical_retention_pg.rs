@@ -461,7 +461,10 @@ async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(rows, 2, "each paid AES-GCM AAD binds its own physical version");
+    assert_eq!(
+        rows, 2,
+        "each paid AES-GCM AAD binds its own physical version"
+    );
     let legacy: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
          VALUES($1,3,'Identical paid bytes A',$2) RETURNING id",
@@ -471,7 +474,10 @@ async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(legacy > 0, "legacy text and bodyless S3 versions must coexist");
+    assert!(
+        legacy > 0,
+        "legacy text and bodyless S3 versions must coexist"
+    );
     let legacy_duplicate = sqlx::query(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
          VALUES($1,4,'Identical paid bytes A',$2)",
@@ -480,6 +486,9 @@ async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
     .bind(hash.as_slice())
     .execute(&pool)
     .await;
-    assert!(legacy_duplicate.is_err(), "legacy PG bodies stay hash-unique");
+    assert!(
+        legacy_duplicate.is_err(),
+        "legacy PG bodies stay hash-unique"
+    );
     pool.close().await;
 }
