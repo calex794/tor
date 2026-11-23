@@ -34,10 +34,13 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         return deny(StatusCode::NOT_FOUND);
     };
     let digest = session_token_digest(&session);
-    match state.accounts.session_actor(&digest).await {
-        Ok(Some(actor)) if actor.administrator => (),
-        Ok(_) => return deny(StatusCode::NOT_FOUND),
+    let verified = match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !verified.administrator {
+        return deny(StatusCode::NOT_FOUND);
     }
     let mut response = private_response(body(), &[]);
     response.headers_mut().insert(
