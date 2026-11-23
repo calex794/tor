@@ -1,7 +1,10 @@
 //! SEC-TRAFFIC: privacy-safe process-local counters for administrators.
 //! No IP, UA, path, cookie, user identity or speculative unique-bot counts.
 use super::AuthState;
-use crate::{auth_cookies::{deny, private_response}, pages};
+use crate::{
+    auth_cookies::{deny, private_response},
+    pages,
+};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -10,19 +13,16 @@ use axum::{
     Router,
 };
 use tor_accounts::services::security::session_token_digest;
-use tor_observability::{
-    services::{auth::{LoginOutcome, LoginSnapshot}, HttpSummary},
+use tor_observability::services::{
+    auth::{LoginOutcome, LoginSnapshot},
+    HttpSummary,
 };
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new().route("/admin/security/traffic", get(page))
 }
 
-fn render(
-    traps: (u64, u64, u64),
-    logins: LoginSnapshot,
-    http: HttpSummary,
-) -> String {
+fn render(traps: (u64, u64, u64), logins: LoginSnapshot, http: HttpSummary) -> String {
     let (login_traps, registration_traps, route_traps) = traps;
     format!(
         "<section class=\"section\"><div class=\"container\">\
@@ -52,12 +52,12 @@ fn render(
          поискового робота от злоумышленника.</p>\
          <p><a href=\"/admin/storage/s3\">Настройки S3</a></p>\
          </div></section>",
-        invalid=logins.count(LoginOutcome::InvalidCredentials),
-        limited=logins.count(LoginOutcome::RateLimited),
-        requests=http.requests,
-        client_errors=http.client_errors,
-        server_errors=http.server_errors,
-        slow=http.slower_than_one_second,
+        invalid = logins.count(LoginOutcome::InvalidCredentials),
+        limited = logins.count(LoginOutcome::RateLimited),
+        requests = http.requests,
+        client_errors = http.client_errors,
+        server_errors = http.server_errors,
+        slow = http.slower_than_one_second,
     )
 }
 
@@ -79,7 +79,10 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         crate::observability::login_summary(),
         crate::observability::http_summary(),
     );
-    private_response(pages::layout("Активность запросов", "Безопасность TOR", &body), &[])
+    private_response(
+        pages::layout("Активность запросов", "Безопасность TOR", &body),
+        &[],
+    )
 }
 
 #[cfg(test)]
@@ -90,15 +93,25 @@ mod tests {
         let markup = render(
             (3, 5, 7),
             LoginSnapshot::default(),
-            HttpSummary { requests: 140, client_errors: 11, server_errors: 2,
-                slower_than_one_second: 9 },
+            HttpSummary {
+                requests: 140,
+                client_errors: 11,
+                server_errors: 2,
+                slower_than_one_second: 9,
+            },
         );
         assert!(markup.contains("адресам-ловушкам</th><td>7"));
         assert!(markup.contains("регистрации</th><td>5"));
         assert!(markup.contains("входа</th><td>3"));
         assert!(markup.contains("Всего</th><td>140"));
         assert!(markup.contains("Это не журнал Nginx"));
-        for forbidden in ["<script", "secret_access_key", "session_token=", "real_ip=", "User-Agent:"] {
+        for forbidden in [
+            "<script",
+            "secret_access_key",
+            "session_token=",
+            "real_ip=",
+            "User-Agent:",
+        ] {
             assert!(!markup.contains(forbidden));
         }
     }
