@@ -83,13 +83,12 @@ impl PgFreeOpenCapture {
              SELECT opened.user_id,opened.chapter_id,opened.version_id
              FROM reader_free_opened_editions opened
              JOIN reader_library_items saved
-               ON saved.user_id=opened.user_id AND saved.book_id=$4
+               ON saved.user_id=opened.user_id AND saved.book_id=$3
              WHERE opened.user_id=$1 AND opened.chapter_id=$2
              ON CONFLICT(user_id,chapter_id) DO NOTHING",
         )
         .bind(actor)
         .bind(chapter)
-        .bind(edition)
         .bind(book)
         .execute(&mut *tx)
         .await?;

@@ -16,7 +16,10 @@ use std::time::Duration;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
 use tor_contracts::paid_delivery::SecretValue;
-use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
+use tor_reading::repositories::{
+    free_open_capture::PgFreeOpenCapture,
+    free_s3_ref::{FreeS3Ref, PgFreeS3Ref},
+};
 use tor_storage::{
     repositories::free_chapter_s3::S3FreeChapterStore,
     services::free_chapter::{FreeChapterObject, FreeChapterStore},
@@ -30,6 +33,7 @@ struct FreeGrantState {
     accounts: PgAccounts,
     layer: PgLayerChapterEntitlements,
     references: PgFreeS3Ref,
+    opened: PgFreeOpenCapture,
     cookies: CookiePolicy,
     store: S3FreeChapterStore,
     bucket: String,
@@ -52,6 +56,13 @@ struct Lookup {
     mode: Option<String>,
     version_id: Option<i64>,
     format: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfirmedOpen {
+    version_id: String,
+    sha256: String,
 }
 
 /// Public route, not an anonymous object listing. The reader's session is
@@ -78,6 +89,7 @@ pub fn router(
     let state = FreeGrantState {
         layer: PgLayerChapterEntitlements::new(accounts.pool().clone()),
         references: PgFreeS3Ref::new(accounts.pool().clone()),
+        opened: PgFreeOpenCapture::new(accounts.pool().clone()),
         accounts,
         cookies: CookiePolicy {
             secure,
@@ -87,7 +99,9 @@ pub fn router(
         bucket,
         s3_origin,
     };
-    let mut routes = Router::new().route("/api/v1/chapters/{id}/free-grant", get(grant));
+    let mut routes = Router::new()
+        .route("/api/v1/chapters/{id}/free-grant", get(grant))
+        .route("/api/v1/chapters/{id}/free-open", post(confirm_open));
     if archive_enabled {
         routes = routes
             .route("/read/layer/free/{id}", get(layer_archive::page))
@@ -185,6 +199,69 @@ async fn grant(
         HeaderValue::from_static("noindex, nofollow"),
     );
     response
+}
+
+
+/// A FREE S3 shell cannot prove bytes were displayed. The verified browser
+/// reports only after a successful GET, byte count, SHA-256 and render.
+/// The server rechecks exact active B/C metadata, session, CSRF and age.
+/// This never grants access to arbitrary historical revisions.
+async fn confirm_open(
+    State(state): State<FreeGrantState>,
+    Path(chapter): Path<i64>,
+    headers: HeaderMap,
+    Json(confirm): Json<ConfirmedOpen>,
+) -> Response {
+    if chapter <= 0 || !state.cookies.same_origin(&headers)
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|token| state.cookies.valid_csrf(&headers, token))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let version: i64 = match confirm.version_id.parse() {
+        Ok(id) if id > 0 => id,
+        _ => return private_response(StatusCode::BAD_REQUEST, &[]),
+    };
+    if confirm.sha256.len() != 64
+        || !confirm.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || confirm.sha256.bytes().any(|byte| byte.is_ascii_uppercase())
+    {
+        return private_response(StatusCode::BAD_REQUEST, &[]);
+    }
+    let Some(session) = state.cookies.session_token(&headers) else {
+        return private_response(StatusCode::UNAUTHORIZED, &[]);
+    };
+    let digest = session_token_digest(&session);
+    let actor = match state.accounts.active_session_user(&digest).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
+        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    let pack = state.references.for_active_pack_session(chapter, Some(&digest)).await;
+    let selection = match pack {
+        Ok(Some(record)) => Ok(Some(record)),
+        Ok(None) => state.references.for_session(chapter, Some(&digest)).await,
+        Err(error) => Err(error),
+    };
+    let Some(reference) = (match selection {
+        Ok(value) => value,
+        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }) else {
+        return private_response(StatusCode::NOT_FOUND, &[]);
+    };
+    let exact_sha = reference.sha256.iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if reference.version_id != version || exact_sha != confirm.sha256 {
+        return private_response(StatusCode::CONFLICT, &[]);
+    }
+    match state.opened.record(actor, chapter, version).await {
+        Ok(true) => private_response(StatusCode::NO_CONTENT, &[]),
+        Ok(false) => private_response(StatusCode::NOT_FOUND, &[]),
+        Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
 }
 
 async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, StatusCode> {

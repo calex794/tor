@@ -8,6 +8,7 @@ use axum::{
 use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
+use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
 
 /// A cookie is not an entitlement: PgReader rechecks session, account and
@@ -154,6 +155,7 @@ pub(super) async fn reader_page(
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
+    let mut verified_open_actor = None;
     let mut progress_csrf = None;
     let mut progress_cookies = Vec::new();
     if method == Method::GET {
@@ -172,6 +174,7 @@ pub(super) async fn reader_page(
                 },
                 None => None,
             };
+            verified_open_actor = actor;
             // Only verified sessions may receive a CSRF pair for the existing
             // actor-bound PUT /api/v1/me/progress/free endpoint.
             if actor.is_some() {
@@ -254,6 +257,24 @@ pub(super) async fn reader_page(
     response
         .headers_mut()
         .insert("content-security-policy", csp);
+    // Record only a successfully rendered plaintext FREE chapter, using the
+    // server-selected exact version, never a book bookmark or TOC preview.
+    // S3 bodyless HTML is merely a shell: its reader confirms after SHA check.
+    if method == Method::GET && !chapter.body_markdown.is_empty() {
+        if let (Some(actor), Some(catalog), Ok(chapter_id), Ok(version_id)) = (
+            verified_open_actor,
+            state.postgres.as_ref(),
+            i64::try_from(id),
+            i64::try_from(chapter.version_id),
+        ) {
+            if let Err(error) = PgFreeOpenCapture::new(catalog.pool().clone())
+                .record(actor, chapter_id, version_id)
+                .await
+            {
+                tracing::warn!(?error, "exact FREE open not recorded");
+            }
+        }
+    }
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }
 
