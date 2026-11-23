@@ -196,7 +196,7 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
     text.push_str("# TYPE tor_security_scanner_rejected_total counter\n");
     text.push_str(&format!(
         "tor_security_scanner_rejected_total {}\n",
-        crate::scanner_guard::rejected_total()
+        crate::flow_runtime::scanner_guard::rejected_total()
     ));
     #[cfg(unix)]
     {

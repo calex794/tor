@@ -8,10 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 class ScannerGuardWiringTests(unittest.TestCase):
     def test_security_guard_is_not_only_a_future_nginx_example(self):
         main = (ROOT / "crates/web/src/main.rs").read_text()
-        module = (ROOT / "crates/web/src/scanner_guard.rs").read_text()
-        assert "let app = tor_web::scanner_guard::protect(app);" in main
-        assert main.index("scanner_guard::protect(app)") > main.index("start_managed(app")
-        assert main.index("scanner_guard::protect(app)") < main.index("flow_runtime::serve(listener")
+        module = (ROOT / "crates/web/src/flow_runtime/scanner_guard.rs").read_text()
+        assert "let app = tor_web::flow_runtime::scanner_guard::protect(app);" in main
+        assert main.index("flow_runtime::scanner_guard::protect(app)") > main.index("start_managed(app")
+        assert main.index("flow_runtime::scanner_guard::protect(app)") < main.index("flow_runtime::serve(listener")
         self.assertIn("if !scanner_path(request.uri().path())", module)
         self.assertIn("next.run(request).await", module)
         self.assertIn("StatusCode::NOT_FOUND", module)
