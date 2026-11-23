@@ -3144,6 +3144,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "continuation_stats::administrator",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/storage/s3",
+      "source": "crates/web/src/auth/admin_s3.rs",
+      "handler": "page",
+      "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/storage/s3",
+      "source": "crates/web/src/auth/admin_s3.rs",
+      "handler": "save",
+      "policy": "administrator"
     }
   ]
 }

@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         );
     }
     // RET-R03 adds two protected routes; UI-01 adds one reviewed static asset.
-    assert_eq!(unique.len(), 446);
+    assert_eq!(unique.len(), 448);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
