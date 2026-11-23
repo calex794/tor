@@ -25,13 +25,12 @@ impl PgLibrary {
         // V1. Acquire the Book lock in a separate READ COMMITTED statement;
         // the subsequent eligibility and pin query then gets a fresh snapshot.
         // Keep the final eligibility guards: a Book lock never grants access.
-        let _book_lock: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books WHERE id=$1 FOR SHARE",
-        )
-        .bind(book_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| LibraryError::Unavailable)?;
+        let _book_lock: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR SHARE")
+                .bind(book_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| LibraryError::Unavailable)?;
         let saved: Option<i64> = sqlx::query_scalar(
             "WITH eligible AS MATERIALIZED ( \
                 SELECT b.id FROM books AS b \
