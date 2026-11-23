@@ -2,11 +2,15 @@
 //! Not a paid reader, entitlement grant, production credential or public route.
 #![cfg(feature = "s3")]
 
+#[path = "s3_private_provider/get_diagnostics.rs"]
+mod get_diagnostics;
+
 use aws_sdk_s3::{
     config::{retry::RetryConfig, BehaviorVersion, Credentials, Region},
     primitives::ByteStream,
     Client,
 };
+use get_diagnostics::{first_get, CloseConnection, ObserveFirstGet};
 use std::{process::Command, time::Duration};
 use tokio::io::AsyncReadExt;
 use tor_contracts::paid_delivery::{
@@ -78,6 +82,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         .endpoint_url(&endpoint)
         .force_path_style(true)
         .retry_config(RetryConfig::standard().with_max_attempts(1))
+        .interceptor(ObserveFirstGet)
         .build();
     let client = Client::from_conf(config);
     client
@@ -127,7 +132,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         store.put_immutable(&forged, &other.ciphertext).await,
         Err(StorageError::Conflict)
     );
-    let after_rejected_overwrite = store.get_verified(&record).await;
+    let after_rejected_overwrite = first_get(&store, &record).await;
     if let Err(error) = &after_rejected_overwrite {
         // Only on failure: do not insert extra reads between the conflicting
         // conditional PUT and the original asserted GET (which could hide a race).
@@ -781,13 +786,13 @@ async fn g09_conflict_first_get_round(
 
     // CRITICAL: the very next request touching this target is the first
     // exact GET. No HEAD, wait or retry between the 412 and this GET.
-    let first_get = store.get_verified(&expected).await;
-    if let Err(error) = &first_get {
+    let observed_get = first_get(store, &expected).await;
+    if let Err(error) = &observed_get {
         eprintln!("G09_REPRO mode={mode} round={round} first_get={error:?}");
         g09_conflict_repro_failure_evidence(client, bucket, &expected).await;
     }
     assert!(
-        first_get
+        observed_get
             .as_ref()
             .is_ok_and(|bytes| bytes == &original.ciphertext),
         "first GET after rejected overwrite failed integrity in {mode} round {round}"
@@ -800,6 +805,18 @@ async fn g09_conflict_first_get_round(
 #[tokio::test]
 #[ignore = "only against disposable loopback MinIO from s3-provider"]
 async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
+    g09_conflict_replay(false).await;
+}
+
+/// Independent control for the HTTP connection hypothesis. The pooled test
+/// still runs normally and still fails if its first GET fails.
+#[tokio::test]
+#[ignore = "only against disposable loopback MinIO from s3-provider"]
+async fn g09_first_get_after_immutable_conflict_with_connection_close() {
+    g09_conflict_replay(true).await;
+}
+
+async fn g09_conflict_replay(connection_close: bool) {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -811,7 +828,7 @@ async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
     );
     let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test-only access key");
     let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").expect("test-only secret");
-    let config = aws_sdk_s3::Config::builder()
+    let mut config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
         .credentials_provider(Credentials::new(
@@ -824,9 +841,14 @@ async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
         .endpoint_url(&endpoint)
         .force_path_style(true)
         .retry_config(RetryConfig::standard().with_max_attempts(1))
-        .build();
-    let client = Client::from_conf(config);
-    let bucket = "tor-g09-conflict-repro-ci";
+        .interceptor(ObserveFirstGet);
+    let bucket = if connection_close {
+        config = config.interceptor(CloseConnection);
+        "tor-g09-conflict-close-control-ci"
+    } else {
+        "tor-g09-conflict-repro-ci"
+    };
+    let client = Client::from_conf(config.build());
     client
         .create_bucket()
         .bucket(bucket)
@@ -885,5 +907,7 @@ async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
         worker.await.expect("bounded load task");
     }
     assert_eq!(counter.load(Ordering::Relaxed), 4 * 96);
-    eprintln!("G09_REPRO baseline=8 parallel=16 load_gets=384 first_get_failures=0");
+    eprintln!(
+        "G09_REPRO connection_close={connection_close} baseline=8 parallel=16 load_gets=384 first_get_failures=0"
+    );
 }
