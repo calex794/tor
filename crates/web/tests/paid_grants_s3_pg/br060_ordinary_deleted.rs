@@ -38,8 +38,13 @@ async fn save_free_v1_before_removal(
     buyer_cookie: &str,
     csrf: &str,
 ) {
-    // This is the same CSRF-protected action a signed-in reader uses to
-    // bookmark a public Book and atomically pin all released free versions.
+    // C-08: an unread Book bookmark MUST NOT pin the published FREE V1.
+    // The authenticated buyer opens actual plaintext V1 before Book save.
+    let read = private_get(app, &format!("/reader/{free_chapter}"), Some(buyer_cookie)).await;
+    assert_eq!(read.status(), StatusCode::OK, "FREE V1 must be read before saving");
+    assert!(html_body(read).await.contains("Real public free content"));
+    // Book save now copies only already-opened exact FREE revisions;
+    // it does not manufacture pins for every published chapter.
     let mut request = Request::builder()
         .method("POST")
         .uri(format!("/api/v1/me/library/{book}"))
