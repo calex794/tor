@@ -270,8 +270,12 @@ async fn plan(
                 Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
             };
             if let Some(actor) = actor {
-                if state.opened.issue_intent(actor, chapter, edition.version_id, edition.sha256)
-                    .await.is_err() {
+                if state
+                    .opened
+                    .issue_intent(actor, chapter, edition.version_id, edition.sha256)
+                    .await
+                    .is_err()
+                {
                     return deny(StatusCode::SERVICE_UNAVAILABLE);
                 }
             }

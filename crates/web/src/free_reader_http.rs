@@ -170,8 +170,12 @@ async fn grant(
                 Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
             };
             if let Some(actor) = actor {
-                if state.opened.issue_intent(actor, id, record.version_id, record.sha256)
-                    .await.is_err() {
+                if state
+                    .opened
+                    .issue_intent(actor, id, record.version_id, record.sha256)
+                    .await
+                    .is_err()
+                {
                     return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
                 }
             }
@@ -257,7 +261,11 @@ async fn confirm_open(
     };
     // The previous grant is authoritative for a delayed V1 receipt.
     // Checking current publication instead would discard a real V1 open.
-    match state.opened.record_confirmed(actor, chapter, version, &confirm.sha256).await {
+    match state
+        .opened
+        .record_confirmed(actor, chapter, version, &confirm.sha256)
+        .await
+    {
         Ok(true) => private_response(StatusCode::NO_CONTENT, &[]),
         Ok(false) => private_response(StatusCode::CONFLICT, &[]),
         Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
