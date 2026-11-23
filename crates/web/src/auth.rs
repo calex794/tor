@@ -30,6 +30,7 @@ use tor_reading::services::progress::{ProgressError, ReadingPlace};
 mod access_audit;
 mod account_form_http;
 mod account_home;
+mod admin_entry;
 mod admin_creator_payouts;
 mod admin_jobs;
 mod admin_mail;
@@ -254,6 +255,7 @@ fn router_inner(
         )
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(account_home::show))
+        .route("/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD", get(admin_entry::page))
         .merge(creator_follows::router().merge(creator_finance::router()))
         .route(
             "/me/books/{id}/follow-creator",
