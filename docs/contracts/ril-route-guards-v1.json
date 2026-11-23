@@ -3150,14 +3150,14 @@
       "template": "/admin/storage/s3",
       "source": "crates/web/src/auth/admin_s3.rs",
       "handler": "page",
-      "policy": "administrator"
+      "policy": "admin_s3_connection"
     },
     {
       "method": "POST",
       "template": "/admin/storage/s3",
       "source": "crates/web/src/auth/admin_s3.rs",
       "handler": "save",
-      "policy": "administrator"
+      "policy": "admin_s3_connection"
     }
   ]
 }
