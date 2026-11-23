@@ -32,6 +32,8 @@ mod account_form_http;
 mod account_home;
 mod admin_creator_payouts;
 mod admin_jobs;
+#[cfg(feature = "s3-free")]
+mod admin_s3;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
@@ -233,7 +235,12 @@ fn router_inner(
     } else {
         Router::new()
     };
+    #[cfg(feature = "s3-free")]
+    let s3_routes = admin_s3::router();
+    #[cfg(not(feature = "s3-free"))]
+    let s3_routes = Router::new();
     let app = Router::new()
+        .merge(s3_routes)
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())

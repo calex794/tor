@@ -13,6 +13,8 @@ pub mod free_pack_write_s3;
 #[cfg(feature = "s3")]
 pub mod free_quarantine_s3;
 #[cfg(feature = "pg")]
+pub mod admin_s3_profiles;
+#[cfg(feature = "pg")]
 pub mod gc;
 #[cfg(feature = "pg")]
 pub mod kek_rotation;
