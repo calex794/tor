@@ -1,7 +1,7 @@
 //! Local fixtures for the per-book contract; no production history is backfilled.
 use sqlx::PgPool;
 use tor_reading::{
-    repositories::{returns::PgReadingReturns, sync::PurchasedFinish, PgLibrary, PgReadingSync},
+    repositories::{returns::PgReadingReturns, sync::PurchasedFinish, PgReadingSync},
     services::{progress::ReadingPlace, sync::SyncError},
 };
 
@@ -118,10 +118,24 @@ pub(super) async fn paid_and_archived_cases(
     let archive_reader = actor(pool, "archive").await;
     actors.push(archive_reader);
     consent(pool, archive_reader, true).await;
-    PgLibrary::new(pool.clone())
-        .add_book(archive_reader, archived.id)
+    // Migration-191 fixture: preserve an explicit preexisting FREE version
+    // pin, not the retired behavior of Book bookmark -> every chapter.
+    sqlx::query("INSERT INTO reader_library_items(user_id,book_id) VALUES($1,$2)")
+        .bind(archive_reader)
+        .bind(archived.id)
+        .execute(pool)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         VALUES($1,$2,$3)",
+    )
+    .bind(archive_reader)
+    .bind(archived.chapter)
+    .bind(archived.version)
+    .execute(pool)
+    .await
+    .unwrap();
     let mut digest = [0_u8; 32];
     digest[..8].copy_from_slice(&archive_reader.to_le_bytes());
     digest[31] = 19;
