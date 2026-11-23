@@ -218,5 +218,33 @@ async fn c08_book_save_only_opened_exact_free_editions_and_races() {
         .await
         .unwrap());
     assert_eq!(saved_version(&pool, user1, chapter31).await, None);
+    // Expired metadata is pruned opportunistically. This never deletes
+    // chapter_versions or saved reader pins.
+    sqlx::query(
+        "UPDATE reader_free_open_intents
+         SET expires_at=now()-interval '20 minutes'
+         WHERE user_id=$1 AND chapter_id=$2 AND version_id=$3",
+    )
+    .bind(user1)
+    .bind(chapter31)
+    .bind(v31)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (chapter32, v32) = chapters[31];
+    open.issue_intent(user1, chapter32, v32, checked_sha)
+        .await
+        .unwrap();
+    let expired_remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_free_open_intents
+         WHERE user_id=$1 AND chapter_id=$2 AND version_id=$3",
+    )
+    .bind(user1)
+    .bind(chapter31)
+    .bind(v31)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(expired_remaining, 0);
     pool.close().await;
 }

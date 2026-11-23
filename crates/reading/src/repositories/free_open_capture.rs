@@ -22,6 +22,25 @@ impl PgFreeOpenCapture {
         edition: i64,
         sha256: [u8; 32],
     ) -> Result<(), sqlx::Error> {
+        // Opportunistic bounded cleanup of expired PG delivery receipts only.
+        // These are NOT chapter texts or reader rights; actual saved FREE pins
+        // live in a different table and must never be deleted here.
+        // At most 64 old rows are pruned per real issuance, without waiting
+        // on another concurrent reader (SKIP LOCKED).
+        let _ = sqlx::query(
+            "WITH expired AS (
+                 SELECT user_id,chapter_id,version_id
+                 FROM reader_free_open_intents
+                 WHERE expires_at<now()-INTERVAL '10 minutes'
+                 ORDER BY expires_at,user_id,chapter_id,version_id
+                 LIMIT 64 FOR UPDATE SKIP LOCKED
+             ) DELETE FROM reader_free_open_intents old USING expired
+               WHERE old.user_id=expired.user_id
+                 AND old.chapter_id=expired.chapter_id
+                 AND old.version_id=expired.version_id",
+        )
+        .execute(&self.pool)
+        .await;
         let row = sqlx::query(
             "INSERT INTO reader_free_open_intents
                 (user_id,chapter_id,version_id,content_sha256,expires_at)
