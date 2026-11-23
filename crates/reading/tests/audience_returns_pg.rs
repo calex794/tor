@@ -5,8 +5,7 @@ mod legacy;
 use sqlx::PgPool;
 use tor_reading::{
     repositories::{
-        returns::PgReadingReturns, sync::PurchasedFinish, PgReadingProgress,
-        PgReadingSync,
+        returns::PgReadingReturns, sync::PurchasedFinish, PgReadingProgress, PgReadingSync,
     },
     services::{
         progress::{ProgressError, ReadingPlace},
