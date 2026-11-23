@@ -80,13 +80,12 @@ async fn exact_book_actions_replay_concurrency_free_pins_and_readd() {
     .execute(&pool)
     .await
     .unwrap();
-    let new_version: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(new_chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let new_version: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(new_chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     opened(&pool, reader, new_chapter, new_version).await;
     library.add_book(reader, one.id).await.unwrap();
     follows.follow(reader, one.id).await.unwrap();

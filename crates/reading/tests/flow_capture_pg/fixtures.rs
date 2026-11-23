@@ -40,12 +40,10 @@ pub async fn pool(max: u32) -> PgPool {
     .execute(&admin)
     .await
     .unwrap();
-    sqlx::query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON reader_free_opened_editions TO tor_app",
-    )
-    .execute(&admin)
-    .await
-    .unwrap();
+    sqlx::query("GRANT SELECT,INSERT,UPDATE,DELETE ON reader_free_opened_editions TO tor_app")
+        .execute(&admin)
+        .await
+        .unwrap();
     admin.close().await;
     pool
 }
