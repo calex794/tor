@@ -355,3 +355,140 @@ async fn d001_purchased_and_layer_archive_pins_are_distinct_from_old_materializa
     assert_eq!(counts(&pool, free).await, (2, 2, 2));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_s3_only_reversion_preserves_fresh_physical_identity_and_old_receipts() {
+    let pool = pool().await;
+    let owner = user(&pool, "revert-owner").await;
+    let book_id = book(&pool, owner, "revert-book").await;
+    let store = PgFreeS3Publication::new(pool.clone());
+
+    let initial = save(book_id, None, 0, "Original text A", 'p');
+    let first = store.prepare_new(owner, &initial).await.unwrap();
+    store
+        .attach_verified_and_publish(
+            owner,
+            book_id,
+            (first.chapter_id, first.version_id),
+            metadata(&initial.body),
+        )
+        .await
+        .unwrap();
+
+    let to_b = save(book_id, Some(first.chapter_id), 1, "Changed text B", 'q');
+    let second = store.prepare_edit(owner, &to_b).await.unwrap();
+    store
+        .attach_edit(owner, &to_b, &second, metadata(&to_b.body))
+        .await
+        .unwrap();
+
+    // Returning to identical bytes A must NOT reuse version_id V1:
+    // immutable S3 keys, SHA receipts, command replay and future pins
+    // must continue to refer to their original physical materializations.
+    let to_a = save(book_id, Some(first.chapter_id), 2, "Original text A", 'r');
+    let third = store.prepare_edit(owner, &to_a).await.unwrap();
+    assert_ne!(third.version_id, first.version_id);
+    assert_ne!(third.version_id, second.version_id);
+    assert_eq!(published(&pool, first.chapter_id).await, second.version_id);
+    store
+        .attach_edit(owner, &to_a, &third, metadata(&to_a.body))
+        .await
+        .unwrap();
+    assert_eq!(published(&pool, first.chapter_id).await, third.version_id);
+    assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
+
+    let original_sha: [u8; 32] = Sha256::digest(initial.body.as_bytes()).into();
+    let receipts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*)::bigint,
+                count(*) FILTER (WHERE v.content_sha256=$2)::bigint,
+                count(DISTINCT f.object_key)::bigint
+         FROM chapter_versions v
+         JOIN free_chapter_storage_objects f
+           ON f.chapter_id=v.chapter_id AND f.version_id=v.id
+         WHERE v.chapter_id=$1",
+    )
+    .bind(first.chapter_id)
+    .bind(original_sha.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipts, (3, 2, 3));
+
+    let replay = store.prepare_edit(owner, &to_a).await.unwrap();
+    assert!(replay.published);
+    assert_eq!(replay.version_id, third.version_id);
+    assert_eq!(counts(&pool, first.chapter_id).await, (1, 1, 3));
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
+    let pool = pool().await;
+    let owner = user(&pool, "paid-revert-owner").await;
+    let book_id = book(&pool, owner, "paid-revert-book").await;
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters
+         (book_id,chapter_no,title,access_level,price_amount,visibility)
+         VALUES($1,1,'Paid revert','paid',100,'draft') RETURNING id",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let hash: [u8; 32] = Sha256::digest(b"Identical paid bytes A").into();
+    for number in 1..=2_i32 {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapter_versions
+             (chapter_id,version_no,body_markdown,content_sha256)
+             VALUES($1,$2,NULL,$3) RETURNING id",
+        )
+        .bind(chapter)
+        .bind(number)
+        .bind(hash.as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(id > 0);
+    }
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_versions
+         WHERE chapter_id=$1 AND content_sha256=$2 AND body_markdown IS NULL",
+    )
+    .bind(chapter)
+    .bind(hash.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows, 2,
+        "each paid AES-GCM AAD binds its own physical version"
+    );
+    let legacy: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,3,'Identical paid bytes A',$2) RETURNING id",
+    )
+    .bind(chapter)
+    .bind(hash.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        legacy > 0,
+        "legacy text and bodyless S3 versions must coexist"
+    );
+    let legacy_duplicate = sqlx::query(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,4,'Identical paid bytes A',$2)",
+    )
+    .bind(chapter)
+    .bind(hash.as_slice())
+    .execute(&pool)
+    .await;
+    assert!(
+        legacy_duplicate.is_err(),
+        "legacy PG bodies stay hash-unique"
+    );
+    pool.close().await;
+}
