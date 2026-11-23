@@ -50,7 +50,6 @@ fn render(traps: (u64, u64, u64), logins: LoginSnapshot, http: HttpSummary) -> S
          нужны журналы Nginx или WAF с временем и частотой запросов. \
          По этим агрегатам нельзя определить конкретный IP либо отличить \
          поискового робота от злоумышленника.</p>\
-         <p><a href=\"/admin/storage/s3\">Настройки S3</a></p>\
          </div></section>",
         invalid = logins.count(LoginOutcome::InvalidCredentials),
         limited = logins.count(LoginOutcome::RateLimited),
