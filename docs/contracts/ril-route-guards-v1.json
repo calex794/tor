@@ -3145,5 +3145,12 @@
       "handler": "continuation_stats::administrator",
       "policy": "administrator"
     }
+    ,{
+      "method": "GET",
+      "template": "/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD",
+      "source": "crates/web/src/auth.rs",
+      "handler": "admin_entry::page",
+      "policy": "administrator"
+    }
   ]
 }
