@@ -3150,7 +3150,7 @@
       "template": "/admin/security/traffic",
       "source": "crates/web/src/auth/admin_traffic.rs",
       "handler": "page",
-      "policy": "administrator"
+      "policy": "admin_traffic_readonly"
     }
   ]
 }
