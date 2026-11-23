@@ -223,6 +223,11 @@ async function checkViewport(page, screen) {
     pg("INSERT INTO account_roles(user_id,role,is_active) VALUES(" +
       reviewerId + ",'moderator',TRUE)");
 
+    // C-08: a Book bookmark cannot pin an unread FREE chapter.
+    // Open V1 through the actual authenticated reader before saving the Book.
+    const opened = await reader.goto(base + '/reader/' + chapter);
+    assert.equal(opened.status(), 200);
+    assert((await reader.locator('#chapter-text').innerText()).includes('Архив V1'));
     // Actual browser bookmark action pins the published free V1.
     await reader.goto(base + '/me/library/add/' + book);
     await Promise.all([
