@@ -301,6 +301,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .await
         .unwrap();
     assert_eq!(head.status().as_u16(), 200);
+    assert!(head.bytes().await.unwrap().is_empty());
     let open_query = format!(
         "SELECT version_id FROM reader_free_opened_editions WHERE user_id={no_js_actor} AND chapter_id={chapter}"
     );

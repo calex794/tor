@@ -1,5 +1,5 @@
-//! Inspect the exact HTTP bytes handed to Axum's socket, without relying on
-//! Chromium retaining a previous document's response body after navigation.
+//! Inspect bodies sent by Axum without relying on Chromium retaining a
+//! previous document's response after navigation.
 use axum::{
     body::{to_bytes, Body},
     http::{header, Method, StatusCode},
@@ -51,11 +51,13 @@ pub fn instrument(app: Router, marker: &'static str) -> (Router, Arc<Traffic>) {
             let counter = counter.clone();
             async move {
                 let path = request.uri().path();
-                let inspect = path.starts_with("/reader/")
-                    || path.starts_with("/read/")
-                    || path.starts_with("/me/library/saved/")
-                    || path.contains("/admin-")
-                    || path.ends_with("/free-grant");
+                // Axum strips the body of HEAD after this middleware returns.
+                let inspect = request.method() != Method::HEAD
+                    && (path.starts_with("/reader/")
+                        || path.starts_with("/read/")
+                        || path.starts_with("/me/library/saved/")
+                        || path.contains("/admin-")
+                        || path.ends_with("/free-grant"));
                 let no_script_source = request.method() == Method::GET
                     && path
                         .strip_prefix("/api/v1/chapters/")
