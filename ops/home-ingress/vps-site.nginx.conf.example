@@ -4,6 +4,35 @@
 # Requires a real certificate and a functioning private WireGuard peer.
 # This is NOT installed by CI, git merge, or a release workflow.
 
+# AB-06/12/14: public edge only; NEVER auto-installed.
+# This file is included inside http{}. The direct peer is the real source.
+# Do not use any client-supplied Forwarded or X-Real-IP as a rate-limit key.
+# Behind a CDN, first configure and test an explicit trusted real_ip chain.
+map $uri $tor_security_route {
+    default other;
+    ~^/(login|register)(/|$) auth;
+    ~^/__bp_honeypot/ trap;
+    ~^/admin(/|$) admin;
+    ~^/me(/|$) account;
+    ~^/(books|reader|chapters)(/|$) reading;
+    ~^/(catalog|search|sitemap)(/|$) discovery;
+    ~^/assets/ static;
+}
+# Only POST /login and POST /register consume the strict auth bucket.
+# An empty map key is not counted by limit_req_zone.
+map "$request_method:$uri" $tor_auth_client_key {
+    default "";
+    ~^POST:/(login|register)/?$ $binary_remote_addr;
+}
+limit_req_zone $binary_remote_addr zone=tor_public_per_ip:10m rate=6r/s;
+limit_req_zone $tor_auth_client_key zone=tor_auth_per_ip:5m rate=1r/s;
+
+# Security log: no request URI, query, UA, referrer, session, cookie or user ID.
+# IP is sensitive data: strict OS permissions and 7-day retention are required.
+log_format tor_security 'ts=$time_iso8601 ip=$remote_addr method=$request_method '
+                        'status=$status route=$tor_security_route '
+                        'limiter=$limit_req_status rt=$request_time';
+
 server {
     listen 80 default_server;
     server_name _;
@@ -42,7 +71,12 @@ server {
     ssl_session_timeout 10m;
 
     server_tokens off;
-    access_log off;
+    access_log /var/log/nginx/tor-security.log tor_security buffer=16k flush=1s;
+    limit_req_status 429;
+    # Observe first. Enforce only after false-positive, crawler and NAT tests.
+    limit_req_dry_run on;
+    limit_req zone=tor_public_per_ip burst=80 nodelay;
+    limit_req zone=tor_auth_per_ip burst=8 nodelay;
     # 32 MiB ZIP import plus multipart overhead; the app still enforces its own limit.
     client_max_body_size 34m;
     client_header_timeout 15s;
@@ -56,6 +90,11 @@ server {
     location = /internal/metrics { return 404; }
     location = /metrics { return 404; }
     location ~ /\.(?!well-known/) { return 404; }
+    # Cheap scanner denial, without blanket blocking legitimate .zip/.json.
+    location ~* (?:^|/)(?:wp-admin|wp-content|wp-includes|wp-login\.php|xmlrpc\.php|phpmyadmin|pma|cgi-bin|vendor/phpunit)(?:/|$) {
+        return 444;
+    }
+    location ~* \.php(?:/|$) { return 444; }
 
     location / {
         # Do not allow hostile Host/X-Forwarded-* values to reach TOR.

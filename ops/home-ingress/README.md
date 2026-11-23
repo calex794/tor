@@ -36,3 +36,43 @@ python3 -m unittest tests.architecture.test_home_network_preflight
 Коды возврата: 0 — предложенная схема непротиворечива, 1 — выявлены препятствия, 2 — неполный или неверный снимок. В отчёте сохраняются только имена проверок и результат; адреса из входного файла не копируются. Не вносите реальный публичный IP, ключи VPN, пароли, токены или сведения об иных серверах в GitHub. Текущая версия намеренно требует адреса и порт примера, изменение допустимо лишь после отдельного решения и тестов. Ручной осмотр реального брандмауэра, маршрутизатора и TLS остаётся обязательным до запуска.
 
 Эта проверка никак не подключается к боевому VPS; никакой выкладки из GitHub Actions.
+
+
+## AB-EDGE: Nginx protection and 15-minute security snapshot
+
+This is **an offline example for the future public gateway**, not the current VPS
+configuration and not a deployment. It does not modify running infrastructure.
+
+The example:
+- Drops well-known WordPress/PHP scanner paths with inexpensive Nginx 444
+  responses; normal unknown paths, legal archives and crawlers are not banned.
+- Defines a generic 6 requests/second per direct peer with burst 80 and a
+  separate 1 POST/second, burst 8 for login and registration.
+  Both rate limits are initially in **dry-run**: would-be rejects are logged
+  as REJECTED_DRY_RUN; actual requests are not limited by Nginx yet.
+- Uses ONLY the public-edge $binary_remote_addr as key. Never trust headers
+  supplied by the browser. If adding a CDN, re-review the real-IP chain first.
+- Writes a restricted security log with timestamp, direct IP, method, status,
+  bounded route family, limit decision and latency. No URL, query, User-Agent,
+  referrer, cookies, book IDs or tokens. IP still counts as personal data.
+  Install the included logrotate example (seven days, 0640) before enabling it.
+- Provides tools/security_log_report.py for a bounded read-only 15-minute
+  summary. Default source labels are anonymized /24 or /64; exact IP is only
+  shown with --show-full-ip. Signals are not unique bots or attack proof.
+
+Before any production rollout: obtain a READ-ONLY inspection of the active
+nginx -T (without copying secrets/IPs), its owner of 443, where its access logs
+live, whether a CDN/proxy is in front, and the current runtime environment.
+Set TOR_AUTH_TRUST_NGINX_REAL_IP=1 ONLY when the loopback Nginx overwrites
+X-Real-IP from a verified public gateway and direct app bypass is impossible.
+Otherwise per-IP auth throttling deliberately disables itself, but per-account
+PostgreSQL throttling remains enforced. Never flip that flag blindly.
+
+Run nginx -t and isolated tests; check legitimate reading, login/registration,
+sitemaps, long sessions, shared NAT, signed S3 URL requests and false positives.
+Then consider limit_req_dry_run off with independent approval and rollback.
+This PR does NOT activate the new Nginx, CAPTCHA, automatic IP bans, or deploy.
+The existing admin traffic PR #1191 remains a separate process-counter feature.
+
+Offline tests: python3 -m unittest tests.architecture.test_security_log_report
+Disposable edge tests: tests/load/home_ingress_examples_ci.sh (CI only).

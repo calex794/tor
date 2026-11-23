@@ -36,8 +36,8 @@ openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
   -keyout "$TMP/tls.key" -out "$TMP/tls.crt" \
   -subj '/CN=pandaolate.ru' > /dev/null 2>&1
 
-# Rewrite public listening ports and cert paths ONLY, preserving production
-# example routing, access controls and headers for this private lab.
+# Rewrite public ports, certs, ACME root and private test log location.
+# Preserve security routing, rate-limit decisions and proxy headers.
 python3 - "$TMP" <<'PY'
 from pathlib import Path
 import sys
@@ -53,6 +53,7 @@ for old, new in [
     ("/etc/letsencrypt/live/pandaolate.ru/fullchain.pem", str(tmp / "tls.crt")),
     ("/etc/letsencrypt/live/pandaolate.ru/privkey.pem", str(tmp / "tls.key")),
     ("/var/www/acme", str(tmp)),
+    ("/var/log/nginx/tor-security.log", str(tmp / "tor-security.log")),
 ]:
     if old not in edge:
         raise SystemExit(f"missing expected Nginx setting: {old}")
@@ -168,6 +169,52 @@ assert received == {
 }, received
 PY
 
+# AB-EDGE: auth quota is observable without restricting normal users (dry run).
+for _ in $(seq 1 16); do
+  code="$(ip netns exec "$CLIENT" curl --noproxy '*' \
+    --resolve "pandaolate.ru:18443:10.77.0.1" -ksS \
+    -X POST --data 'x=y' -o /dev/null -w '%{http_code}' --max-time 3 \
+    "https://pandaolate.ru:18443/login")"
+  if [[ "$code" != 204 ]]; then
+    echo "UNSAFE: dry-run unexpectedly blocked login HTTP $code" >&2
+    exit 1
+  fi
+done
+
+# Known scanner URL is rejected at the edge (444, no response).
+code="$(ip netns exec "$CLIENT" curl --noproxy '*' \
+  --resolve "pandaolate.ru:18443:10.77.0.1" -ksS \
+  -o /dev/null -w '%{http_code}' --max-time 3 \
+  "https://pandaolate.ru:18443/wp-admin/" || true)"
+if [[ "$code" != 000 ]]; then
+  echo "UNSAFE: scanner URL forwarded (HTTP $code)" >&2
+  exit 1
+fi
+
+# Query secrets and spoofed forward-IP must never appear in security log.
+ip netns exec "$CLIENT" curl --noproxy '*' \
+  --resolve "pandaolate.ru:18443:10.77.0.1" -ksS \
+  "https://pandaolate.ru:18443/4k?private_grant=never_log" -o /dev/null || true
+logfile="$TMP/tor-security.log"
+logged=0
+for _ in $(seq 1 30); do
+  if [[ -f "$logfile" ]] && grep -q 'limiter=REJECTED_DRY_RUN' "$logfile"; then
+    logged=1
+    break
+  fi
+  sleep 0.1
+done
+if (( logged == 0 )); then
+  echo "UNSAFE: throttling dry-run not logged" >&2
+  exit 1
+fi
+grep -q 'ip=10.77.0.2' "$logfile"
+grep -q 'route=auth' "$logfile"
+if grep -Eq 'never_log|203\.0\.113\.77|/wp-admin/|/4k\?' "$logfile"; then
+  echo "UNSAFE: raw URL or spoofed address in security log" >&2
+  exit 1
+fi
+
 for path in healthz readyz metrics internal/metrics; do
   code="$(ip netns exec "$CLIENT" curl --noproxy '*' \
     --resolve "pandaolate.ru:18443:10.77.0.1" -ksS \
@@ -223,6 +270,7 @@ probe 4k
 {
   echo 'Both future Nginx examples passed nginx -t.'
   echo 'Two-hop HTTPS and real client IP survived; spoofed headers were rejected.'
+  echo 'Auth dry-run, scanner denial and security log privacy passed.'
   echo 'Public diagnostics and unknown hosts/SNI were rejected.'
   echo 'WAN cannot reach home app, Nginx gateway or PostgreSQL.'
   echo 'Tunnel failure produced 502/504, then recovery restored HTTP 200.'
