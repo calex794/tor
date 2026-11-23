@@ -7,7 +7,8 @@ use sqlx::{
 use std::str::FromStr;
 use tor_reading::{
     repositories::{
-        flow_capture::PgFlowCapture, sync::PurchasedFinish, PgBookFollows, PgLibrary, PgReader,
+        flow_capture::PgFlowCapture, free_open_capture::PgFreeOpenCapture, sync::PurchasedFinish,
+        PgBookFollows, PgLibrary, PgReader,
         PgReadingProgress, PgReadingSync,
     },
     services::{progress::ReadingPlace, sync::SyncError, PublicReadingRepository},
@@ -25,6 +26,7 @@ async fn retired_capture_preserves_exact_library_follow_pins_and_transactions() 
     let pool = pool(4).await;
     let reader = actor(&pool, "actions").await;
     let one = book(&pool, false).await;
+    opened(&pool, reader, one).await;
     let baseline = optional_counts(&pool).await;
     let monitor = PgFlowCapture::new(pool.clone());
     let health = monitor.health();
@@ -94,8 +96,11 @@ async fn retired_capture_preserves_exact_library_follow_pins_and_transactions() 
     follows.follow(reader, one.id).await.unwrap();
     assert_eq!(
         business_actions(&pool, reader, one.id).await,
-        (1, 1, second_version)
+        (1, 1, one.version)
     );
+    // Unbookmark/rebookmark must not reinterpret an earlier V1 open as V2.
+    // The open is an immutable historical fact; the newer published head
+    // does not silently upgrade the reader's saved edition.
 
     let rollback = book(&pool, false).await;
     let mut transaction = pool.begin().await.unwrap();
