@@ -6,14 +6,15 @@ impl PgLibrary {
         if user_id <= 0 || book_id <= 0 {
             return Err(LibraryError::Invalid);
         }
-        // One SQL statement atomically saves the Book link AND every currently
-        // released free edition, exactly as NEwBOO's add-to-library action.
-        // Pin by immutable version ID. Existing pins are never upgraded to V2
-        // and paid/unreleased/draft/held chapters are never granted.
-        // Lock the Book row to serialize a simultaneous deletion decision.
+        // Book bookmark is not a FREE edition pin. Save only exact versions
+        // that this actor opened previously, not every current publication.
+        // Actor+Book lock serializes concurrent open, save, and removal.
         let mut tx = self
             .pool
             .begin()
+            .await
+            .map_err(|_| LibraryError::Unavailable)?;
+        crate::repositories::free_open_capture::lock_actor_book(&mut tx, user_id, book_id)
             .await
             .map_err(|_| LibraryError::Unavailable)?;
         super::super::flow_capture::prepare_action(&mut tx, self.flow_collection)
@@ -41,11 +42,11 @@ impl PgLibrary {
                 RETURNING book_id \
              ), saved_free AS ( \
                 INSERT INTO reader_saved_free_chapters (user_id, chapter_id, version_id) \
-                SELECT $1, c.id, p.version_id \
+                SELECT $1, c.id, opened.version_id \
                 FROM saved_book AS li \
-                JOIN chapters AS c ON c.book_id=li.book_id \
-                JOIN chapter_publications AS p ON p.chapter_id=c.id \
-                JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=p.version_id \
+                JOIN reader_free_opened_editions AS opened ON opened.user_id=$1 \
+                JOIN chapters AS c ON c.id=opened.chapter_id AND c.book_id=li.book_id \
+                JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=opened.version_id \
                 WHERE c.visibility='public' AND c.access_level='free' \
                   AND NOT c.admin_hold AND NOT c.is_deleted \
                   AND (c.reader_released_at IS NULL OR c.reader_released_at<=now()) \

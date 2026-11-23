@@ -41,6 +41,9 @@ impl PgLibrary {
             .begin()
             .await
             .map_err(|_| LibraryError::Unavailable)?;
+        crate::repositories::free_open_capture::lock_actor_book(&mut tx, user_id, book_id)
+            .await
+            .map_err(|_| LibraryError::Unavailable)?;
         let _locked: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM reader_library_items \
              WHERE user_id=$1 AND book_id=$2 FOR UPDATE",
