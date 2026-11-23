@@ -50,6 +50,8 @@ The example:
   separate 1 POST/second, burst 8 for login and registration.
   Both rate limits are initially in **dry-run**: would-be rejects are logged
   as REJECTED_DRY_RUN; actual requests are not limited by Nginx yet.
+- Reuses a bounded pool of 16 upstream keepalive connections across WireGuard
+  to avoid local TCP source-port exhaustion from repeated short requests.
 - Uses ONLY the public-edge $binary_remote_addr as key. Never trust headers
   supplied by the browser. If adding a CDN, re-review the real-IP chain first.
 - Writes a restricted security log with timestamp, direct IP, method, status,
@@ -57,8 +59,9 @@ The example:
   referrer, cookies, book IDs or tokens. IP still counts as personal data.
   Install the included logrotate example (seven days, 0640) before enabling it.
 - Provides tools/security_log_report.py for a bounded read-only 15-minute
-  summary. Default source labels are anonymized /24 or /64; exact IP is only
-  shown with --show-full-ip. Signals are not unique bots or attack proof.
+  summary. Default source labels are **coarsened**, not anonymous: /24 for
+  IPv4 or /64 for IPv6. These networks may still identify people; exact IP
+  is only shown with --show-full-ip. Signals are not unique bots or attack proof.
 
 Before any production rollout: obtain a READ-ONLY inspection of the active
 nginx -T (without copying secrets/IPs), its owner of 443, where its access logs

@@ -66,6 +66,9 @@ class SecurityLogTests(unittest.TestCase):
         self.assertIn("limit_req zone=tor_public_per_ip burst=80 nodelay;", config)
         self.assertIn("limit_req zone=tor_auth_per_ip burst=8 nodelay;", config)
         self.assertIn("proxy_set_header X-Real-IP $remote_addr;", config)
+        self.assertIn("upstream tor_home_backend {", config)
+        self.assertIn("keepalive 16;", config)
+        self.assertIn("proxy_pass http://tor_home_backend;", config)
         active_log = config.split("log_format tor_security", 1)[1].split(";", 1)[0]
         for banned in ("request_uri", "$args", "$http_", "cookie", "$uri", "$request "):
             with self.subTest(banned=banned):

@@ -33,6 +33,16 @@ log_format tor_security 'ts=$time_iso8601 ip=$remote_addr method=$request_method
                         'status=$status route=$tor_security_route '
                         'limiter=$limit_req_status rt=$request_time';
 
+# Reuse a small bounded set of TCP connections across the WireGuard tunnel.
+# Without it, high request rates can exhaust the edge's ephemeral source ports.
+# The home gateway still enforces its WireGuard peer allowlist on every request.
+upstream tor_home_backend {
+    server 10.88.0.2:18081;
+    keepalive 16;
+    keepalive_timeout 10s;
+    keepalive_requests 1000;
+}
+
 server {
     listen 80 default_server;
     server_name _;
@@ -98,7 +108,7 @@ server {
 
     location / {
         # Do not allow hostile Host/X-Forwarded-* values to reach TOR.
-        proxy_pass http://10.88.0.2:18081;
+        proxy_pass http://tor_home_backend;
         proxy_http_version 1.1;
         proxy_set_header Host pandaolate.ru;
         proxy_set_header Connection "";
