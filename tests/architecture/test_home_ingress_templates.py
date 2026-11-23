@@ -28,7 +28,13 @@ class HomeIngressTemplatesTests(unittest.TestCase):
 
     def test_edge_strips_untrusted_headers_and_diagnostics(self):
         edge = (SAMPLES / "vps-site.nginx.conf.example").read_text()
-        self.assertIn("proxy_pass http://10.88.0.2:18081;", edge)
+        # The proxy target remains the private WireGuard-only address,
+        # even when the public gateway uses pooled HTTP/1.1 connections.
+        self.assertIn("upstream tor_home_backend {", edge)
+        self.assertIn("server 10.88.0.2:18081;", edge)
+        self.assertIn("keepalive 16;", edge)
+        self.assertIn("proxy_pass http://tor_home_backend;", edge)
+        self.assertNotIn("proxy_pass http://10.88.0.2:18081;", edge)
         self.assertIn("proxy_set_header X-Forwarded-For $remote_addr;", edge)
         self.assertIn("proxy_set_header X-Real-IP $remote_addr;", edge)
         self.assertIn('proxy_set_header Forwarded "";', edge)
