@@ -8,8 +8,7 @@ use std::str::FromStr;
 use tor_reading::{
     repositories::{
         flow_capture::PgFlowCapture, free_open_capture::PgFreeOpenCapture, sync::PurchasedFinish,
-        PgBookFollows, PgLibrary, PgReader,
-        PgReadingProgress, PgReadingSync,
+        PgBookFollows, PgLibrary, PgReader, PgReadingProgress, PgReadingSync,
     },
     services::{progress::ReadingPlace, sync::SyncError, PublicReadingRepository},
 };
