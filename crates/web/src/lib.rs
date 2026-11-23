@@ -112,6 +112,7 @@ pub mod ranking_consumer;
 pub mod referral_consumer;
 mod ril;
 mod runtime_diagnostics;
+pub mod scanner_guard;
 mod worker_health;
 pub use runtime_diagnostics::ril_cost_map_for_diagnostics;
 #[derive(Clone)]

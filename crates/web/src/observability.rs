@@ -192,6 +192,12 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
     ));
     text.push_str("# HELP tor_auth_honeypot_route_total Requests to the decoy route; no path labels.\n# TYPE tor_auth_honeypot_route_total counter\n");
     text.push_str(&format!("tor_auth_honeypot_route_total {route_traps}\n"));
+    text.push_str("# HELP tor_security_scanner_rejected_total Requests stopped at the TOR HTTP scanner guard; not unique bots.\n");
+    text.push_str("# TYPE tor_security_scanner_rejected_total counter\n");
+    text.push_str(&format!(
+        "tor_security_scanner_rejected_total {}\n",
+        crate::scanner_guard::rejected_total()
+    ));
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();
