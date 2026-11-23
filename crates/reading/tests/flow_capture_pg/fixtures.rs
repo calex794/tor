@@ -15,7 +15,54 @@ pub async fn pool(max: u32) -> PgPool {
         .await
         .unwrap();
     legacy::assert_schema(&pool).await;
+    // Frozen PG migration 191 predates C-08 open evidence. This test-only
+    // compatibility table keeps the *legacy FLOW collector* under test while
+    // letting today's Book API require a genuine exact opened-edition row.
+    // It does NOT alter the frozen _sqlx_migrations history or production.
+    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    let mig = legacy::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&mig)
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS reader_free_opened_editions (
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            chapter_id BIGINT NOT NULL,
+            version_id BIGINT NOT NULL,
+            first_opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY(user_id,chapter_id),
+            FOREIGN KEY(chapter_id,version_id)
+                REFERENCES chapter_versions(chapter_id,id) ON DELETE CASCADE
+        )",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    sqlx::query(
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON reader_free_opened_editions TO tor_app",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    admin.close().await;
     pool
+}
+
+/// Explicit historical open fixture for an exact FREE edition; never infer
+/// a version from a bookmarked Book in application code.
+pub async fn opened(pool: &PgPool, actor: i64, chapter: i64, version: i64) {
+    sqlx::query(
+        "INSERT INTO reader_free_opened_editions(user_id,chapter_id,version_id)
+         VALUES($1,$2,$3) ON CONFLICT(user_id,chapter_id) DO NOTHING",
+    )
+    .bind(actor)
+    .bind(chapter)
+    .bind(version)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 pub async fn actor(pool: &PgPool, name: &str) -> i64 {
