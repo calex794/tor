@@ -155,5 +155,68 @@ async fn c08_book_save_only_opened_exact_free_editions_and_races() {
     .await
     .unwrap();
     assert_eq!((logical, reader, physical), (2, 2, 2));
+    // A signed source may be authorized at V1, then author V2 commits
+    // while the browser still downloads and SHA-checks the original bytes.
+    // This pre-existing actor/version/SHA intent must survive the switch.
+    let (chapter30, v30) = chapters[29];
+    let checked_sha = [0x3a_u8; 32];
+    let checked_hex = "3a".repeat(32);
+    open.issue_intent(user1, chapter30, v30, checked_sha)
+        .await
+        .unwrap();
+    assert!(
+        !open
+            .record_confirmed(user1, chapter30, v30, &"ff".repeat(32))
+            .await
+            .unwrap(),
+        "wrong SHA must never create historical FREE rights"
+    );
+    let new30: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Published concurrently with old S3 GET') RETURNING id",
+    )
+    .bind(chapter30)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter30)
+        .bind(new30)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(open
+        .record_confirmed(user1, chapter30, v30, &checked_hex)
+        .await
+        .unwrap());
+    assert_eq!(saved_version(&pool, user1, chapter30).await, Some(v30));
+    assert!(open
+        .record_confirmed(user1, chapter30, v30, &checked_hex)
+        .await
+        .unwrap());
+    assert_eq!(saved_version(&pool, user1, chapter30).await, Some(v30));
+
+    // An expired permit never creates an open: an old version/sha tuple
+    // alone must not be accepted as evidence of a reader delivery.
+    let (chapter31, v31) = chapters[30];
+    open.issue_intent(user1, chapter31, v31, checked_sha)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE reader_free_open_intents
+         SET expires_at=now()-interval '1 second'
+         WHERE user_id=$1 AND chapter_id=$2 AND version_id=$3",
+    )
+    .bind(user1)
+    .bind(chapter31)
+    .bind(v31)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!open
+        .record_confirmed(user1, chapter31, v31, &checked_hex)
+        .await
+        .unwrap());
+    assert_eq!(saved_version(&pool, user1, chapter31).await, None);
     pool.close().await;
 }
