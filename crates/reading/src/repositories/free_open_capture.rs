@@ -12,6 +12,71 @@ impl PgFreeOpenCapture {
         Self { pool }
     }
 
+    /// Reserve a time-limited, exact, server-authorized FREE delivery. An intent
+    /// does not by itself pin an edition or grant historical reading rights.
+    /// Its SHA is obtained from a B/C-verified S3 grant or PACK source plan.
+    pub async fn issue_intent(
+        &self,
+        actor: i64,
+        chapter: i64,
+        edition: i64,
+        sha256: [u8; 32],
+    ) -> Result<(), sqlx::Error> {
+        let row = sqlx::query(
+            "INSERT INTO reader_free_open_intents
+                (user_id,chapter_id,version_id,content_sha256,expires_at)
+             VALUES($1,$2,$3,$4,now()+INTERVAL '5 minutes')
+             ON CONFLICT(user_id,chapter_id,version_id)
+             DO UPDATE SET expires_at=GREATEST(
+                 reader_free_open_intents.expires_at,EXCLUDED.expires_at)
+             WHERE reader_free_open_intents.content_sha256=EXCLUDED.content_sha256",
+        )
+        .bind(actor)
+        .bind(chapter)
+        .bind(edition)
+        .bind(sha256.as_slice())
+        .execute(&self.pool)
+        .await?;
+        if row.rows_affected() != 1 {
+            return Err(sqlx::Error::Protocol(
+                "inconsistent immutable FREE open intent".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The version may no longer be current by the time S3 GET and the
+    /// browser SHA/UTF-8 validation finish. Trust ONLY the previously issued
+    /// actor+exact-version+SHA permit, never a client-selected stale edition.
+    pub async fn record_confirmed(
+        &self,
+        actor: i64,
+        chapter: i64,
+        edition: i64,
+        sha256_hex: &str,
+    ) -> Result<bool, sqlx::Error> {
+        if actor <= 0 || chapter <= 0 || edition <= 0 {
+            return Ok(false);
+        }
+        let permitted: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM reader_free_open_intents
+                 WHERE user_id=$1 AND chapter_id=$2 AND version_id=$3
+                   AND encode(content_sha256,'hex')=$4 AND expires_at>now()
+             )",
+        )
+        .bind(actor)
+        .bind(chapter)
+        .bind(edition)
+        .bind(sha256_hex)
+        .fetch_one(&self.pool)
+        .await?;
+        if !permitted {
+            return Ok(false);
+        }
+        self.record(actor, chapter, edition).await
+    }
+
     /// Records a version selected by the trusted reader or a browser-confirmed,
     /// hash-checked S3 read. The browser cannot choose arbitrary old editions.
     /// The *first* opened exact edition wins; repeats never silently upgrade it.
