@@ -879,7 +879,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 .read_text(encoding="utf-8")
         )
         auth_guard = all(v in evidence for v in (
-            "session_token(&headers)", "session_token_digest(&token)",
+            "session_token(headers)", "session_token_digest(&token)",
             "session_actor(&digest)", "!actor.administrator",
             "StatusCode::FORBIDDEN", "StatusCode::UNAUTHORIZED",
             "operator(&state, &headers).await",
