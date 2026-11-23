@@ -1,6 +1,7 @@
 use aws_sdk_s3::{
     config::{
-        interceptors::FinalizerInterceptorContextRef, ConfigBag, Intercept, RuntimeComponents,
+        interceptors::{BeforeTransmitInterceptorContextMut, FinalizerInterceptorContextRef},
+        ConfigBag, Intercept, RuntimeComponents,
     },
     error::ProvideErrorMetadata,
     operation::get_object::GetObjectError,
@@ -19,6 +20,7 @@ enum GetOutcome {
         status: Option<u16>,
         category: &'static str,
         service_code: &'static str,
+        connector_kind: &'static str,
         io_kind: Option<std::io::ErrorKind>,
     },
 }
@@ -64,15 +66,52 @@ impl Intercept for ObserveFirstGet {
                     } else {
                         "sdk"
                     };
+                    let connector_kind = error.as_connector_error().map_or("none", |connector| {
+                        if connector.is_io() {
+                            "io"
+                        } else if connector.is_timeout() {
+                            "timeout"
+                        } else if connector.is_user() {
+                            "user"
+                        } else if connector.as_other().is_some() {
+                            "classified-other"
+                        } else {
+                            "unclassified"
+                        }
+                    });
                     GetOutcome::Failed {
                         status,
                         category,
                         service_code: safe_service_code(sdk_error.and_then(|value| value.code())),
+                        connector_kind,
                         io_kind: io_error_kind(error),
                     }
                 }
             }));
         });
+        Ok(())
+    }
+}
+
+/// Apply only to the independent control on disposable HTTP/1.1 MinIO.
+#[derive(Debug)]
+pub(super) struct CloseConnection;
+
+impl Intercept for CloseConnection {
+    fn name(&self) -> &'static str {
+        "G09ConnectionCloseControl"
+    }
+
+    fn modify_before_transmit(
+        &self,
+        context: &mut BeforeTransmitInterceptorContextMut<'_>,
+        _: &RuntimeComponents,
+        _: &mut ConfigBag,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        context
+            .request_mut()
+            .headers_mut()
+            .insert("connection", "close");
         Ok(())
     }
 }
@@ -123,9 +162,10 @@ pub(super) async fn first_get(
                         status,
                         category,
                         service_code,
+                        connector_kind,
                         io_kind,
                     }) => eprintln!(
-                        "G09_FIRST_GET stage=sdk-send http_status={status:?} category={category} service_code={service_code} io_kind={io_kind:?}"
+                        "G09_FIRST_GET stage=sdk-send http_status={status:?} category={category} service_code={service_code} connector_kind={connector_kind} io_kind={io_kind:?}"
                     ),
                     None => eprintln!("G09_FIRST_GET stage=unobserved"),
                 }
