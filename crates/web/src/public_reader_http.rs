@@ -11,6 +11,19 @@ use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, 
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
 use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
 
+pub(crate) fn is_speculative_navigation(headers: &HeaderMap) -> bool {
+    ["sec-purpose", "purpose"].into_iter().any(|name| {
+        headers.get_all(name).iter().any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split([';', ',']).any(|purpose| {
+                    purpose.trim().eq_ignore_ascii_case("prefetch")
+                        || purpose.trim().eq_ignore_ascii_case("prerender")
+                })
+            })
+        })
+    })
+}
+
 /// A cookie is not an entitlement: PgReader rechecks session, account and
 /// grant in the SAME statement that returns a chapter body or Book metadata.
 pub(super) fn reader_session_digest(state: &AppState, headers: &HeaderMap) -> Option<[u8; 32]> {
@@ -110,6 +123,11 @@ pub(super) async fn reader_page(
     method: Method,
     observation: crate::editorial_http::display::Issuer,
 ) -> Response {
+    // An error response keeps browsers from reusing a speculative response
+    // on the real navigation, when the server can record the rendered edition.
+    if is_speculative_navigation(&headers) {
+        return auth_cookies::private_response(StatusCode::FORBIDDEN, &[]);
+    }
     let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };

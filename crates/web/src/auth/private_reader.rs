@@ -23,6 +23,9 @@ pub(super) async fn page(
     method: Method,
     observation: crate::editorial_http::display::Issuer,
 ) -> Response {
+    if crate::public_reader_http::is_speculative_navigation(&headers) {
+        return deny(StatusCode::FORBIDDEN);
+    }
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
         Ok(None) => {
