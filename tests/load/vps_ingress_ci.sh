@@ -212,10 +212,12 @@ if grep -q 'Cannot assign requested address' "$REPORT_DIR/nginx.error.log"; then
   exit 1
 fi
 
+# Existing pooled TCP sockets may fail at proxy_read_timeout (15s).
+# Require HTTP 502/504, never count a client timeout (000) as success.
 # Lost tunnel fails closed; restoring home-side WireGuard returns to HTTP 200.
 ip -n "$HOME" link set wg-home down
 down_status="$(ip netns exec "$CLIENT" curl --noproxy '*' -sS \
-  -o /dev/null -w '%{http_code}' --max-time 8 \
+  -o /dev/null -w '%{http_code}' --max-time 23 \
   http://10.77.0.1:18080/4k || true)"
 case "$down_status" in
   502|504) printf 'Tunnel down => HTTP %s: PASS\n' "$down_status" >> "$REPORT_DIR/security.txt" ;;

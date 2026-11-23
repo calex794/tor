@@ -52,6 +52,9 @@ The example:
   as REJECTED_DRY_RUN; actual requests are not limited by Nginx yet.
 - Reuses a bounded pool of 16 upstream keepalive connections across WireGuard
   to avoid local TCP source-port exhaustion from repeated short requests.
+  Availability trade-off: after tunnel loss a pooled connection can wait
+  until proxy_read_timeout before a 504. Validate this outage latency; a
+  client timeout with HTTP code 000 does not prove fail-closed behavior.
 - Uses ONLY the public-edge $binary_remote_addr as key. Never trust headers
   supplied by the browser. If adding a CDN, re-review the real-IP chain first.
 - Writes a restricted security log with timestamp, direct IP, method, status,

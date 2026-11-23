@@ -254,10 +254,12 @@ for port in 3000 18081 5432; do
   fi
 done
 
+# A pooled keepalive socket can wait for proxy_read_timeout (60s) during
+# an outage. Require a real 502/504, not a client-side 000 timeout.
 ip -n "$HOME" link set wg-home down
 code="$(ip netns exec "$CLIENT" curl --noproxy '*' \
   --resolve "pandaolate.ru:18443:10.77.0.1" -ksS \
-  -o /dev/null -w '%{http_code}' --max-time 8 \
+  -o /dev/null -w '%{http_code}' --max-time 70 \
   "https://pandaolate.ru:18443/4k" || true)"
 case "$code" in
   502|504) ;;
