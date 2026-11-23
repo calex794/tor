@@ -161,6 +161,22 @@ async fn grant(
         Ok(grant) => grant,
         Err(status) => return private_response(status, &[]),
     };
+    // A verified signed SINGLE may finish loading after V2 is published.
+    // Save an actor/version/SHA permit before releasing the signed URL.
+    if !saved {
+        if let Some(digest) = digest.as_ref() {
+            let actor = match state.accounts.active_session_user(digest).await {
+                Ok(value) => value,
+                Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            };
+            if let Some(actor) = actor {
+                if state.opened.issue_intent(actor, id, record.version_id, record.sha256)
+                    .await.is_err() {
+                    return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
+                }
+            }
+        }
+    }
     if query.format.as_deref() == Some("source") {
         let value = match serde_json::to_value(&signed) {
             Ok(value) => value,
@@ -239,32 +255,11 @@ async fn confirm_open(
         Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
-    let pack = state
-        .references
-        .for_active_pack_session(chapter, Some(&digest))
-        .await;
-    let selection = match pack {
-        Ok(Some(record)) => Ok(Some(record)),
-        Ok(None) => state.references.for_session(chapter, Some(&digest)).await,
-        Err(error) => Err(error),
-    };
-    let Some(reference) = (match selection {
-        Ok(value) => value,
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    }) else {
-        return private_response(StatusCode::NOT_FOUND, &[]);
-    };
-    let exact_sha = reference
-        .sha256
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    if reference.version_id != version || exact_sha != confirm.sha256 {
-        return private_response(StatusCode::CONFLICT, &[]);
-    }
-    match state.opened.record(actor, chapter, version).await {
+    // The previous grant is authoritative for a delayed V1 receipt.
+    // Checking current publication instead would discard a real V1 open.
+    match state.opened.record_confirmed(actor, chapter, version, &confirm.sha256).await {
         Ok(true) => private_response(StatusCode::NO_CONTENT, &[]),
-        Ok(false) => private_response(StatusCode::NOT_FOUND, &[]),
+        Ok(false) => private_response(StatusCode::CONFLICT, &[]),
         Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     }
 }

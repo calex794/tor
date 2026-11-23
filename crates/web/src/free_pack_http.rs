@@ -18,7 +18,10 @@ use tokio::sync::Semaphore;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
-use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
+use tor_reading::repositories::{
+    free_open_capture::PgFreeOpenCapture,
+    free_s3_ref::{FreeS3Ref, PgFreeS3Ref},
+};
 use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
     repositories::free_pack_range_s3::S3PackFrameStore,
@@ -31,6 +34,7 @@ struct PackHttpState {
     accounts: PgAccounts,
     layer: PgLayerChapterEntitlements,
     reference: PgFreeS3Ref,
+    opened: PgFreeOpenCapture,
     placement: PgFreePackCatalog,
     frame_store: S3PackFrameStore,
     cookies: CookiePolicy,
@@ -78,6 +82,7 @@ pub fn router(
     Ok(routes.with_state(PackHttpState {
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         reference: PgFreeS3Ref::new(pool.clone()),
+        opened: PgFreeOpenCapture::new(pool.clone()),
         placement: PgFreePackCatalog::new(pool),
         accounts,
         frame_store: S3PackFrameStore::new(s3),
@@ -250,10 +255,28 @@ async fn plan(
         .cookies
         .session_token(&headers)
         .map(|token| session_token_digest(&token));
+    let published = matches!(mode, FreePackReadMode::Published);
     let (edition, transport) = match selected_source(&state, chapter, mode, digest.as_ref()).await {
         Ok(selection) => selection,
         Err(status) => return deny(status),
     };
+    // The server advertises the verified exact PACK edition before download.
+    // Keep a short-lived actor-specific permit so a concurrent author edit
+    // cannot erase a later, valid V1 browser acknowledgement.
+    if published {
+        if let Some(digest) = digest.as_ref() {
+            let actor = match state.accounts.active_session_user(digest).await {
+                Ok(value) => value,
+                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+            };
+            if let Some(actor) = actor {
+                if state.opened.issue_intent(actor, chapter, edition.version_id, edition.sha256)
+                    .await.is_err() {
+                    return deny(StatusCode::SERVICE_UNAVAILABLE);
+                }
+            }
+        }
+    }
     let sha = edition
         .sha256
         .iter()
