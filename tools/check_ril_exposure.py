@@ -204,6 +204,12 @@ def check_repository(root: Path = ROOT) -> list[str]:
             )
             # RET-R03 is the exact administrator-only sitewide read.
             # Live role proof is independently enforced by check_ril_governance.py.
+            # Read-only privacy-safe process counters: governance verifies
+            # the live administrator role and fixed-cardinality data sources.
+            allow_admin_traffic = (
+                row["source"] == "crates/web/src/auth/admin_traffic.rs"
+                and key == ("GET", "/admin/security/traffic", "page", "admin_traffic_readonly")
+            )
             allow_continuation_admin = (
                 row["source"] == "crates/web/src/auth.rs"
                 and key == ("GET", "/admin/audience/continuations",
@@ -214,7 +220,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
-                    or allow_ratio_admin or allow_continuation_admin):
+                    or allow_ratio_admin or allow_continuation_admin or allow_admin_traffic):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
