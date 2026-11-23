@@ -142,7 +142,27 @@ impl PrivateObjectStore for S3PrivateStore {
             .key(Self::key(object))
             .send()
             .await
-            .map_err(|_| StorageError::Unavailable)?;
+            .map_err(|error| {
+                // G-09: failure-stage evidence, without key, URL, ciphertext
+                // or raw SDK error strings. This never retries a failed GET.
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let category = if error.as_service_error().is_some() {
+                    "service"
+                } else {
+                    "transport-or-response"
+                };
+                let code = error
+                    .as_service_error()
+                    .and_then(|service| service.code())
+                    .unwrap_or("none");
+                tracing::warn!(
+                    stage = "send",
+                    category,
+                    service_code = code,
+                    "private immutable S3 GET unavailable"
+                );
+                StorageError::Unavailable
+            })?;
         if !Self::head_is_exact(
             object,
             response.content_length(),
@@ -158,10 +178,14 @@ impl PrivateObjectStore for S3PrivateStore {
         // HEAD and Content-Length can both lie: bound the response stream too.
         let mut reader = response.body.into_async_read().take(object.size_bytes + 1);
         let mut bytes = Vec::with_capacity((object.size_bytes as usize).min(65_536));
-        reader
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        reader.read_to_end(&mut bytes).await.map_err(|error| {
+            tracing::warn!(
+                stage = "body",
+                io_kind = ?error.kind(),
+                "private immutable S3 GET body unreadable"
+            );
+            StorageError::Unavailable
+        })?;
         if bytes.len() as u64 != object.size_bytes
             || sha256_bytes(&bytes) != object.sha256_ciphertext
         {

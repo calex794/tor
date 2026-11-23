@@ -804,6 +804,13 @@ async fn g09_first_get_after_immutable_conflict_isolated_and_under_load() {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    // Only first-GET failures need this static, sanitized provider stage
+    // telemetry; no retries, no object identifiers or credentials logged.
+    let _ = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .with_max_level(tracing::Level::WARN)
+        .try_init();
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO required");
     assert!(
         endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
