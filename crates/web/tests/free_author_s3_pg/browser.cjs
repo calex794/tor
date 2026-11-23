@@ -201,6 +201,11 @@ let stage = 'launch';
         assert(text.includes(config.markdown.split('\n\n')[0]));
         if (config.absent_marker) assert(!text.includes(config.absent_marker));
         if (config.version) assert.equal(await page.locator('#chapter-text').getAttribute('data-free-s3-version'), String(config.version));
+        if (config.verify_open) {
+          await page.waitForFunction(() =>
+            document.querySelector('#chapter-text')?.dataset.freeOpenConfirmed === '1',
+            undefined, { timeout: 10000 });
+        }
         if (config.archived) {
           const csrf = await page.locator('#chapter-text').getAttribute('data-free-s3-csrf');
           const endpoint = config.origin + '/api/v1/me/progress/archived-free';

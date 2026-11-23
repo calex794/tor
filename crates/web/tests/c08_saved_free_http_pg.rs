@@ -155,6 +155,14 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         call(&app, "GET", &read, &reader_cookie, "").await.status(),
         StatusCode::NOT_FOUND
     );
+    // C-08 owner rule: the reader first opens this exact V1. Saving a Book
+    // without this GET must not create an immutable chapter pin.
+    assert_eq!(
+        call(&app, "GET", &format!("/reader/{chapter}"), &reader_cookie, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(
         call(
             &app,

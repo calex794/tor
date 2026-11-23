@@ -262,7 +262,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     let read = browser(json!({
         "mode": "read", "origin": ORIGIN, "storage_origin": ENDPOINT,
         "chapter": chapter, "markdown": MARKDOWN, "marker": MARKER,
-        "session":session,"progress":true, "width":390,
+        "session":session,"progress":true, "width":390, "verify_open":true,
     }));
     assert_eq!(read["read"], true);
     println!("S349_NETWORK mobile={read}");
@@ -398,6 +398,14 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         )
         .await
         .unwrap();
+    // The second reader really opens and verifies FREE V1 before Book save.
+    // An unread Book bookmark must never pin this chapter.
+    let verified_archive = browser(json!({
+        "mode":"read", "origin":ORIGIN, "storage_origin":ENDPOINT,
+        "chapter":chapter, "session":archive_session,
+        "markdown":MARKDOWN, "marker":MARKER, "verify_open":true
+    }));
+    assert_eq!(verified_archive["read"], true);
     tor_reading::repositories::PgLibrary::new(pool.clone())
         .add_book(archive_actor, book)
         .await

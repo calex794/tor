@@ -354,13 +354,14 @@
           article.dataset.freeS3Archive !== "1" &&
           /^[A-Za-z0-9_-]{43}$/.test(csrf)) {
         try {
-          await fetch("/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-open", {
+          const recorded = await fetch("/api/v1/chapters/" + encodeURIComponent(chapter) + "/free-open", {
             method: "POST", credentials: "same-origin", cache: "no-store",
             redirect: "error", keepalive: true,
             headers: { "Content-Type": "application/json",
               "X-CSRF-Token": csrf },
             body: JSON.stringify({ version_id: version, sha256: actual })
           });
+          article.dataset.freeOpenConfirmed = recorded.status === 204 ? "1" : "0";
         } catch {
           // A failed acknowledgement is not a proven saved edition. Text is
           // already visible; a later successful read may confirm the open.
