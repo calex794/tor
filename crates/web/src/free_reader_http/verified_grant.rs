@@ -1,26 +1,25 @@
-//! Reauthorize the exact edition after the potentially slow S3 signing request.
-//! No bearer capability is returned after a hide, revocation or version change.
+//! Reauthorize the exact edition after S3 signing or reading.
+//! Neither a capability nor source bytes escape after a hide, revocation or edit.
 use axum::http::StatusCode;
 use std::future::Future;
-use tor_contracts::paid_delivery::SecretValue;
 use tor_reading::repositories::free_s3_ref::FreeS3Ref;
 
-pub(super) async fn issue<R, S, Lookup, Sign>(
+pub(super) async fn issue<R, S, Lookup, Operation, T>(
     mut resolve: R,
-    sign: S,
-) -> Result<(FreeS3Ref, SecretValue), StatusCode>
+    perform: S,
+) -> Result<(FreeS3Ref, T), StatusCode>
 where
     R: FnMut() -> Lookup,
     Lookup: Future<Output = Result<Option<FreeS3Ref>, StatusCode>>,
-    S: FnOnce(FreeS3Ref) -> Sign,
-    Sign: Future<Output = Result<SecretValue, StatusCode>>,
+    S: FnOnce(FreeS3Ref) -> Operation,
+    Operation: Future<Output = Result<T, StatusCode>>,
 {
     let initial = resolve().await?.ok_or(StatusCode::NOT_FOUND)?;
-    let url = sign(initial.clone()).await?;
+    let output = perform(initial.clone()).await?;
     match resolve().await? {
         None => Err(StatusCode::NOT_FOUND),
         Some(current) if current != initial => Err(StatusCode::CONFLICT),
-        Some(_) => Ok((initial, url)),
+        Some(_) => Ok((initial, output)),
     }
 }
 
@@ -28,6 +27,7 @@ where
 mod tests {
     use super::*;
     use std::{cell::Cell, collections::VecDeque, future::ready};
+    use tor_contracts::paid_delivery::SecretValue;
 
     fn edition() -> FreeS3Ref {
         FreeS3Ref {
@@ -93,11 +93,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hides_or_age_revocations_during_signing_never_return_the_url() {
+    async fn hides_or_age_revocations_during_read_never_return_the_bytes() {
         let mut states = VecDeque::from([Ok(Some(edition())), Ok(None)]);
         let outcome = issue(
             || ready(states.pop_front().expect("exactly two authorization reads")),
-            |_| ready(Ok(signed())),
+            |_| ready(Ok(vec![1, 2, 3])),
         )
         .await;
         assert_eq!(outcome.err(), Some(StatusCode::NOT_FOUND));
@@ -145,7 +145,7 @@ mod tests {
                 lookups.set(lookups.get() + 1);
                 ready(Ok(Some(edition())))
             },
-            |_| ready(Err(StatusCode::SERVICE_UNAVAILABLE)),
+            |_| ready(Err::<Vec<u8>, _>(StatusCode::SERVICE_UNAVAILABLE)),
         )
         .await;
         assert_eq!(outcome.err(), Some(StatusCode::SERVICE_UNAVAILABLE));

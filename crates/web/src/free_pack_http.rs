@@ -4,10 +4,11 @@
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
     free_pack_gateway::{read_authorized_active, FreePackReadMode},
+    free_reader_http::{free_source_response, record_served_open},
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -175,18 +176,20 @@ async fn selected_source(
 }
 
 /// Non-script fallback: one secure same-origin link for both transport types.
-/// PACK returns exactly one reauthorized frame. SINGLE redirects to the old
-/// independently reauthorized grant, which issues a short-lived signed GET.
+/// PACK returns exactly one reauthorized frame. SINGLE redirects to the
+/// independently reauthorized same-origin document response.
 async fn no_js_source(
     State(state): State<PackHttpState>,
     Path(chapter): Path<i64>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
+    method: Method,
 ) -> Response {
     if chapter <= 0 || headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
-    if headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
+    if crate::public_reader_http::is_speculative_navigation(&headers)
+        || headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
         || headers
             .get(header::ORIGIN)
             .is_some_and(|s| s.to_str().ok() != Some(state.cookies.origin.as_str()))
@@ -209,8 +212,7 @@ async fn no_js_source(
         Err(status) => return deny(status),
     };
     if transport == "gateway" {
-        // source() rechecks C/B before and after private S3 Range I/O.
-        return source(State(state), Path(chapter), Query(query), headers).await;
+        return pack_response(state, chapter, query, headers, method == Method::GET).await;
     }
     // Redirects always target a same-origin literal route, not arbitrary S3.
     // The S349 grant independently checks publication, pin and age again.
@@ -314,6 +316,16 @@ async fn source(
     Query(query): Query<Lookup>,
     headers: HeaderMap,
 ) -> Response {
+    pack_response(state, chapter, query, headers, false).await
+}
+
+async fn pack_response(
+    state: PackHttpState,
+    chapter: i64,
+    query: Lookup,
+    headers: HeaderMap,
+    record_open: bool,
+) -> Response {
     if chapter <= 0 || headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
@@ -362,10 +374,7 @@ async fn source(
     if edition.bucket != state.bucket {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     }
-    let mut response = private_response(
-        ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes),
-        &[],
-    );
+    let mut response = free_source_response(bytes);
     let sha = edition
         .sha256
         .iter()
@@ -381,14 +390,11 @@ async fn source(
         };
         response.headers_mut().insert(key, header);
     }
-    response.headers_mut().insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    response.headers_mut().insert(
-        "x-robots-tag",
-        HeaderValue::from_static("noindex, nofollow"),
-    );
+    // The no-script document response already contains the verified PACK
+    // frame. Scripted requests are recorded by the browser after rendering.
+    if record_open && matches!(mode, FreePackReadMode::Published) {
+        record_served_open(&state.accounts, &state.opened, digest.as_ref(), &edition).await;
+    }
     response
 }
 

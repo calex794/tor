@@ -1,18 +1,20 @@
 //! S349: short free chapter S3 GET grant after current C/PG visibility checks.
-//! The browser downloads Markdown from S3, never through the TOR HTTP server.
+//! The scripted reader downloads directly from S3. The no-script document
+//! returns verified text so TOR can record the exact edition served.
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
     paid_grants_http::valid_reader_s3_origin,
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::Response,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
 use tor_contracts::paid_delivery::SecretValue;
@@ -36,6 +38,7 @@ struct FreeGrantState {
     opened: PgFreeOpenCapture,
     cookies: CookiePolicy,
     store: S3FreeChapterStore,
+    source_slots: Arc<Semaphore>,
     bucket: String,
     s3_origin: String,
 }
@@ -96,6 +99,7 @@ pub fn router(
             origin: public_origin,
         },
         store,
+        source_slots: Arc::new(Semaphore::new(16)),
         bucket,
         s3_origin,
     };
@@ -122,6 +126,7 @@ async fn grant(
     Path(id): Path<i64>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
+    method: Method,
 ) -> Response {
     if id <= 0 {
         return private_response(StatusCode::NOT_FOUND, &[]);
@@ -140,30 +145,49 @@ async fn grant(
     {
         return private_response(StatusCode::BAD_REQUEST, &[]);
     }
-    // Recheck AFTER the external S3 call: a hide, age revocation or edition
-    // change during HEAD/signing must never release the stale capability.
-    let (record, signed) = match verified_grant::issue(
-        || async {
-            let result = if saved {
-                state
-                    .references
-                    .for_saved_session(id, query.version_id.unwrap_or(0), digest.as_ref())
-                    .await
-            } else {
-                state.references.for_session(id, digest.as_ref()).await
+    let resolve = || async {
+        let result = if saved {
+            state
+                .references
+                .for_saved_session(id, query.version_id.unwrap_or(0), digest.as_ref())
+                .await
+        } else {
+            state.references.for_session(id, digest.as_ref()).await
+        };
+        result.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+    };
+    if query.format.as_deref() == Some("source") {
+        if !state.cookies.same_origin(&headers)
+            || crate::public_reader_http::is_speculative_navigation(&headers)
+        {
+            return private_response(StatusCode::FORBIDDEN, &[]);
+        }
+        if headers.contains_key(header::RANGE) || headers.contains_key(header::IF_RANGE) {
+            return private_response(StatusCode::BAD_REQUEST, &[]);
+        }
+        let Ok(_slot) = state.source_slots.try_acquire() else {
+            return private_response(StatusCode::TOO_MANY_REQUESTS, &[]);
+        };
+        let (record, bytes) =
+            match verified_grant::issue(resolve, |record| read_source(&state, record)).await {
+                Ok(source) => source,
+                Err(status) => return private_response(status, &[]),
             };
-            result.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
-        },
-        |record| sign(&state, record),
-    )
-    .await
+        if !saved && method == Method::GET {
+            record_served_open(&state.accounts, &state.opened, digest.as_ref(), &record).await;
+        }
+        return free_source_response(bytes);
+    }
+    // Recheck after signing to prevent a stale capability after a hide, age
+    // revocation or publication change during the storage call.
+    let (record, signed) = match verified_grant::issue(resolve, |record| sign(&state, record)).await
     {
         Ok(grant) => grant,
         Err(status) => return private_response(status, &[]),
     };
     // A verified signed SINGLE may finish loading after V2 is published.
     // Save an actor/version/SHA permit before releasing the signed URL.
-    if !saved {
+    if !saved && method == Method::GET {
         if let Some(digest) = digest.as_ref() {
             let actor = match state.accounts.active_session_user(digest).await {
                 Ok(value) => value,
@@ -181,21 +205,6 @@ async fn grant(
             }
         }
     }
-    if query.format.as_deref() == Some("source") {
-        let value = match serde_json::to_value(&signed) {
-            Ok(value) => value,
-            Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        };
-        let Some(url) = value.as_str() else {
-            return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-        };
-        let mut response = private_response(axum::response::Redirect::to(url), &[]);
-        response.headers_mut().insert(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("no-referrer"),
-        );
-        return response;
-    }
     let sha256 = record
         .sha256
         .iter()
@@ -209,7 +218,17 @@ async fn grant(
         sha256,
         size_bytes: record.size_bytes,
     });
-    let mut response = private_response(response, &[]);
+    free_response(private_response(response, &[]))
+}
+
+pub(crate) fn free_source_response(bytes: Vec<u8>) -> Response {
+    free_response(private_response(
+        ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes),
+        &[],
+    ))
+}
+
+fn free_response(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -219,6 +238,27 @@ async fn grant(
         HeaderValue::from_static("noindex, nofollow"),
     );
     response
+}
+
+pub(crate) async fn record_served_open(
+    accounts: &PgAccounts,
+    opened: &PgFreeOpenCapture,
+    digest: Option<&[u8; 32]>,
+    edition: &FreeS3Ref,
+) {
+    let Some(digest) = digest else { return };
+    let result = match accounts.active_session_user(digest).await {
+        Ok(Some(actor)) => {
+            opened
+                .record(actor, edition.chapter_id, edition.version_id)
+                .await
+        }
+        Ok(None) => Ok(false),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = result {
+        tracing::warn!(?error, "exact FREE source open not recorded");
+    }
 }
 
 /// A FREE S3 shell cannot prove bytes were displayed. The verified browser
@@ -272,17 +312,24 @@ async fn confirm_open(
     }
 }
 
-async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, StatusCode> {
+fn trusted_object(
+    state: &FreeGrantState,
+    record: &FreeS3Ref,
+) -> Result<FreeChapterObject, StatusCode> {
     if record.bucket != state.bucket {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
-    let object = FreeChapterObject::from_metadata(
+    FreeChapterObject::from_metadata(
         record.chapter_id,
         record.version_id,
         record.sha256,
         record.size_bytes,
     )
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, StatusCode> {
+    let object = trusted_object(state, &record)?;
     let signed = state
         .store
         .presign_verified(&object, Duration::from_secs(90))
@@ -302,4 +349,12 @@ async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, 
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     Ok(signed)
+}
+
+async fn read_source(state: &FreeGrantState, record: FreeS3Ref) -> Result<Vec<u8>, StatusCode> {
+    let object = trusted_object(state, &record)?;
+    tokio::time::timeout(Duration::from_secs(15), state.store.get_verified(&object))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }

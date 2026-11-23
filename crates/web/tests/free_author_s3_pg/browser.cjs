@@ -189,12 +189,19 @@ let stage = 'launch';
         assert.equal(denied.status(), 403);
         assert.match(csrf, /^[A-Za-z0-9_-]{43}$/);
       } else if (config.mode === 'no-js') {
-        stage = 'no-JavaScript direct source';
+        stage = 'no-JavaScript same-origin source';
         await Promise.all([
-          page.waitForURL(url => url.origin === config.storage_origin),
+          page.waitForURL(url => url.origin === config.origin &&
+            url.pathname === '/api/v1/chapters/' + config.chapter + '/free-grant' &&
+            url.searchParams.get('format') === 'source'),
           page.getByRole('link', { name: 'Открыть текст без JavaScript', exact: true }).click(),
         ]);
         assert((await page.locator('body').innerText()).includes(config.marker));
+        assert.equal(directGets, 0);
+        await cdp.detach();
+        process.stdout.write(JSON.stringify({ read: true, direct_s3_gets: directGets, storage_bytes: storageBytes }));
+        await context.close();
+        return;
       } else if (config.mode === 'read') {
         await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
         const text = await page.locator('#chapter-text').innerText();
