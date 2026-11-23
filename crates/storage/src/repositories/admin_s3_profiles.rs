@@ -7,10 +7,24 @@ use aes_gcm::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use sqlx::PgPool;
 use zeroize::{Zeroize, Zeroizing};
+use serde::Serialize;
 
 const AAD: &[u8] = b"tor:s3-admin:yandex:v1";
 pub const YANDEX_ENDPOINT: &str = "https://storage.yandexcloud.net";
 pub const YANDEX_REGION: &str = "ru-central1";
+
+#[derive(Serialize)]
+struct SecretPair<'a> {
+    access_key_id: &'a str,
+    secret_access_key: &'a str,
+}
+
+impl PgAdminS3Profiles {
+    pub fn master_key_ready() -> bool {
+        master_key_from_env().is_ok()
+    }
+}
+
 
 #[derive(Clone)]
 pub struct PgAdminS3Profiles {
@@ -130,7 +144,7 @@ pub fn valid_bucket(bucket: &str) -> bool {
     {
         return false;
     }
-    bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-. ".contains(b) && *b != b' ')
+    bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-' || *b == b'.')
         && !bucket.split('.').all(|part| part.parse::<u8>().is_ok())
 }
 
@@ -159,9 +173,7 @@ fn encrypt(key: &[u8; 32], access: &str, secret: &str) -> Result<([u8; 12], Vec<
     let mut nonce = [0_u8; 12];
     getrandom::getrandom(&mut nonce).map_err(|_| AdminS3Error::Unavailable)?;
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AdminS3Error::Invalid)?;
-    let mut plaintext = Zeroizing::new(serde_json::to_vec(&serde_json::json!({
-        "access_key_id": access, "secret_access_key": secret
-    })).map_err(|_| AdminS3Error::Invalid)?);
+    let mut plaintext = Zeroizing::new(serde_json::to_vec(&SecretPair { access_key_id: access, secret_access_key: secret }).map_err(|_| AdminS3Error::Invalid)?);
     let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce),
         Payload { msg: &plaintext, aad: AAD })
         .map_err(|_| AdminS3Error::Unavailable)?;
