@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::{
     extract::{Form, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Uri},
     response::{Redirect, Response},
     routing::get,
     Router,
@@ -28,6 +28,13 @@ struct ConnectionForm {
     bucket: String,
     access_key_id: String,
     secret_access_key: String,
+}
+
+fn local_http_origin(origin: &str) -> bool {
+    origin.parse::<Uri>().ok().is_some_and(|uri| {
+        uri.scheme_str() == Some("http")
+            && matches!(uri.host(), Some("127.0.0.1" | "localhost"))
+    })
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -128,10 +135,7 @@ async fn save(
     if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &csrf) {
         return deny(StatusCode::FORBIDDEN);
     }
-    if !state.cookies.secure
-        && !state.cookies.origin.starts_with("http://127.0.0.1")
-        && !state.cookies.origin.starts_with("http://localhost")
-    {
+    if !state.cookies.secure && !local_http_origin(&state.cookies.origin) {
         // Secrets must never travel over plaintext non-loopback HTTP.
         return deny(StatusCode::FORBIDDEN);
     }
@@ -194,5 +198,9 @@ mod tests {
         assert!(form.contains("password"));
         assert!(!form.contains("not-the-secret"));
         assert!(YANDEX_ENDPOINT.starts_with("https://"));
+        assert!(local_http_origin("http://127.0.0.1:3098"));
+        assert!(local_http_origin("http://localhost:3000"));
+        assert!(!local_http_origin("http://localhost.evil.example"));
+        assert!(!local_http_origin("http://example.com"));
     }
 }
