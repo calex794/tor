@@ -3144,6 +3144,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "continuation_stats::administrator",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/security/traffic",
+      "source": "crates/web/src/auth/admin_traffic.rs",
+      "handler": "page",
+      "policy": "admin_traffic_readonly"
     }
   ]
 }

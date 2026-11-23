@@ -35,6 +35,7 @@ mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+mod admin_traffic;
 mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
@@ -265,6 +266,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_jobs::router())
+        .merge(admin_traffic::router())
         .merge(admin_refund_review::router())
         .merge(admin_creator_payouts::router())
         .merge(moderation_books::router())
