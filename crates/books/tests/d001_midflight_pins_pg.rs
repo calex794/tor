@@ -73,8 +73,8 @@ async fn verify_receipt(pool: &PgPool, chapter_id: i64, version_id: i64, body: &
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(version_sha, expected);
-    assert_eq!(receipt_sha, expected);
+    assert_eq!(version_sha.as_slice(), expected.as_slice());
+    assert_eq!(receipt_sha.as_slice(), expected.as_slice());
 }
 
 #[tokio::test]
