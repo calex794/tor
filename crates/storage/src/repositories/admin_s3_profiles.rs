@@ -5,9 +5,9 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::Serialize;
 use sqlx::PgPool;
 use zeroize::{Zeroize, Zeroizing};
-use serde::Serialize;
 
 const AAD: &[u8] = b"tor:s3-admin:yandex:v1";
 pub const YANDEX_ENDPOINT: &str = "https://storage.yandexcloud.net";
@@ -24,7 +24,6 @@ impl PgAdminS3Profiles {
         master_key_from_env().is_ok()
     }
 }
-
 
 #[derive(Clone)]
 pub struct PgAdminS3Profiles {
@@ -138,29 +137,44 @@ pub fn valid_bucket(bucket: &str) -> bool {
     let bytes = bucket.as_bytes();
     if !(3..=63).contains(&bytes.len())
         || !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit()
-        || !bytes[bytes.len() - 1].is_ascii_lowercase()
-            && !bytes[bytes.len() - 1].is_ascii_digit()
-        || bucket.contains("..") || bucket.contains(".-") || bucket.contains("-.")
+        || !bytes[bytes.len() - 1].is_ascii_lowercase() && !bytes[bytes.len() - 1].is_ascii_digit()
+        || bucket.contains("..")
+        || bucket.contains(".-")
+        || bucket.contains("-.")
     {
         return false;
     }
-    bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-' || *b == b'.')
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-' || *b == b'.')
         && !bucket.split('.').all(|part| part.parse::<u8>().is_ok())
 }
 
 pub fn valid_access_key(value: &str) -> bool {
-    (8..=128).contains(&value.len()) && value.is_ascii() && !value.bytes().any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+    (8..=128).contains(&value.len())
+        && value.is_ascii()
+        && !value
+            .bytes()
+            .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
 }
 
 pub fn valid_secret_key(value: &str) -> bool {
-    (16..=256).contains(&value.len()) && value.is_ascii() && !value.bytes().any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+    (16..=256).contains(&value.len())
+        && value.is_ascii()
+        && !value
+            .bytes()
+            .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
 }
 
 fn master_key_from_env() -> Result<Zeroizing<[u8; 32]>, AdminS3Error> {
-    let input = Zeroizing::new(std::env::var("TOR_S3_ADMIN_MASTER_KEY")
-        .map_err(|_| AdminS3Error::MasterKeyMissing)?);
-    let decoded = Zeroizing::new(STANDARD.decode(input.as_bytes())
-        .map_err(|_| AdminS3Error::MasterKeyMissing)?);
+    let input = Zeroizing::new(
+        std::env::var("TOR_S3_ADMIN_MASTER_KEY").map_err(|_| AdminS3Error::MasterKeyMissing)?,
+    );
+    let decoded = Zeroizing::new(
+        STANDARD
+            .decode(input.as_bytes())
+            .map_err(|_| AdminS3Error::MasterKeyMissing)?,
+    );
     if decoded.len() != 32 {
         return Err(AdminS3Error::MasterKeyMissing);
     }
@@ -169,13 +183,29 @@ fn master_key_from_env() -> Result<Zeroizing<[u8; 32]>, AdminS3Error> {
     Ok(key)
 }
 
-fn encrypt(key: &[u8; 32], access: &str, secret: &str) -> Result<([u8; 12], Vec<u8>), AdminS3Error> {
+fn encrypt(
+    key: &[u8; 32],
+    access: &str,
+    secret: &str,
+) -> Result<([u8; 12], Vec<u8>), AdminS3Error> {
     let mut nonce = [0_u8; 12];
     getrandom::getrandom(&mut nonce).map_err(|_| AdminS3Error::Unavailable)?;
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AdminS3Error::Invalid)?;
-    let mut plaintext = Zeroizing::new(serde_json::to_vec(&SecretPair { access_key_id: access, secret_access_key: secret }).map_err(|_| AdminS3Error::Invalid)?);
-    let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce),
-        Payload { msg: &plaintext, aad: AAD })
+    let mut plaintext = Zeroizing::new(
+        serde_json::to_vec(&SecretPair {
+            access_key_id: access,
+            secret_access_key: secret,
+        })
+        .map_err(|_| AdminS3Error::Invalid)?,
+    );
+    let ciphertext = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &plaintext,
+                aad: AAD,
+            },
+        )
         .map_err(|_| AdminS3Error::Unavailable)?;
     plaintext.zeroize();
     Ok((nonce, ciphertext))
@@ -187,7 +217,15 @@ mod tests {
     #[test]
     fn validate_yandex_bucket_and_keys_without_network() {
         assert!(valid_bucket("tore"));
-        for bad in ["", "ab", "a..b", "UPPER", "bucket/path", "192.168.1.1", "bad bucket"] {
+        for bad in [
+            "",
+            "ab",
+            "a..b",
+            "UPPER",
+            "bucket/path",
+            "192.168.1.1",
+            "bad bucket",
+        ] {
             assert!(!valid_bucket(bad), "{bad}");
         }
         assert!(valid_access_key("ABCD12345678"));
@@ -197,17 +235,41 @@ mod tests {
     #[test]
     fn aes_256_gcm_binds_ciphertext_to_profile_and_detects_tampering() {
         let key = [11_u8; 32];
-        let (nonce, ciphertext) = encrypt(&key,"AKID12345678","not-the-real-secret-value").unwrap();
+        let (nonce, ciphertext) =
+            encrypt(&key, "AKID12345678", "not-the-real-secret-value").unwrap();
         assert!(!String::from_utf8_lossy(&ciphertext).contains("not-the-real-secret"));
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-        let plaintext = cipher.decrypt(Nonce::from_slice(&nonce),
-            Payload { msg: &ciphertext, aad: AAD }).unwrap();
-        assert!(String::from_utf8(plaintext).unwrap().contains("AKID12345678"));
+        let plaintext = cipher
+            .decrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &ciphertext,
+                    aad: AAD,
+                },
+            )
+            .unwrap();
+        assert!(String::from_utf8(plaintext)
+            .unwrap()
+            .contains("AKID12345678"));
         let mut modified = ciphertext;
         modified[0] ^= 1;
-        assert!(cipher.decrypt(Nonce::from_slice(&nonce),
-            Payload { msg: &modified, aad: AAD }).is_err());
-        assert!(cipher.decrypt(Nonce::from_slice(&nonce),
-            Payload { msg: &modified, aad: b"tor:other-account" }).is_err());
+        assert!(cipher
+            .decrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &modified,
+                    aad: AAD
+                }
+            )
+            .is_err());
+        assert!(cipher
+            .decrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &modified,
+                    aad: b"tor:other-account"
+                }
+            )
+            .is_err());
     }
 }

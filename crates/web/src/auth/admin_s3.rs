@@ -16,8 +16,8 @@ use serde::Deserialize;
 use std::time::Duration;
 use tor_accounts::services::security::session_token_digest;
 use tor_storage::repositories::admin_s3_profiles::{
-    valid_access_key, valid_bucket, valid_secret_key, AdminS3Error,
-    PgAdminS3Profiles, YANDEX_ENDPOINT, YANDEX_REGION,
+    valid_access_key, valid_bucket, valid_secret_key, AdminS3Error, PgAdminS3Profiles,
+    YANDEX_ENDPOINT, YANDEX_REGION,
 };
 use zeroize::Zeroizing;
 
@@ -104,7 +104,10 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          <p>Endpoint: <code>{YANDEX_ENDPOINT}</code>. Регион: <code>{YANDEX_REGION}</code>.</p>\
          </div></section>"
     );
-    private_response(pages::layout("Подключение S3", "Хранилище TOR", &html), &cookie_headers)
+    private_response(
+        pages::layout("Подключение S3", "Хранилище TOR", &html),
+        &cookie_headers,
+    )
 }
 
 async fn save(
@@ -125,8 +128,10 @@ async fn save(
     if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &csrf) {
         return deny(StatusCode::FORBIDDEN);
     }
-    if !state.cookies.secure && !state.cookies.origin.starts_with("http://127.0.0.1")
-        && !state.cookies.origin.starts_with("http://localhost") {
+    if !state.cookies.secure
+        && !state.cookies.origin.starts_with("http://127.0.0.1")
+        && !state.cookies.origin.starts_with("http://localhost")
+    {
         // Secrets must never travel over plaintext non-loopback HTTP.
         return deny(StatusCode::FORBIDDEN);
     }
@@ -140,7 +145,11 @@ async fn save(
     // Never inherit GitHub/VPS credentials when testing the *submitted* pair.
     // Use the fixed Yandex endpoint to prevent credential-exfiltrating SSRF.
     let credentials = aws_sdk_s3::config::Credentials::new(
-        access.as_str(), secret.as_str(), None, None, "tor-admin-yandex",
+        access.as_str(),
+        secret.as_str(),
+        None,
+        None,
+        "tor-admin-yandex",
     );
     let shared = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(aws_sdk_s3::config::Region::new(YANDEX_REGION))
@@ -163,7 +172,10 @@ async fn save(
         return deny(StatusCode::BAD_GATEWAY);
     }
     let profiles = PgAdminS3Profiles::new(state.accounts.pool().clone());
-    match profiles.save_verified(&digest, &bucket, &access, &secret).await {
+    match profiles
+        .save_verified(&digest, &bucket, &access, &secret)
+        .await
+    {
         Ok(()) => private_response(Redirect::to("/admin/storage/s3"), &[]),
         Err(AdminS3Error::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AdminS3Error::MasterKeyMissing | AdminS3Error::Unavailable) => {

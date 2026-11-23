@@ -32,11 +32,11 @@ mod account_form_http;
 mod account_home;
 mod admin_creator_payouts;
 mod admin_jobs;
-#[cfg(feature = "s3-free")]
-mod admin_s3;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+#[cfg(feature = "s3-free")]
+mod admin_s3;
 mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
