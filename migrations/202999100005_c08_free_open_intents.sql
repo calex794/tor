@@ -11,7 +11,7 @@ CREATE TABLE reader_free_open_intents (
     PRIMARY KEY (user_id,chapter_id,version_id),
     CONSTRAINT c08_free_open_intent_exact_version_fk
       FOREIGN KEY(chapter_id,version_id)
-      REFERENCES chapter_versions(chapter_id,id) ON DELETE RESTRICT
+      REFERENCES chapter_versions(chapter_id,id) ON DELETE CASCADE
 );
 CREATE INDEX c08_free_open_intents_expiry_idx
     ON reader_free_open_intents (expires_at);

@@ -1,5 +1,7 @@
 -- C-08 / D-001, 2026-11-23: exact opened FREE edition is not a book bookmark.
 -- No backfill from aggregate book_chapter_open_readers: the old row has no version_id.
+-- Open evidence is not a separate entitlement: hard/legal chapter deletion may
+-- cascade it, while actual saved FREE pins retain their own RESTRICT FK.
 -- First successful version-specific open is immutable and preserves the physical
 -- edition even before the actor bookmarks the Book; this is a retention proof,
 -- not an independent ACL or paid entitlement. No S3 DELETE/GC authorization.
@@ -11,7 +13,7 @@ CREATE TABLE reader_free_opened_editions (
     PRIMARY KEY(user_id,chapter_id),
     CONSTRAINT reader_free_opened_exact_version_fk
       FOREIGN KEY (chapter_id,version_id)
-      REFERENCES chapter_versions(chapter_id,id) ON DELETE RESTRICT
+      REFERENCES chapter_versions(chapter_id,id) ON DELETE CASCADE
 );
 CREATE INDEX c08_opened_exact_version_idx
     ON reader_free_opened_editions(chapter_id,version_id);
