@@ -32,8 +32,7 @@ struct ConnectionForm {
 
 fn local_http_origin(origin: &str) -> bool {
     origin.parse::<Uri>().ok().is_some_and(|uri| {
-        uri.scheme_str() == Some("http")
-            && matches!(uri.host(), Some("127.0.0.1" | "localhost"))
+        uri.scheme_str() == Some("http") && matches!(uri.host(), Some("127.0.0.1" | "localhost"))
     })
 }
 

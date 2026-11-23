@@ -100,7 +100,10 @@ pub(super) async fn page(
     } else {
         ""
     };
-    page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", &(audience_link.to_owned() + storage_link));
+    page.0 = page.0.replace(
+        "<!--AUDIENCE_NAV_LINK-->",
+        &(audience_link.to_owned() + storage_link),
+    );
     page.0 = page.0.replace(
         "<!--RET_RESUME_CARDS-->",
         &pages::account_resume_cards(&resumes, &paid_only),
