@@ -32,6 +32,7 @@ mod account_form_http;
 mod account_home;
 mod admin_creator_payouts;
 mod admin_jobs;
+mod admin_traffic;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
@@ -265,6 +266,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_jobs::router())
+        .merge(admin_traffic::router())
         .merge(admin_refund_review::router())
         .merge(admin_creator_payouts::router())
         .merge(moderation_books::router())
