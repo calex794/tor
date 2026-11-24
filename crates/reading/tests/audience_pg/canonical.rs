@@ -56,9 +56,9 @@ async fn retained_firsts_require_matching_c_evidence_and_never_count_later_chapt
         assert_eq!(report.totals.books, 3);
         assert_eq!(report.totals.current_pairs, current);
         assert_eq!(report.totals.previous_pairs, previous);
-        let at = chrono::DateTime::parse_from_rfc3339(&report.measured_at_utc).unwrap();
-        let from = chrono::DateTime::parse_from_rfc3339(&report.current_from_utc).unwrap();
-        assert_eq!((at - from).num_seconds(), i64::from(days) * 86400);
+        let at = ::time::OffsetDateTime::parse(&report.measured_at_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        let from = ::time::OffsetDateTime::parse(&report.current_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        assert_eq!((at - from).whole_seconds(), i64::from(days) * 86400);
     }
     f.finish().await;
 }

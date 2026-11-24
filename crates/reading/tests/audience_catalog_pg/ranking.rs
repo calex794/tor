@@ -70,11 +70,11 @@ async fn ranking_uses_full_population_with_deterministic_ties_and_small_sample_f
         store.canonical_rank_report(&query).await.unwrap().rows,
         rank.rows
     );
-    let at = chrono::DateTime::parse_from_rfc3339(&rank.measured_at_utc).unwrap();
-    let current = chrono::DateTime::parse_from_rfc3339(&rank.current_from_utc).unwrap();
-    let previous = chrono::DateTime::parse_from_rfc3339(&rank.previous_from_utc).unwrap();
-    assert_eq!((at - current).num_seconds(), 7 * 86400);
-    assert_eq!((current - previous).num_seconds(), 7 * 86400);
+    let at = ::time::OffsetDateTime::parse(&rank.measured_at_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+    let current = ::time::OffsetDateTime::parse(&rank.current_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+    let previous = ::time::OffsetDateTime::parse(&rank.previous_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+    assert_eq!((at - current).whole_seconds(), 7 * 86400);
+    assert_eq!((current - previous).whole_seconds(), 7 * 86400);
     let mut cursor = query.clone();
     cursor.after_id = Some(20);
     assert_eq!(

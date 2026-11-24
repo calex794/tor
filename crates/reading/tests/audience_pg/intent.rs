@@ -126,11 +126,11 @@ async fn snapshots_deduplicate_accounts_not_links_and_removals_are_not_history()
         );
         assert_eq!(report.previous.library_links, if days == 7 { 1 } else { 0 });
         assert_eq!(report.previous.follow_links, if days == 7 { 1 } else { 0 });
-        let at = chrono::DateTime::parse_from_rfc3339(&report.measured_at_utc).unwrap();
-        let from = chrono::DateTime::parse_from_rfc3339(&report.current_from_utc).unwrap();
-        let prior = chrono::DateTime::parse_from_rfc3339(&report.previous_from_utc).unwrap();
-        assert_eq!((at - from).num_seconds(), i64::from(days) * 86_400);
-        assert_eq!((from - prior).num_seconds(), i64::from(days) * 86_400);
+        let at = ::time::OffsetDateTime::parse(&report.measured_at_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        let from = ::time::OffsetDateTime::parse(&report.current_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        let prior = ::time::OffsetDateTime::parse(&report.previous_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        assert_eq!((at - from).whole_seconds(), i64::from(days) * 86_400);
+        assert_eq!((from - prior).whole_seconds(), i64::from(days) * 86_400);
     }
     sqlx::query(&format!(
         "DELETE FROM {}.reader_library_items WHERE user_id=1 AND book_id=11",

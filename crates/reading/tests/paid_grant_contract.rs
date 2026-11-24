@@ -1,7 +1,7 @@
 //! C-06/S3-18: D→B→G order, pinned V1, revocation race and no-secret failures.
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{DateTime, Utc};
+use ::time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use std::{
     collections::VecDeque,
     sync::{
@@ -166,7 +166,7 @@ async fn c_06_paid_v1_grant_uses_only_d_pin_and_never_logs_secrets() {
     let d = D::new(vec![allowed(111), allowed(111)]);
     let b = B::new(Some(encrypted()));
     let g = G::default();
-    let before = Utc::now();
+    let before = OffsetDateTime::now_utc();
     let result = issue_paid_chapter_grant(&d, &b, &g, actor(), id(44), Some(id(71)))
         .await
         .unwrap();
@@ -177,9 +177,9 @@ async fn c_06_paid_v1_grant_uses_only_d_pin_and_never_logs_secrets() {
     assert_eq!(result.chapter_id, "44");
     assert_eq!(result.version_id, "111", "never current V2");
     assert!(result.assets.is_empty());
-    let timestamp = DateTime::parse_from_rfc3339(&result.expires_at).unwrap();
-    let lifespan = timestamp.signed_duration_since(before);
-    assert!((89..=91).contains(&lifespan.num_seconds()));
+    let timestamp = OffsetDateTime::parse(&result.expires_at, &Rfc3339).unwrap();
+    let lifespan = timestamp - before;
+    assert!((89..=91).contains(&lifespan.whole_seconds()));
     let json = serde_json::to_value(&result).unwrap();
     assert_eq!(json["schema"], "tor.paid_delivery.v1");
     assert_eq!(json["content"]["codec"], "gzip");
