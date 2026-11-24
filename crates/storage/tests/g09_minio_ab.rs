@@ -21,7 +21,7 @@ use tor_storage::{
     },
 };
 
-const ROUNDS: u16 = 1000;
+const ROUNDS: u16 = 10000;
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 
 fn client(close: bool) -> Client {
@@ -78,14 +78,14 @@ async fn sample(close: bool) {
     for round in 1..=ROUNDS {
         let id = ObjectId::parse(&format!("c0f20000-0000-4000-8000-{round:012x}")).unwrap();
         let original = seal_chapter(
-            version.clone(),
+            version,
             id.clone(),
             &format!("original synthetic ciphertext {round}"),
             &kek,
         )
         .unwrap();
         let competing = seal_chapter(
-            version.clone(),
+            version,
             id.clone(),
             &format!("competing synthetic ciphertext {round}"),
             &kek,
@@ -138,7 +138,7 @@ async fn sample(close: bool) {
         }
     }
     println!(
-        "G09_AB_RESULT mode={mode} attempted={ROUNDS} first_get_ok={} first_get_unavailable={unavailable} integrity_verified={ROUNDS}",
+        "\nG09_AB_RESULT mode={mode} attempted={ROUNDS} first_get_ok={} first_get_unavailable={unavailable} integrity_verified={ROUNDS}",
         ROUNDS - unavailable
     );
 }

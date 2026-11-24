@@ -51,11 +51,12 @@ jobs:
       - name: Compile exactly one TOR test binary for all arms
         run: |
           rustc --version
+          cargo tree -p tor-storage --features s3 | grep -E 'aws-sdk-s3 v|aws-smithy-runtime v|aws-smithy-http-client v|hyper v' | sort -u
           cargo test -p tor-storage --features s3 --test g09_minio_ab --no-run
       - name: Measure first GET failures and integrity on each fresh server
         run: |
           failed=0
-          for arm in release parent fixed; do
+          for arm in fixed parent release; do
             if ! bash tools/g09_minio_ab.sh "$arm" "$RUNNER_TEMP/minio-$arm"; then
               echo "G09_AB_INCOMPLETE arm=$arm"
               failed=1
@@ -66,7 +67,7 @@ jobs:
             echo 'Completion is not strict G-09 acceptance.'
             for arm in release parent fixed; do
               echo "### $arm"
-              grep '^G09_AB_RESULT ' "$RUNNER_TEMP/g09-ab-$arm-result.log" || echo 'INCOMPLETE'
+              grep -oE 'G09_AB_RESULT mode=(pooled|close) attempted=[0-9]+ first_get_ok=[0-9]+ first_get_unavailable=[0-9]+ integrity_verified=[0-9]+' "$RUNNER_TEMP/g09-ab-$arm-result.log" || echo 'INCOMPLETE'
             done
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$failed"
