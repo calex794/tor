@@ -12,6 +12,7 @@ OLD_PUBLIC_PREFIX = re.compile(
     r"(?<![\w./-])/admin"
     r"|/api/v1/admin"
     r"|/read/admin"
+    r"|/me/recommendations/(?:manage|contextual|shelf-preview)"
     r"|https?://[^/\s\x22\x27\x60]+/admin"
     r")(?=/|-|[\x22\x27\x60\s?#)]|$)", re.I
 )
@@ -63,6 +64,9 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
             '"/admin/mail"', 'href="/admin/audience"',
             '"/admin-history"', '/api/v1/admin/jobs/1/retry',
             '/read/admin/12', 'https://pandaolate.ru/admin/support',
+            '"/me/recommendations/manage"',
+            '"/me/recommendations/contextual"',
+            '"/me/recommendations/shelf-preview"',
         ):
             self.assertIsNotNone(OLD_PUBLIC_PREFIX.search(address), address)
         for not_route in (
