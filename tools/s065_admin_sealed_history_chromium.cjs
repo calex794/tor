@@ -47,7 +47,7 @@ module.exports = async function sealedHistoryAcceptance({
           asset_object_id + ".enc")) seen.s3Image++;
       }
     });
-    const pageResponse = await page.goto(SITE + "/read/admin/" + chapter_id, {
+    const pageResponse = await page.goto(SITE + "/read/odmen/" + chapter_id, {
       waitUntil: "domcontentloaded",
     });
     assert.equal(pageResponse.status(), 200);
