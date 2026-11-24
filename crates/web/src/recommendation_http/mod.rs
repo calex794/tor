@@ -64,7 +64,10 @@ pub(crate) fn routes(state: Runtime) -> Router {
             get(admin::shares_page).post(admin::shares_submit),
         )
         .route("/me/recommendations", get(pages::page))
-        .route("/odmen/recommendations/shelf-preview", get(admin::shelf::page))
+        .route(
+            "/odmen/recommendations/shelf-preview",
+            get(admin::shelf::page),
+        )
         .route("/me/recommendations/consent", post(pages::consent))
         .route("/me/recommendations/flow-consent", post(pages::consent))
         .route("/me/recommendations/feedback", post(pages::feedback))
