@@ -1916,7 +1916,7 @@ jobs:
           cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
           # free_author_s3_pg includes the DROP-04b/06b PG18+MinIO cases;
           # do not rerun the same fixed-identity fixtures in this database.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
+          TOR_S3_ADMIN_MASTER_KEY=ERERERERERERERERERERERERERERERERERERERERERE= TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
           # D-05/#1022: a real old Layer buyer opens immutable FREE V1
           # from private SINGLE after owner deletion and moderator approval.
           TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free,s3-paid --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
