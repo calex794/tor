@@ -313,6 +313,14 @@ READING_ANALYTICS_TEST_FILES = frozenset({
 })
 TEST_SUITES.update({path: {"rust", "reading_analytics"} for path in READING_ANALYTICS_TEST_FILES})
 TEST_SUITES["crates/web/tests/support/audience_return_dates.rs"] = {"rust", "reading_analytics"}
+# REUSE-07A: both FLOW entry points consume these exact shared test sources.
+for path in (
+    "crates/web/tests/support/flow_http_fixture.rs",
+    "crates/web/tests/support/flow_paid_scenario.rs",
+    "crates/web/tests/flow_funnel_http_pg/paid.rs",
+    "crates/web/tests/flow_visits_http_pg/paid.rs",
+):
+    TEST_SUITES[path] = {"rust", "reading_analytics"}
 
 # Only prose in these locations is cheap. Contracts/fixtures/configuration are not.
 PROSE_FILES = {"README.md", "AGENTS.md", "docs/development.md"}

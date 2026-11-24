@@ -15,7 +15,8 @@ fi
 report="$RUNNER_TEMP/reuse-report"
 head="$RUNNER_TEMP/reuse-source"
 base=$(mktemp -d "$RUNNER_TEMP/reuse-base.XXXXXX")
-trap 'rm -rf -- "$base"' EXIT
+smoke=$(mktemp -d "$RUNNER_TEMP/reuse-smoke.XXXXXX")
+trap 'rm -rf -- "$base" "$smoke"' EXIT
 test -s "$report/input.sha256"
 test -x "$RUNNER_TEMP/reuse-bin/bin/doppelscan"
 git archive "$BASE_SHA" crates | tar -x -C "$base"
@@ -40,6 +41,65 @@ scan() {
     -v "$RUNNER_TEMP/reuse-bin/bin:/tools:ro" -w /work/src ubuntu:24.04 \
     /tools/doppelscan "$@"
 }
+# Prove the pinned scanner distinguishes all three outcomes before relying
+# on its real report. Synthetic files are outside both repository snapshots.
+mkdir -p "$smoke/base" "$smoke/head"
+cat > "$smoke/base/a.rs" <<'RS'
+pub fn weighted_total(values: &[i64], limit: i64) -> Option<i64> {
+    let mut total = 0_i64;
+    let mut count = 0_i64;
+    for value in values.iter().copied() {
+        if value < 0 || value > limit {
+            continue;
+        }
+        let weight = value.checked_mul(3)?.checked_add(7)?;
+        total = total.checked_add(weight)?;
+        count = count.checked_add(1)?;
+        if total > limit.checked_mul(10)? {
+            return None;
+        }
+    }
+    match count {
+        0 => Some(0),
+        _ => total.checked_div(count),
+    }
+}
+RS
+cp "$smoke/base/a.rs" "$smoke/base/b.rs"
+cp "$smoke/base/"*.rs "$smoke/head/"
+cp "$smoke/base/a.rs" "$smoke/head/c.rs"
+scan "$smoke/base" baseline /work/src --output /work/smoke-baseline.json --no-config \
+  --only rust --min-tokens 50 > "$report/smoke-baseline.stdout" 2> "$report/smoke-baseline.stderr"
+scan "$smoke/base" check /work/src --baseline /work/smoke-baseline.json --no-config \
+  --only rust --min-tokens 50 --format json > "$report/smoke-unchanged.json" 2> "$report/smoke-unchanged.stderr"
+added_status=0
+scan "$smoke/head" check /work/src --baseline /work/smoke-baseline.json --no-config \
+  --only rust --min-tokens 50 --format json > "$report/smoke-added.json" 2> "$report/smoke-added.stderr" || added_status=$?
+test "$added_status" = 1
+printf 'not valid json\n' > "$report/smoke-bad-baseline.json"
+bad_status=0
+scan "$smoke/base" check /work/src --baseline /work/smoke-bad-baseline.json --no-config \
+  --only rust --min-tokens 50 --format json > "$report/smoke-bad.stdout" 2> "$report/smoke-bad.stderr" || bad_status=$?
+test "$bad_status" = 2
+python3 - "$report" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+baseline = json.loads((root / "smoke-baseline.json").read_text())
+unchanged = json.loads((root / "smoke-unchanged.json").read_text())
+added = json.loads((root / "smoke-added.json").read_text())
+assert baseline["groups"], "fixture did not produce a baseline clone"
+assert unchanged["summary"]["files"] == 2
+assert not unchanged["new"] and not unchanged["smaller"]
+assert added["summary"]["files"] == 3
+assert added["new"], "third copy did not produce a new candidate"
+result = {"unchanged": 0, "third_copy": 1, "invalid_baseline": 2}
+(root / "delta-smoke.json").write_text(json.dumps(result) + "\n")
+print("REUSE-10 scanner smoke: " + json.dumps(result, sort_keys=True))
+PY
+
 scan "$base" baseline /work/src --output /work/base.json --no-config \
   --only rust --min-tokens 50 > "$report/delta-baseline.stdout" 2> "$report/delta-baseline.stderr"
 test -s "$report/base.json"
