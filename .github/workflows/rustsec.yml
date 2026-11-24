@@ -40,15 +40,13 @@ jobs:
           mkdir -p "$report"
           rustc --version
           cargo --version
-          if git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
-            lock_state=tracked
-          else
-            lock_state=generated
-            echo '::warning::Cargo.lock is not tracked; this is a baseline scan only.'
-            cargo generate-lockfile
-          fi
+          git ls-files --error-unmatch Cargo.lock
           test -s Cargo.lock
+          lock_state=tracked
           cp Cargo.lock "$report/Cargo.lock"
+          cargo metadata --locked --all-features --format-version 1 > /dev/null
+          cmp Cargo.lock "$report/Cargo.lock"
+          git diff --exit-code -- Cargo.lock
           {
             printf 'commit=%s\nlock_state=%s\n' "$(git rev-parse HEAD)" "$lock_state"
             rustc --version

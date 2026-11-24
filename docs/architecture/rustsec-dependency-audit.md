@@ -20,17 +20,20 @@ deployment scripts, production or staging.
   The advisory DB is fetched each run. The reports and lockfile are retained
   for 14 days. Duplicate versions alone are not a vulnerability.
 
-## Initial lockfile bootstrap
+## Lockfile bootstrap and steady state
 
 At introduction TOR has no tracked Cargo.lock. The first run generates one
 in its disposable runner and publishes `rustsec-lockfile` before installing
 the scanners. This is a baseline, not proof of the deployed binary's dependency
-versions. The job deliberately fails the tracked-lock assertion until the
-exact generated Cargo.lock is reviewed and committed. Review the snapshot
-SHA and checksum, commit that lockfile without manual edits, then rerun all
-mandatory tests and both scanners on the final PR SHA. After that, update
-the lockfile explicitly when dependencies change; use locked builds for
-releases once their build contract is updated and verified.
+versions. The bootstrap resolved and committed an audited candidate lockfile. Subsequent
+runs require the committed file from the outset: missing or stale lockfiles
+fail closed. `cargo metadata --locked --all-features` verifies the manifests
+against the snapshot, and byte comparison plus `git diff` detect changes.
+Update the lockfile explicitly when dependencies change; use locked builds
+for releases once their build contract is updated and verified.
+
+The independent audit is registered in the workflow-wiring inventory. It does
+not replace integration suites or add a main-push/deployment workflow.
 
 ## Triage
 
@@ -46,3 +49,14 @@ The initial PR must remain unmerged until the lockfile and baseline findings
 are resolved or explicitly reviewed. Required branch status and release-gate
 changes are a separate, tested integration step; no production release is
 authorized by this scan alone.
+
+## Candidate evidence (before full integration)
+
+- Baseline: 15 known RustSec advisories and the Chrono unmaintained warning.
+- Candidate audit run 45475500855: 0 advisories, 0 warnings, all workspace
+  targets/features compile; 150 selected tests passed (6 ignored).
+- Candidate lockfile SHA-256: `7e677aa3da7d4b2a7c85f3c0af88cf4af8a49532231cccdc04b5bc2561d9ff47`.
+- Exact local dependency versions removed 11 wildcard diagnostics in run
+  45478315026. The remaining 21 license diagnostics block policy acceptance;
+  no new license grants or advisory exemptions have been made.
+- Full integration tests and final combined-head audit remain mandatory.
