@@ -402,6 +402,32 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    # The single ASCII admin alias is audited independently. Never treat
+    # the URL spelling or route policy row as proof of administrator access.
+    admin_entry_route = (
+        entry["method"] == "GET"
+        and entry["template"] == "/odmen"
+        and entry["source"] == "crates/web/src/auth.rs"
+        and entry["handler"] == "admin_entry::page"
+        and entry["policy"] == "administrator"
+    )
+    admin_entry_proof = (
+        admin_entry_route
+        and all(token in body for token in (
+            "state.cookies.session_token(&headers)",
+            "session_token_digest(&session)",
+            "state.accounts.session_actor(&digest).await",
+            "Ok(None) => return deny(StatusCode::NOT_FOUND)",
+            "Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE)",
+            "if !verified.administrator",
+            "return deny(StatusCode::NOT_FOUND)",
+            "let mut response = private_response(body(), &[])",
+            '"x-robots-tag"',
+            "noindex, nofollow",
+        ))
+        and body.index("session_actor(&digest)") < body.index("if !verified.administrator")
+        < body.index("private_response(body(), &[])")
+    )
     contextual = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
                   and entry["handler"] in {"admin::contextual::page", "admin::contextual::status",
                                            "admin::contextual::control", "admin::contextual::form"})
@@ -1448,6 +1474,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or 'Redirect::to("/login")' in evidence
             or fixed_book_create_return
             or collection_detail_guarded
+            or admin_entry_proof  # exact reviewed 404 for guest/nonadmin
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
@@ -1981,11 +2008,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "administrator":
         rec_binding = (route_key in rec_admin
                        and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
-        if not (rec_binding or audience_admin or audited_exposure or continuation_stats_admin):
+        if not (rec_binding or audience_admin or audited_exposure
+                or continuation_stats_admin or admin_entry_proof):
             errors.append(f"{label}: administrator exception is not allowed here")
         role_guard = "!actor.administrator" if audience_admin or audited_exposure else "!verified.administrator"
-        if not ("session_actor(" in evidence and role_guard in evidence
-                and "StatusCode::FORBIDDEN" in evidence):
+        if not admin_entry_proof and not (
+            "session_actor(" in evidence
+            and role_guard in evidence
+            and "StatusCode::FORBIDDEN" in evidence
+        ):
             errors.append(f"{label}: missing independent administrator role guard")
         audience_read = (
             ".report(days, provider, q.after.as_deref())" if audience_seo and entry["method"] == "GET"

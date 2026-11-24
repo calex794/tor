@@ -146,8 +146,12 @@ def check_repository(root: Path = ROOT) -> list[str]:
     for row in routes:
         template = row["template"]
         policy = row["policy"]
-        if template.startswith(("/admin", "/internal")) and policy != "deny":
+        if (template.startswith(("/admin", "/internal")) or template == "/odmen") and policy != "deny":
             key = (row["method"], template, row["handler"], policy)
+            allow_odmen = (
+                row["source"] == "crates/web/src/auth.rs"
+                and key == ("GET", "/odmen", "admin_entry::page", "administrator")
+            )
             allow_mail = (row["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                           and key in AUDITED_ADMIN_MAIL)
             allow_support = (row["source"] == "crates/web/src/auth/support_admin.rs"
@@ -211,7 +215,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
-            if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
+            if not (allow_odmen or allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
                     or allow_ratio_admin or allow_continuation_admin):

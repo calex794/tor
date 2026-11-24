@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 450)  # C-08 exact FREE open POST; session + CSRF.
-        self.assertEqual(report["route_pairs"], 447)  # C-08 adds one independent exact FREE open route.
+        self.assertEqual(report["route_bindings"], 451)  # C-08 open POST and admin /odmen GET.
+        self.assertEqual(report["route_pairs"], 448)  # C-08 FREE open and admin-only /odmen.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])

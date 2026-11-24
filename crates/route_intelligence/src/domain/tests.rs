@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         );
     }
     // C-08 adds reviewed session-bound FREE open acknowledgement.
-    assert_eq!(unique.len(), 447);
+    assert_eq!(unique.len(), 448);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
