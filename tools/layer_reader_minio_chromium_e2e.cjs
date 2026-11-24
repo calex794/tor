@@ -23,9 +23,11 @@ assert(!html.includes(fixture.expected_layer_markdown) &&
 const csrf = html.match(/data-csrf-token="([A-Za-z0-9_-]{43})"/)?.[1];
 assert(csrf, "Layer shell must provide server-generated CSRF token");
 
+assert(typeof fixture.reader_script === "string" && fixture.reader_script.length > 0,
+  "missing actual Rust paid reader script");
 const scripts = {
   "/assets/newboo-paid-reader.mjs":
-    fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs"),
+    Buffer.from(fixture.reader_script, "utf8"),
   "/assets/newboo-paid-comments.mjs":
     fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs"),
   "/assets/newboo-layer-reader.mjs":

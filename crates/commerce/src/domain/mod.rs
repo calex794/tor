@@ -1,3 +1,4 @@
+mod apportionment;
 pub mod batch_checkout;
 pub mod layer_allocation;
 pub mod layers;

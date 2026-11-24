@@ -42,6 +42,7 @@ pub use reader_paid::{
 };
 pub(crate) mod book_card_parts;
 mod public_catalog;
+pub(crate) mod reader_toc_assets;
 mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_observed, home, home_observed, CatalogPageQuery, PublicBookCard,
@@ -472,7 +473,7 @@ pub async fn free_reader_script() -> impl IntoResponse {
                 js.push('\n');
                 js.push_str(include_str!("../assets/newboo-free-progress.js"));
                 js.push('\n');
-                js.push_str(include_str!("../assets/newboo-free-toc.js"));
+                reader_toc_assets::append(&mut js, include_str!("../assets/newboo-free-toc.js"));
                 js.push('\n');
                 js.push_str(include_str!("../assets/newboo-free-issues.js"));
                 js.push('\n');
@@ -498,7 +499,7 @@ pub async fn paid_reader_script() -> impl IntoResponse {
             static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
                 let mut js = String::from(include_str!("../assets/newboo-paid-reader.mjs"));
                 js.push('\n');
-                js.push_str(include_str!("../assets/newboo-paid-toc.js"));
+                reader_toc_assets::append(&mut js, include_str!("../assets/newboo-paid-toc.js"));
                 js
             });
             JS.as_str()

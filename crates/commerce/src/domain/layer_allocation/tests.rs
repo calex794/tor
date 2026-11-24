@@ -274,3 +274,71 @@ fn d_08_input_order_does_not_change_money_or_recipient_order() {
     let second = preview_layer_attribution(&swapped).unwrap();
     assert_eq!(first, second);
 }
+
+#[test]
+fn reuse_06_same_frozen_creator_pool_matches_chapter_allocation() {
+    use crate::domain::{
+        money::MoneyMinor,
+        revenue_allocation::{
+            calculate_purchase_allocation, RevenueAllocationPolicy, RevenueShare,
+        },
+    };
+    use tor_contracts::paid_delivery::PositiveId;
+
+    for gross_minor in [1_i64, 2, 3, 99, 100, 101, 10_000, i64::MAX] {
+        for fee_bps in [0, 1000, 5000, 10_000] {
+            for percentages in [[34_u8, 33, 33], [50, 40, 10]] {
+                let shares = [30, 10, 20]
+                    .into_iter()
+                    .zip(percentages)
+                    .map(|(id, share_percent)| RevenueShare {
+                        recipient_id: PositiveId::new(id).unwrap(),
+                        share_percent,
+                    })
+                    .collect::<Vec<_>>();
+                let policy = RevenueAllocationPolicy::new("ci-reuse-06", fee_bps).unwrap();
+                let chapter = calculate_purchase_allocation(
+                    MoneyMinor::new(gross_minor).unwrap(),
+                    &policy,
+                    &shares,
+                )
+                .unwrap();
+                let mut input = base();
+                input.gross_minor = gross_minor;
+                input.platform_fee_minor = Some(chapter.platform_fee_minor.get());
+                input.weighting = Some(BookWeighting::WeightedLargestRemainder);
+                input.books = vec![FrozenBook {
+                    book_id: 10,
+                    share_revision: 2,
+                    weight_bps: Some(10_000),
+                    participants: shares
+                        .iter()
+                        .rev()
+                        .map(|share| FrozenParticipant {
+                            user_id: share.recipient_id.get(),
+                            percent: u16::from(share.share_percent),
+                        })
+                        .collect(),
+                }];
+                let preview = preview_layer_attribution(&input).unwrap();
+                let members = &preview.books[0].participants;
+                assert_eq!(preview.attributed_minor(), i128::from(gross_minor));
+                assert_eq!(
+                    preview.books[0].amount_minor,
+                    chapter.creator_pool_minor.get()
+                );
+                assert_eq!(
+                    members
+                        .iter()
+                        .map(|member| (member.user_id, member.amount_minor))
+                        .collect::<Vec<_>>(),
+                    chapter
+                        .creators
+                        .iter()
+                        .map(|line| (line.recipient_id.get(), line.amount_minor.get()))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+}
