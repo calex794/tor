@@ -26,7 +26,11 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
         .fetch_one(&mut connection)
         .await?;
     let build = tokio::spawn(async move {
-        let result = through(spec.version).run(&mut connection).await;
+        // SQLx 0.9 run_direct avoids the higher-ranked Acquire lifetime in a spawned future.
+        // None runs all migrations in the filtered set; false executes rather than skips.
+        let result = through(spec.version)
+            .run_direct(None, &mut connection, false)
+            .await;
         (result, connection)
     });
 
