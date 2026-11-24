@@ -1,6 +1,10 @@
 //! FND-00g: real owner HTTP editor opens only exact current paid S3-only
 //! source, then saves immutable V2 without PostgreSQL body Markdown.
 use super::*;
+use tor_commerce::{
+    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
+    repositories::checkout::PgCheckout,
+};
 
 #[tokio::test]
 #[ignore = "requires disposable PG18 and isolated MinIO"]
@@ -96,11 +100,53 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     pg(
         &url,
         &format!(
-            "INSERT INTO chapter_purchase_facts
-             (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
-             VALUES({buyer},{chapter},{v1},'fnd00-http-v1-{chapter}',225,'RUB')"
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({buyer},600,'RUB')"
         ),
     );
+    let pinned = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter).unwrap(),
+        version_id: PositiveId::new(v1).unwrap(),
+    };
+    let receipt = PgCheckout::new(pool.clone())
+        .checkout_once(
+            &PurchaseCommand::new(
+                PositiveId::new(buyer).unwrap(),
+                WalletId::new(buyer).unwrap(),
+                pinned,
+                MoneyMinor::new(225).unwrap(),
+                IdempotencyKey::parse(&generate_session_token()).unwrap(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt.pinned, pinned);
+    let paid_snapshot = || {
+        pg(
+            &url,
+            &format!(
+                "SELECT w.balance_minor || '|' || count(p.id) || '|' || min(p.version_id)
+                 FROM reader_wallet_accounts w
+                 JOIN chapter_purchase_facts p ON p.user_id=w.user_id
+                 WHERE w.user_id={buyer} AND p.chapter_id={chapter}
+                 GROUP BY w.balance_minor"
+            ),
+        )
+    };
+    assert_eq!(paid_snapshot(), format!("375|1|{v1}"));
+    let purchased_object = PgPaidStorage::new(pool.clone())
+        .encrypted_chapter(pinned)
+        .await
+        .unwrap()
+        .expect("purchase must cover a private V1 object");
+    let bought_ciphertext = store.get_verified(&purchased_object.object).await.unwrap();
+    let bought_source = tor_storage::repositories::registry::PgStorageRegistry::new(pool.clone())
+        .owned_current_paid_markdown(owner, book, pinned, BUCKET_BODYLESS_HTTP, &store, &ring)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(bought_source.as_str(), initial_body);
 
     let signer: Arc<dyn PrivateObjectDeliveryPort> = Arc::new(
         PgPrivateDelivery::with_keyring(
@@ -366,19 +412,43 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
         "Immutable paid editor|1|2",
         "form fields must not change immutable paid metadata"
     );
-    let first = ChapterVersionRef {
-        chapter_id: PositiveId::new(chapter).unwrap(),
-        version_id: PositiveId::new(v1).unwrap(),
-    };
-    assert!(PgPaidStorage::new(pool.clone())
-        .encrypted_chapter(first)
+    assert_eq!(paid_snapshot(), format!("375|1|{v1}"));
+    let grant = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/reader/chapters/{chapter}/delivery-grants"))
+                .method("POST")
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf.as_str())
+                .header(header::COOKIE, cookie(&buyer_session, &csrf))
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
         .await
-        .unwrap()
-        .is_some());
+        .unwrap();
+    assert_eq!(grant.status(), StatusCode::OK);
+    assert_eq!(grant.headers()[header::CACHE_CONTROL], "private, no-store");
+    let grant: serde_json::Value =
+        serde_json::from_slice(&to_bytes(grant.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(grant["version_id"], v1.to_string());
+    assert_eq!(
+        grant["content"]["object_sha256"],
+        hex::encode(tor_storage::services::crypto::sha256_bytes(
+            &bought_ciphertext
+        ))
+    );
+    assert_eq!(
+        store.get_verified(&purchased_object.object).await.unwrap(),
+        bought_ciphertext,
+        "author publishing V2 must not change any purchased V1 bytes"
+    );
     let (status, page) = browse(&app, &edit_path, &session, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
+    println!("D001_PAID_CHECKOUT_V1_THEN_AUTHOR_HTTP_V2_OK");
 
     // FND-00: rolling the operator flag back to OFF must never make a
     // bodyless V2 editable through the old PostgreSQL Markdown writer.
