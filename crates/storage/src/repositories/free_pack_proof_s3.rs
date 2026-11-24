@@ -5,11 +5,11 @@
 //! any signed URL and must never be wired to the reader HTTP response.
 
 use aws_sdk_s3::Client;
-use tokio::io::AsyncReadExt;
 
 use crate::{
     domain::provider::StorageError,
     services::{
+        bounded_body::read_bounded_body,
         free_chapter::FreeChapterObject,
         free_pack_proof::{verify_full_pack, PackProofTarget, VerifiedPack},
     },
@@ -60,12 +60,7 @@ impl S3PackProofStore {
         {
             return Err(StorageError::Corrupt);
         }
-        let mut reader = response.body.into_async_read().take(expected_bytes + 1);
-        let mut bytes = Vec::with_capacity((expected_bytes as usize).min(65_536));
-        reader
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        let bytes = read_bounded_body(response.body.into_async_read(), expected_bytes).await?;
         if bytes.len() as u64 != expected_bytes {
             return Err(StorageError::Corrupt);
         }

@@ -97,10 +97,20 @@ with exact-main CI and checked schema compatibility.
 
 ## 4. Server runtime configuration — future activation, not now
 
-TOR uses systemd `EnvironmentFile=/etc/tor/tor-app.env`. Only the authorized
-operator, after successful provider/IAM and disaster-recovery gates, installs
-server credentials into that protected file. The browser must never see
-`AWS_SECRET_ACCESS_KEY`. The AWS Rust SDK can read standard variables:
+Keep `/etc/tor/tor-app.env` as the existing single DATABASE_URL line. Adding
+S3 settings there breaks the ordinary release's exact credential check.
+After the separate external/provider, signed S3 release and DR gates, the
+authorized operator may install **both** a root:root 0600
+`/etc/tor/tor-runtime.env` and the root:root 0644
+`/etc/systemd/system/tor-web.service.d/30-runtime.conf` from
+[the fixed runtime drop-in](../../ops/tor-runtime.conf.example).
+The release validates the optional pair before migrations and before restart;
+it does not create, change, or remove the pair. Install no other conflicting
+EnvironmentFile/drop-in. Keep the runtime file in the strict unquoted
+ASCII KEY=value subset (no shell, quotes, escapes or duplicate names).
+Only currently supported S3 settings and content-key settings are accepted.
+The browser must never see `AWS_SECRET_ACCESS_KEY`. The AWS Rust SDK can
+read standard variables:
 
 ```ini
 AWS_REGION=ru-central1
@@ -116,6 +126,15 @@ TOR_PAID_AUTHOR_S3_ONLY_ENABLED=0
 ```
 
 This is a **non-executable example**, not a request to save/enable it now.
+For admin-managed S3 credentials, `TOR_S3_ADMIN_MASTER_KEY` belongs in the
+same separate runtime file; use the independently retained canonical base64
+encoding of a random 32-byte key. Never generate a replacement on each
+release. Historical `TOR_CONTENT_KEK_V1` and optional V2 use canonical
+unpadded URL-safe base64 as specified by
+[the KEK rotation contract](paid-content-kek-v2-rollout.md).
+Do not assume a default-feature release or old rollback binary supports
+S3 flags; compatible signed builds and operational rollback acceptance
+are separate requirements.
 `TOR_FREE_S3_PUBLIC_ORIGIN` must be derived from the actual signed reader
 GET URL/host and verified against CORS/CSP; do not guess that the SDK uses
 path-style or virtual-hosted-style URLs. S3 runtime requires the matching

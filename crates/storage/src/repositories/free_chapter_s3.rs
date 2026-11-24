@@ -3,12 +3,12 @@
 use async_trait::async_trait;
 use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 use tor_contracts::paid_delivery::{validate_signed_get_ttl, SecretValue};
 
 use crate::{
     domain::provider::{valid_private_bucket, StorageError},
     services::{
+        bounded_body::read_bounded_body,
         crypto::sha256_bytes,
         free_chapter::{FreeChapterObject, FreeChapterStore, FREE_MARKDOWN_CONTENT_TYPE},
         free_pack_read::{decode_exact_frame, PackFrameStore},
@@ -137,15 +137,7 @@ impl FreeChapterStore for S3FreeChapterStore {
             return Err(StorageError::Corrupt);
         }
         // Even a lying Content-Length cannot make this reader allocate >200 KB.
-        let mut reader = response
-            .body
-            .into_async_read()
-            .take(object.size_bytes() + 1);
-        let mut bytes = Vec::with_capacity((object.size_bytes() as usize).min(65_536));
-        reader
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        let bytes = read_bounded_body(response.body.into_async_read(), object.size_bytes()).await?;
         if bytes.len() as u64 != object.size_bytes()
             || sha256_bytes(&bytes) != *object.sha256()
             || std::str::from_utf8(&bytes).is_err()

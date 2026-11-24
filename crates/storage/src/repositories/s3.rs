@@ -12,7 +12,10 @@ use crate::{
         object_keys::{PrivateObjectKey, ENCRYPTED_CONTENT_TYPE},
         provider::{valid_ciphertext_size, valid_private_bucket, StorageError},
     },
-    services::{crypto::sha256_bytes, gc::OrphanDeletePort, provider::PrivateObjectStore},
+    services::{
+        bounded_body::read_bounded_body, crypto::sha256_bytes, gc::OrphanDeletePort,
+        provider::PrivateObjectStore,
+    },
 };
 
 #[derive(Clone)]
@@ -156,12 +159,7 @@ impl PrivateObjectStore for S3PrivateStore {
             return Err(StorageError::Corrupt);
         }
         // HEAD and Content-Length can both lie: bound the response stream too.
-        let mut reader = response.body.into_async_read().take(object.size_bytes + 1);
-        let mut bytes = Vec::with_capacity((object.size_bytes as usize).min(65_536));
-        reader
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        let bytes = read_bounded_body(response.body.into_async_read(), object.size_bytes).await?;
         if bytes.len() as u64 != object.size_bytes
             || sha256_bytes(&bytes) != object.sha256_ciphertext
         {

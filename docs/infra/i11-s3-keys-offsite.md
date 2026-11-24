@@ -24,3 +24,16 @@ Status: operator-only templates and architecture tests, NOT installed, scheduled
 - No deployment, production migrations, release approval, automatic cron/timer or activation is authorized by this change. Issue #739 and TOR-HOME-01 retain operational blockers.
 
 References: docs/infra/i11-offsite-backup.md, docs/infra/i11-pgbackrest-wal-pitr.md.
+## Runtime configuration recovery boundary
+
+Preserve the independently sealed copy of the historical content KEKs and
+TOR_S3_ADMIN_MASTER_KEY, separate from replaceable S3 access credentials.
+The approved runtime layout keeps /etc/tor/tor-app.env strictly DATABASE_URL
+and uses /etc/tor/tor-runtime.env with the fixed 30-runtime.conf drop-in.
+See [runtime preparation](tor-s3-existing-tore-activation.md#4-server-runtime-configuration--future-activation-not-now).
+The release validates the pair and never rewrites it. The backup script still
+accepts a caller-supplied nonempty bundle; this is NOT proof it includes all
+required key generations or that a recovered profile can decrypt. Validate
+that inventory and historical reader access independently. Do not copy an
+attacker-controlled service configuration or old replaceable passwords to a
+clean host; retain required historical keys under independent custody.

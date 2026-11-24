@@ -71,6 +71,125 @@ for secret in "$app_secret" "$migrator_secret"; do
   fi
 done
 
+# TOR_RUNTIME_ENV_GUARD_BEGIN
+# Optional operator-installed, separate runtime file. Never source it as shell,
+# generate keys here, or let it override DB/auth/listener/process settings.
+validate_runtime_configuration() {
+  local runtime_file="$1/tor-runtime.env" runtime_dropin="$2/30-runtime.conf"
+  if [[ ! -e "$runtime_file" && ! -L "$runtime_file" &&
+        ! -e "$runtime_dropin" && ! -L "$runtime_dropin" ]]; then
+    return 0
+  fi
+  if [[ -L "$1" || -L "$2" ||
+        $(stat -c '%U:%G:%a' "$1") != root:root:700 ||
+        $(stat -c '%U:%G:%a' "$2") != root:root:755 ||
+        -L "$runtime_file" || ! -f "$runtime_file" ||
+        $(stat -c '%U:%G:%a:%h' "$runtime_file") != root:root:600:1 ||
+        -L "$runtime_dropin" || ! -f "$runtime_dropin" ||
+        $(stat -c '%U:%G:%a:%h' "$runtime_dropin") != root:root:644:1 ]]; then
+    echo 'REFUSE_RUNTIME_ENV: unsafe or incomplete runtime configuration' >&2
+    return 1
+  fi
+  if ! cmp -s "$runtime_dropin" <(printf '[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n'); then
+    echo 'REFUSE_RUNTIME_ENV: unexpected runtime systemd drop-in' >&2
+    return 1
+  fi
+  # A deliberately small, unquoted, ASCII subset of systemd EnvironmentFile.
+  # Refuse unknown/duplicate names, continuation, expansion and raw diagnostics.
+  if ! python3 -I - "$runtime_file" <<'PY'
+import base64
+import binascii
+import re
+import sys
+from pathlib import Path
+
+flags = {
+    "TOR_PAID_GRANTS_ENABLED", "TOR_PAID_AUTHOR_PUBLISH_ENABLED",
+    "TOR_PAID_AUTHOR_S3_ONLY_ENABLED", "TOR_FREE_PACK_READER_ENABLED",
+    "TOR_CHAPTER_IMPORT_PACK_DIRECT_ENABLED", "TOR_DROP_PACK_WORKER_ENABLED",
+    "TOR_DROP_PACK_PLANNER_ENABLED", "TOR_DROP_PACK_CUTOVER_ENABLED",
+    "TOR_COVER_WORKER_ENABLED",
+}
+buckets = {
+    "TOR_FREE_S3_BUCKET", "TOR_CHAPTER_IMPORT_S3_BUCKET",
+    "TOR_COVER_S3_BUCKET", "TOR_PAID_S3_BUCKET",
+}
+origins = {"TOR_FREE_S3_PUBLIC_ORIGIN", "TOR_PAID_S3_PUBLIC_ORIGIN"}
+keyring = {"TOR_CONTENT_KEK_V1", "TOR_CONTENT_KEK_V2"}
+allowed = flags | buckets | origins | keyring | {
+    "AWS_REGION", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY", "TOR_S3_ADMIN_MASTER_KEY",
+    "TOR_CONTENT_ACTIVE_KEK_ID",
+}
+
+def require(ok):
+    if not ok:
+        raise ValueError("invalid runtime configuration")
+
+try:
+    path = Path(sys.argv[1])
+    with path.open("rb") as stream:
+        raw = stream.read(65537)
+    require(0 < len(raw) <= 65536 and raw.endswith(b"\n"))
+    values = {}
+    for line in raw.decode("ascii").split("\n")[:-1]:
+        if not line or line.startswith("#"):
+            require(not re.search(r"[\x00-\x1f\x7f]", line))
+            continue
+        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=([A-Za-z0-9+/=_:.-]{1,2048})", line)
+        require(match is not None)
+        name, value = match.groups()
+        require(name in allowed and name not in values)
+        values[name] = value
+    require(bool(values))
+    for name, value in values.items():
+        if name in flags:
+            require(value in {"0", "1"})
+        elif name in buckets:
+            require(re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", value)
+                    and ".." not in value)
+        elif name in origins:
+            require(re.fullmatch(r"https://[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", value)
+                    and ".." not in value)
+        elif name == "AWS_REGION":
+            require(re.fullmatch(r"[a-z0-9-]{2,64}", value))
+        elif name == "AWS_ENDPOINT_URL_S3":
+            require(value == "https://storage.yandexcloud.net")
+        elif name == "AWS_ACCESS_KEY_ID":
+            require(8 <= len(value) <= 128)
+        elif name == "AWS_SECRET_ACCESS_KEY":
+            require(16 <= len(value) <= 256)
+        elif name == "TOR_S3_ADMIN_MASTER_KEY":
+            key = base64.b64decode(value, validate=True)
+            require(len(key) == 32 and base64.b64encode(key).decode() == value)
+        elif name in keyring:
+            key = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+            require(len(key) == 32 and base64.urlsafe_b64encode(key).decode().rstrip("=") == value)
+        elif name == "TOR_CONTENT_ACTIVE_KEK_ID":
+            require(value in {"content-kek-v1", "content-kek-v2"})
+    require(("AWS_ACCESS_KEY_ID" in values) == ("AWS_SECRET_ACCESS_KEY" in values))
+    if "TOR_CONTENT_KEK_V2" in values:
+        require("TOR_CONTENT_KEK_V1" in values
+                and values["TOR_CONTENT_KEK_V1"] != values["TOR_CONTENT_KEK_V2"])
+    if "TOR_CONTENT_ACTIVE_KEK_ID" in values:
+        required = ("TOR_CONTENT_KEK_V2" if values["TOR_CONTENT_ACTIVE_KEK_ID"] == "content-kek-v2"
+                    else "TOR_CONTENT_KEK_V1")
+        require(required in values)
+    if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
+        require("TOR_CONTENT_KEK_V1" in values)
+except (ValueError, OSError, UnicodeError, binascii.Error):
+    sys.exit(1)
+PY
+  then
+    echo 'REFUSE_RUNTIME_ENV: invalid or unsupported runtime settings' >&2
+    return 1
+  fi
+}
+# TOR_RUNTIME_ENV_GUARD_END
+
+# Fail before migrations if the optional runtime configuration is unsafe.
+validate_runtime_configuration "$secret_dir" /etc/systemd/system/tor-web.service.d
+
 # Validate app authentication without sending the password via CLI arguments.
 app_line=$(cat "$app_secret")
 app_pattern='^DATABASE_URL=postgresql://tor_app:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable$'
@@ -202,8 +321,10 @@ undo() {
 }
 trap undo ERR
 
-# Do not overwrite a working production environment with a bootstrap-only
-# template on every upgrade: S3/other future settings may live here.
+# Retain the existing PostgreSQL drop-in. The separate runtime pair is
+# operator-owned, never rewritten, generated or removed by a release.
+# Recheck it before switching (operator changes must not race a release).
+validate_runtime_configuration "$secret_dir" "$dropin_dir"
 # Validate mandatory security invariants and retain the operator's settings.
 if [[ -f "$dropin" ]]; then
   for line in \

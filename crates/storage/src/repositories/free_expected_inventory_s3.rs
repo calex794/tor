@@ -3,9 +3,11 @@
 //! A failed GET (including an ambiguous 404) is UNKNOWN, never a deletion cue.
 use aws_sdk_s3::Client;
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncReadExt;
 
-use crate::domain::provider::{valid_private_bucket, StorageError};
+use crate::{
+    domain::provider::{valid_private_bucket, StorageError},
+    services::bounded_body::read_bounded_body,
+};
 
 const MAX_AUDIT_BYTES: u64 = 16_777_216;
 
@@ -86,12 +88,7 @@ impl S3FreeExpectedObjectVerifier {
         if response.content_length() != Some(expected_size as i64) {
             return Ok(FreeObjectEvidence::SizeMismatch);
         }
-        let mut reader = response.body.into_async_read().take(expected_size + 1);
-        let mut body = Vec::with_capacity((expected_size as usize).min(65_536));
-        reader
-            .read_to_end(&mut body)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        let body = read_bounded_body(response.body.into_async_read(), expected_size).await?;
         Ok(compare_actual_bytes(&body, &expected_sha256, expected_size))
     }
 }
