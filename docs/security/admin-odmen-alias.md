@@ -1,11 +1,11 @@
-# Admin entry: /одмен (Cyrillic)
+# Admin entry: /odmen (ASCII)
 
 User-facing administrative entry:
-https://pandaolate.ru/одмен
+https://pandaolate.ru/odmen
 
-The browser encodes the route as
-/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD. Only authenticated administrators
-may see this page; anonymous visitors and non-admins receive the same 404.
+The route is ASCII and does not require URL encoding. Only authenticated
+administrators may see this page; anonymous visitors and non-admins
+receive the same 404.
 The existing account page shows a single private administrative entry link
 instead of three deep links.
 

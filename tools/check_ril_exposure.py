@@ -146,11 +146,11 @@ def check_repository(root: Path = ROOT) -> list[str]:
     for row in routes:
         template = row["template"]
         policy = row["policy"]
-        if (template.startswith(("/admin", "/internal")) or template == "/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD") and policy != "deny":
+        if (template.startswith(("/admin", "/internal")) or template == "/odmen") and policy != "deny":
             key = (row["method"], template, row["handler"], policy)
             allow_odmen = (
                 row["source"] == "crates/web/src/auth.rs"
-                and key == ("GET", "/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD", "admin_entry::page", "administrator")
+                and key == ("GET", "/odmen", "admin_entry::page", "administrator")
             )
             allow_mail = (row["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                           and key in AUDITED_ADMIN_MAIL)

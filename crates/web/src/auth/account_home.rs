@@ -91,7 +91,7 @@ pub(super) async fn page(
         false,
     );
     let audience_link = if administrator {
-        "<a class=\"dashboard-nav__item\" href=\"/одмен\">Администрирование</a>"
+        "<a class=\"dashboard-nav__item\" href=\"/odmen\">Администрирование</a>"
     } else {
         ""
     };

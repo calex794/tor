@@ -402,11 +402,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
-    # A single new Cyrillic admin entry is audited independently. Never treat
+    # The single ASCII admin alias is audited independently. Never treat
     # the URL spelling or route policy row as proof of administrator access.
     admin_entry_route = (
         entry["method"] == "GET"
-        and entry["template"] == "/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD"
+        and entry["template"] == "/odmen"
         and entry["source"] == "crates/web/src/auth.rs"
         and entry["handler"] == "admin_entry::page"
         and entry["policy"] == "administrator"

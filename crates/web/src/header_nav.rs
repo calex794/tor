@@ -68,7 +68,7 @@ fn html_route(method: &Method, path: &str) -> bool {
 // Read-only administrative reports must neither issue CSRF cookies nor expose
 // a preexisting CSRF token in HTML. Logout remains available from /me.
 fn may_issue_header_csrf(path: &str) -> bool {
-    path != "/admin" && !path.starts_with("/admin/")
+    path != "/admin" && path != "/odmen" && !path.starts_with("/admin/")
 }
 
 /// Make a freshly minted CSRF cookie visible to both the header and the
@@ -249,6 +249,7 @@ mod tests {
     fn admin_reports_remain_cookie_free_without_a_preexisting_csrf_token() {
         assert!(may_issue_header_csrf("/me/books/new"));
         assert!(!may_issue_header_csrf("/admin"));
+        assert!(!may_issue_header_csrf("/odmen"));
         assert!(!may_issue_header_csrf("/admin/audience/reading"));
         assert!(!may_issue_header_csrf("/admin/mail/book-rooms"));
         let html = render_for(

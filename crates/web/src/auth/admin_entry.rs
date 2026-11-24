@@ -68,16 +68,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browser_percent_encoded_cyrillic_address_is_routable() {
-        // HTTP transports a Cyrillic URL as a percent-encoded path.
+    async fn ascii_admin_alias_is_routable() {
+        // ASCII aliases survive proxy routing without percent-encoding.
         let router = Router::new().route(
-            "/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD",
+            "/odmen",
             get(|| async { StatusCode::NO_CONTENT }),
         );
         let response = router
             .oneshot(
                 axum::http::Request::builder()
-                    .uri("/%D0%BE%D0%B4%D0%BC%D0%B5%D0%BD")
+                    .uri("/odmen")
                     .body(Body::empty())
                     .unwrap(),
             )
