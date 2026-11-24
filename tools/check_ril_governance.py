@@ -270,6 +270,42 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     return source.with_suffix("") / f"{module}.rs"
 
 
+# REUSE-02A is restricted to these two registered JSON grant endpoints.
+def _paid_grant_auth_binding(entry: dict[str, str]) -> bool:
+    return (
+        entry.get("source") == "crates/web/src/paid_grants_http.rs"
+        and (entry.get("method"), entry.get("template"), entry.get("handler")) in {
+            ("POST", "/api/v1/reader/chapters/{chapter_id}/delivery-grants", "chapter_grants::grant"),
+            ("POST", "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants", "asset_grants::grant_asset"),
+        }
+    )
+
+
+def _paid_grant_auth_proof(body: str, helper: str) -> bool:
+    # The reviewed gate must be the first action of the handler and return
+    # immediately on every failed authentication. Check the live helper's
+    # complete fail-closed sequence rather than accepting its name or a
+    # policy label. Whitespace and comments do not constitute evidence.
+    caller = re.sub(r"\s+", "", body).partition("->Response{")[2]
+    if not caller.startswith(
+        "let(session,actor)=matchsuper::request_auth::authenticate_grant(&state,&headers).await{"
+        "Ok(authenticated)=>authenticated,Err(status)=>returndeny(status),};"
+    ):
+        return False
+    implementation = re.sub(r"\s+", "", helper).partition("->Result<(String,i64),StatusCode>{")[2]
+    return implementation == (
+        "letsession=state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;"
+        "letactor=matchstate.accounts.active_session_user(&session_token_digest(&session)).await{"
+        "Ok(Some(actor))=>actor,Ok(None)=>returnErr(StatusCode::UNAUTHORIZED),"
+        "Err(_)=>returnErr(StatusCode::SERVICE_UNAVAILABLE),};"
+        "ifheaders.get(header::ORIGIN).and_then(|v|v.to_str().ok())"
+        "!=Some(state.cookies.origin.as_str())||!state.cookies.same_origin(headers)"
+        '||!headers.get("x-csrf-token").and_then(|v|v.to_str().ok())'
+        ".is_some_and(|csrf|state.cookies.valid_csrf(headers,csrf)){"
+        "returnErr(StatusCode::FORBIDDEN);}Ok((session,actor))}"
+    )
+
+
 def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # Explicit delegation, not arbitrary source file scanning: proof disappears
     # when the handler stops invoking its trusted shared helper.
@@ -402,6 +438,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    if _paid_grant_auth_binding(entry):
+        request_auth = functions.get("__paid_grant_request_auth", "")
+        if entry.get("policy") != "session" or not _paid_grant_auth_proof(body, request_auth):
+            errors.append(f"{label}: paid grant must reject failed shared session/Origin/CSRF gate")
+        else:
+            evidence += "\n" + request_auth
     # The single ASCII admin alias is audited independently. Never treat
     # the URL spelling or route policy row as proof of administrator access.
     admin_entry_route = (
@@ -2206,6 +2248,17 @@ def check(root: Path = ROOT) -> list[str]:
                 ).get("charge", "")
             except OSError:
                 source_cache[path]["__layer_charge"] = ""
+        if _paid_grant_auth_binding(entry):
+            try:
+                parent = _strip_comments(_production((root / entry["source"]).read_text(encoding="utf-8")))
+                auth_file = root / "crates/web/src/paid_grants_http/request_auth.rs"
+                shared = _functions(auth_file.read_text(encoding="utf-8"))
+                source_cache[path]["__paid_grant_request_auth"] = (
+                    shared.get("authenticate_grant", "")
+                    if re.search(r"(?m)^mod request_auth;$", parent) else ""
+                )
+            except OSError:
+                source_cache[path]["__paid_grant_request_auth"] = ""
         if entry.get("policy") == "observation":
             # Read reviewed owner evidence from this invocation's root, including
             # mutation fixtures. Never substitute the module-global checkout.

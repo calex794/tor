@@ -25,6 +25,32 @@ pub(super) async fn verify(
         None,
     );
     unavailable_pool.close().await;
+    let asset_path = format!(
+        "{}/assets/{UUID}/delivery-grants",
+        path.strip_suffix("/delivery-grants").unwrap()
+    );
+    // REUSE-02A: preserve the same session-first precedence for both
+    // routes even when Origin/CSRF is absent and PostgreSQL is unavailable.
+    for candidate in [path, asset_path.as_str()] {
+        assert_guard_denial(
+            send(&unavailable_app, candidate, None, None, None, "{}").await,
+            StatusCode::UNAUTHORIZED,
+        )
+        .await;
+        assert_guard_denial(
+            send(
+                &unavailable_app,
+                candidate,
+                Some(buyer_cookie),
+                None,
+                None,
+                "{}",
+            )
+            .await,
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+        .await;
+    }
     let outage_response = send(
         &unavailable_app,
         path,
@@ -72,6 +98,10 @@ pub(super) async fn verify(
         fake.clone(),
         None,
     );
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
+    for candidate in [path, asset_path.as_str()] {
+        verify_guard_denials(&available_app, candidate, buyer_cookie, csrf).await;
+    }
     assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
     fake.fail_next.store(1, Ordering::SeqCst);
     let g_outage = send(
@@ -161,4 +191,53 @@ pub(super) async fn verify(
     // Existing success path on the unaffected primary router must recover
     // for the same purchased V1 after both independent injected outages.
     fake.signed.store(0, Ordering::SeqCst);
+}
+
+async fn assert_guard_denial(response: Response, expected: StatusCode) {
+    assert_eq!(response.status(), expected);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = to_bytes(response.into_body(), 8192).await.unwrap();
+    assert!(!has_private_reader_material(&body));
+}
+
+async fn verify_guard_denials(app: &Router, path: &str, session: &str, csrf: &str) {
+    // A purchased chapter and valid session cannot substitute for a real
+    // same-origin JSON POST. Exercise both grant endpoints independently.
+    assert_guard_denial(
+        send(app, path, None, None, None, "{}").await,
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    for origin in [None, Some("null"), Some("https://evil.example")] {
+        assert_guard_denial(
+            send(app, path, Some(session), Some(csrf), origin, "{}").await,
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    }
+    let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
+    let duplicate = format!("{cookie}; tor-dev-csrf={csrf}");
+    for (cookie, posted, fetch_site) in [
+        (cookie.as_str(), None, "same-origin"),
+        (cookie.as_str(), Some("invalid"), "same-origin"),
+        (cookie.as_str(), Some(csrf), "cross-site"),
+        (duplicate.as_str(), Some(csrf), "same-origin"),
+    ] {
+        let mut request = Request::builder()
+            .uri(path)
+            .method("POST")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .header(header::ORIGIN, ORIGIN)
+            .header("sec-fetch-site", fetch_site);
+        if let Some(posted) = posted {
+            request = request.header("x-csrf-token", posted);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from("{}")).unwrap())
+            .await
+            .unwrap();
+        assert_guard_denial(response, StatusCode::FORBIDDEN).await;
+    }
 }
