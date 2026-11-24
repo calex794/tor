@@ -7,7 +7,14 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-OLD_PUBLIC_PREFIX = re.compile(r"/admin(?=/|-|[\"'\x60\s?#)]|$)", re.I)
+OLD_PUBLIC_PREFIX = re.compile(
+    r"(?:"
+    r"(?<![\w./-])/admin"
+    r"|/api/v1/admin"
+    r"|/read/admin"
+    r"|https?://[^/\s\x22\x27\x60]+/admin"
+    r")(?=/|-|[\x22\x27\x60\s?#)]|$)", re.I
+)
 TEXT = {".rs", ".py", ".cjs", ".js", ".mjs", ".html", ".json", ".css",
         ".sh", ".ts", ".tsx", ".md", ".sql", ".toml", ".tsv"}
 RUNTIME = ("crates/web/src", "crates/web/assets", "crates/web/templates",
@@ -47,6 +54,20 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
                    for scope, items in (("LIVE", old), ("OTHER", other))
                    for path, n in items]
         self.assertEqual(old + other, [], "\n" + "\n".join(summary[:280]))
+
+    def test_inventory_pattern_distinguishes_routes_from_code_paths(self):
+        for address in (
+            '"/admin/mail"', 'href="/admin/audience"',
+            '"/admin-history"', '/api/v1/admin/jobs/1/retry',
+            '/read/admin/12', 'https://pandaolate.ru/admin/support',
+        ):
+            self.assertIsNotNone(OLD_PUBLIC_PREFIX.search(address), address)
+        for not_route in (
+            "crates/web/src/recommendation_http/admin/contextual.rs",
+            "/__bp_honeypot/admin/private", "/go/admin",
+            "internal/admin route", "moderator/admin",
+        ):
+            self.assertIsNone(OLD_PUBLIC_PREFIX.search(not_route), not_route)
 
     def test_unrelated_honeypot_name_is_intentionally_preserved(self):
         decoy = (ROOT / "tools/a09_honeypot_browser.cjs").read_text(encoding="utf-8")
