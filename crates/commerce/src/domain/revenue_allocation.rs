@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use tor_contracts::paid_delivery::PositiveId;
 
-use super::money::MoneyMinor;
+use super::{apportionment, money::MoneyMinor};
 
 const BASIS_POINTS: i128 = 10_000;
 const HALF_BASIS: i128 = BASIS_POINTS / 2;
@@ -99,13 +99,6 @@ pub struct CreatorEarningHold {
     pub available_at_unix: i64,
 }
 
-#[derive(Clone, Copy)]
-struct RemainderRank {
-    index: usize,
-    remainder: i128,
-    recipient_id: i64,
-}
-
 /// Calculate the exact gross → platform fee + creator pool split.
 ///
 /// Platform fee uses ROUND_HALF_UP at the kopeck boundary. The creator pool
@@ -148,42 +141,12 @@ pub fn calculate_purchase_allocation(
         .get()
         .checked_sub(fee_minor)
         .ok_or(RevenueAllocationError::Overflow)?;
-    let creator_pool_i128 = i128::from(creator_pool);
-
-    let mut amounts = Vec::with_capacity(shares.len());
-    let mut ranking = Vec::with_capacity(shares.len());
-    let mut distributed = 0_i128;
-
-    for (index, share) in shares.iter().enumerate() {
-        let product = creator_pool_i128 * i128::from(share.share_percent);
-        let base = product / 100;
-        let remainder = product % 100;
-        let base = i64::try_from(base).map_err(|_| RevenueAllocationError::Overflow)?;
-        distributed += i128::from(base);
-        amounts.push(base);
-        ranking.push(RemainderRank {
-            index,
-            remainder,
-            recipient_id: share.recipient_id.get(),
-        });
-    }
-
-    let remaining = creator_pool_i128 - distributed;
-    let remaining = usize::try_from(remaining).map_err(|_| RevenueAllocationError::Overflow)?;
-    ranking.sort_by(|left, right| {
-        right
-            .remainder
-            .cmp(&left.remainder)
-            .then_with(|| left.recipient_id.cmp(&right.recipient_id))
-    });
-    if remaining > ranking.len() {
-        return Err(RevenueAllocationError::Overflow);
-    }
-    for rank in ranking.into_iter().take(remaining) {
-        amounts[rank.index] = amounts[rank.index]
-            .checked_add(1)
-            .ok_or(RevenueAllocationError::Overflow)?;
-    }
+    let weights: Vec<(i64, i64)> = shares
+        .iter()
+        .map(|share| (share.recipient_id.get(), i64::from(share.share_percent)))
+        .collect();
+    let amounts = apportionment::allocate(creator_pool, &weights, 100)
+        .ok_or(RevenueAllocationError::Overflow)?;
 
     let mut creators = Vec::with_capacity(shares.len());
     let mut allocated = 0_i64;
