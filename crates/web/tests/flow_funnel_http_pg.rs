@@ -240,7 +240,7 @@ async fn reading_library_and_follows_survive_retirement_without_linked_collectio
         (&reader_browser, StatusCode::FORBIDDEN),
     ] {
         let response = browser
-            .get(&h.app, "/admin/audience/funnel?days=invalid")
+            .get(&h.app, "/odmen/audience/funnel?days=invalid")
             .await;
         assert_eq!(response.status(), status);
         private(&response);
@@ -395,7 +395,7 @@ async fn reading_library_and_follows_survive_retirement_without_linked_collectio
     assert_eq!(optional_snapshot(&h.url, reader), before);
     for days in [1, 7, 30, 90] {
         let response = admin_browser
-            .get(&h.app, &format!("/admin/audience/funnel?days={days}"))
+            .get(&h.app, &format!("/odmen/audience/funnel?days={days}"))
             .await;
         assert_eq!(response.status(), StatusCode::OK);
         private(&response);
@@ -414,13 +414,13 @@ async fn reading_library_and_follows_survive_retirement_without_linked_collectio
     }
     for invalid in ["0", "2", "31", "invalid"] {
         let response = admin_browser
-            .get(&h.app, &format!("/admin/audience/funnel?days={invalid}"))
+            .get(&h.app, &format!("/odmen/audience/funnel?days={invalid}"))
             .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         private(&response);
     }
     pg(&h.url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let response = admin_browser.get(&h.app, "/admin/audience/funnel").await;
+    let response = admin_browser.get(&h.app, "/odmen/audience/funnel").await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     private(&response);
     assert_eq!(optional_snapshot(&h.url, reader), before);

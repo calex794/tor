@@ -27,7 +27,7 @@ use tor_web::flow_exposure::Runtime;
 use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3109";
 const API: &str = "/api/v1/flow/observations";
-const REPORT: &str = "/admin/audience/exposure";
+const REPORT: &str = "/odmen/audience/exposure";
 
 // Every fixture manipulates the same durable observation-epoch state.  In
 // particular, health tests expire the latest epoch, so running fixtures in
@@ -389,7 +389,7 @@ async fn administrator_report_uses_fresh_roles_and_ssr_proofs_are_from_trusted_r
                 .unwrap()
                 .passport
                 .route_family,
-            "/admin/"
+            "/odmen/"
         );
         if method == "HEAD" {
             assert!(text(denied).await.is_empty());
@@ -491,7 +491,7 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
     let campaign = send(
         &app,
         "GET",
-        "/admin/audience/exposure?source=editorial&campaign=19",
+        "/odmen/audience/exposure?source=editorial&campaign=19",
         &f.cookie,
         ORIGIN,
         "",
@@ -506,7 +506,7 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
         &send(
             &app,
             "GET",
-            "/admin/audience/exposure?source=editorial&campaign=20",
+            "/odmen/audience/exposure?source=editorial&campaign=20",
             &f.cookie,
             ORIGIN,
             "",

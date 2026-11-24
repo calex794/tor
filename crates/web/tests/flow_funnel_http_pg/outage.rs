@@ -63,7 +63,7 @@ async fn unavailable_funnel_is_private_503_and_does_not_stop_allowed_html() {
     let started = std::time::Instant::now();
     assert_eq!(browser.get(&h.app, "/").await.status(), StatusCode::OK);
     assert!(started.elapsed() < Duration::from_millis(950));
-    let response = browser.get(&h.app, "/admin/audience/funnel").await;
+    let response = browser.get(&h.app, "/odmen/audience/funnel").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&response);
     let html = text(response).await;
@@ -72,7 +72,7 @@ async fn unavailable_funnel_is_private_503_and_does_not_stop_allowed_html() {
     assert!(!html.contains("data-metric=\"cohorts\""));
     drop(lock);
     assert_eq!(
-        browser.get(&h.app, "/admin/audience/funnel").await.status(),
+        browser.get(&h.app, "/odmen/audience/funnel").await.status(),
         StatusCode::OK
     );
     pg(
