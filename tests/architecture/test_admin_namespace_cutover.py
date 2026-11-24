@@ -12,6 +12,8 @@ OLD_PUBLIC_PREFIX = re.compile(
     r"(?<![\w./-])/admin"
     r"|/api/v1/admin"
     r"|/read/admin"
+    r"|(?<![\w./-])/assets/newboo-admin-(?:reader\.mjs|support\.js)"
+    r"|/admin-(?:history|unsealed|sealed-history)"
     r"|/me/recommendations/(?:manage|contextual|shelf-preview)"
     r"|https?://[^/\s\x22\x27\x60]+/admin"
     r")(?=/|-|[\x22\x27\x60\s?#)]|$)", re.I
@@ -22,6 +24,11 @@ RUNTIME = ("crates/web/src", "crates/web/assets", "crates/web/templates",
            "crates/route_intelligence/src")
 OTHER = ("tools", "crates/web/tests", "tests/architecture",
          "docs/contracts", ".github/workflows")
+
+
+def legacy_public_matches(content):
+    # JavaScript regex literals escape slashes; they are still URL paths.
+    return OLD_PUBLIC_PREFIX.findall(content.replace(r"\/", "/"))
 
 
 def inventory(paths):
@@ -39,7 +46,7 @@ def inventory(paths):
                 content = path.read_text(encoding="utf-8")
             except (UnicodeError, OSError):
                 continue
-            count = len(OLD_PUBLIC_PREFIX.findall(content))
+            count = len(legacy_public_matches(content))
             if count:
                 found.append((path.relative_to(ROOT).as_posix(), count))
     return found
@@ -67,20 +74,27 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
             '"/me/recommendations/manage"',
             '"/me/recommendations/contextual"',
             '"/me/recommendations/shelf-preview"',
+            r"/\/admin\/support\/\d+$/",
+            'import("/assets/newboo-admin-reader.mjs")',
+            'src="/assets/newboo-admin-support.js"',
+            '"/api/v1/reader/chapters/123/admin-history"',
         ):
-            self.assertIsNotNone(OLD_PUBLIC_PREFIX.search(address), address)
+            self.assertTrue(legacy_public_matches(address), address)
         for not_route in (
             "crates/web/src/recommendation_http/admin/contextual.rs",
             "/__bp_honeypot/admin/private", "/go/admin",
             "internal/admin route", "moderator/admin",
+            'include_str!("../../assets/newboo-admin-reader.mjs")',
+            'data-admin-unsealed',
+            r"/\/odmen\/support\/\d+$/",
         ):
-            self.assertIsNone(OLD_PUBLIC_PREFIX.search(not_route), not_route)
+            self.assertFalse(legacy_public_matches(not_route), not_route)
 
 
     def test_negative_http_fixture_lists_only_four_explicit_legacy_routes(self):
         browser = (ROOT / "tools/audience_pg_browser.cjs").read_text(
             encoding="utf-8")
-        legacy = OLD_PUBLIC_PREFIX.findall(browser)
+        legacy = legacy_public_matches(browser)
         self.assertEqual(len(legacy), 4)
         for expected in (
             "/admin/audience",

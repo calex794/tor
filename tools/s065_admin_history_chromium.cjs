@@ -82,7 +82,7 @@ module.exports = async function historyAcceptance({
       // Hold a real server response until pagehide, then let the reader finish.
       // Await the exported loader itself: no timing-based sleep or fake body.
       const lateBody = await page.evaluate(async () => {
-        const { startAdministratorReader } = await import("/assets/newboo-admin-reader.mjs");
+        const { startAdministratorReader } = await import("/assets/newboo-odmen-reader.mjs");
         const originalFetch = window.fetch;
         let received, release;
         const arrived = new Promise(resolve => { received = resolve; });

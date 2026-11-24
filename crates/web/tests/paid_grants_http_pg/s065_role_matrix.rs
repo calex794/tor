@@ -329,7 +329,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     )
     .unwrap();
     assert!(html.contains("data-admin-chapter-reader"));
-    assert!(html.contains("newboo-admin-reader.mjs"));
+    assert!(html.contains("/assets/newboo-odmen-reader.mjs"));
     assert!(!html.contains(BODY));
     assert!(!html.contains("dek_b64u"));
     assert!(!html.contains("ciphertext_url"));
