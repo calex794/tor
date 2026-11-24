@@ -1,0 +1,120 @@
+name: Rust dependency security
+on:
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'deny.toml'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/workflows/rustsec.yml'
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rustsec-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  audit:
+    name: RustSec and dependency policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AUDIT_VERSION: '0.23.0'
+      DENY_VERSION: '0.20.2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve and record dependency snapshot
+        id: snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/rustsec-report"
+          mkdir -p "$report"
+          rustc --version
+          cargo --version
+          if git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
+            lock_state=tracked
+          else
+            lock_state=generated
+            echo '::warning::Cargo.lock is not tracked; this is a baseline scan only.'
+            cargo generate-lockfile
+          fi
+          test -s Cargo.lock
+          cp Cargo.lock "$report/Cargo.lock"
+          {
+            printf 'commit=%s\nlock_state=%s\n' "$(git rev-parse HEAD)" "$lock_state"
+            rustc --version
+            cargo --version
+            sha256sum Cargo.lock
+          } | tee "$report/snapshot.txt"
+          printf '### Rust dependency audit\n\nLock: %s\n\n' "$lock_state" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve exact dependency snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustsec-lockfile
+          path: |
+            ${{ runner.temp }}/rustsec-report/Cargo.lock
+            ${{ runner.temp }}/rustsec-report/snapshot.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Install pinned cargo-audit
+        id: install-audit
+        shell: bash
+        run: |
+          cargo install --locked --version "=$AUDIT_VERSION" cargo-audit
+          cargo audit --version
+      - name: Check RustSec advisories
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' && steps.install-audit.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/rustsec-report"
+          rc=0
+          cargo audit --json > "$report/audit.json" 2> "$report/audit.stderr" || rc=$?
+          cat "$report/audit.stderr"
+          cat "$report/audit.json"
+          printf '\nCargo audit exit: %s\n' "$rc" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - name: Install pinned cargo-deny
+        id: install-deny
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        shell: bash
+        run: |
+          cargo install --locked --version "=$DENY_VERSION" cargo-deny
+          cargo deny --version
+      - name: Check advisories, licenses, bans and sources
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' && steps.install-deny.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/rustsec-report"
+          rc=0
+          cargo deny --locked --all-features --format json check > "$report/deny.stdout" 2> "$report/deny.jsonl" || rc=$?
+          cat "$report/deny.stdout"
+          cat "$report/deny.jsonl"
+          printf '\nCargo deny exit: %s\n' "$rc" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - name: Require the audited lockfile to be committed and unchanged
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp Cargo.lock "$RUNNER_TEMP/rustsec-report/Cargo.lock"
+          git ls-files --error-unmatch Cargo.lock
+          git diff --exit-code -- Cargo.lock
+      - name: Preserve reports even when a finding fails the job
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustsec-report
+          path: ${{ runner.temp }}/rustsec-report/
+          if-no-files-found: error
+          retention-days: 14
