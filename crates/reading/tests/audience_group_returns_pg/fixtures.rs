@@ -14,9 +14,11 @@ async fn scoped_pool(url: &str) -> PgPool {
     PgPoolOptions::new()
         .after_connect(|connection, _| {
             Box::pin(async move {
-                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={SCHEMA},public")))
-                    .execute(connection)
-                    .await?;
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "SET search_path={SCHEMA},public"
+                )))
+                .execute(connection)
+                .await?;
                 Ok(())
             })
         })
@@ -38,10 +40,12 @@ impl Fixture {
             ("tor_ci_legacy_analytics".into(), "tor_migrator".into())
         );
         super::legacy::assert_schema(&admin).await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")))
-            .execute(&admin)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"
+        )))
+        .execute(&admin)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {SCHEMA}")))
             .execute(&admin)
             .await
@@ -82,10 +86,12 @@ impl Fixture {
         .execute(&admin)
         .await
         .unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {SCHEMA} TO tor_app")))
-            .execute(&admin)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {SCHEMA} TO tor_app"
+        )))
+        .execute(&admin)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE ALL ON ALL TABLES IN SCHEMA {SCHEMA} FROM tor_app"
         )))

@@ -23,9 +23,11 @@ async fn scoped_pool(url: &str, schema: &'static str, read_only: bool) -> PgPool
         .max_connections(3)
         .after_connect(move |connection, _| {
             Box::pin(async move {
-                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
-                    .execute(&mut *connection)
-                    .await?;
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "SET search_path={schema},public"
+                )))
+                .execute(&mut *connection)
+                .await?;
                 if read_only {
                     sqlx::query("SET default_transaction_read_only=on")
                         .execute(&mut *connection)
@@ -48,10 +50,12 @@ impl Fixture {
         let owner_url = super::current_analytics::url("MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
         super::current_analytics::assert_schema(&owner).await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM books WHERE id BETWEEN $1 AND $1+199 AND source_identity LIKE $2")
             .bind(base)
             .bind(format!("ci:{schema}:%"))
@@ -99,10 +103,12 @@ impl Fixture {
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -197,10 +203,13 @@ impl Fixture {
 
     pub async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM books WHERE id BETWEEN $1 AND $1+199 AND source_identity LIKE $2")
             .bind(self.base)
             .bind(format!("ci:{}:%", self.schema))

@@ -742,8 +742,16 @@ async fn cohort_cases(
         let result = report.returns_report(days).await.unwrap();
         assert_eq!(result.current.from_utc, result.previous.until_utc);
         for period in [&result.current, &result.previous] {
-            let from = ::time::OffsetDateTime::parse(&period.from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
-            let until = ::time::OffsetDateTime::parse(&period.until_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+            let from = ::time::OffsetDateTime::parse(
+                &period.from_utc,
+                &::time::format_description::well_known::Rfc3339,
+            )
+            .unwrap();
+            let until = ::time::OffsetDateTime::parse(
+                &period.until_utc,
+                &::time::format_description::well_known::Rfc3339,
+            )
+            .unwrap();
             assert_eq!((until - from).whole_seconds(), i64::from(days) * 86_400);
             for metric in period.metrics {
                 assert_eq!(

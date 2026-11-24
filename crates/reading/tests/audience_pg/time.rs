@@ -43,9 +43,12 @@ async fn equal_closed_windows_include_every_new_chapter_and_exact_boundaries() {
     let f = fixture("2026-11-11T12:34:56Z").await;
     let repo = PgAudience::new(f.app.clone());
     let empty = repo.time_report(1, "UTC").await.unwrap();
-    let anchor = ::time::OffsetDateTime::parse("2026-11-11T12:00:00Z", &::time::format_description::well_known::Rfc3339)
-        .unwrap()
-        .unix_timestamp();
+    let anchor = ::time::OffsetDateTime::parse(
+        "2026-11-11T12:00:00Z",
+        &::time::format_description::well_known::Rfc3339,
+    )
+    .unwrap()
+    .unix_timestamp();
     assert_eq!(empty.until_epoch, anchor);
     assert_eq!(empty.current.totals, counts(0, 0));
     assert_eq!(empty.previous.totals, counts(0, 0));

@@ -165,10 +165,12 @@ async fn policy_and_revision_changes_never_turn_legitimate_withdrawal_into_loss(
         "access_level='adult'",
         "lifecycle_status='pending_deletion'",
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE books SET {assignment} WHERE id=1")))
-            .execute(&f.pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE books SET {assignment} WHERE id=1"
+        )))
+        .execute(&f.pool)
+        .await
+        .unwrap();
         let report = f.store.report(ORIGIN).await.unwrap();
         assert!(report.rows[2..]
             .iter()

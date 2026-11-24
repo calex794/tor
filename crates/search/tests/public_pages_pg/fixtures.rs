@@ -1,5 +1,5 @@
 use sqlx::{
-// SQLx 0.9 test SQL audit: Schema is generated from timestamp digits; tables and grants are fixed fixture SQL.
+    // SQLx 0.9 test SQL audit: Schema is generated from timestamp digits; tables and grants are fixed fixture SQL.
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
@@ -67,10 +67,12 @@ impl Fixture {
             .await
             .unwrap();
         }
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -151,7 +153,9 @@ impl Fixture {
             .after_connect(move |c, _| {
                 let sql = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *c).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(sql))
+                        .execute(&mut *c)
+                        .await?;
                     sqlx::query("SET default_transaction_read_only=on")
                         .execute(c)
                         .await?;
@@ -164,10 +168,13 @@ impl Fixture {
     }
     pub async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }

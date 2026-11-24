@@ -62,7 +62,10 @@ impl Fixture {
                 "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
             ),
         ] {
-            sqlx::query(sqlx::AssertSqlSafe(query)).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(query))
+                .execute(&owner)
+                .await
+                .unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -71,9 +74,11 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let schema = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
-                        .execute(&mut *connection)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={schema},public"
+                    )))
+                    .execute(&mut *connection)
+                    .await?;
                     sqlx::query("SET statement_timeout = '1s'")
                         .execute(&mut *connection)
                         .await?;
@@ -97,10 +102,13 @@ impl Fixture {
     }
     pub(super) async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }

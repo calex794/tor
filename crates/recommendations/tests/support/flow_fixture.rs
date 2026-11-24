@@ -1,5 +1,5 @@
 use sqlx::{
-// SQLx 0.9 test SQL audit: Timestamp-generated schema, validated table names.
+    // SQLx 0.9 test SQL audit: Timestamp-generated schema, validated table names.
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
@@ -61,10 +61,12 @@ impl Fixture {
             .await
             .unwrap();
         }
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&mut *tx)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -95,10 +97,13 @@ impl Fixture {
     }
     pub async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.admin)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.admin)
+        .await
+        .unwrap();
         self.admin.close().await;
     }
 }

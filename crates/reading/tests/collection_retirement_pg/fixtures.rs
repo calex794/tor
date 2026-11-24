@@ -35,10 +35,12 @@ pub async fn pool(max: u32) -> PgPool {
     // These approved projections must remain legal row-locking ports, even
     // though retired analytics identities are no longer exposed through them.
     for view in ["reader_activity_consent", "reader_flow_consent"] {
-        let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT user_id FROM {view} FOR UPDATE")))
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT user_id FROM {view} FOR UPDATE"
+        )))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
         assert!(rows.is_empty());
     }
     pool

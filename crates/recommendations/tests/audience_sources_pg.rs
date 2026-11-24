@@ -386,11 +386,13 @@ async fn clean_journey(pool: &PgPool) {
         "rec_dirty_buckets",
         "organic_discovery_dirty",
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE book_id=ANY($1)")))
-            .bind(&ids)
-            .execute(pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE book_id=ANY($1)"
+        )))
+        .bind(&ids)
+        .execute(pool)
+        .await
+        .unwrap();
     }
     sqlx::query("DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id=ANY($1))")
         .bind(&ids).execute(pool).await.unwrap();

@@ -139,9 +139,12 @@ mod tests {
 
     #[test]
     fn four_modes_and_exact_utc_hour_boundary_are_deterministic() {
-        let now = OffsetDateTime::parse("2026-11-10T12:00:00Z", &time::format_description::well_known::Rfc3339)
-            .unwrap()
-            .to_offset(UtcOffset::UTC);
+        let now = OffsetDateTime::parse(
+            "2026-11-10T12:00:00Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap()
+        .to_offset(UtcOffset::UTC);
         let mut counts = [0; 24];
         counts[16] = 5;
         let preferred = choose_preferred_hour(&counts);
@@ -156,17 +159,23 @@ mod tests {
         assert_eq!(
             plan_send_time(DeliveryMode::SmartTime, preferred, now),
             SendTiming::AtUtc(
-                OffsetDateTime::parse("2026-11-10T16:00:00Z", &time::format_description::well_known::Rfc3339)
-                    .unwrap()
-                    .to_offset(UtcOffset::UTC)
+                OffsetDateTime::parse(
+                    "2026-11-10T16:00:00Z",
+                    &time::format_description::well_known::Rfc3339
+                )
+                .unwrap()
+                .to_offset(UtcOffset::UTC)
             )
         );
         assert_eq!(
             plan_send_time(DeliveryMode::DailyDigest, preferred, now),
             SendTiming::AtUtc(
-                OffsetDateTime::parse("2026-11-11T12:00:00Z", &time::format_description::well_known::Rfc3339)
-                    .unwrap()
-                    .to_offset(UtcOffset::UTC)
+                OffsetDateTime::parse(
+                    "2026-11-11T12:00:00Z",
+                    &time::format_description::well_known::Rfc3339
+                )
+                .unwrap()
+                .to_offset(UtcOffset::UTC)
             )
         );
         assert_eq!(

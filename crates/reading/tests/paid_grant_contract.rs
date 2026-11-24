@@ -1,7 +1,7 @@
 //! C-06/S3-18: D→B→G order, pinned V1, revocation race and no-secret failures.
+use ::time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use ::time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use std::{
     collections::VecDeque,
     sync::{

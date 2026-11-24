@@ -214,14 +214,16 @@ impl PgNotifications {
             read_policy::VISIBLE
         );
         // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(sqlx::AssertSqlSafe(sql))
-            .bind(actor)
-            .bind(before)
-            .bind(i64::from(limit))
-            .bind(section)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(unavailable)?;
+        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
+            sqlx::AssertSqlSafe(sql),
+        )
+        .bind(actor)
+        .bind(before)
+        .bind(i64::from(limit))
+        .bind(section)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)?;
         Ok(rows
             .into_iter()
             .map(|r| UserNotification {

@@ -17,12 +17,19 @@ impl Fixture {
         let owner_url = std::env::var("MIGRATOR_URL").expect("isolated migrator URL");
         assert!(app_url.ends_with("/tor_ci") && owner_url.ends_with("/tor_ci"));
         let owner = PgPool::connect(&owner_url).await.unwrap();
-        assert!(!label.is_empty() && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'));
+        assert!(
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        );
         let schema = format!("surprise_{label}");
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
@@ -41,10 +48,12 @@ impl Fixture {
             .await
             .unwrap();
         }
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -63,7 +72,9 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let cmd = format!("SET search_path={path},public");
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(cmd)).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(cmd))
+                        .execute(connection)
+                        .await?;
                     Ok(())
                 })
             })
@@ -118,10 +129,13 @@ impl Fixture {
             .execute(&self.app)
             .await
             .unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
     }
 }
 

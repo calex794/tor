@@ -24,7 +24,10 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
         format!("GRANT USAGE ON SCHEMA {namespace} TO tor_app"),
         format!("GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {namespace} TO tor_app"),
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(statement)).execute(&f.owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(statement))
+            .execute(&f.owner)
+            .await
+            .unwrap();
     }
     let configured = namespace.clone();
     let legacy = sqlx::postgres::PgPoolOptions::new()
@@ -127,9 +130,11 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
     );
     lock.rollback().await.unwrap();
     legacy.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {namespace} CASCADE")))
-        .execute(&f.owner)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP SCHEMA {namespace} CASCADE"
+    )))
+    .execute(&f.owner)
+    .await
+    .unwrap();
     f.finish().await;
 }

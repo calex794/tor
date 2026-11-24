@@ -5,7 +5,9 @@ use tor_reading::services::audience::time::ReadingTimeCounts;
 pub use super::super::canonical::fixture::Fixture;
 
 pub async fn fixture(clock: &str) -> Fixture {
-    let parsed = ::time::OffsetDateTime::parse(clock, &::time::format_description::well_known::Rfc3339).unwrap();
+    let parsed =
+        ::time::OffsetDateTime::parse(clock, &::time::format_description::well_known::Rfc3339)
+            .unwrap();
     let mut f = Fixture::new().await;
     f.sql(
         "CREATE TABLE reader_chapter_starts (LIKE public.reader_chapter_starts INCLUDING ALL);
@@ -38,9 +40,11 @@ pub async fn fixture(clock: &str) -> Fixture {
         .after_connect(move |connection, _| {
             let schema = namespace.clone();
             Box::pin(async move {
-                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},pg_catalog")))
-                    .execute(&mut *connection)
-                    .await?;
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "SET search_path={schema},pg_catalog"
+                )))
+                .execute(&mut *connection)
+                .await?;
                 sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                     .execute(&mut *connection)
                     .await?;

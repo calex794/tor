@@ -36,7 +36,10 @@ impl Fixture {
             format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"),
             format!("GRANT SELECT ON {schema}.ril_flow_hourly TO tor_app"),
         ] {
-            sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(&owner)
+                .await
+                .unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -45,9 +48,11 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let namespace = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={namespace},public")))
-                        .execute(&mut *connection)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={namespace},public"
+                    )))
+                    .execute(&mut *connection)
+                    .await?;
                     // A fractional-hour zone catches accidental local-hour truncation.
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(connection)
@@ -67,18 +72,23 @@ impl Fixture {
     }
 
     async fn execute(&self, sql: &str) {
-        sqlx::query(sqlx::AssertSqlSafe(sql.replace("{table}", &format!("{}.ril_flow_hourly", self.schema))))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(
+            sql.replace("{table}", &format!("{}.ril_flow_hourly", self.schema)),
+        ))
+        .execute(&self.owner)
+        .await
+        .unwrap();
     }
 
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }

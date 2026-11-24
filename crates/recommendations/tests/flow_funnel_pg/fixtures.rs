@@ -25,12 +25,19 @@ impl Fixture {
         let owner_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
         legacy_analytics::assert_schema(&owner).await;
-        assert!(!name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'));
+        assert!(
+            !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        );
         let schema = format!("flow_funnel_{name}");
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
@@ -61,10 +68,12 @@ impl Fixture {
             ADD FOREIGN KEY(cohort_id,subject_id,flow_epoch,book_id)
             REFERENCES {schema}.flow_book_cohorts(id,subject_id,flow_epoch,book_id) ON DELETE CASCADE")))
             .execute(&owner).await.unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -77,7 +86,9 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let statement = format!("SET search_path={selected},public");
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(statement)).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(statement))
+                        .execute(connection)
+                        .await?;
                     Ok(())
                 })
             })
@@ -291,7 +302,10 @@ impl Fixture {
     }
 
     pub async fn scalar(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned())).fetch_one(&self.app).await.unwrap()
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned()))
+            .fetch_one(&self.app)
+            .await
+            .unwrap()
     }
 
     pub async fn deliveries(&self, consumer: Option<&str>) -> i64 {
@@ -321,10 +335,13 @@ impl Fixture {
             .await
             .unwrap();
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
     }
 }
 

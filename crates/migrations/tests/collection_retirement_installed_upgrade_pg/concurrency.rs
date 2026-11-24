@@ -85,9 +85,24 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
     // user -> scope cascade, book -> aggregate/raw cascade, outbox -> C receipt.
     // Fixed table names and typed bound fixture identifiers; no SQL text from values.
     let parents = [
-        ("users", "DELETE FROM users WHERE id=$1::text::bigint", "SELECT 1 FROM users WHERE id=$1::text::bigint FOR UPDATE NOWAIT", f.cascade_actor.to_string()),
-        ("books", "DELETE FROM books WHERE id=$1::text::bigint", "SELECT 1 FROM books WHERE id=$1::text::bigint FOR UPDATE NOWAIT", f.cascade_book.to_string()),
-        ("outbox_events", "DELETE FROM outbox_events WHERE id=$1::text::uuid", "SELECT 1 FROM outbox_events WHERE id=$1::text::uuid FOR UPDATE NOWAIT", f.delete_event.clone()),
+        (
+            "users",
+            "DELETE FROM users WHERE id=$1::text::bigint",
+            "SELECT 1 FROM users WHERE id=$1::text::bigint FOR UPDATE NOWAIT",
+            f.cascade_actor.to_string(),
+        ),
+        (
+            "books",
+            "DELETE FROM books WHERE id=$1::text::bigint",
+            "SELECT 1 FROM books WHERE id=$1::text::bigint FOR UPDATE NOWAIT",
+            f.cascade_book.to_string(),
+        ),
+        (
+            "outbox_events",
+            "DELETE FROM outbox_events WHERE id=$1::text::uuid",
+            "SELECT 1 FROM outbox_events WHERE id=$1::text::uuid FOR UPDATE NOWAIT",
+            f.delete_event.clone(),
+        ),
     ];
     for (table, delete, lock, value) in parents {
         let mut parent = app.begin().await?;
@@ -121,7 +136,10 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
             sqlx::query("SET LOCAL statement_timeout='5s'")
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query(delete).bind(delete_value).execute(&mut *tx).await?;
+            sqlx::query(delete)
+                .bind(delete_value)
+                .execute(&mut *tx)
+                .await?;
             tx.rollback().await
         });
         wait_for_lock(app, &name).await?;

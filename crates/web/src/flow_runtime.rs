@@ -12,7 +12,10 @@ pub(crate) fn utc(epoch: i64) -> String {
     time::OffsetDateTime::from_unix_timestamp(epoch)
         .ok()
         .and_then(|at| {
-            at.format(time::macros::format_description!("[year]-[month]-[day] [hour]:[minute] UTC")).ok()
+            at.format(time::macros::format_description!(
+                "[year]-[month]-[day] [hour]:[minute] UTC"
+            ))
+            .ok()
         })
         .unwrap_or_else(|| "время неизвестно".into())
 }

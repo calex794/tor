@@ -241,17 +241,21 @@ async fn current_membership_and_visibility(fixture: &Fixture, store: &PgReadingR
         ("access_level='adult'", "access_level='basic'"),
         ("access_level='pro_adult'", "access_level='basic'"),
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE public.books SET {hide} WHERE id=$1")))
-            .bind(fixture.books[0])
-            .execute(&fixture.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE public.books SET {hide} WHERE id=$1"
+        )))
+        .bind(fixture.books[0])
+        .execute(&fixture.owner)
+        .await
+        .unwrap();
         assert_hidden(fixture, store).await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE public.books SET {restore} WHERE id=$1")))
-            .bind(fixture.books[0])
-            .execute(&fixture.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE public.books SET {restore} WHERE id=$1"
+        )))
+        .bind(fixture.books[0])
+        .execute(&fixture.owner)
+        .await
+        .unwrap();
     }
     for audience in ["adult", "unreviewed"] {
         sqlx::query("INSERT INTO public.book_recommendation_audiences(book_id,audience) VALUES($1,$2) ON CONFLICT(book_id) DO UPDATE SET audience=$2")

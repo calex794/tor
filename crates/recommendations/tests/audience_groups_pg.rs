@@ -44,10 +44,12 @@ impl Fixture {
                     ARRAY['tag-all','t-'||lpad(i::text,3,'0')]
              FROM generate_series(0,$2::int-1) i",
         ).bind(base).bind(count).execute(&owner).await.unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
@@ -71,10 +73,12 @@ impl Fixture {
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {schema}.rec_public_books AS SELECT * FROM public.rec_public_books WHERE id BETWEEN {base} AND {base}+199"
         ))).execute(&owner).await.unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -86,7 +90,9 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let command = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(command)).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(command))
+                        .execute(connection)
+                        .await?;
                     Ok(())
                 })
             })
@@ -103,10 +109,13 @@ impl Fixture {
 
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM books WHERE id BETWEEN $1 AND $1::bigint+199")
             .bind(self.base)
             .execute(&self.owner)

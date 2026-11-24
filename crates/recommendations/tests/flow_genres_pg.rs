@@ -74,10 +74,12 @@ impl Fixture {
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
-            .execute(&owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
         )))
@@ -119,10 +121,13 @@ impl Fixture {
     }
     async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }
@@ -362,9 +367,11 @@ async fn closed_windows_use_exact_utc_hours_in_dst_and_fractional_offset_session
             .after_connect(move |conn, _| {
                 let schema = schema.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
-                        .execute(&mut *conn)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={schema},public"
+                    )))
+                    .execute(&mut *conn)
+                    .await?;
                     sqlx::query("SELECT set_config('TimeZone',$1,false)")
                         .bind(zone)
                         .execute(&mut *conn)

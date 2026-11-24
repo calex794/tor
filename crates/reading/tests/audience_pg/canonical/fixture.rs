@@ -1,5 +1,5 @@
 use sqlx::{
-// SQLx 0.9 test SQL audit: Timestamp-generated schema and fixed tables and grants; fixture statements are code-owned.
+    // SQLx 0.9 test SQL audit: Timestamp-generated schema and fixed tables and grants; fixture statements are code-owned.
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
@@ -58,7 +58,10 @@ impl Fixture {
             format!("REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM tor_app"),
             format!("GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"),
         ] {
-            sqlx::query(sqlx::AssertSqlSafe(command)).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(command))
+                .execute(&owner)
+                .await
+                .unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -66,9 +69,11 @@ impl Fixture {
             .after_connect(move |conn, _| {
                 let schema = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
-                        .execute(&mut *conn)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={schema},public"
+                    )))
+                    .execute(&mut *conn)
+                    .await?;
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(&mut *conn)
                         .await?;
@@ -85,11 +90,17 @@ impl Fixture {
     }
     pub async fn sql(&self, sql: &str) {
         let mut tx = self.owner.begin().await.unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("SET LOCAL search_path={},public", self.schema)))
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SET LOCAL search_path={},public",
+            self.schema
+        )))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
             .execute(&mut *tx)
             .await
             .unwrap();
-        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
     }
     pub async fn books(&self, count: i32) {
@@ -121,10 +132,13 @@ impl Fixture {
     }
     pub async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }

@@ -45,10 +45,13 @@ async fn clock(f: &Fixture, millis: i64) {
     .execute(&f.admin)
     .await
     .unwrap();
-    sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {}.flow_test_clock", f.schema)))
-        .execute(&f.admin)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {}.flow_test_clock",
+        f.schema
+    )))
+    .execute(&f.admin)
+    .await
+    .unwrap();
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {}.flow_test_clock VALUES($1)",
         f.schema

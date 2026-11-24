@@ -43,7 +43,10 @@ impl Fixture {
             format!("REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM tor_app"),
             format!("GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"),
         ] {
-            sqlx::query(sqlx::AssertSqlSafe(statement)).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(statement))
+                .execute(&owner)
+                .await
+                .unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -51,9 +54,11 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let schema = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
-                        .execute(&mut *connection)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={schema},public"
+                    )))
+                    .execute(&mut *connection)
+                    .await?;
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(&mut *connection)
                         .await?;
@@ -80,10 +85,13 @@ impl Fixture {
     }
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }
@@ -127,9 +135,21 @@ async fn snapshots_deduplicate_accounts_not_links_and_removals_are_not_history()
         );
         assert_eq!(report.previous.library_links, if days == 7 { 1 } else { 0 });
         assert_eq!(report.previous.follow_links, if days == 7 { 1 } else { 0 });
-        let at = ::time::OffsetDateTime::parse(&report.measured_at_utc, &::time::format_description::well_known::Rfc3339).unwrap();
-        let from = ::time::OffsetDateTime::parse(&report.current_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
-        let prior = ::time::OffsetDateTime::parse(&report.previous_from_utc, &::time::format_description::well_known::Rfc3339).unwrap();
+        let at = ::time::OffsetDateTime::parse(
+            &report.measured_at_utc,
+            &::time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let from = ::time::OffsetDateTime::parse(
+            &report.current_from_utc,
+            &::time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let prior = ::time::OffsetDateTime::parse(
+            &report.previous_from_utc,
+            &::time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
         assert_eq!((at - from).whole_seconds(), i64::from(days) * 86_400);
         assert_eq!((from - prior).whole_seconds(), i64::from(days) * 86_400);
     }

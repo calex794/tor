@@ -1,7 +1,7 @@
 //! P1b: provider-neutral offer intent, with a strict external Boosty URL boundary.
 //! No money, purchase evidence, user history or active serving lives in this module.
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use std::fmt;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

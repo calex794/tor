@@ -199,7 +199,10 @@ mod tests {
         assert_eq!(&archive[0..4], b"PK\x03\x04");
         assert_eq!(&archive[30..49], b"[Content_Types].xml");
         archive[30] = b'X';
-        assert_eq!(extract_docx_text(&archive), Err(ImportError::InvalidArchive));
+        assert_eq!(
+            extract_docx_text(&archive),
+            Err(ImportError::InvalidArchive)
+        );
     }
 
     #[test]

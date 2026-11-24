@@ -1,9 +1,9 @@
 //! FLOW-08: actual nonfinancial campaigns, current authority and three safe slots.
 #![forbid(unsafe_code)]
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tor_ads::{
     domain::editorial::*, repositories::editorial::PgEditorial, services::editorial::Editorial,
 };

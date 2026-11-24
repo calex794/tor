@@ -62,11 +62,13 @@ impl Fixture {
         sqlx::query_as("SELECT sum(opportunities)::bigint,sum(rendered)::bigint,sum(views)::bigint,sum(clicks)::bigint,sum(replayed)::bigint FROM flow_observation_hourly WHERE book_id=$1").bind(self.books[n]).fetch_one(&self.pool).await.unwrap()
     }
     pub async fn book_change(&self, assignment: &'static str) {
-        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE books SET {assignment} WHERE id=$1")))
-            .bind(self.books[0])
-            .execute(&self.pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE books SET {assignment} WHERE id=$1"
+        )))
+        .bind(self.books[0])
+        .execute(&self.pool)
+        .await
+        .unwrap();
     }
     pub async fn cleanup(self) {
         let mut tx = self.pool.begin().await.unwrap();

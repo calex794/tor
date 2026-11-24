@@ -18,7 +18,9 @@ pub fn code(error: sqlx::Error, expected: &str) {
 fn fixture_identifier(name: &str) -> bool {
     !name.is_empty()
         && name.as_bytes()[0].is_ascii_lowercase()
-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 pub async fn old_writers_and_canonical_noops(app: &PgPool, f: &Fixture) -> TestResult {
@@ -71,10 +73,12 @@ pub async fn old_writers_and_canonical_noops(app: &PgPool, f: &Fixture) -> TestR
          ON CONFLICT DO NOTHING",
     ).bind(&f.event).execute(app).await.unwrap_err(), "55000");
     for view in ["reader_activity_consent", "reader_flow_consent"] {
-        let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT * FROM {view} WHERE user_id=$1 FOR UPDATE")))
-            .bind(f.actor)
-            .fetch_all(app)
-            .await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT * FROM {view} WHERE user_id=$1 FOR UPDATE"
+        )))
+        .bind(f.actor)
+        .fetch_all(app)
+        .await?;
         assert!(
             rows.is_empty(),
             "the old C port stays row-lockable and empty"
