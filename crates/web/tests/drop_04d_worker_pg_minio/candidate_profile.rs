@@ -167,12 +167,26 @@ async fn fnd00_free_candidate_runtime_uses_bodyless_s023() {
         "text": format!("Глава 1: Начало\n{BODY}"),
         "csrf_token": csrf,
     });
-    let preview = post(&client, &origin, &format!("{route}-preview"), &cookie, input.clone()).await;
+    let preview = post(
+        &client,
+        &origin,
+        &format!("{route}-preview"),
+        &cookie,
+        input.clone(),
+    )
+    .await;
     assert_eq!(preview["count"], 1);
     let mut command = input;
     command["fingerprint"] = preview["fingerprint"].clone();
     command["command_key"] = json!(generate_session_token());
-    let accepted = post(&client, &origin, &format!("{route}-queue"), &cookie, command).await;
+    let accepted = post(
+        &client,
+        &origin,
+        &format!("{route}-queue"),
+        &cookie,
+        command,
+    )
+    .await;
     let job_id = accepted["job_id"].as_i64().unwrap();
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
