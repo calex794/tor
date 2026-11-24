@@ -97,7 +97,7 @@ async fn s039_payout_post_http_closed_by_default() {
     let result = request(
         &site,
         "POST",
-        "/admin/finance/payouts/1/post",
+        "/odmen/finance/payouts/1/post",
         "",
         ORIGIN,
         "invalid=true",
@@ -185,7 +185,7 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
         .await
         .unwrap();
     let site = app(accounts, catalog);
-    let path = format!("/admin/finance/payouts/{id}/post");
+    let path = format!("/odmen/finance/payouts/{id}/post");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let form =
@@ -206,7 +206,7 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
     let queue = request(
         &site,
         "GET",
-        "/admin/finance/payouts",
+        "/odmen/finance/payouts",
         &admin_cookie,
         ORIGIN,
         "",

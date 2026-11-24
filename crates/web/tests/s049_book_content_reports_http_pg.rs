@@ -288,7 +288,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         )), "1"
     );
 
-    let admin_path = "/admin/book-reports";
+    let admin_path = "/odmen/book-reports";
     assert_eq!(
         send(&app, "GET", admin_path, "", "").await.status(),
         StatusCode::UNAUTHORIZED
@@ -316,7 +316,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     );
     let q_csrf = field(&q_html, "csrf_token");
     let admin_cookies = format!("{admin}; {q_cookie}");
-    let decision_path = format!("/admin/book-reports/{report}/decision");
+    let decision_path = format!("/odmen/book-reports/{report}/decision");
     let decision = format!("decision=reviewed&note=Confirmed&csrf_token={q_csrf}");
     assert_eq!(
         send(&app, "POST", &decision_path, &admin, &decision)
@@ -476,7 +476,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     let comments_queue = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
     assert!(comments_queue.contains(&format!("Комментарий #{comment}")));
     assert!(!comments_queue.contains("Reported comment body"));
-    let comment_decision = format!("/admin/book-reports/{comment_report}/decision");
+    let comment_decision = format!("/odmen/book-reports/{comment_report}/decision");
     assert_eq!(
         send(&app, "POST", &comment_decision, &admin_cookies, &decision)
             .await
@@ -526,7 +526,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     let manual_hide = format!(
         "decision=hide_comment&note=Confirmed+%3Cscript%3Ealert%281%29%3C%2Fscript%3E&csrf_token={q_csrf}"
     );
-    let manual_path = format!("/admin/book-reports/{next_report}/decision");
+    let manual_path = format!("/odmen/book-reports/{next_report}/decision");
     // An active moderator still cannot hide a comment by forged POST.
     assert_eq!(
         send(&app, "POST", &manual_path, &mod_cookies, &manual_hide)
@@ -598,7 +598,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     ))
     .parse()
     .unwrap();
-    let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
+    let book_only_action = format!("/odmen/book-reports/{book_only_report}/decision");
     assert_eq!(
         send(&app, "GET", admin_path, &mod_cookies, "")
             .await

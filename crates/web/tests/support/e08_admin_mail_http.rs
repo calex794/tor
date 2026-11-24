@@ -61,9 +61,9 @@ async fn e_08_admin_mail_html_requires_live_role_and_audits() {
         false,
         ORIGIN.to_owned(),
     );
-    let mailbox = format!("/admin/mail/users/{}", users[1]);
-    let detail = format!("/admin/mail/{id}");
-    for path in ["/admin/mail", &mailbox, &detail] {
+    let mailbox = format!("/odmen/mail/users/{}", users[1]);
+    let detail = format!("/odmen/mail/{id}");
+    for path in ["/odmen/mail", &mailbox, &detail] {
         assert_eq!(
             call(&app, "GET", path, "", "", &[]).await.status(),
             StatusCode::UNAUTHORIZED
@@ -81,7 +81,7 @@ async fn e_08_admin_mail_html_requires_live_role_and_audits() {
         ),
     )
     .await;
-    let response = call(&app, "GET", "/admin/mail?q=Admin", &cookies[0], "", &[]).await;
+    let response = call(&app, "GET", "/odmen/mail?q=Admin", &cookies[0], "", &[]).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     assert!(response.headers()["content-security-policy"]
@@ -101,7 +101,7 @@ async fn e_08_admin_mail_html_requires_live_role_and_audits() {
     assert!(html.contains("Strictly &lt;img src=x onerror=alert(1)&gt;"));
     assert!(!html.contains("<img src=x onerror=alert(1)>"));
     assert_eq!(
-        call(&app, "GET", "/admin/mail?before=0", &cookies[0], "", &[])
+        call(&app, "GET", "/odmen/mail?before=0", &cookies[0], "", &[])
             .await
             .status(),
         StatusCode::UNPROCESSABLE_ENTITY
