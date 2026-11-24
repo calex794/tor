@@ -50,7 +50,7 @@ function assertNoMoney() {
     admin_id), 0, "administrator must not create a wallet journal entry");
 }
 
-const readerPath = "/read/admin/" + chapter_id;
+const readerPath = "/read/odmen/" + chapter_id;
 const chapterGrant = "/api/v1/reader/chapters/" + chapter_id + "/delivery-grants";
 const assetGrant = "/api/v1/reader/chapters/" + chapter_id +
   "/assets/" + asset_object_id + "/delivery-grants";
