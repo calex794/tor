@@ -865,5 +865,45 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+    def test_paid_grant_cannot_skip_shared_gate(self):
+        for filename in ("chapter_grants.rs", "asset_grants.rs"):
+            with self.subTest(filename=filename):
+                path = "crates/web/src/paid_grants_http/" + filename
+                target = self.root / path
+                original = target.read_text(encoding="utf-8")
+                try:
+                    self.mutate(path, "super::request_auth::authenticate_grant",
+                                "super::request_auth::unchecked_grant")
+                    self.assert_detected("paid grant must reject failed shared session/Origin/CSRF gate")
+                finally:
+                    target.write_text(original, encoding="utf-8")
+
+    def test_paid_grant_cannot_ignore_shared_denial(self):
+        self.mutate(
+            "crates/web/src/paid_grants_http/asset_grants.rs",
+            "Err(status) => return deny(status),",
+            "Err(_) => (String::new(), 1),",
+        )
+        self.assert_detected("paid grant must reject failed shared session/Origin/CSRF gate")
+
+    def test_paid_grant_shared_gate_retains_all_auth_checks(self):
+        path = "crates/web/src/paid_grants_http/request_auth.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for before, after in (
+            (".active_session_user(", ".unchecked_session_user("),
+            ("Ok(None) => return Err(StatusCode::UNAUTHORIZED)", "Ok(None) => 1"),
+            ("Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => 1"),
+            ("!= Some(state.cookies.origin.as_str())", "== Some(state.cookies.origin.as_str())"),
+            ("!state.cookies.same_origin(headers)", "false"),
+            ("state.cookies.valid_csrf(headers, csrf)", "true"),
+        ):
+            with self.subTest(before=before):
+                try:
+                    self.mutate(path, before, after)
+                    self.assert_detected("paid grant must reject failed shared session/Origin/CSRF gate")
+                finally:
+                    target.write_text(original, encoding="utf-8")
+
 if __name__ == "__main__":
     unittest.main()
