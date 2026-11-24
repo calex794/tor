@@ -19,12 +19,13 @@ if command -v tcpdump >/dev/null && sudo -n true; then
   }
   trap stop_trace EXIT
   capture_state=not-ready
+  # An unprivileged signal probe can fail while the sudo child is alive.
+  # Wait for tcpdump itself; sudo may route its banner to either stream.
   for _ in $(seq 1 20); do
-    if grep -Eq '^(tcpdump: )?listening on lo,' "$capture_status"; then
+    if grep -Eq '^(tcpdump: )?listening on lo,' "$capture_status" "$trace"; then
       capture_state=ready
       break
     fi
-    if ! kill -0 "$trace_pid" 2>/dev/null; then break; fi
     sleep 0.1
   done
   echo "G09_TCP_METADATA=$capture_state"
