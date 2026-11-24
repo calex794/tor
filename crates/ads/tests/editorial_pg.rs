@@ -279,8 +279,11 @@ async fn atomic_replays_concurrency_terminal_states_and_no_financial_or_reading_
             .await
             .unwrap();
     assert_eq!(audits, ended.revision);
-    for table in ["editorial_commands", "editorial_audit"] {
-        let error = sqlx::query(&format!("DELETE FROM {table} WHERE campaign_id=$1"))
+    for statement in [
+        "DELETE FROM editorial_commands WHERE campaign_id=$1",
+        "DELETE FROM editorial_audit WHERE campaign_id=$1",
+    ] {
+        let error = sqlx::query(statement)
             .bind(a.campaign_id)
             .execute(&f.pool)
             .await

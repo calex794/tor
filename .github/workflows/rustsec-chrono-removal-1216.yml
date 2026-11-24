@@ -53,7 +53,7 @@ jobs:
           retention-days: 14
       - name: Compile entire workspace including S3 and test targets
         if: ${{ !cancelled() && steps.resolve.outcome == 'success' }}
-        run: cargo check --locked --workspace --all-targets --all-features
+        run: cargo check --locked --workspace --all-targets --all-features --keep-going
       - name: Verify archive and observability unit tests
         if: ${{ !cancelled() && steps.resolve.outcome == 'success' }}
         run: |
@@ -86,6 +86,20 @@ jobs:
           print("VULNERABILITIES", d["vulnerabilities"]["count"])
           PY
           cat "$RUNNER_TEMP/remediation/audit.stderr"
+          exit "$rc"
+      - name: Install pinned cargo-deny
+        id: deny_install
+        if: ${{ !cancelled() && steps.resolve.outcome == 'success' }}
+        run: cargo install --locked --version '=0.20.2' cargo-deny
+      - name: Check existing dependency policy without exceptions
+        if: ${{ !cancelled() && steps.deny_install.outcome == 'success' }}
+        shell: bash
+        run: |
+          rc=0
+          report="$RUNNER_TEMP/remediation"
+          cargo deny --locked --all-features --format json check > "$report/deny.stdout" 2> "$report/deny.jsonl" || rc=$?
+          cat "$report/deny.stdout"
+          cat "$report/deny.jsonl"
           exit "$rc"
       - name: Preserve evidence
         if: ${{ always() && !cancelled() }}
