@@ -11,7 +11,7 @@ s3 = ["dep:aws-sdk-s3"]
 async-trait.workspace = true
 sqlx.workspace = true
 sha2 = "0.10"
-aws-sdk-s3 = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 tokio = { workspace = true, features = ["io-util"] }
 
 [dev-dependencies]

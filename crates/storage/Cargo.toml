@@ -17,7 +17,7 @@ zstd = "0.13"
 serde.workspace = true
 serde_json = "1"
 tokio = { workspace = true, features = ["io-util", "time"] }
-aws-sdk-s3 = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 sqlx = { workspace = true, optional = true }
 
 [features]

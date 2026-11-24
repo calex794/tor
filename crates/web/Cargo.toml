@@ -28,7 +28,7 @@ tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
 tor-imports = { path = "../imports" }
 aws-config = { version = "1", optional = true }
-aws-sdk-s3 = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 async-trait.workspace = true
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
@@ -52,4 +52,4 @@ zstd = "0.13"
 tower = { version = "0.5", features = ["util"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
