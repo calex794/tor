@@ -17,7 +17,7 @@ assert.equal(parsed.port, '5432');
 assert.equal(parsed.pathname, '/tor_ci');
 assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/);
 fs.mkdirSync(shots, {recursive: true});
-const PAGE = '/admin/recommendations';
+const PAGE = '/odmen/recommendations';
 
 function sql(query) {
   return execFileSync('psql',

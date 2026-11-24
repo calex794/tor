@@ -38,13 +38,13 @@ async function position(card,left){await card.evaluate((element,x)=>{Object.assi
     await ap.getByLabel('Отображаемое имя').fill('Observation operator');const email=`exposure-browser-${stamp}@tor-ci.example`;
     await ap.getByLabel('Электронная почта').fill(email);await ap.getByLabel('Пароль (12–128 символов)').fill('ObservationBrowserPassword2026');
     await ap.getByRole('button',{name:'Создать учётную запись',exact:true}).click();await ap.waitForURL('**/me');actor=num(`SELECT id FROM users WHERE email_normalized='${email}'`);
-    await privateResponse(await ap.goto(base+'/admin/audience/exposure'),403);sql(`INSERT INTO account_roles(user_id,role) VALUES(${actor},'administrator')`);
-    await privateResponse(await ap.goto(base+`/admin/audience/exposure?group=genre&label=${label}`));
+    await privateResponse(await ap.goto(base+'/odmen/audience/exposure'),403);sql(`INSERT INTO account_roles(user_id,role) VALUES(${actor},'administrator')`);
+    await privateResponse(await ap.goto(base+`/odmen/audience/exposure?group=genre&label=${label}`));
     const row=ap.locator(`[data-testid="exposure-row"][data-book-id="${book}"]`);assert.equal(await row.locator('[data-metric="views"]').innerText(),'неизвестно');
     await ap.locator('[name="days"]').selectOption('1');await ap.getByRole('button',{name:'Показать',exact:true}).click();await ap.waitForURL(/days=1/);assert.equal(await row.locator('[data-testid="exposure-class"]').innerText(),'Недостаточно наблюдений');
     for(const width of [390,1440]){
       const visual=await browser.newContext({viewport:{width,height:900},storageState:await admin.storageState()});const page=await visual.newPage();
-      await privateResponse(await page.goto(base+`/admin/audience/exposure?group=genre&label=${label}`));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+      await privateResponse(await page.goto(base+`/odmen/audience/exposure?group=genre&label=${label}`));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
       await page.screenshot({path:path.join(shots,`exposure-report-${width}.png`),fullPage:true,animations:'disabled'});await page.locator(`[data-book-id="${book}"]`).screenshot({path:path.join(shots,`exposure-row-${width}.png`)});await visual.close();
     }
     const observed=await browser.newContext({viewport:{width:1440,height:900}});const page=await observed.newPage();const payloads=[];
@@ -70,7 +70,7 @@ async function position(card,left){await card.evaluate((element,x)=>{Object.assi
     assert.equal(counts(navigationProof)?.[2]||0,0);await held.abort('failed').catch(()=>{});await page.unroute('**/api/v1/flow/observations');
     // A proof cannot keep a now-unavailable book observable.
     sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);assert.equal((await page.request.post(base+'/api/v1/flow/observations',{headers:{Origin:base,'X-Tor-Observation':'1'},data:view})).status(),403);
-    await privateResponse(await ap.goto(base+`/admin/audience/exposure?group=genre&label=${label}`));assert.equal(await ap.locator('[data-testid="exposure-row"]').count(),0);
+    await privateResponse(await ap.goto(base+`/odmen/audience/exposure?group=genre&label=${label}`));assert.equal(await ap.locator('[data-testid="exposure-row"]').count(),0);
     assert.equal(sql(`SELECT count(*) FROM rec_subjects WHERE user_id=${actor}`),'0');
     console.log('EXPOSURE_BROWSER_PASS noJS unknown; native admin forms; 390/1440; actual 60%/1s reset; one-shot; replay/reorder; no identity/storage; delayed callback cannot block navigation; live book withdrawal');
   }finally{

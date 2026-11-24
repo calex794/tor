@@ -6,7 +6,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {Fixture,sql,scoped,scalar,clock,owner,schema,base,writer,shots,FALL,SPRING}=require('./reading_time_pg_fixture.cjs');
 fs.mkdirSync(shots,{recursive:true});
-const route=base+'/admin/audience?view=reading_hours&days=1&time_zone=UTC';
+const route=base+'/odmen/audience?view=reading_hours&days=1&time_zone=UTC';
 async function privateResponse(response,expected=200){
   assert.equal(response.status(),expected);
   const h=await response.allHeaders();
@@ -52,7 +52,7 @@ async function totals(page,period){
 async function submit(page,expected){
   const [response]=await Promise.all([
     page.waitForNavigation({waitUntil:'domcontentloaded'}),
-    page.locator('form[action="/admin/audience"]').getByRole('button',{name:'Показать',exact:true}).click(),
+    page.locator('form[action="/odmen/audience"]').getByRole('button',{name:'Показать',exact:true}).click(),
   ]);
   await privateResponse(response);
   for(const [key,value] of Object.entries(expected))assert.equal(new URL(page.url()).searchParams.get(key),String(value));
@@ -84,7 +84,7 @@ async function snapshot(page,name,target){
     await privateResponse(await gp.goto(route),401);
     await privateResponse(await page.goto(route),403);
     sql("INSERT INTO account_roles(user_id,role) VALUES("+f.actors[0]+",'administrator')");
-    await privateResponse(await page.goto(base+'/admin/audience'));
+    await privateResponse(await page.goto(base+'/odmen/audience'));
     await page.getByLabel('Представление',{exact:true}).selectOption('reading_hours');
     await page.getByLabel('Длительность периода',{exact:true}).selectOption('1');
     await page.getByLabel('Часовой пояс',{exact:true}).selectOption('UTC');
@@ -109,7 +109,7 @@ async function snapshot(page,name,target){
     receipt.until=Number(await anchor.getAttribute('data-until'));
     assert.equal(receipt.until,Date.parse('2026-10-25T04:00:00Z')/1000);
     // The first account/book pair is outside the report period; later chapters still count.
-    await privateResponse(await page.goto(base+'/admin/audience/reading?days=90&tag='+encodeURIComponent(f.tag)));
+    await privateResponse(await page.goto(base+'/odmen/audience/reading?days=90&tag='+encodeURIComponent(f.tag)));
     const pairRow=page.locator('[data-testid="canonical-row"][data-book-id="'+f.book+'"]');
     assert.equal(await metric(pairRow,'current'),'0');
     receipt.firstAccountBookPairs=0;
@@ -141,7 +141,7 @@ async function snapshot(page,name,target){
     assert.equal(await repeatedBin.getAttribute('data-utc-hours'),'2');assert.equal(await metric(repeatedBin,'chapter-completions'),'2');
     for(const width of [390,1440]){
       await page.setViewportSize({width,height:width===390?844:900});
-      await privateResponse(await page.goto(base+'/admin/audience?view=reading_hours&days=1&time_zone=Europe%2FAmsterdam'));
+      await privateResponse(await page.goto(base+'/odmen/audience?view=reading_hours&days=1&time_zone=Europe%2FAmsterdam'));
       await snapshot(page,'reading-time-form-'+width+'.png');
       await snapshot(page,'reading-time-hours-'+width+'.png',page.getByTestId('reading-time-hour-profile').locator('xpath=ancestor::section[1]'));
       await snapshot(page,'reading-time-weekdays-'+width+'.png',page.getByTestId('reading-time-weekday-profile').locator('xpath=ancestor::section[1]'));
@@ -176,7 +176,7 @@ async function snapshot(page,name,target){
     scoped('GRANT SELECT ON '+schema+'.outbox_events TO tor_app');
     await privateResponse(await page.reload());
     for(const query of ['view=invalid','view=reading_hours&time_zone=Asia%2FKolkata','view=reading_hours&time_zone=Asia%2FKathmandu']){
-      await privateResponse(await page.goto(base+'/admin/audience?'+query),400);
+      await privateResponse(await page.goto(base+'/odmen/audience?'+query),400);
     }
     sql('UPDATE account_roles SET is_active=false WHERE user_id='+f.actors[0]);
     await privateResponse(await page.goto(route),403);
