@@ -178,8 +178,8 @@ PY
   TOR_LAYER_FREE_ARCHIVE_ENABLED=1 DROP07_RIGHTS_FILE="$fixture/rights.json" \
     DROP07_RESTORED_DATABASE_URL="$restored_url" \
     cargo test -p tor-web --features s3-free --test fnd05_restored_free_rights_pg_s3 verify_restored_free_archive \
-      -- --exact --ignored --test-threads=1 --nocapture | tee "$fixture/rights-check.log"
-  grep -Fq 'FND05_RESTORED_FREE_ARCHIVE_HTTP_OK' "$fixture/rights-check.log"
+      -- --exact --ignored --test-threads=1 --show-output | tee "$fixture/rights-check.log"
+  grep -Fxq 'FND05_RESTORED_FREE_ARCHIVE_HTTP_OK' "$fixture/rights-check.log"
 
   python3 - "$fixture/restored/$drop07_stem.zst" <<'PY'
 import sys
