@@ -18,7 +18,7 @@ use tor_ads::{
     repositories::editorial::PgEditorial,
 };
 
-pub(crate) const PATH: &str = "/admin/promotion/editorial";
+pub(crate) const PATH: &str = "/odmen/promotion/editorial";
 #[derive(Clone)]
 struct Runtime {
     accounts: PgAccounts,
@@ -30,7 +30,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let store = PgEditorial::new(accounts.pool().clone());
     Router::new()
         .route(
-            "/admin/promotion/editorial",
+            "/odmen/promotion/editorial",
             get(admin::page).post(admin::submit),
         )
         .layer(DefaultBodyLimit::max(4096))

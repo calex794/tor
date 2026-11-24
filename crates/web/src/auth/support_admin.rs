@@ -15,12 +15,12 @@ use tor_contracts::auth::SessionActor;
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/admin/support", get(index))
-        .route("/admin/support/{id}", get(page))
-        .route("/admin/support/{id}/read", axum::routing::post(mark_read))
-        .route("/admin/support/{id}/close", axum::routing::post(close))
-        .route("/admin/support/{id}/reopen", axum::routing::post(reopen))
-        .route("/admin/support/{id}/messages", get(messages).post(submit))
+        .route("/odmen/support", get(index))
+        .route("/odmen/support/{id}", get(page))
+        .route("/odmen/support/{id}/read", axum::routing::post(mark_read))
+        .route("/odmen/support/{id}/close", axum::routing::post(close))
+        .route("/odmen/support/{id}/reopen", axum::routing::post(reopen))
+        .route("/odmen/support/{id}/messages", get(messages).post(submit))
 }
 
 pub(super) async fn administrator(
@@ -187,7 +187,7 @@ pub(super) async fn submit(
                 &[],
             )
         }
-        Ok(_) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/odmen/support/{id}")), &[]),
         Err(tor_support::domain::SupportError::Invalid)
             if !headers
                 .get("accept")
@@ -200,7 +200,7 @@ pub(super) async fn submit(
                     super::support_pages::invalid_message(
                         &form.body,
                         &form.csrf_token,
-                        &format!("/admin/support/{id}"),
+                        &format!("/odmen/support/{id}"),
                     ),
                 ),
                 &[],
@@ -239,7 +239,7 @@ pub(super) async fn mark_read(
         )
         .await
     {
-        Ok(()) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Ok(()) => private_response(Redirect::to(&format!("/odmen/support/{id}")), &[]),
         Err(e) => denied(status(e)),
     }
 }
@@ -275,7 +275,7 @@ pub(super) async fn close(
         )
         .await
     {
-        Ok(()) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Ok(()) => private_response(Redirect::to(&format!("/odmen/support/{id}")), &[]),
         Err(e) => denied(status(e)),
     }
 }
@@ -304,7 +304,7 @@ pub(super) async fn reopen(
         )
         .await
     {
-        Ok(()) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Ok(()) => private_response(Redirect::to(&format!("/odmen/support/{id}")), &[]),
         Err(e) => denied(status(e)),
     }
 }
