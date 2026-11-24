@@ -54,7 +54,7 @@ const readerPath = "/read/odmen/" + chapter_id;
 const chapterGrant = "/api/v1/reader/chapters/" + chapter_id + "/delivery-grants";
 const assetGrant = "/api/v1/reader/chapters/" + chapter_id +
   "/assets/" + asset_object_id + "/delivery-grants";
-const historyList = "/api/v1/reader/chapters/" + chapter_id + "/admin-sealed-history";
+const historyList = "/api/v1/reader/chapters/" + chapter_id + "/odmen-sealed-history";
 const historyChapter = historyList + "/" + historical_version_id + "/delivery-grants";
 const historyImage = historyList + "/" + historical_version_id +
   "/assets/" + asset_object_id + "/delivery-grants";
