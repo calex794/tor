@@ -1,60 +1,148 @@
-name: One-time RustSec integration preflight 1216
+name: One-time RustSec negative controls 1216
 on:
   push:
     branches: ['tools/rustsec-lock-bootstrap-1216']
     paths: ['.github/workflows/rustsec-lock-bootstrap-1216.yml']
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: rustsec-lock-bootstrap-1216
   cancel-in-progress: false
 jobs:
-  preflight:
+  negative-controls:
     if: github.repository == 'calex794/tor' && github.ref == 'refs/heads/tools/rustsec-lock-bootstrap-1216'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      TARGET: tools/rustsec-integrated-1216
-      EXPECTED_HEAD: 3b03e55b90c1a5c4517b1b770e2dcc3adda83bac
-      LOCK_SHA256: 7e677aa3da7d4b2a7c85f3c0af88cf4af8a49532231cccdc04b5bc2561d9ff47
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 3b03e55b90c1a5c4517b1b770e2dcc3adda83bac
+          ref: ae234acf944bc99e2c44d93ff6ba5fc6ebb79d0a
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Format and verify the combined candidate
+      - name: Exercise exact audit shell blocks on disposable offline fixtures
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
-          cargo metadata --locked --all-features --format-version 1 > /dev/null
-          cargo fmt --all
-          cargo fmt --all -- --check
-          git diff --check
-          test -z "$(git diff --name-only | grep -vE '^crates/.*\.rs$' || true)"
-          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
-          git diff --stat
-      - name: Commit rustfmt-only changes to the isolated candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! git diff --quiet; then
-            gh auth setup-git --hostname github.com
-            test "$(git ls-remote origin "refs/heads/$TARGET" | cut -f1)" = "$EXPECTED_HEAD"
-            git add -u -- crates
-            test -z "$(git diff --cached --name-only | grep -vE '^crates/.*\.rs$' || true)"
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'I-07: rustfmt combined dependency-remediation candidate'
-            git push origin "HEAD:refs/heads/$TARGET"
-          fi
-          printf 'TOR_FORMATTED_CANDIDATE %s\n' "$(git rev-parse HEAD)"
-      - name: Feature boundaries and architecture guards
-        run: |
-          python3 tools/check_feature_layout.py
-          python3 tools/check_contracts.py
-          python3 -m unittest discover -s tests/architecture -v
+          test "$(git rev-parse HEAD)" = 'ae234acf944bc99e2c44d93ff6ba5fc6ebb79d0a'
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import shutil
+          import subprocess
+          import tempfile
+          import textwrap
+
+          workflow = pathlib.Path(".github/workflows/rustsec.yml").read_text()
+          def block(name):
+              match = re.search(r"^      - name: " + re.escape(name) +
+                                r"\n(.*?)(?=^      - name: |\Z)",
+                                workflow, re.M | re.S)
+              assert match, name
+              section = match.group(1)
+              assert "        run: |\n" in section, name
+              return textwrap.dedent(section.split("        run: |\n", 1)[1])
+
+          snapshot = block("Resolve and record dependency snapshot")
+          guard = block("Require the audited lockfile to be committed and unchanged")
+          scanners = {
+              "audit": block("Check RustSec advisories"),
+              "deny": block("Check advisories, licenses, bans and sources"),
+          }
+          def run(args, cwd, env):
+              return subprocess.run(args, cwd=cwd, env=env,
+                                    capture_output=True, text=True)
+          def ok(args, cwd, env):
+              p = run(args, cwd, env)
+              assert p.returncode == 0, (args, p.stdout, p.stderr)
+          def shell(script, cwd, env, expected, case):
+              p = run(["bash", "-e", "-o", "pipefail", "-c", script], cwd, env)
+              if expected is None:
+                  assert p.returncode != 0, (case, p.stdout, p.stderr)
+              else:
+                  assert p.returncode == expected, (case, p.returncode, p.stdout, p.stderr)
+              print("CONTROL", case, "exit=" + str(p.returncode), "PASS", flush=True)
+              return p
+
+          with tempfile.TemporaryDirectory(prefix="tor-rustsec-controls-") as td:
+              root = pathlib.Path(td)
+              seed = root / "seed"
+              seed.mkdir()
+              (seed / "src").mkdir()
+              (seed / "src/lib.rs").write_text("pub fn fixture() {}\n")
+              (seed / "Cargo.toml").write_text(
+                  '[package]\nname = "offline-fixture"\nversion = "0.1.0"\nedition = "2021"\n')
+              env0 = dict(os.environ, CARGO_NET_OFFLINE="true",
+                          GIT_AUTHOR_NAME="CI fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                          GIT_COMMITTER_NAME="CI fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+              ok(["git", "init", "-q"], seed, env0)
+              ok(["cargo", "generate-lockfile", "--offline"], seed, env0)
+              ok(["git", "add", "."], seed, env0)
+              ok(["git", "commit", "-qm", "fixture"], seed, env0)
+
+              def fixture(name):
+                  cwd = root / name
+                  shutil.copytree(seed, cwd)
+                  report = root / (name + "-report")
+                  report.mkdir()
+                  summary = root / (name + "-summary")
+                  summary.touch()
+                  env = dict(env0, RUNNER_TEMP=str(report), GITHUB_STEP_SUMMARY=str(summary))
+                  return cwd, env
+
+              cwd, env = fixture("valid")
+              shell(snapshot, cwd, env, 0, "tracked-current-lock")
+              shell(guard, cwd, env, 0, "unchanged-lock")
+
+              cwd, env = fixture("missing")
+              (cwd / "Cargo.lock").unlink()
+              shell(snapshot, cwd, env, None, "missing-lock")
+              assert not (cwd / "Cargo.lock").exists(), "must not regenerate"
+
+              cwd, env = fixture("untracked")
+              ok(["git", "rm", "--cached", "Cargo.lock"], cwd, env)
+              shell(snapshot, cwd, env, None, "untracked-lock")
+
+              cwd, env = fixture("stale")
+              manifest = cwd / "Cargo.toml"
+              manifest.write_text(manifest.read_text().replace("0.1.0", "0.1.1"))
+              original = (cwd / "Cargo.lock").read_bytes()
+              shell(snapshot, cwd, env, None, "stale-lock")
+              assert (cwd / "Cargo.lock").read_bytes() == original
+
+              cwd, env = fixture("modified")
+              lock = cwd / "Cargo.lock"
+              lock.write_bytes(lock.read_bytes() + b"\n# dirty lock\n")
+              shell(snapshot, cwd, env, None, "modified-tracked-lock")
+
+              cwd, env = fixture("postscan")
+              shell(snapshot, cwd, env, 0, "snapshot-before-tamper")
+              lock = cwd / "Cargo.lock"
+              lock.write_bytes(lock.read_bytes() + b"\n# post-snapshot change\n")
+              shell(guard, cwd, env, None, "post-snapshot-tamper")
+
+              # A shim isolates error propagation from the live RustSec service.
+              # This is not an actual advisory scan; the real CI already ran both tools.
+              shim = root / "shim"
+              shim.mkdir()
+              cargo = shim / "cargo"
+              cargo.write_text(
+                  '#!/bin/bash\nset -eu\n'
+                  'case "$1" in audit|deny) ;; *) exit 99;; esac\n'
+                  'printf "%s\\n" "{\"fixture\":\"$1\",\"exit\":$FIXTURE_RC}"\n'
+                  'printf "%s\\n" "fixture diagnostic $1 $FIXTURE_RC" >&2\n'
+                  'exit "$FIXTURE_RC"\n')
+              cargo.chmod(0o755)
+              cwd, env = fixture("scanner")
+              shell(snapshot, cwd, env, 0, "snapshot-before-scanners")
+              report = pathlib.Path(env["RUNNER_TEMP"]) / "rustsec-report"
+              for kind, script in scanners.items():
+                  for code in (0, 1, 101):
+                      mock = dict(env, PATH=str(shim) + os.pathsep + env["PATH"],
+                                  FIXTURE_RC=str(code))
+                      shell(script, cwd, mock, code, f"{kind}-exit-{code}")
+                      stdout = report / ("audit.json" if kind == "audit" else "deny.stdout")
+                      stderr = report / ("audit.stderr" if kind == "audit" else "deny.jsonl")
+                      assert str(code) in stdout.read_text()
+                      assert f"fixture diagnostic {kind} {code}" in stderr.read_text()
+              print("TOR_RUSTSEC_NEGATIVE_CONTROLS_OK", flush=True)
+          PY
