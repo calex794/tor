@@ -7,7 +7,7 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-OLD_PUBLIC_PREFIX = re.compile(r"/admin(?=/|[\"'\x60\s?#)]|$)", re.I)
+OLD_PUBLIC_PREFIX = re.compile(r"/admin(?=/|-|[\"'\x60\s?#)]|$)", re.I)
 TEXT = {".rs", ".py", ".cjs", ".js", ".mjs", ".html", ".json", ".css",
         ".sh", ".ts", ".tsx", ".md", ".sql", ".toml", ".tsv"}
 RUNTIME = ("crates/web/src", "crates/web/assets", "crates/web/templates",
