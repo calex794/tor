@@ -149,7 +149,7 @@ pub(super) async fn assert_unsealed_admin_read(
                 "INSERT INTO chapter_working_drafts(chapter_id,version_id)                  VALUES({chapter},{version})"
             ),
         );
-        let shell_path = format!("/read/admin/{chapter}");
+        let shell_path = format!("/read/odmen/{chapter}");
         let content_path = format!("/api/v1/reader/chapters/{chapter}/admin-unsealed");
         let guest = read_page(app, &shell_path, None).await;
         assert_eq!(guest.status(), StatusCode::UNAUTHORIZED);
@@ -216,20 +216,20 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(pg_redirect.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             pg_redirect.headers()[header::LOCATION],
-            format!("/read/admin/{chapter}")
+            format!("/read/odmen/{chapter}")
         );
         let api_redirect = read_page(api_only, &canonical, Some(&admin_session)).await;
         assert_eq!(api_redirect.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             api_redirect.headers()[header::LOCATION],
-            format!("/read/admin/{chapter}")
+            format!("/read/odmen/{chapter}")
         );
         assert_eq!(api_redirect.headers()[header::CACHE_CONTROL], "no-store");
         let redirect = read_page(app, &canonical, Some(&admin_session)).await;
         assert_eq!(redirect.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             redirect.headers()[header::LOCATION],
-            format!("/read/admin/{chapter}")
+            format!("/read/odmen/{chapter}")
         );
         assert_eq!(redirect.headers()[header::CACHE_CONTROL], "no-store");
         assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
@@ -546,7 +546,7 @@ pub(super) async fn assert_unsealed_admin_read(
         &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=502"),
     );
     assert_eq!(
-        read_page(app, &format!("/read/admin/{chapter}"), Some(&admin_session))
+        read_page(app, &format!("/read/odmen/{chapter}"), Some(&admin_session))
             .await
             .status(),
         StatusCode::FORBIDDEN
@@ -561,7 +561,7 @@ pub(super) async fn assert_unsealed_admin_read(
     assert_eq!(
         read_page(
             api_only,
-            &format!("/read/admin/{chapter}"),
+            &format!("/read/odmen/{chapter}"),
             Some(&admin_session)
         )
         .await
@@ -595,7 +595,7 @@ pub(super) async fn assert_unsealed_admin_read(
     assert_eq!(
         read_page(
             no_storage,
-            &format!("/read/admin/{chapter}"),
+            &format!("/read/odmen/{chapter}"),
             Some(&admin_session)
         )
         .await

@@ -7,7 +7,7 @@ use std::{
 use tor_books::repositories::PgCatalog;
 use tor_recommendations::repositories::PgRecommendations;
 const PAGE: &str = "/me/recommendations/contextual";
-const API: &str = "/api/v1/admin/recommendations/contextual";
+const API: &str = "/api/v1/odmen/recommendations/contextual";
 async fn post(h: &Harness, body: Value, origin: &str, csrf: &str) -> Response {
     h.send(
         "POST",

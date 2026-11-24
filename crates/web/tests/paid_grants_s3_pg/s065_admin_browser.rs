@@ -57,7 +57,7 @@ pub(super) async fn verify(
     assert!(actor.administrator);
     assert_eq!(actor.actor.user_id.get(), admin_id);
     assert_eq!(
-        private_get(app, &format!("/read/admin/{chapter}"), None)
+        private_get(app, &format!("/read/odmen/{chapter}"), None)
             .await
             .status(),
         StatusCode::UNAUTHORIZED
@@ -65,7 +65,7 @@ pub(super) async fn verify(
     assert_eq!(
         private_get(
             app,
-            &format!("/read/admin/{chapter}"),
+            &format!("/read/odmen/{chapter}"),
             Some(outsider_session)
         )
         .await

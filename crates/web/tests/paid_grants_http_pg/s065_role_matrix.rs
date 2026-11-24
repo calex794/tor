@@ -196,7 +196,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     let path = route(chapter);
     let asset_path =
         format!("/api/v1/reader/chapters/{chapter}/assets/{ASSET_UUID}/delivery-grants");
-    let page = format!("/read/admin/{chapter}");
+    let page = format!("/read/odmen/{chapter}");
     let normal = format!("/read/paid/{chapter}?purchase_id={purchase}");
     // API-only mode must not manufacture an encrypted browser shell.
     assert_eq!(
@@ -297,7 +297,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         assert_eq!(redirect.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             redirect.headers()[header::LOCATION],
-            format!("/read/admin/{chapter}")
+            format!("/read/odmen/{chapter}")
         );
         assert_eq!(redirect.headers()[header::CACHE_CONTROL], "no-store");
         assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
@@ -655,7 +655,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert_eq!(held_redirect.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         held_redirect.headers()[header::LOCATION],
-        format!("/read/admin/{chapter}")
+        format!("/read/odmen/{chapter}")
     );
     assert_eq!(
         read_page(reader, &canonical, Some(&outsider))
