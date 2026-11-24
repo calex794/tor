@@ -75,3 +75,21 @@ starting TOR; no external side effects or DNS until independently approved.
 
 References: [pgBackRest restore command](https://pgbackrest.org/command.html),
 [independent TOR DR acceptance](i11-independent-dr-acceptance.md).
+
+## RECOVERY-03b internal evidence (same PR, no external start)
+
+The existing mount-free PG18/pgBackRest fixture now additionally restores
+its exact full backup set on explicit timeline 1 to a real whole-second UTC
+point between two committed transactions. It discards inherited auto.conf
+from the fixture startup path, uses a new local-only config, replays WAL,
+and requires SQL to prove recovery is actually paused, not just requested.
+The earlier witness must exist, the later transaction must be absent and
+the replay timestamp must precede the exclusive target. A final check
+requires the instance still in recovery; stop without promotion and retain
+recovery.signal. The evidence gate requires all three new checks.
+
+This tests the recovery semantics and config approach on synthetic data,
+not the safe startup of an arbitrary potentially compromised restored
+cluster. The external operational startup tool and trust/extension/link
+validation remain a separate gate; never run the CI fixture on a real
+server. See [the existing CI drill](i11-pitr-ci-drill.md).

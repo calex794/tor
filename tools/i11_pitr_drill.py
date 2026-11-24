@@ -20,6 +20,8 @@ CHECKS = (
     'source_removed', 'base_marker_restored', 'post_backup_wal_marker_restored',
     'post_target_marker_absent', 'wrong_key_rejected', 'unreachable_target_rejected',
     'role_denial_preserved', 'recovery_promoted',
+    'utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
+    'utc_target_no_promotion_verified',
 )
 LIMITATIONS = (
     'production_tested', 'offsite_tested', 'application_acl_tested',

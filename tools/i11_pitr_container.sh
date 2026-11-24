@@ -9,7 +9,8 @@ export PATH="/usr/lib/postgresql/18/bin:$PATH"
 work=$(mktemp -d /tmp/tor-i11-pitr.XXXXXXXX)
 source_dir="$work/source"
 restore_dir="$work/restored"
-mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket}
+mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket,time-socket,time-config}
+time_dir="$work/time-target"
 pg_version=$(postgres --version)
 backrest_version=$(pgbackrest version)
 [[ $pg_version == *' 18.'* ]] || exit 2
@@ -37,7 +38,7 @@ CONFIG
 cleanup() {
   local status=$?
   trap - EXIT
-  for dir in "$source_dir" "$restore_dir" "$work/bad-target"; do
+  for dir in "$source_dir" "$restore_dir" "$work/bad-target" "$time_dir"; do
     if [[ -f "$dir/postmaster.pid" ]]; then
       pg_ctl -D "$dir" -m immediate -w -t 10 stop >/dev/null 2>&1 || status=1
     fi
@@ -149,6 +150,16 @@ sql -c "INSERT INTO public.i11_recovery_markers VALUES ('before_target');" >/dev
 sql -c "SELECT pg_create_restore_point('tor_i11_target');" >/dev/null
 sql -c "INSERT INTO public.i11_recovery_markers VALUES ('after_target');" >/dev/null
 [[ $(sql -c 'SELECT count(*) FROM public.i11_recovery_markers') == 3 ]]
+# Choose a real whole-second UTC point strictly between two transactions.
+# These markers occur after the named-target case, so its proof is unchanged.
+sql -c "INSERT INTO public.i11_recovery_markers VALUES ('time_before');" >/dev/null
+time_target=$(sql -c "SELECT to_char((date_trunc('second',clock_timestamp()) + interval '2 seconds') AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || '+00'")
+[[ $time_target =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\+00$ ]]
+timeline=$(sql -c 'SELECT timeline_id FROM pg_control_checkpoint()')
+[[ $timeline == 1 ]]
+sql -c "SELECT pg_sleep_until('$time_target'::timestamptz + interval '1 second')" >/dev/null
+sql -c "INSERT INTO public.i11_recovery_markers VALUES ('time_after');" >/dev/null
+[[ $(sql -c 'SELECT count(*) FROM public.i11_recovery_markers') == 5 ]]
 sql -c 'SELECT pg_switch_wal();' >/dev/null
 backrest check >"$work/log/final-archive-check.log" 2>&1
 started=$(python3 -c 'import time; print(time.monotonic())')
@@ -190,6 +201,74 @@ pg_ctl -D "$work/bad-target" -l "$work/log/bad-start.log" -w -t 30 \
     -o "-c listen_addresses='' -c port=55434 -c unix_socket_directories=$work/bad-socket -c archive_mode=off -c hot_standby=off" start >"$work/log/bad-pgctl.log" 2>&1 || bad_start_status=$?
 # Both early startup success and immediate failure require the same terminal proof.
 wait_for_target_failure 30
+# RECOVERY-03b: independently replay the same full set to a pinned UTC point.
+# Request PAUSE (not promotion), then assert the actual paused state in SQL.
+# The staged backup deliberately uses shutdown as the safe initial action;
+# build fresh trusted startup settings instead of inheriting the source config.
+backrest --pg1-path="$time_dir" --set="$label" --type=time \
+  --target="$time_target" --target-timeline="$timeline" \
+  --target-exclusive --target-action=shutdown restore >"$work/log/time-restore.log" 2>&1
+[[ -f "$time_dir/recovery.signal" && ! -e "$time_dir/standby.signal" ]]
+# These are disposable fixture files only. Never copy old auto.conf into
+# a trusted configuration or let its include/command settings take effect.
+mv -- "$time_dir/postgresql.auto.conf" "$work/time-config/original-auto.conf"
+: >"$time_dir/postgresql.auto.conf"
+cat >"$work/time-config/pg_hba.conf" <<'CONFIG'
+local all postgres peer
+local all all reject
+host all all 0.0.0.0/0 reject
+host all all ::/0 reject
+CONFIG
+: >"$work/time-config/pg_ident.conf"
+cat >"$work/time-config/postgresql.conf" <<CONFIG
+data_directory = '$time_dir'
+hba_file = '$work/time-config/pg_hba.conf'
+ident_file = '$work/time-config/pg_ident.conf'
+listen_addresses = ''
+port = 55435
+unix_socket_directories = '$work/time-socket'
+unix_socket_permissions = 0700
+shared_preload_libraries = ''
+archive_mode = off
+archive_command = ''
+primary_conninfo = ''
+primary_slot_name = ''
+recovery_end_command = ''
+archive_cleanup_command = ''
+hot_standby = on
+restore_command = 'pgbackrest --config=$conf --stanza=tor --repo=1 archive-get %f "%p"'
+recovery_target_time = '$time_target'
+recovery_target_timeline = '$timeline'
+recovery_target_inclusive = off
+recovery_target_action = 'pause'
+CONFIG
+# Start only this throwaway cluster with fresh config; no production network.
+pg_ctl -D "$time_dir" -l "$work/log/time-start.log" -w -t 30 \
+    -o "-c config_file=$work/time-config/postgresql.conf" start >/dev/null
+time_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/time-socket" -p 55435 -U postgres -d postgres "$@"; }
+paused=false
+deadline=$((SECONDS + 30))
+while ((SECONDS < deadline)); do
+  if ! pg_ctl -D "$time_dir" status >/dev/null 2>&1; then
+    echo 'FAIL: time-target PostgreSQL exited before replay paused' >&2
+    exit 1
+  fi
+  if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' \
+      time_sql -c "SELECT pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'" 2>"$work/log/time-readiness.log"); then
+    if [[ $state == t ]]; then paused=true; break; fi
+  fi
+  sleep 0.2
+done
+[[ $paused == true ]]
+# Prove target configuration, isolation and transaction boundaries, not a
+# readable standby alone. No pg_promote or pg_wal_replay_resume is allowed.
+[[ $(time_sql -c "SELECT (current_setting('recovery_target_time')::timestamptz='$time_target'::timestamptz) AND current_setting('recovery_target_timeline')='$timeline' AND current_setting('recovery_target_inclusive')='off' AND current_setting('recovery_target_action')='pause'") == t ]]
+[[ $(time_sql -c "SELECT current_setting('listen_addresses')='' AND current_setting('archive_mode')='off' AND current_setting('primary_conninfo')=''") == t ]]
+[[ $(time_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
+[[ $(time_sql -c "SELECT pg_last_xact_replay_timestamp() < '$time_target'::timestamptz") == t ]]
+[[ $(time_sql -c "SELECT pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'") == t ]]
+pg_ctl -D "$time_dir" -m fast -w -t 30 stop >/dev/null
+[[ -f "$time_dir/recovery.signal" ]]
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
@@ -200,6 +279,9 @@ print(json.dumps({
     'post_target_marker_absent': True, 'wrong_key_rejected': True,
     'unreachable_target_rejected': True, 'role_denial_preserved': True,
     'recovery_promoted': True,
+    'utc_target_replay_paused': True,
+    'utc_target_transaction_boundary_verified': True,
+    'utc_target_no_promotion_verified': True,
     'drill_elapsed_seconds': round(time.monotonic() - float(sys.argv[1]), 3),
     'production_tested': False, 'offsite_tested': False,
     'application_acl_tested': False, 'rpo_slo_proven': False,

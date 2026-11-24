@@ -182,6 +182,33 @@ class Isolation(unittest.TestCase):
         self.assertIn('recovery ended before configured recovery target was reached', content)
         self.assertEqual(content.count('-c hot_standby=off'), 2)
 
+    def test_utc_replay_requires_real_pause_and_transaction_boundaries(self):
+        content = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        source = content[content.index("VALUES ('time_before')"):
+                         content.index("rm -rf -- \"$source_dir\"")]
+        self.assertLess(source.index("pg_sleep_until"), source.index("VALUES ('time_after')"))
+        section = content[content.index('# RECOVERY-03b:'):]
+        for required in (
+            '--target="$time_target" --target-timeline="$timeline"',
+            '--target-exclusive --target-action=shutdown',
+            'recovery_target_action = \'pause\'',
+            'recovery_target_inclusive = off',
+            'hot_standby = on',
+            "pg_get_wal_replay_pause_state()='paused'",
+            "after_target,base_snapshot,before_target,time_before",
+            'pg_last_xact_replay_timestamp()',
+            'archive_mode = off',
+            "primary_conninfo = ''",
+            '-c config_file=$work/time-config/postgresql.conf',
+            'mv -- "$time_dir/postgresql.auto.conf"',
+            '[[ -f "$time_dir/recovery.signal" ]]',
+        ):
+            self.assertIn(required, section)
+        for flag in ('utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
+                     'utc_target_no_promotion_verified'):
+            self.assertIn(flag, drill.CHECKS)
+            self.assertIn("'" + flag + "': True", section)
+
 
 if __name__ == '__main__':
     unittest.main()
