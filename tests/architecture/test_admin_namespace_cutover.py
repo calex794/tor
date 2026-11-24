@@ -40,11 +40,17 @@ def inventory(paths):
 class AdminNamespaceCutoverTests(unittest.TestCase):
     def test_no_live_admin_routes_or_links_with_old_prefix(self):
         old = inventory(RUNTIME)
-        other = inventory(OTHER)
+        other = [(path, count) for path, count in inventory(OTHER)
+                 if not path.endswith(".md")
+                 and path != "tools/a09_honeypot_browser.cjs"]
         summary = [f"ADMIN_NAMESPACE_{scope} {path} {n}"
                    for scope, items in (("LIVE", old), ("OTHER", other))
                    for path, n in items]
-        self.assertEqual(old, [], "\n" + "\n".join(summary[:280]))
+        self.assertEqual(old + other, [], "\n" + "\n".join(summary[:280]))
+
+    def test_unrelated_honeypot_name_is_intentionally_preserved(self):
+        decoy = (ROOT / "tools/a09_honeypot_browser.cjs").read_text(encoding="utf-8")
+        self.assertIn("__bp_honeypot/admin/private", decoy)
 
 
 if __name__ == "__main__":
