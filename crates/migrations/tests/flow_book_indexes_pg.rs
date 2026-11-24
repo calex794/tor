@@ -15,7 +15,7 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 fn both_index_migrations_keep_sqlx_no_transaction_metadata() {
     for spec in SPECS {
         assert!(spec.migration().no_tx);
-        assert!(spec.migration().sql.starts_with("-- no-transaction\n"));
+        assert!(spec.migration().sql.as_ref().starts_with("-- no-transaction\n"));
     }
 }
 

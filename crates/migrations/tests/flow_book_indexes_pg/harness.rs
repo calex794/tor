@@ -165,7 +165,8 @@ pub async fn repair(fixture: &Fixture, spec: Spec) -> TestResult {
     assert!(!present, "recorded migration is outside this repair recipe");
     // Caller already checked the exact schema/table/columns with index().
     // This is test/operator recovery, never automatic production repair.
-    sqlx::query(&format!("DROP INDEX CONCURRENTLY public.{}", spec.name))
+    // spec.name was checked against the fixed fixture index list above.
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP INDEX CONCURRENTLY public.{}", spec.name)))
         .execute(&fixture.pool)
         .await?;
     let absent: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NULL")

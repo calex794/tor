@@ -83,14 +83,16 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
 
     // All three real parent paths acquire the statement gate before row locks:
     // user -> scope cascade, book -> aggregate/raw cascade, outbox -> C receipt.
+    // Fixed table names and typed bound fixture identifiers; no SQL text from values.
     let parents = [
-        ("users", "id", f.cascade_actor.to_string()),
-        ("books", "id", f.cascade_book.to_string()),
-        ("outbox_events", "id", format!("'{}'::uuid", f.delete_event)),
+        ("users", "DELETE FROM users WHERE id=$1::text::bigint", "SELECT 1 FROM users WHERE id=$1::text::bigint FOR UPDATE NOWAIT", f.cascade_actor.to_string()),
+        ("books", "DELETE FROM books WHERE id=$1::text::bigint", "SELECT 1 FROM books WHERE id=$1::text::bigint FOR UPDATE NOWAIT", f.cascade_book.to_string()),
+        ("outbox_events", "DELETE FROM outbox_events WHERE id=$1::text::uuid", "SELECT 1 FROM outbox_events WHERE id=$1::text::uuid FOR UPDATE NOWAIT", f.delete_event.clone()),
     ];
-    for (table, key, value) in parents {
+    for (table, delete, lock, value) in parents {
         let mut parent = app.begin().await?;
-        sqlx::query(&format!("DELETE FROM {table} WHERE {key}={value}"))
+        sqlx::query(delete)
+            .bind(&value)
             .execute(&mut *parent)
             .await?;
         sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
@@ -107,7 +109,7 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
             .await?;
         assert!(result.0 <= 1 && result.1);
         let pool = app.clone();
-        let delete = format!("DELETE FROM {table} WHERE {key}={value}");
+        let delete_value = value.clone();
         let name = format!("ci_retirement_parent_{table}");
         let task_name = name.clone();
         let parent = tokio::spawn(async move {
@@ -119,16 +121,15 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
             sqlx::query("SET LOCAL statement_timeout='5s'")
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query(&delete).execute(&mut *tx).await?;
+            sqlx::query(delete).bind(delete_value).execute(&mut *tx).await?;
             tx.rollback().await
         });
         wait_for_lock(app, &name).await?;
         let mut probe = app.begin().await?;
-        sqlx::query(&format!(
-            "SELECT 1 FROM {table} WHERE {key}={value} FOR UPDATE NOWAIT"
-        ))
-        .fetch_all(&mut *probe)
-        .await?;
+        sqlx::query(lock)
+            .bind(&value)
+            .fetch_all(&mut *probe)
+            .await?;
         probe.rollback().await?;
         batch.rollback().await?;
         parent.await??;

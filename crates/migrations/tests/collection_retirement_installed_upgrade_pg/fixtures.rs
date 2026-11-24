@@ -4,17 +4,19 @@ use sqlx::PgPool;
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+// These helpers are restricted to synthetic, disposable PostgreSQL fixtures.
+// Callers compose checked-in statements and generated fixture IDs, never HTTP input.
 pub async fn run(pool: &PgPool, sql: &str) -> TestResult {
-    sqlx::raw_sql(sql).execute(pool).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(pool).await?;
     Ok(())
 }
 
 pub async fn text(pool: &PgPool, sql: &str) -> TestResult<String> {
-    Ok(sqlx::query_scalar(sql).fetch_one(pool).await?)
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned())).fetch_one(pool).await?)
 }
 
 pub async fn count(pool: &PgPool, sql: &str) -> TestResult<i64> {
-    Ok(sqlx::query_scalar(sql).fetch_one(pool).await?)
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned())).fetch_one(pool).await?)
 }
 
 async fn actor(pool: &PgPool, email: &str) -> TestResult<i64> {

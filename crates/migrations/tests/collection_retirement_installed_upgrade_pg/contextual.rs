@@ -7,7 +7,8 @@ use sqlx::PgPool;
 use tor_migrations::repositories::MIGRATOR;
 
 async fn rejected(pool: &PgPool, sql: &str) {
-    let error = sqlx::query(sql)
+    // Only test-owned SQL and database-generated fixture UUIDs enter this helper.
+    let error = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
         .execute(pool)
         .await
         .expect_err("legacy or forged model accepted");
