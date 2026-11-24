@@ -52,7 +52,7 @@ pub(super) async fn check(
     let reviewer_cookie = format!("tor-dev-session={reviewer_session}; tor-dev-csrf={csrf}");
 
     let author_path = "/me/free-comment-appeals";
-    let admin_path = "/admin/free-comment-appeals";
+    let admin_path = "/odmen/free-comment-appeals";
     assert_eq!(
         request(app, "GET", author_path, "", ORIGIN, "")
             .await

@@ -94,9 +94,9 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
         false,
         ORIGIN.to_owned(),
     );
-    let groups_path = "/admin/mail/groups";
+    let groups_path = "/odmen/mail/groups";
     let group_path = format!("{groups_path}/{group_id}");
-    let rooms_path = "/admin/mail/book-rooms";
+    let rooms_path = "/odmen/mail/book-rooms";
     let room_path = format!("{rooms_path}/{book_id}");
     for path in [groups_path, &group_path, rooms_path, &room_path] {
         assert_eq!(
@@ -210,10 +210,10 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
         "0"
     );
     for path in [
-        "/admin/mail/groups?before=0",
-        "/admin/mail/book-rooms?before=0",
-        "/admin/mail/groups/0",
-        "/admin/mail/book-rooms/0",
+        "/odmen/mail/groups?before=0",
+        "/odmen/mail/book-rooms?before=0",
+        "/odmen/mail/groups/0",
+        "/odmen/mail/book-rooms/0",
     ] {
         assert_eq!(
             call(&app, "GET", path, &cookies[0], "", &[]).await.status(),
@@ -221,8 +221,8 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
         );
     }
     for path in [
-        "/admin/mail/groups/9223372036854775807",
-        "/admin/mail/book-rooms/9223372036854775807",
+        "/odmen/mail/groups/9223372036854775807",
+        "/odmen/mail/book-rooms/9223372036854775807",
     ] {
         assert_eq!(
             call(&app, "GET", path, &cookies[0], "", &[]).await.status(),

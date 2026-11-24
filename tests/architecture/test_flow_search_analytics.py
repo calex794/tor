@@ -29,8 +29,8 @@ class SearchAnalyticsBoundaries(unittest.TestCase):
         self.assertNotIn('sqlx',http)
         self.assertNotIn('SELECT ',http)
         routes=read('crates/web/src/auth/audience_http.rs')
-        self.assertIn('/admin/audience/seo',routes)
-        self.assertIn('/admin/audience/seo/refresh',routes)
+        self.assertIn('/odmen/audience/seo',routes)
+        self.assertIn('/odmen/audience/seo/refresh',routes)
     def test_real_acceptance_targets_and_worker_shutdown_stay_wired(self):
         self.assertIn('mod analytics;',read('crates/search/tests/seo_pg.rs'))
         self.assertIn('mod seo;',read('crates/web/tests/audience_http_pg.rs'))
