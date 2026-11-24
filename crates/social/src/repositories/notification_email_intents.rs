@@ -51,7 +51,8 @@ impl PgNotifications {
                RETURNING id"#,
             read_policy::VISIBLE,
         );
-        let created: Vec<i64> = sqlx::query_scalar(&sql)
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        let created: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(i64::from(limit))
             .fetch_all(&self.pool)

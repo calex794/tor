@@ -41,7 +41,8 @@ impl PgNotifications {
                ORDER BY n.id DESC LIMIT $2"#,
             read_policy::VISIBLE
         );
-        let ids: Vec<i64> = sqlx::query_scalar(&sql)
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(i64::from(limit))
             .fetch_all(&self.pool)
