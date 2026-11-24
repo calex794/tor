@@ -1476,19 +1476,15 @@ jobs:
         run: |
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-storage -- --check
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.8'
+          cache: false
+      - name: Build verified upstream MinIO response fix
+        run: bash tools/g09_build_minio_ci.sh
       - name: Start verified upstream MinIO on 127.0.0.1
         run: |
-          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release" --output "$RUNNER_TEMP/$release"
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
-          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
-          test "${#expected}" -eq 64
-          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
-          test "$actual" = "$expected"
-          chmod 700 "$RUNNER_TEMP/$release"
+          release=minio-g09-fixed
           mkdir -p "$RUNNER_TEMP/tor-chapter-minio"
           MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
             nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-chapter-minio" \
