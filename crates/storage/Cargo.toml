@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 aes-gcm = "0.10"
 base64 = "0.22"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

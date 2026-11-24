@@ -13,29 +13,29 @@ s3-free = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
-tor-ads = { path = "../ads" }
+tor-ads = { path = "../ads", version = "=0.1.0" }
 axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time", "io-util", "signal"] }
-tor-books = { path = "../books" }
-tor-social = { path = "../social" }
-tor-support = { path = "../support" }
-tor-discussions = { path = "../discussions" }
-tor-commerce = { path = "../commerce" }
-tor-contracts = { path = "../contracts" }
-tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }
-tor-search = { path = "../search" }
-tor-recommendations = { path = "../recommendations" }
-tor-ingest = { path = "../ingest" }
-tor-imports = { path = "../imports" }
+tor-books = { path = "../books", version = "=0.1.0" }
+tor-social = { path = "../social", version = "=0.1.0" }
+tor-support = { path = "../support", version = "=0.1.0" }
+tor-discussions = { path = "../discussions", version = "=0.1.0" }
+tor-commerce = { path = "../commerce", version = "=0.1.0" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
+tor-storage = { path = "../storage", version = "=0.1.0", features = ["pg", "s3"], optional = true }
+tor-search = { path = "../search", version = "=0.1.0" }
+tor-recommendations = { path = "../recommendations", version = "=0.1.0" }
+tor-ingest = { path = "../ingest", version = "=0.1.0" }
+tor-imports = { path = "../imports", version = "=0.1.0" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 async-trait.workspace = true
-tor-reading = { path = "../reading" }
-tor-accounts = { path = "../accounts" }
-tor-referrals = { path = "../referrals" }
-tor-route_intelligence = { path = "../route_intelligence" }
-tor-traffic_behavior = { path = "../traffic_behavior" }
-tor-observability = { path = "../observability" }
+tor-reading = { path = "../reading", version = "=0.1.0" }
+tor-accounts = { path = "../accounts", version = "=0.1.0" }
+tor-referrals = { path = "../referrals", version = "=0.1.0" }
+tor-route_intelligence = { path = "../route_intelligence", version = "=0.1.0" }
+tor-traffic_behavior = { path = "../traffic_behavior", version = "=0.1.0" }
+tor-observability = { path = "../observability", version = "=0.1.0" }
 serde_json = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 async-trait.workspace = true
 sqlx.workspace = true
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 
 [dev-dependencies]
 tokio.workspace = true

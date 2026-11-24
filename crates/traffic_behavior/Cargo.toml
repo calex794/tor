@@ -6,7 +6,7 @@ edition.workspace = true
 # SQLx is confined to repositories; pure domain and service do not issue SQL.
 [dependencies]
 sqlx.workspace = true
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 tokio = { workspace = true, features = ["time"] }
 uuid = { version = "1", features = ["v4"] }
 

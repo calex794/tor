@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 async-trait.workspace = true
 sqlx.workspace = true
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 base64 = "0.22"
 hex = "0.4"
 time = { version = "0.3", features = ["formatting", "parsing"] }
