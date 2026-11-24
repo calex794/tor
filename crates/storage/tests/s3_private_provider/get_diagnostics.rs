@@ -222,7 +222,7 @@ pub(super) async fn first_get(
     store: &S3PrivateStore,
     object: &ObjectRef,
     writes: [Option<SocketOutcome>; 2],
-) -> Result<Vec<u8>, StorageError> {
+) -> (Result<Vec<u8>, StorageError>, Option<SocketOutcome>) {
     let observation = OperationObservation {
         strict_get: true,
         ..OperationObservation::default()
@@ -265,9 +265,37 @@ pub(super) async fn first_get(
                     "first GET diagnostic must observe the successful SDK response"
                 );
             }
-            result
+            (result, observation.socket)
         })
         .await
+}
+
+pub(super) fn report_healthy_witness(connection_close: bool, phases: [Option<SocketOutcome>; 3]) {
+    use std::io::Write as _;
+
+    let [initial, rejected, get] = [
+        phases[0].expect("initial PUT must have live SDK evidence"),
+        phases[1].expect("rejected PUT must have live SDK evidence"),
+        phases[2].expect("first GET must have live SDK evidence"),
+    ];
+    assert_eq!(initial.status, Some(200));
+    assert_eq!(rejected.status, Some(412));
+    assert_eq!(get.status, Some(200));
+    let initial_ports = initial.ports.expect("initial PUT must use loopback");
+    let rejected_ports = rejected.ports.expect("rejected PUT must use loopback");
+    let get_ports = get.ports.expect("first GET must use loopback");
+    assert_eq!(initial_ports.1, rejected_ports.1);
+    assert_eq!(rejected_ports.1, get_ports.1);
+    let rejected_response_close = rejected.response_close.expect("412 response was observed");
+    // Write only boolean comparisons; avoid both raw socket addresses and
+    // libtest output capture for this single, explicit live witness.
+    writeln!(
+        std::io::stderr().lock(),
+        "G09_SOCKET_WITNESS connection_close={connection_close} initial_put=200 conflicting_put=412 first_get=200 put_reused={} get_reused={} rejected_response_close={rejected_response_close}",
+        initial_ports == rejected_ports,
+        rejected_ports == get_ports,
+    )
+    .expect("write sanitized G-09 witness");
 }
 
 #[test]

@@ -10,7 +10,9 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
 };
-use get_diagnostics::{first_get, observe_put, CloseConnection, ObserveFirstGet};
+use get_diagnostics::{
+    first_get, observe_put, report_healthy_witness, CloseConnection, ObserveFirstGet, SocketOutcome,
+};
 use std::{process::Command, time::Duration};
 use tokio::io::AsyncReadExt;
 use tor_contracts::paid_delivery::{
@@ -128,7 +130,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     let forged = object(&other.ciphertext, chapter_id());
     let (conflicting_put, conflict_socket) = observe_put(&store, &forged, &other.ciphertext).await;
     assert_eq!(conflicting_put, Err(StorageError::Conflict));
-    let after_rejected_overwrite =
+    let (after_rejected_overwrite, _) =
         first_get(&store, &record, [initial_socket, conflict_socket]).await;
     if let Err(error) = &after_rejected_overwrite {
         // Only on failure: do not insert extra reads between the conflicting
@@ -749,7 +751,7 @@ async fn g09_conflict_first_get_round(
     bucket: &str,
     round: u16,
     mode: &str,
-) {
+) -> [Option<SocketOutcome>; 3] {
     // Every round uses a distinct canonical immutable key; background
     // traffic never writes this key or shares its ObjectId.
     let id = ObjectId::parse(&format!("c0f10000-0000-4000-8000-{round:012x}")).unwrap();
@@ -786,7 +788,8 @@ async fn g09_conflict_first_get_round(
 
     // CRITICAL: the very next request touching this target is the first
     // exact GET. No HEAD, wait or retry between the 412 and this GET.
-    let observed_get = first_get(store, &expected, [initial_socket, conflict_socket]).await;
+    let (observed_get, get_socket) =
+        first_get(store, &expected, [initial_socket, conflict_socket]).await;
     if let Err(error) = &observed_get {
         eprintln!("G09_REPRO mode={mode} round={round} first_get={error:?}");
         g09_conflict_repro_failure_evidence(client, bucket, &expected).await;
@@ -797,6 +800,7 @@ async fn g09_conflict_first_get_round(
             .is_ok_and(|bytes| bytes == &original.ciphertext),
         "first GET after rejected overwrite failed integrity in {mode} round {round}"
     );
+    [initial_socket, conflict_socket, get_socket]
 }
 
 /// #533: bounded one-key PUT -> rejected conflicting PUT -> first exact GET.
@@ -816,11 +820,20 @@ async fn g09_first_get_after_immutable_conflict_with_connection_close() {
     g09_conflict_replay(true).await;
 }
 
-async fn g09_conflict_replay(connection_close: bool) {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
+#[tokio::test]
+#[ignore = "only against disposable loopback MinIO from s3-provider"]
+async fn g09_loopback_socket_metadata_healthy_witness() {
+    for (connection_close, bucket) in [
+        (false, "tor-g09-socket-witness-pooled-ci"),
+        (true, "tor-g09-socket-witness-close-ci"),
+    ] {
+        let (client, store) = g09_replay_fixture(connection_close, bucket).await;
+        let phases = g09_conflict_first_get_round(&client, &store, bucket, 1, "witness").await;
+        report_healthy_witness(connection_close, phases);
+    }
+}
+
+async fn g09_replay_fixture(connection_close: bool, bucket: &str) -> (Client, S3PrivateStore) {
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO required");
     assert!(
         endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
@@ -842,12 +855,9 @@ async fn g09_conflict_replay(connection_close: bool) {
         .force_path_style(true)
         .retry_config(RetryConfig::standard().with_max_attempts(1))
         .interceptor(ObserveFirstGet);
-    let bucket = if connection_close {
+    if connection_close {
         config = config.interceptor(CloseConnection);
-        "tor-g09-conflict-close-control-ci"
-    } else {
-        "tor-g09-conflict-repro-ci"
-    };
+    }
     let client = Client::from_conf(config.build());
     client
         .create_bucket()
@@ -856,9 +866,23 @@ async fn g09_conflict_replay(connection_close: bool) {
         .await
         .expect("new disposable G09 bucket");
     let store = S3PrivateStore::new(client.clone(), bucket.to_owned()).unwrap();
+    (client, store)
+}
 
+async fn g09_conflict_replay(connection_close: bool) {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let bucket = if connection_close {
+        "tor-g09-conflict-close-control-ci"
+    } else {
+        "tor-g09-conflict-repro-ci"
+    };
+    let (client, store) = g09_replay_fixture(connection_close, bucket).await;
     for round in 1..=8 {
-        g09_conflict_first_get_round(&client, &store, bucket, round, "isolated").await;
+        let _ = g09_conflict_first_get_round(&client, &store, bucket, round, "isolated").await;
     }
 
     // Independent, bounded GET traffic on four other keys. No background
@@ -901,7 +925,7 @@ async fn g09_conflict_replay(connection_close: bool) {
     }
     barrier.wait().await;
     for round in 9..=24 {
-        g09_conflict_first_get_round(&client, &store, bucket, round, "parallel").await;
+        let _ = g09_conflict_first_get_round(&client, &store, bucket, round, "parallel").await;
     }
     for worker in workers {
         worker.await.expect("bounded load task");
