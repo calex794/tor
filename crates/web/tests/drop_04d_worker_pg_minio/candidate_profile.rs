@@ -1,5 +1,5 @@
 //! FND-00 / #349: boot the FREE candidate profile and let its actual S023 worker publish.
-use super::Fixture;
+use super::{pg, Fixture};
 use reqwest::{header, Client, StatusCode};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -191,41 +191,46 @@ async fn fnd00_free_candidate_runtime_uses_bodyless_s023() {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             assert!(server.0.try_wait().unwrap().is_none(), "server exited");
-            let (state, saved): (String, Option<i32>) =
-                sqlx::query_as("SELECT status,saved_count FROM chapter_import_jobs WHERE id=$1")
-                    .bind(job_id)
-                    .fetch_one(pool)
-                    .await
-                    .unwrap();
+            let row = pg(
+                &fixture.url,
+                &format!(
+                    "SELECT status||':'||COALESCE(saved_count::text,'')
+                     FROM chapter_import_jobs WHERE id={job_id}"
+                ),
+            );
+            let (state, saved) = row.split_once(':').unwrap();
             if state == "succeeded" {
-                assert_eq!(saved, Some(1));
+                assert_eq!(saved, "1");
                 break;
             }
-            assert!(!matches!(state.as_str(), "failed" | "cancelled"), "{state}");
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(!matches!(state, "failed" | "cancelled"), "{state}");
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     })
     .await
     .expect("the running TOR worker must finish the HTTP-enqueued job");
 
-    type StoredEdition = (String, String, Vec<u8>, Vec<u8>, bool);
-    let (bucket, key, stored_sha, version_sha, is_bodyless): StoredEdition = sqlx::query_as(
-        "SELECT f.bucket,f.object_key,f.sha256,v.content_sha256,v.body_markdown IS NULL
-         FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
-         JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
-         JOIN free_chapter_storage_objects f ON f.chapter_id=c.id AND f.version_id=v.id
-         WHERE c.book_id=$1",
-    )
-    .bind(fixture.book)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let proof = pg(
+        &fixture.url,
+        &format!(
+            "SELECT json_build_array(f.bucket,f.object_key,encode(f.sha256,'hex'),
+                    encode(v.content_sha256,'hex'),v.body_markdown IS NULL)
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+             JOIN free_chapter_storage_objects f ON f.chapter_id=c.id AND f.version_id=v.id
+             WHERE c.book_id={}",
+            fixture.book
+        ),
+    );
+    type StoredEdition = (String, String, String, String, bool);
+    let (bucket, key, stored_sha, version_sha, is_bodyless): StoredEdition =
+        serde_json::from_str(&proof).unwrap();
     assert_eq!(fixture.count("chapter_versions"), 1);
     assert_eq!(bucket, CANONICAL, "staging is not canonical storage");
     assert!(is_bodyless, "no legacy plaintext may be written");
-    let sha: [u8; 32] = Sha256::digest(BODY.as_bytes()).into();
-    assert_eq!(stored_sha.as_slice(), &sha[..]);
-    assert_eq!(version_sha.as_slice(), &sha[..]);
+    let sha = hex::encode(Sha256::digest(BODY.as_bytes()));
+    assert_eq!(stored_sha, sha);
+    assert_eq!(version_sha, sha);
     let actual = fixture
         .client
         .get_object()
