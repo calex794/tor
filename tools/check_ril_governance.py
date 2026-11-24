@@ -281,6 +281,70 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     return body
 
 
+# REUSE-02B: only the reviewed S049 browser routes import this parent helper.
+S049_SHARED_SESSION_POLICIES = {
+    ("GET", "/books/{id}/report", "content_reports::form"): "scoped",
+    ("POST", "/books/{id}/report", "content_reports::submit"): "scoped",
+    ("GET", "/odmen/book-reports", "content_reports::queue"): "admin_book_reports",
+    ("POST", "/odmen/book-reports/{report_id}/decision", "content_reports::decide"): "admin_book_reports",
+    ("GET", "/me/comment-appeals", "comment_appeals::author_page"): "scoped",
+    ("POST", "/me/comment-appeals/{hide_event_id}", "comment_appeals::submit"): "scoped",
+    ("GET", "/odmen/book-comment-appeals", "comment_appeals::queue"): "admin_comment_appeals",
+    ("POST", "/odmen/book-comment-appeals/{appeal_id}/decision", "comment_appeals::decide"): "admin_comment_appeals",
+    ("GET", "/odmen/paid-comment-reports", "paid_comment_reviews::queue"): "admin_paid_comment_reports",
+    ("POST", "/odmen/paid-comment-reports/{report_id}/decision", "paid_comment_reviews::decide"): "admin_paid_comment_reports",
+    ("GET", "/me/paid-comment-appeals", "paid_comment_appeals::author_page"): "scoped",
+    ("POST", "/me/paid-comment-appeals/{hide_event_id}", "paid_comment_appeals::submit"): "scoped",
+    ("GET", "/odmen/paid-comment-appeals", "paid_comment_appeals::queue"): "admin_paid_comment_appeals",
+    ("POST", "/odmen/paid-comment-appeals/{appeal_id}/decision", "paid_comment_appeals::decide"): "admin_paid_comment_appeals",
+    ("GET", "/reader/{chapter_id}/comments/{comment_id}/report", "free_comment_reports::form"): "scoped",
+    ("POST", "/reader/{chapter_id}/comments/{comment_id}/report", "free_comment_reports::submit"): "scoped",
+    ("GET", "/odmen/free-comment-reports", "free_comment_reviews::queue"): "admin_free_comment_reports",
+    ("POST", "/odmen/free-comment-reports/{report_id}/decision", "free_comment_reviews::decide"): "admin_free_comment_reports",
+    ("GET", "/me/free-comment-appeals", "free_comment_appeals::author_page"): "scoped",
+    ("POST", "/me/free-comment-appeals/{hide_event_id}", "free_comment_appeals::submit"): "scoped",
+    ("GET", "/odmen/free-comment-appeals", "free_comment_appeals::queue"): "admin_free_comment_appeals",
+    ("POST", "/odmen/free-comment-appeals/{appeal_id}/decision", "free_comment_appeals::decide"): "admin_free_comment_appeals",
+}
+
+
+def _s049_shared_session_policy(entry: dict[str, str]) -> str | None:
+    if entry.get("source") != "crates/web/src/auth/book_shares.rs":
+        return None
+    return S049_SHARED_SESSION_POLICIES.get(
+        (entry.get("method"), entry.get("template"), entry.get("handler"))
+    )
+
+
+def _s049_shared_session_proof(entry: dict[str, str], body: str, helper: str) -> bool:
+    # A POST must still reject CSRF first; unlike the paid JSON grants,
+    # these historical HTML forms retain their existing denial precedence.
+    caller = re.sub(r"\s+", "", body).partition("->Response{")[2]
+    if entry["method"] == "POST":
+        csrf = (
+            "if!s.cookies.same_origin(&headers)||"
+            "!s.cookies.valid_csrf(&headers,&form.csrf_token){"
+            "returndeny(StatusCode::FORBIDDEN);}"
+        )
+        if not caller.startswith(csrf):
+            return False
+        caller = caller[len(csrf):]
+    call = (
+        r"letdigest=matchsession_user\(&s,&headers\)\.await\{"
+        r"Ok\(digest\)=>digest,Err\((code|error)\)=>returndeny\(\1\),\};"
+    )
+    if not re.match(call, caller):
+        return False
+    implementation = re.sub(r"\s+", "", helper).partition("->Result<[u8;32],StatusCode>{")[2]
+    return implementation == (
+        "lettoken=s.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;"
+        "letdigest=session_token_digest(&token);"
+        "s.accounts.active_session_user(&digest).await"
+        ".map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?.ok_or(StatusCode::UNAUTHORIZED)?;"
+        "Ok(digest)}"
+    )
+
+
 def _contains_scoped_call(body: str, names: set[str]) -> bool:
     for name in names:
         if re.search(rf"\b{name}\s*\(\s*(?:actor_id|actor|user_id)\b", body):
@@ -728,6 +792,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
         and admin_key in payout_admin_ops
     )
+    shared_s049_policy = _s049_shared_session_policy(entry)
+    if shared_s049_policy is not None:
+        if policy != shared_s049_policy or not _s049_shared_session_proof(
+            entry, body, functions.get("session_user", "")
+        ):
+            errors.append(f"{label}: S049 must reject failed shared session gate and retain form CSRF")
     s049_report_ops = {
         ("GET", "/odmen/recommendation-reports", "admin_reports::queue"): "pending",
         ("POST", "/odmen/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
@@ -2234,6 +2304,22 @@ def check(root: Path = ROOT) -> list[str]:
                 _strip_comments(identity_file.read_text(encoding="utf-8"))
                 if identity_file.exists() else ""
             )
+        if _s049_shared_session_policy(entry) is not None:
+            # The child must actually import the parent implementation, and
+            # may not shadow it with a local function. Read the checked root.
+            try:
+                child = _strip_comments(_production(path.read_text(encoding="utf-8")))
+                parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+                imported = re.search(
+                    r"(?m)^use super::\{deny, page, session_user, status, ShareState\};$",
+                    child,
+                )
+                source_cache[path]["session_user"] = (
+                    parent.get("session_user", "")
+                    if imported and "session_user" not in _functions(child) else ""
+                )
+            except OSError:
+                source_cache[path]["session_user"] = ""
         if (entry.get("source") == "crates/web/src/editorial_http/mod.rs"
                 and entry.get("handler") in {"admin::page", "admin::submit"}):
             child = _strip_comments(_production(path.read_text(encoding="utf-8")))

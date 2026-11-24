@@ -1,13 +1,13 @@
 //! S049: private browser form for a visible free-chapter edition comment.
 //! Reports carry only an exact E identifier and a reason, never the chapter text.
-use super::{deny, page, status, ShareState};
+use super::{deny, page, session_user, status, ShareState};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
-use tor_accounts::services::security::{generate_session_token, session_token_digest};
+use tor_accounts::services::security::generate_session_token;
 use tor_social::repositories::free_comment_reports::PgFreeCommentReports;
 
 #[derive(Deserialize)]
@@ -25,20 +25,6 @@ pub(super) struct ReportForm {
     command_key: String,
     reason: String,
     details: String,
-}
-
-async fn session_user(s: &ShareState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
-    let token = s
-        .cookies
-        .session_token(headers)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    let digest = session_token_digest(&token);
-    s.accounts
-        .active_session_user(&digest)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    Ok(digest)
 }
 
 fn store(s: &ShareState) -> PgFreeCommentReports {
