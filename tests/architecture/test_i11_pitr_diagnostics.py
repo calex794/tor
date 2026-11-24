@@ -33,6 +33,24 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual(len(client_diagnostics('\n'.join('ERROR: ' + str(i) for i in range(10)))), 3)
         self.assertLessEqual(len(client_diagnostics('ERROR: ' + 'x' * 1000)[0]), 376)
 
+    def test_time_start_diagnostics_are_bounded_and_filtered(self):
+        prefix = 'I11_PITR_TIME_START time-start '
+        lines = [
+            prefix + 'FATAL: configuration file contains errors',
+            prefix + 'FATAL: password=private',
+            prefix + 'ERROR: ' + 'a' * 64,
+            'I11_PITR_TIME_START unexpected FATAL: hidden',
+            prefix + 'FATAL: ' + 'x' * 361,
+            prefix + 'FATAL: \x1b[31m',
+        ]
+        result = drill.time_start_diagnostics('\n'.join(lines + lines))
+        self.assertEqual(result, [
+            prefix + 'FATAL: configuration file contains errors',
+            prefix + 'ERROR: [redacted]',
+        ])
+        self.assertEqual(len(drill.time_start_diagnostics(
+            '\n'.join(prefix + str(i) for i in range(20)))), 8)
+
     def test_control_characters_cannot_escape_into_log(self):
         self.assertNotIn('\x1b', client_diagnostics('ERROR: \x1b[31mfailed')[0])
 

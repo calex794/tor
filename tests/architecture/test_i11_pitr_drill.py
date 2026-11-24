@@ -200,6 +200,8 @@ class Isolation(unittest.TestCase):
             'archive_mode = off',
             "primary_conninfo = ''",
             '-c config_file=$work/time-config/postgresql.conf',
+            '--pg1-path=$time_dir archive-get',
+            'start >"$work/log/time-pgctl.log" 2>&1',
             'mv -- "$time_dir/postgresql.auto.conf"',
             '[[ -f "$time_dir/recovery.signal" ]]',
         ):

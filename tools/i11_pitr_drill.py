@@ -129,6 +129,25 @@ def client_diagnostics(stderr: str) -> list[str]:
     return results
 
 
+def time_start_diagnostics(stderr: str) -> list[str]:
+    """Bound synthetic fixture startup diagnostics; no raw PostgreSQL log."""
+    rows = re.findall(
+        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness) '
+        r'[\x20-\x7e]{1,360}$', stderr[-32768:], re.M,
+    )
+    result = []
+    for row in rows:
+        if re.search(r'(?i)(?:cipher|password\s*[=:]|secret|token)', row):
+            continue
+        row = re.sub(r'[A-Za-z][A-Za-z0-9+.-]*://\S+', '[uri]', row)
+        row = re.sub(r'\b[0-9a-fA-F]{32,}\b', '[redacted]', row)
+        if row not in result:
+            result.append(row)
+        if len(result) == 8:
+            break
+    return result
+
+
 def main() -> int:
     if len(sys.argv) != 1:
         print('REFUSE: no arguments accepted', file=sys.stderr)
@@ -172,9 +191,11 @@ def main() -> int:
             if marker:
                 print('I11_PITR_FAILED line=' + marker.group(1), file=sys.stderr)
             diagnostics = re.findall(
-                r'^I11_PITR_DIAGNOSTIC (?:wrong-key|restore|bad-restore) [0-9]{3} [\x20-\x7e]{0,360}$',
+                r'^I11_PITR_DIAGNOSTIC (?:wrong-key|restore|bad-restore|time-restore) [0-9]{3} [\x20-\x7e]{0,360}$',
                 stderr, re.M)
-            for diagnostic in diagnostics[:3]:
+            for diagnostic in diagnostics[:4]:
+                print(diagnostic, file=sys.stderr)
+            for diagnostic in time_start_diagnostics(stderr):
                 print(diagnostic, file=sys.stderr)
         print('FAIL: isolated I-11 PITR drill; no release or SLO approval', file=sys.stderr)
         return 1

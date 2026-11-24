@@ -53,7 +53,7 @@ report_failure() {
 from pathlib import Path
 import re, sys
 root, key = sys.argv[1:]
-for name in ('wrong-key', 'restore', 'bad-restore'):
+for name in ('wrong-key', 'restore', 'bad-restore', 'time-restore'):
     path = Path(root) / 'log' / (name + '.log')
     if not path.is_file():
         continue
@@ -63,6 +63,23 @@ for name in ('wrong-key', 'restore', 'bad-restore'):
             text = match[2].replace(key, '[redacted]').replace(root, '[temp]')
             text = re.sub(r'[^\x20-\x7e]', '?', text)[:360]
             print(f'I11_PITR_DIAGNOSTIC {name} {match[1]} {text}')
+            break
+# Synthetic fixture only. Publish bounded startup diagnostics, never raw logs.
+for name in ('time-start', 'time-pgctl', 'time-readiness'):
+    path = root / 'log' / (name + '.log')
+    if not path.is_file():
+        continue
+    emitted = 0
+    for line in path.read_text(errors='replace').splitlines():
+        match = re.search(r'(?:FATAL|PANIC|ERROR|DETAIL|HINT|pg_ctl):\s*(.*)', line)
+        if not match:
+            continue
+        text = match[0].replace(key, '[redacted]').replace(root, '[temp]')
+        text = re.sub(r'(?i)(?:password|cipher-pass|secret|token)\s*[=:]\s*\S+', '[redacted]', text)
+        text = re.sub(r'[^\x20-\x7e]', '?', text)[:360]
+        print(f'I11_PITR_TIME_START {name} {text}')
+        emitted += 1
+        if emitted == 4:
             break
 PY
 }
@@ -236,7 +253,9 @@ primary_slot_name = ''
 recovery_end_command = ''
 archive_cleanup_command = ''
 hot_standby = on
-restore_command = 'pgbackrest --config=$conf --stanza=tor --repo=1 archive-get %f "%p"'
+max_connections = 16
+shared_buffers = '32MB'
+restore_command = 'pgbackrest --config=$conf --stanza=tor --repo=1 --pg1-path=$time_dir archive-get %f "%p"'
 recovery_target_time = '$time_target'
 recovery_target_timeline = '$timeline'
 recovery_target_inclusive = off
@@ -244,7 +263,7 @@ recovery_target_action = 'pause'
 CONFIG
 # Start only this throwaway cluster with fresh config; no production network.
 pg_ctl -D "$time_dir" -l "$work/log/time-start.log" -w -t 30 \
-    -o "-c config_file=$work/time-config/postgresql.conf" start >/dev/null
+    -o "-c config_file=$work/time-config/postgresql.conf" start >"$work/log/time-pgctl.log" 2>&1
 time_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/time-socket" -p 55435 -U postgres -d postgres "$@"; }
 paused=false
 deadline=$((SECONDS + 30))
