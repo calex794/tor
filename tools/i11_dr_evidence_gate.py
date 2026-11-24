@@ -15,6 +15,7 @@ import re
 import stat
 import sys
 
+SCHEMA_VERSION = 2
 MAX_REPORT_BYTES = 64 * 1024
 RPO_LIMIT_SECONDS = 15 * 60
 RTO_LIMIT_SECONDS = 4 * 60 * 60
@@ -26,6 +27,8 @@ SAFE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,127}\Z")
 REQUIRED_TRUE = (
     "restore_host_separate",
     "production_untouched",
+    "restored_pg_startup_isolation_verified",
+    "exclusive_pitr_pause_before_promotion_verified",
     "database_pitr_t1_present_t2_absent",
     "wal_post_base_backup_replay_verified",
     "controlled_wal_witness_verified",
@@ -36,6 +39,9 @@ REQUIRED_TRUE = (
     "historical_free_receipts_verified",
     "private_v1_hash_and_offline_kek_verified",
     "purchased_v1_after_v2_verified",
+    "historical_key_inventory_verified",
+    "purchased_editions_kek_v1_v2_decryption_verified",
+    "historical_kek_v2_missing_or_replaced_denial_verified",
     "saved_free_v1_after_v2_verified",
     "layer_free_v1_after_deletion_verified",
     "refund_and_unauthorized_acl_denials_verified",
@@ -91,7 +97,7 @@ def parse_utc(value):
 def review_report(report):
     if not isinstance(report, dict) or set(report) != KEYS:
         raise Refused("incomplete or unexpected DR evidence fields")
-    if type(report["schema_version"]) is not int or report["schema_version"] != 1:
+    if type(report["schema_version"]) is not int or report["schema_version"] != SCHEMA_VERSION:
         raise Refused("unsupported DR evidence schema")
     if report["status"] != "REVIEW_READY":
         raise Refused("report must be REVIEW_READY, not a self-declared acceptance")
