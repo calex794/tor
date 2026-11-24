@@ -259,12 +259,13 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
             .await,
         Err(AuthorError::Conflict)
     );
-    let archive_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM book_layer_free_archive_versions WHERE book_id=$1")
-            .bind(book)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let archive_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM book_layer_free_archive_versions WHERE book_id=$1",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(archive_count, 1, "replay must not rewrite the archive");
     pool.close().await;
 }
