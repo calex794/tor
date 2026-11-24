@@ -14,16 +14,34 @@ const ADMIN_MENU: &str = r#"<section class="section"><div class="container">
 <li><a href="/odmen/mail">Почта</a></li>
 <li><a href="/odmen/support">Поддержка</a></li>
 <li><a href="/odmen/finance/refunds">Возвраты</a></li>
+<!--S3_ADMIN_LINK-->
 </ul>
 </nav>
 <p><a href="/me">Личный кабинет</a></p>
 </div></section>"#;
 
+/// Keep the feature-specific storage registration out of the shared auth router.
+#[cfg(feature = "s3-free")]
+pub(super) fn storage_routes() -> Router<AuthState> {
+    super::admin_s3::router()
+}
+
+#[cfg(not(feature = "s3-free"))]
+pub(super) fn storage_routes() -> Router<AuthState> {
+    Router::new()
+}
+
 fn body() -> Html<String> {
+    let storage_link = if cfg!(feature = "s3-free") {
+        r#"<li><a href="/odmen/storage/s3">Хранилище S3</a></li>"#
+    } else {
+        ""
+    };
+    let menu = ADMIN_MENU.replace("<!--S3_ADMIN_LINK-->", storage_link);
     pages::layout(
         "Администрирование",
         "Доступ к административным разделам TOR.",
-        ADMIN_MENU,
+        &menu,
     )
 }
 
@@ -63,6 +81,10 @@ mod tests {
         assert!(html.contains(r#"href="/odmen/audience""#));
         assert!(html.contains(r#"href="/odmen/support""#));
         assert!(html.contains(r#"href="/me""#));
+        assert_eq!(
+            html.contains(r#"href="/odmen/storage/s3""#),
+            cfg!(feature = "s3-free")
+        );
         assert!(!html.contains("csrf_token"));
         assert!(!html.contains("security/traffic"));
     }

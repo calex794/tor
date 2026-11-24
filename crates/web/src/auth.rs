@@ -36,6 +36,8 @@ mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+#[cfg(feature = "s3-free")]
+mod admin_s3;
 mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
@@ -235,6 +237,7 @@ fn router_inner(
         Router::new()
     };
     let app = Router::new()
+        .merge(admin_entry::storage_routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())

@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/odmen/mail", "admin_mail::index"): "users",
     ("GET", "/odmen/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -928,6 +928,46 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
+    # S3-ADMIN: exact operator-only Yandex connection, hard-coded public
+    # endpoint, read-only HeadBucket and encrypted-only PG storage. This is
+    # not a generic route exception and must not enable S3 writes/cutover.
+    audited_s3_connection = (
+        policy == "admin_s3_connection"
+        and entry["source"] == "crates/web/src/auth/admin_s3.rs"
+        and admin_key in {
+            ("GET", "/odmen/storage/s3", "page"),
+            ("POST", "/odmen/storage/s3", "save"),
+        }
+    )
+    if audited_s3_connection:
+        evidence += "\n" + functions.get("operator", "")
+    if policy == "admin_s3_connection":
+        repository = _production(
+            (ROOT / "crates/storage/src/repositories/admin_s3_profiles.rs")
+                .read_text(encoding="utf-8")
+        )
+        auth_guard = all(v in evidence for v in (
+            "session_token(headers)", "session_token_digest(&token)",
+            "session_actor(&digest)", "!actor.administrator",
+            "StatusCode::FORBIDDEN", "StatusCode::UNAUTHORIZED",
+            "operator(&state, &headers).await",
+        ))
+        store_guard = all(v in repository for v in (
+            "TOR_S3_ADMIN_MASTER_KEY", "Aes256Gcm",
+            "FOR SHARE OF s,u,r", "account_state='active'",
+            "save_verified", "admin_s3_profile_audit",
+            "valid_bucket(bucket)",
+        ))
+        connect_guard = (
+            entry["method"] != "POST" or all(v in body for v in (
+                "state.cookies.same_origin(&headers)",
+                "state.cookies.valid_csrf(&headers, &csrf)",
+                "master_key_ready()", "head_bucket()",
+                "YANDEX_ENDPOINT", ".save_verified(&digest, &bucket",
+            ))
+        )
+        if not (audited_s3_connection and auth_guard and store_guard and connect_guard):
+            errors.append(f"{label}: S3 connection missing live role, CSRF, fixed provider, or encrypted persistence")
     audited_surprises = (
         policy == "admin_surprises"
         and entry["source"] == "crates/web/src/auth/surprise_admin.rs"
@@ -998,7 +1038,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof):
+            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")

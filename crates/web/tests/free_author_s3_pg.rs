@@ -34,6 +34,8 @@ const MARKER: &str = "S349_NEW_BODY_ONLY_IN_S3_47b935";
 const MARKDOWN: &str =
     "S349_NEW_BODY_ONLY_IN_S3_47b935\n\nNew chapter with Unicode: \u{1f600} \u{6587}";
 
+#[path = "free_author_s3_pg/admin_s3.rs"]
+mod admin_s3;
 #[path = "free_author_s3_pg/traffic.rs"]
 mod traffic;
 
@@ -351,6 +353,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "a held SINGLE must not retain its no-JS source"
     );
     pg(&url,&format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({owner},'administrator',true)"));
+    admin_s3::check_connection_form(&http, &url, &session, &no_js_session).await;
     let admin = browser(json!({"mode":"read","admin":true,"origin":ORIGIN,
         "storage_origin":ENDPOINT,"chapter":chapter,"session":session,"marker":MARKER}));
     assert_eq!(admin["read"], true);
@@ -474,6 +477,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     println!("S349_NETWORK admin_history={admin_history}");
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_admin_chapter_access_audit WHERE admin_user_id={owner} AND chapter_id={chapter}")),"3");
     pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={owner} AND role='administrator'"));
+    admin_s3::check_revoked(&http, &session).await;
     assert_eq!(
         http.get(format!("{ORIGIN}/read/odmen/{chapter}"))
             .header("cookie", format!("tor-dev-session={session}"))
