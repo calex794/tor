@@ -189,6 +189,22 @@ async fn actor(s: &ShareState, h: &HeaderMap) -> Result<i64, StatusCode> {
         .ok_or(StatusCode::UNAUTHORIZED)
 }
 
+// S049 browser moderation: authentication only. Each repository still
+// verifies the exact actor/role and resource, including inside write TXs.
+async fn session_user(s: &ShareState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
+    let token = s
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let digest = session_token_digest(&token);
+    s.accounts
+        .active_session_user(&digest)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    Ok(digest)
+}
+
 fn form_allowed(s: &ShareState, h: &HeaderMap, csrf: &str) -> bool {
     s.cookies.same_origin(h) && s.cookies.valid_csrf(h, csrf)
 }

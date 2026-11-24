@@ -1,5 +1,5 @@
 //! S049: administrator queue for reports about free-chapter edition comments.
-use super::{deny, page, status, ShareState};
+use super::{deny, page, session_user, status, ShareState};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::fmt::Write;
-use tor_accounts::services::security::session_token_digest;
 use tor_social::repositories::free_comment_reviews::PgFreeCommentReviews;
 
 #[derive(Default, Deserialize)]
@@ -22,20 +21,6 @@ pub(super) struct DecisionForm {
     csrf_token: String,
     decision: String,
     note: String,
-}
-
-async fn session_user(s: &ShareState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
-    let token = s
-        .cookies
-        .session_token(headers)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    let digest = session_token_digest(&token);
-    s.accounts
-        .active_session_user(&digest)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    Ok(digest)
 }
 
 fn store(s: &ShareState) -> PgFreeCommentReviews {

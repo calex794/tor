@@ -806,6 +806,38 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing actor-bound scoped repository call")
 
+    def test_s049_shared_session_gate_cannot_be_bypassed(self):
+        path = "crates/web/src/auth/book_shares.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for before, after in (
+            (".active_session_user(&digest)", ".unchecked_session_user(&digest)"),
+            (".ok_or(StatusCode::UNAUTHORIZED)?;", ".unwrap_or_default();"),
+            (".map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?", ".unwrap_or(None)"),
+        ):
+            with self.subTest(before=before):
+                try:
+                    self.mutate(path, before, after, start="async fn session_user(")
+                    self.assert_detected("S049 must reject failed shared session gate")
+                finally:
+                    target.write_text(original, encoding="utf-8")
+
+    def test_s049_shared_session_requires_live_import_and_denial(self):
+        path = "crates/web/src/auth/book_free_comment_appeals.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for before, after in (
+            ("page, session_user, status", "page, unchecked_session_user, status"),
+            ("Err(error) => return deny(error),", "Err(_) => [0; 32],"),
+            ("!s.cookies.same_origin(&headers)", "false"),
+        ):
+            with self.subTest(before=before):
+                try:
+                    self.mutate(path, before, after)
+                    self.assert_detected("S049 must reject failed shared session gate")
+                finally:
+                    target.write_text(original, encoding="utf-8")
+
     def test_notification_preferences_save_is_actor_scoped(self):
         self.mutate(
             "crates/web/src/auth/notifications.rs",
