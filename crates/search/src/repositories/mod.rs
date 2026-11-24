@@ -223,7 +223,8 @@ impl PgSearch {
             return Err(SearchError::Invalid);
         }
         let sql = format!("SELECT MAX(b.id) {SEO_PUBLIC_FROM}");
-        let maximum: Option<i64> = sqlx::query_scalar(&sql)
+        // SQL composition uses the fixed SEO_PUBLIC_FROM constant; IDs are bound.
+        let maximum: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .fetch_one(&self.pool)
             .await
             .map_err(|_| SearchError::Unavailable)?;
@@ -243,7 +244,8 @@ impl PgSearch {
         let end = start + 10_000;
         let sql =
             format!("SELECT b.id {SEO_PUBLIC_FROM} AND b.id >= $1 AND b.id < $2 ORDER BY b.id");
-        let rows: Vec<i64> = sqlx::query_scalar(&sql)
+        // SQL composition uses the fixed SEO_PUBLIC_FROM constant; IDs are bound.
+        let rows: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(start)
             .bind(end)
             .fetch_all(&self.pool)
@@ -262,7 +264,8 @@ impl PgSearch {
         }
         let id = i64::try_from(book_id).map_err(|_| SearchError::Invalid)?;
         let sql = format!("SELECT EXISTS(SELECT 1 {SEO_PUBLIC_FROM} AND b.id=$1)");
-        sqlx::query_scalar(&sql)
+        // SQL composition uses the fixed SEO_PUBLIC_FROM constant; IDs are bound.
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(id)
             .fetch_one(&self.pool)
             .await

@@ -1,24 +1,25 @@
 //! A slow aggregate update must not pin the worker's epoch row.
+// SQLx 0.9 test SQL audit: Timestamp-generated schema from shared fixture and fixed trigger/function definitions.
 //! This reproduces the checkpoint/callback lock convoy from FLOW #1134 with
 //! real disposable PostgreSQL 18, never a mocked lease or a relaxed timeout.
 use super::*;
 use std::time::{Duration, Instant};
 
 async fn slow_hourly_update(f: &Fixture) {
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE FUNCTION {}.flow_test_pause_aggregate() RETURNS trigger LANGUAGE plpgsql AS $$
          BEGIN PERFORM pg_sleep(0.30); RETURN NEW; END $$",
         f.schema
-    ))
+    )))
     .execute(&f.admin)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE TRIGGER flow_test_pause_hourly BEFORE UPDATE
          ON {}.flow_observation_hourly FOR EACH ROW
          EXECUTE FUNCTION {}.flow_test_pause_aggregate()",
         f.schema, f.schema
-    ))
+    )))
     .execute(&f.admin)
     .await
     .unwrap();

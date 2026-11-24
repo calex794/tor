@@ -1,6 +1,7 @@
 //! FLOW: canonical C facts, exact whole-period uniqueness and adjacent UTC windows.
+// SQLx 0.9 test SQL audit: Table, event type, time column and authority selected by a fixed branch.
 //! Run with the migrated disposable PostgreSQL database, never a persistent service.
-use chrono::{DateTime, Utc};
+use ::time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use sqlx::{PgPool, Row};
 use tor_reading::{
     repositories::{audience::PgAudience, PgPreferredSendHour, PgReadingSync},
@@ -108,7 +109,7 @@ async fn events(f: &Fixture, user: i64, range: (i32, i32), hours_ago: i64, finis
                  'chapter_id',chapter_id,'version_id',first_version_id,
                  'authority','{authority}'),ARRAY['audience-fixture-only'] FROM facts"
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(user)
         .bind(f.book)
         .bind(range.0)
@@ -152,15 +153,15 @@ fn intervals(report: &AudienceReport) {
     assert_eq!(report.measured_at_utc, report.current.until_utc);
     assert_eq!(report.current.from_utc, report.previous.until_utc);
     for period in [&report.current, &report.previous] {
-        let from = DateTime::parse_from_rfc3339(&period.from_utc).unwrap();
-        let until = DateTime::parse_from_rfc3339(&period.until_utc).unwrap();
-        assert_eq!(from.offset().local_minus_utc(), 0);
-        assert_eq!(until.offset().local_minus_utc(), 0);
+        let from = OffsetDateTime::parse(&period.from_utc, &Rfc3339).unwrap();
+        let until = OffsetDateTime::parse(&period.until_utc, &Rfc3339).unwrap();
+        assert_eq!(from.offset().whole_seconds(), 0);
+        assert_eq!(until.offset().whole_seconds(), 0);
         assert_eq!(
-            (until - from).num_seconds(),
+            (until - from).whole_seconds(),
             i64::from(report.days) * 86_400
         );
-        assert!(until <= Utc::now());
+        assert!(until <= OffsetDateTime::now_utc());
     }
 }
 

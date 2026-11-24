@@ -1,0 +1,52 @@
+# I-07 / S062: initial TOR dependency policy. No advisory exemptions.
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[licenses]
+# Initial permissive-license policy; additional licenses require review.
+# Third-party licenses remain fail-closed; review each new permission.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+]
+confidence-threshold = 0.90
+include-dev = true
+include-build = true
+
+# Only unpublished workspace members are exempt from third-party license classification.
+# Their ownership policy is enforced separately; their advisories remain checked.
+[licenses.private]
+ignore = true
+registries = []
+ignore-sources = []
+
+# Reviewed Mozilla trust-anchor data. Limit the permission to the locked version.
+# Retain the CDLA text when distributing these data, including embedded copies.
+[[licenses.exceptions]]
+name = "webpki-roots"
+version = "=1.0.12"
+allow = ["CDLA-Permissive-2.0"]

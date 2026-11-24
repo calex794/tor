@@ -905,10 +905,35 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("reuse-audit.yml",
                          (WORKFLOWS / CI_WORKFLOW).read_text())
 
+    def test_rustsec_is_independent_read_only_and_fails_closed(self):
+        text = (WORKFLOWS / "rustsec.yml").read_text()
+        self.assertEqual(set(job_sections(text)), {"audit"})
+        for required in (
+            "  pull_request:", "  schedule:", "  workflow_dispatch:",
+            "cron: '17 4 * * *'", "'**/Cargo.toml'", "'**/Cargo.lock'",
+            "contents: read", "persist-credentials: false",
+            "git ls-files --error-unmatch Cargo.lock",
+            "cargo metadata --locked --all-features",
+            'cargo install --locked --version "=$AUDIT_VERSION" cargo-audit',
+            'cargo install --locked --version "=$DENY_VERSION" cargo-deny',
+            "cargo audit --json", "cargo deny --locked --all-features",
+            'cmp Cargo.lock "$RUNNER_TEMP/rustsec-report/Cargo.lock"',
+            "git diff --exit-code -- Cargo.lock",
+            "exit \"$rc\"", "always() && !cancelled()",
+        ):
+            self.assertIn(required, text)
+        self.assertEqual(text.count('exit "$rc"'), 2)
+        for forbidden in (
+            "contents: write", "pull_request_target:", "secrets.",
+            "continue-on-error:", "  push:", "cargo generate-lockfile",
+            "ssh ", "sudo systemctl", "--ignore",
+        ):
+            self.assertNotIn(forbidden, text)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml", "tor-nightly.yml",
-                    "reuse-audit.yml"}
+                    "reuse-audit.yml", "rustsec.yml"}
                  | MANUAL_WORKFLOWS | BUILD_ONLY_WORKFLOWS | PERFORMANCE_WORKFLOWS | ISOLATED_GATEWAY_WORKFLOWS | ACCEPTANCE_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))

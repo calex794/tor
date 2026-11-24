@@ -1,4 +1,5 @@
 //! Actual C read port with an isolated, fixed database clock and SELECT-only role.
+// SQLx 0.9 test SQL audit: Fixed table list and timestamp-generated fixture schema.
 #[path = "time/fixture.rs"]
 mod fixture;
 
@@ -42,9 +43,12 @@ async fn equal_closed_windows_include_every_new_chapter_and_exact_boundaries() {
     let f = fixture("2026-11-11T12:34:56Z").await;
     let repo = PgAudience::new(f.app.clone());
     let empty = repo.time_report(1, "UTC").await.unwrap();
-    let anchor = chrono::DateTime::parse_from_rfc3339("2026-11-11T12:00:00Z")
-        .unwrap()
-        .timestamp();
+    let anchor = ::time::OffsetDateTime::parse(
+        "2026-11-11T12:00:00Z",
+        &::time::format_description::well_known::Rfc3339,
+    )
+    .unwrap()
+    .unix_timestamp();
     assert_eq!(empty.until_epoch, anchor);
     assert_eq!(empty.current.totals, counts(0, 0));
     assert_eq!(empty.previous.totals, counts(0, 0));
@@ -263,10 +267,10 @@ async fn readonly_permissions_locks_and_invalid_input_never_become_zero() {
         "outbox_events",
     ] {
         let mut lock = f.owner.begin().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "LOCK TABLE {}.{table} IN ACCESS EXCLUSIVE MODE",
             f.schema
-        ))
+        )))
         .execute(&mut *lock)
         .await
         .unwrap();

@@ -1,9 +1,9 @@
 //! FLOW-08: actual nonfinancial campaigns, current authority and three safe slots.
 #![forbid(unsafe_code)]
-use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tor_ads::{
     domain::editorial::*, repositories::editorial::PgEditorial, services::editorial::Editorial,
 };
@@ -118,9 +118,10 @@ fn key_string(key: u32) -> String {
     format!("{key:043}")
 }
 fn date(seconds: i64) -> String {
-    DateTime::<Utc>::from_timestamp(seconds, 0)
+    OffsetDateTime::from_unix_timestamp(seconds)
         .unwrap()
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        .format(&Rfc3339)
+        .unwrap()
 }
 fn create(book_id: i64, slot: PromotionSlot) -> Command {
     let now = SystemTime::now()
@@ -278,8 +279,11 @@ async fn atomic_replays_concurrency_terminal_states_and_no_financial_or_reading_
             .await
             .unwrap();
     assert_eq!(audits, ended.revision);
-    for table in ["editorial_commands", "editorial_audit"] {
-        let error = sqlx::query(&format!("DELETE FROM {table} WHERE campaign_id=$1"))
+    for statement in [
+        "DELETE FROM editorial_commands WHERE campaign_id=$1",
+        "DELETE FROM editorial_audit WHERE campaign_id=$1",
+    ] {
+        let error = sqlx::query(statement)
             .bind(a.campaign_id)
             .execute(&f.pool)
             .await

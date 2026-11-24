@@ -1,4 +1,5 @@
 //! B-18: forward and reverse keysets match PostgreSQL for all four sort modes.
+// SQLx 0.9 test SQL audit: ORDER BY comes only from the fixed test-case list; source is bound.
 //! Only a disposable tor_ci database; never a user or production database.
 use sqlx::PgPool;
 use tor_search::{
@@ -52,7 +53,7 @@ async fn b_18_47_public_books_forward_backward_no_skip_or_duplicate() {
              AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
              ORDER BY {order_by}"
         );
-        let expected: Vec<i64> = sqlx::query_scalar(&oracle_sql)
+        let expected: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(oracle_sql))
             .bind(format!("{source}:%"))
             .fetch_all(&pool)
             .await

@@ -1,7 +1,6 @@
 //! C S065: D -> B immutable edition/image -> G -> D, no image
 //! plaintext, arbitrary keys, browser-selected edition or reusable access.
 use super::*;
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use tor_contracts::paid_delivery::{AssetDeliveryGrant, ChapterAssetPort, ObjectId};
 
 /// An image URL is issued ONLY for the version returned by D. The caller can
@@ -82,7 +81,7 @@ async fn issue_asset_grant(
     {
         return Err(DeliveryError::Unavailable);
     }
-    let issued_at = Utc::now();
+    let issued_at = OffsetDateTime::now_utc();
     let signed = if administrator {
         storage
             .grant_verified_admin_asset(&encrypted, DEFAULT_SIGNED_GET_TTL)
@@ -104,8 +103,7 @@ async fn issue_asset_grant(
         EntitlementDecision::Allowed { .. } => return Err(DeliveryError::Conflict),
         EntitlementDecision::Denied { reason } => return Err(denied(reason)),
     }
-    let expiry = (issued_at + ChronoDuration::seconds(DEFAULT_SIGNED_GET_TTL.as_secs() as i64))
-        .to_rfc3339_opts(SecondsFormat::Secs, true);
+    let expiry = grant_expiry(issued_at)?;
     Ok(AssetDeliveryGrant::for_pinned_asset(
         pinned, object_id, expiry, signed,
     ))

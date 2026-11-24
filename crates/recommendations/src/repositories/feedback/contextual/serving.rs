@@ -43,7 +43,8 @@ impl PgRecommendations {
                   WHERE link.book_id=$2 AND link.related_book_id=b.id)))
         ) SELECT * FROM choices WHERE choice=1
           ORDER BY (source='related_books') DESC,score DESC,id::text COLLATE \"C\" LIMIT $3");
-        let rows = sqlx::query(&sql)
+        // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(seed)
             .bind(limit as i64)

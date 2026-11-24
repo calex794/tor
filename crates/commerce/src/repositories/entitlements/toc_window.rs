@@ -108,7 +108,8 @@ impl PgDirectEntitlements {
             return Err(DeliveryError::Invalid);
         }
         let validate = format!("{ELIGIBLE} AND c.chapter_no=$4 AND c.id=$5 LIMIT 1");
-        let valid = sqlx::query(&validate)
+        // ELIGIBLE is static; actor, purchase and cursor values remain bound.
+        let valid = sqlx::query(sqlx::AssertSqlSafe(validate))
             .bind(actor.get())
             .bind(anchor_chapter.get())
             .bind(anchor_purchase.get())
@@ -129,7 +130,8 @@ impl PgDirectEntitlements {
             "{ELIGIBLE} AND (c.chapter_no, c.id) {comparison} ($4, $5) \
              ORDER BY c.chapter_no {order}, c.id {order} LIMIT $6"
         );
-        let rows = sqlx::query(&statement)
+        // Only the fixed enum-selected comparison and ordering are interpolated.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(statement))
             .bind(actor.get())
             .bind(anchor_chapter.get())
             .bind(anchor_purchase.get())

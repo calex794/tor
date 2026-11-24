@@ -50,7 +50,8 @@ impl PgReader {
         digest: Option<&[u8; 32]>,
     ) -> Result<Option<PublicChapterLink>, ReadingError> {
         let statement = format!("{CHAPTER_FIELDS}{VISIBLE_CHAPTERS} AND c.id = $2");
-        sqlx::query(&statement)
+        // SQL text contains only the two fixed query fragments and a literal predicate.
+        sqlx::query(sqlx::AssertSqlSafe(statement))
             .bind(book_id)
             .bind(chapter_id)
             .bind(digest.map(|value| value.as_slice()))
@@ -77,7 +78,8 @@ impl PgReader {
              AND (c.chapter_no, c.id) {comparison} ($2, $4) \
              ORDER BY c.chapter_no {direction}, c.id {direction} LIMIT $5"
         );
-        let rows = sqlx::query(&statement)
+        // The comparison and direction are selected from fixed literals above.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(statement))
             .bind(book_id)
             .bind(anchor.chapter_no)
             .bind(digest.map(|value| value.as_slice()))
@@ -154,7 +156,8 @@ impl PgReader {
                 // Counts only published, visible metadata for an eligible book.
                 // The initial request needs the count; subsequent pages do not.
                 let statement = format!("SELECT COUNT(*) {}", VISIBLE_CHAPTERS.replace("$3", "$2"));
-                let total: i64 = sqlx::query_scalar(&statement)
+                // Only a fixed placeholder in a static SQL fragment is replaced.
+                let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(statement))
                     .bind(book_id)
                     .bind(digest.map(|value| value.as_slice()))
                     .fetch_one(&self.pool)

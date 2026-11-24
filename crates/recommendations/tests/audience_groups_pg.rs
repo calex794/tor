@@ -1,4 +1,5 @@
 //! Real PostgreSQL: one taxonomy at a time over complete public-book totals.
+// SQLx 0.9 test SQL audit: Validated fixture schema, integer range, fixed table and assignment lists.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::collections::BTreeSet;
 use tor_recommendations::{
@@ -43,11 +44,13 @@ impl Fixture {
                     ARRAY['tag-all','t-'||lpad(i::text,3,'0')]
              FROM generate_series(0,$2::int-1) i",
         ).bind(base).bind(count).execute(&owner).await.unwrap();
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
-            .execute(&owner)
-            .await
-            .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -59,24 +62,26 @@ impl Fixture {
             "organic_discovery_dirty",
             "rec_worker_health",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
         // Preserve the actual current eligibility view, only limit fixture IDs.
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {schema}.rec_public_books AS SELECT * FROM public.rec_public_books WHERE id BETWEEN {base} AND {base}+199"
-        )).execute(&owner).await.unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
-            .execute(&owner)
-            .await
-            .unwrap();
-        sqlx::query(&format!(
+        ))).execute(&owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -85,7 +90,9 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let command = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(&command).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(command))
+                        .execute(connection)
+                        .await?;
                     Ok(())
                 })
             })
@@ -102,10 +109,13 @@ impl Fixture {
 
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM books WHERE id BETWEEN $1 AND $1::bigint+199")
             .bind(self.base)
             .execute(&self.owner)
@@ -199,7 +209,7 @@ async fn flow_groups_full_ranges_dedup_paging_current_metadata_and_details() {
         (30, "access_level='adult'"),
         (31, "lifecycle_status='pending_deletion'"),
     ] {
-        sqlx::query(&format!("UPDATE books SET {update},genres=ARRAY['secret-genre'],tags=ARRAY['secret-tag'] WHERE id=$1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE books SET {update},genres=ARRAY['secret-genre'],tags=ARRAY['secret-tag'] WHERE id=$1")))
             .bind(base+offset).execute(owner).await.unwrap();
     }
     sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'adult')")
@@ -436,7 +446,7 @@ async fn flow_groups_more_than_hundred_labels_missing_zero_health_and_unavailabl
     assert_eq!(values(&missing_tag.current.totals), [None; 5]);
     sqlx::query("INSERT INTO flow_groups_empty.rec_worker_health(singleton,last_success) VALUES(true,now())").execute(owner).await.unwrap();
     for table in ["rec_dirty_buckets", "organic_discovery_dirty"] {
-        sqlx::query(&format!("INSERT INTO flow_groups_empty.{table}(bucket_date,book_id) VALUES((now() AT TIME ZONE 'UTC')::date,$1)"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO flow_groups_empty.{table}(bucket_date,book_id) VALUES((now() AT TIME ZONE 'UTC')::date,$1)")))
             .bind(base).execute(owner).await.unwrap();
     }
     let fresh = store

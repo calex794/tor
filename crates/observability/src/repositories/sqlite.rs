@@ -148,9 +148,14 @@ impl TraceStore {
         conn.execute_batch(CREATE_SCHEMA)?;
         #[cfg(unix)]
         conn.execute_batch(background::SCHEMA)?;
-        let page_size: u64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
-        let pages = policy.max_file_bytes / page_size;
-        let current_pages: u64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        // SQLite INTEGER and rusqlite 0.41 use signed 64-bit values.
+        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let current_pages: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        if page_size <= 0 || current_pages < 0 {
+            return Err(StoreError::Invalid);
+        }
+        let max_bytes = i64::try_from(policy.max_file_bytes).map_err(|_| StoreError::Invalid)?;
+        let pages = max_bytes / page_size;
         if pages < current_pages {
             return Err(StoreError::Invalid);
         }

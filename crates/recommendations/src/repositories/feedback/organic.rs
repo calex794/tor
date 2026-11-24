@@ -51,7 +51,8 @@ impl PgRecommendations {
                  WHERE EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$5)
                  RETURNING id::text"
             );
-            let inserted: Option<String> = sqlx::query_scalar(&sql)
+            // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+            let inserted: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
                 .bind(actor)
                 .bind(&subject)
                 .bind(session.as_slice())
@@ -90,7 +91,8 @@ impl PgRecommendations {
                AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=t.book_id)
              RETURNING t.id::text"
         );
-        let touch: Option<String> = sqlx::query_scalar(&sql)
+        // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+        let touch: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(digest.as_slice())
             .bind(&subject)
@@ -134,7 +136,8 @@ impl PgRecommendations {
                AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$4)
              ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE"
         );
-        let touch: Option<String> = sqlx::query_scalar(&sql)
+        // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+        let touch: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(&subject)
             .bind(session.as_slice())

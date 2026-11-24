@@ -139,7 +139,8 @@ impl PgExposure {
         if event.kind == EventKind::View && !row.try_get::<bool, _>("old_enough")? {
             return Err(ExposureError::TooEarly);
         }
-        let allowed:bool=sqlx::query_scalar(&format!("{ACTOR_DISCOVERY_CTE} SELECT EXISTS(SELECT 1 FROM rec_actor_books b WHERE id=$2 AND NOT EXISTS(SELECT 1 FROM rec_book_preferences p WHERE p.user_id=$1 AND p.book_id=b.id AND p.hidden AND p.expires_at>now()))"))
+        // The interpolated discovery CTE is a static SQL constant; actor and book are bound.
+        let allowed:bool=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("{ACTOR_DISCOVERY_CTE} SELECT EXISTS(SELECT 1 FROM rec_actor_books b WHERE id=$2 AND NOT EXISTS(SELECT 1 FROM rec_book_preferences p WHERE p.user_id=$1 AND p.book_id=b.id AND p.hidden AND p.expires_at>now()))")))
             .bind(actor).bind(context.card.book_id).fetch_one(&mut *tx).await?;
         if !allowed {
             return Err(ExposureError::Forbidden);

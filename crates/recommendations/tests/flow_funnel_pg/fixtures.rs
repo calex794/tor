@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Validated fixture name; fixed table/time branches and test-owned scalar SQL.
 
 #[derive(Clone, Copy)]
 pub struct Book {
@@ -24,12 +25,20 @@ impl Fixture {
         let owner_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
         legacy_analytics::assert_schema(&owner).await;
+        assert!(
+            !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        );
         let schema = format!("flow_funnel_{name}");
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
-            .execute(&owner)
-            .await
-            .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -46,26 +55,28 @@ impl Fixture {
             "flow_book_worker_health",
             "event_deliveries",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
         // LIKE copies checks/indexes, not foreign keys. Preserve the actual
         // anchor lifecycle while keeping the F read model isolated per test.
-        sqlx::query(&format!("ALTER TABLE {schema}.flow_book_return_anchors
+        sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE {schema}.flow_book_return_anchors
             ADD FOREIGN KEY(cohort_id,subject_id,flow_epoch,book_id)
-            REFERENCES {schema}.flow_book_cohorts(id,subject_id,flow_epoch,book_id) ON DELETE CASCADE"))
+            REFERENCES {schema}.flow_book_cohorts(id,subject_id,flow_epoch,book_id) ON DELETE CASCADE")))
             .execute(&owner).await.unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
-            .execute(&owner)
-            .await
-            .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -75,7 +86,9 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let statement = format!("SET search_path={selected},public");
                 Box::pin(async move {
-                    sqlx::query(&statement).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(statement))
+                        .execute(connection)
+                        .await?;
                     Ok(())
                 })
             })
@@ -230,10 +243,10 @@ impl Fixture {
         } else {
             ("reader_chapter_completions", "completed_at")
         };
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table}(user_id,book_id,chapter_id,first_version_id,source_event_id,{time})
              VALUES($1,$2,$3,$4,$5::uuid,clock_timestamp()-$6::bigint*interval '1 second')",
-        ))
+        )))
         .bind(self.actor)
         .bind(book.id)
         .bind(book.chapter)
@@ -289,7 +302,10 @@ impl Fixture {
     }
 
     pub async fn scalar(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sql).fetch_one(&self.app).await.unwrap()
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned()))
+            .fetch_one(&self.app)
+            .await
+            .unwrap()
     }
 
     pub async fn deliveries(&self, consumer: Option<&str>) -> i64 {
@@ -319,10 +335,13 @@ impl Fixture {
             .await
             .unwrap();
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
     }
 }
 
