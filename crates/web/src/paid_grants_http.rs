@@ -369,7 +369,7 @@ fn administrator_routes(
         reader_s3_origin,
     };
     Router::new()
-        .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route("/read/odmen/{chapter_id}", get(admin_reader::admin_reader))
         .route(
             "/api/v1/reader/chapters/{chapter_id}/admin-history",
             post(admin_history::list),

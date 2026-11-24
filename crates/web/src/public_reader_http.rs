@@ -102,7 +102,7 @@ async fn administrator_private_redirect(
     // Redirect only; actual plaintext or encrypted grant is authorized again
     // by the admin reader, so a role revoked mid-navigation cannot leak bytes.
     let mut response =
-        auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
+        auth_cookies::private_response(Redirect::to(&format!("/read/odmen/{id}")), &[]);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),

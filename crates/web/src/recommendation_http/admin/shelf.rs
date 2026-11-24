@@ -78,7 +78,7 @@ pub(crate) async fn page(
         _ => return pages::secure_page(deny(StatusCode::BAD_REQUEST), &[]),
     }
     out.push_str(
-        r#"<p><a href="/admin/recommendations">Управление долями и рекомендациями</a></p></div></section>"#,
+        r#"<p><a href="/odmen/recommendations">Управление долями и рекомендациями</a></p></div></section>"#,
     );
     if let Err(code) = actor(&state, &headers).await {
         return pages::secure_page(deny(code), &[]);

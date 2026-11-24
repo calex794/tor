@@ -185,7 +185,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         "<section class=\"section\"><div class=\"container\"><h1>Настройки рекомендаций</h1>\
          <p data-testid=\"recommendation-model-retired\">Прежний подбор по истории чтения и сбор событий прекращены. \
          Сейчас показываются новые доступные книги с учётом ваших явных скрытий.</p>\
-         <p><a href=\"/admin/audience\">Исторические отчёты аудитории</a></p>\
+         <p><a href=\"/odmen/audience\">Исторические отчёты аудитории</a></p>\
          <h2>Явные настройки книг</h2><p>Категории и ручные связи книг остаются обычными настройками. \
          Новинки каталога остаются резервной выдачей. Контекстная модель жанров, тегов и ручных связей включается отдельно.</p><ul>",
     );
@@ -197,7 +197,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         );
     }
     body.push_str("</ul><p><a data-testid=\"contextual-manage-link\" href=\"/me/recommendations/contextual\">\u{41a}\u{43e}\u{43d}\u{442}\u{435}\u{43a}\u{441}\u{442}\u{43d}\u{430}\u{44f} \u{43c}\u{43e}\u{434}\u{435}\u{43b}\u{44c} \u{440}\u{435}\u{43a}\u{43e}\u{43c}\u{435}\u{43d}\u{434}\u{430}\u{446}\u{438}\u{439}</a></p></div></section>");
-    body.push_str("<p><a href=\"/admin/recommendations\">Единая административная панель рекомендаций и долей</a></p>");
+    body.push_str("<p><a href=\"/odmen/recommendations\">Единая административная панель рекомендаций и долей</a></p>");
     body.push_str("<p><a href=\"/me/recommendations/shelf-preview\">Предпросмотр полки после бесплатной главы</a></p>");
     pages::secure_page(
         html::layout("Настройки рекомендаций", "Явные настройки книг", &body),
@@ -289,7 +289,7 @@ fn share_markup(
     }
     let _ = write!(
         out,
-        r#"<section class="book-section-card" data-testid="rec-share-policy" data-revision="{}"><h2>Доли органических рекомендаций</h2><p>Версия настройки: {}. Проценты рассчитаны на множество органических показов, а не на отдельную полку из пяти книг. Редакционные размещения занимают свои места отдельно.</p><form method="post" action="/admin/recommendations" class="auth-form author-form" data-testid="rec-shares-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><fieldset><legend>Когда есть доступные книги команды (сумма 100%)</legend><label>Другие книги владельца, %<input name="author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги команды, %<input name="teammate_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><fieldset><legend>Когда нет доступных командных книг (сумма 100%)</legend><label>Другие книги владельца, %<input name="no_team_author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="no_team_other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><p>Установленные 0% запрещают соответствующую категорию, даже когда другая категория пуста. Отсутствующие книги не заменяются фиктивными.</p><button class="button" type="submit" name="action" value="save">Сохранить доли</button><button class="button button--secondary" type="submit" name="action" value="defaults" formnovalidate>Восстановить 50/40/10 и 70/30</button></form></section>"#,
+        r#"<section class="book-section-card" data-testid="rec-share-policy" data-revision="{}"><h2>Доли органических рекомендаций</h2><p>Версия настройки: {}. Проценты рассчитаны на множество органических показов, а не на отдельную полку из пяти книг. Редакционные размещения занимают свои места отдельно.</p><form method="post" action="/odmen/recommendations" class="auth-form author-form" data-testid="rec-shares-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><fieldset><legend>Когда есть доступные книги команды (сумма 100%)</legend><label>Другие книги владельца, %<input name="author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги команды, %<input name="teammate_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><fieldset><legend>Когда нет доступных командных книг (сумма 100%)</legend><label>Другие книги владельца, %<input name="no_team_author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="no_team_other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><p>Установленные 0% запрещают соответствующую категорию, даже когда другая категория пуста. Отсутствующие книги не заменяются фиктивными.</p><button class="button" type="submit" name="action" value="save">Сохранить доли</button><button class="button button--secondary" type="submit" name="action" value="defaults" formnovalidate>Восстановить 50/40/10 и 70/30</button></form></section>"#,
         policy.revision,
         policy.revision,
         html::escape_html(csrf),
@@ -301,7 +301,7 @@ fn share_markup(
         without_team[1]
     );
     out.push_str(
-        r#"<section class="book-section-card"><h2>Проверить выдачу</h2><p>Предпросмотр бесплатной главы не создаёт подтверждений показа и не изменяет доли.</p><p><a href="/me/recommendations/shelf-preview">Предпросмотр органической полки</a></p></section><section class="book-section-card"><h2>Редакционные назначения и измерения</h2><p>Редакционный блок занимает не более четырёх из пяти мест, но не входит в проценты органики.</p><p><a href="/admin/promotion/editorial">Управление редакционными кампаниями</a> · <a href="/admin/audience/exposure">Показы и переходы</a></p><p><a href="/me/recommendations/contextual">Контекстная модель и версии</a> · <a href="/me/recommendations/manage">Ручные связи книг</a></p></section>"#,
+        r#"<section class="book-section-card"><h2>Проверить выдачу</h2><p>Предпросмотр бесплатной главы не создаёт подтверждений показа и не изменяет доли.</p><p><a href="/me/recommendations/shelf-preview">Предпросмотр органической полки</a></p></section><section class="book-section-card"><h2>Редакционные назначения и измерения</h2><p>Редакционный блок занимает не более четырёх из пяти мест, но не входит в проценты органики.</p><p><a href="/odmen/promotion/editorial">Управление редакционными кампаниями</a> · <a href="/odmen/audience/exposure">Показы и переходы</a></p><p><a href="/me/recommendations/contextual">Контекстная модель и версии</a> · <a href="/me/recommendations/manage">Ручные связи книг</a></p></section>"#,
     );
     out.push_str(
         r#"<section class="book-section-card" data-testid="rec-policy-history"><h2>История изменений и откат</h2><p>Восстановление старой конфигурации создаёт новую ревизию; прежние записи аудита никогда не удаляются.</p><ol>"#,
@@ -324,7 +324,7 @@ fn share_markup(
         if entry.revision != policy.revision {
             let _ = write!(
                 out,
-                r#"<form method="post" action="/admin/recommendations" class="author-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><input type="hidden" name="target_revision" value="{}"><button type="submit" class="button button--secondary" name="action" value="restore">Вернуть ревизию {}</button></form>"#,
+                r#"<form method="post" action="/odmen/recommendations" class="author-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><input type="hidden" name="target_revision" value="{}"><button type="submit" class="button button--secondary" name="action" value="restore">Вернуть ревизию {}</button></form>"#,
                 html::escape_html(csrf),
                 policy.revision,
                 entry.revision,
@@ -413,7 +413,7 @@ pub(super) async fn shares_submit(
             .set_shelf_share_policy(&digest, form.expected_revision, with_team, without_team)
             .await
             .map_err(share_status)?;
-        Ok::<_, StatusCode>(axum::response::Redirect::to("/admin/recommendations").into_response())
+        Ok::<_, StatusCode>(axum::response::Redirect::to("/odmen/recommendations").into_response())
     };
     let response = tokio::time::timeout(std::time::Duration::from_millis(950), operation)
         .await
