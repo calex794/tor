@@ -435,12 +435,58 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .add_book(archive_actor, book)
         .await
         .unwrap();
+    // Independently bookmark with a fresh reader before the browser has proved
+    // any edition. Its real V1 acknowledgement is delayed across the V2 edit.
+    let late_session = generate_session_token();
+    let late_actor = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            "s349-late-reader@tor-ci.example",
+            "S349 late reader",
+            &hash_password("isolated-late-password").unwrap(),
+            &session_token_digest(&late_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    tor_reading::repositories::PgLibrary::new(pool.clone())
+        .add_book(late_actor, book)
+        .await
+        .unwrap();
+    let late_pin = || {
+        pg(
+            &url,
+            &format!("SELECT version_id FROM reader_saved_free_chapters WHERE user_id={late_actor} AND chapter_id={chapter}"),
+        )
+    };
+    assert_eq!(late_pin(), "", "an unread bookmark must not pin V1");
     let v2 = format!("{MARKDOWN}\n\nV2_ONLY_MARKER");
     let edited = browser(
         json!({"mode":"edit","origin":ORIGIN,"book":book,"chapter":chapter,
-        "session":session,"previous":MARKDOWN,"markdown":v2}),
+        "session":session,"previous":MARKDOWN,"markdown":v2,"marker":MARKER,
+        "version":version,"late_reader":late_session}),
     );
     assert_eq!(edited["edited"], true);
+    assert_eq!(late_pin(), version.to_string());
+    let current_version = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
+    assert_eq!(
+        edited["current_version"].as_str(),
+        Some(current_version.as_str())
+    );
+    assert_ne!(current_version, version.to_string());
+    let late_source = http
+        .get(format!(
+            "{grant_url}?mode=saved&version_id={version}&format=source"
+        ))
+        .header("cookie", format!("tor-dev-session={late_session}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(late_source.status().as_u16(), 200);
+    assert_eq!(late_source.text().await.unwrap(), MARKDOWN);
+    println!("D001_S349_LATE_FREE_V1_ACK_AFTER_AUTHOR_V2_OK");
     assert_eq!(
         pg(
             &url,
