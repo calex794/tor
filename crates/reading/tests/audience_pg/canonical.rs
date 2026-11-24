@@ -1,4 +1,5 @@
 //! Exact migrated C tables, real SELECT-only role, no analytics or consent tables.
+// SQLx 0.9 test SQL audit: Checked-in report SQL with fixed clock override; fixed table list.
 #[path = "canonical/fixture.rs"]
 pub(super) mod fixture;
 use fixture::Fixture;
@@ -160,7 +161,7 @@ async fn half_open_boundaries_and_each_locked_source_recover_without_writes() {
         "transaction_timestamp()",
         "TIMESTAMPTZ '2026-11-11T12:00:00Z'",
     );
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(1_i32)
         .bind(None::<String>)
         .bind(None::<String>)
@@ -188,10 +189,10 @@ async fn half_open_boundaries_and_each_locked_source_recover_without_writes() {
         "reader_book_follows",
     ] {
         let mut lock = f.owner.begin().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "LOCK TABLE {}.{table} IN ACCESS EXCLUSIVE MODE",
             f.schema
-        ))
+        )))
         .execute(&mut *lock)
         .await
         .unwrap();

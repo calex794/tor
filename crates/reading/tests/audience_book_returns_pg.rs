@@ -1,4 +1,5 @@
 //! FLOW: independent bounded book observations through real C progress writers.
+// SQLx 0.9 test SQL audit: Trigger definition includes only the typed numeric fixture book ID.
 //! Temporal fixtures are evidence only; production never backfills reading.
 #[path = "audience_book_returns_pg/fixtures.rs"]
 mod fixtures;
@@ -676,7 +677,7 @@ async fn failure_and_consent_races(
     actors.push(a);
     consent(pool, a, true).await;
     report.tick_collection(true).await.unwrap();
-    sqlx::raw_sql(&format!("CREATE FUNCTION ci_book_return_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.book_id={} THEN RAISE EXCEPTION 'fixture book derivative failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER ci_book_return_fail BEFORE INSERT ON reader_book_return_subjects FOR EACH ROW EXECUTE FUNCTION ci_book_return_fail();", one.id))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION ci_book_return_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.book_id={} THEN RAISE EXCEPTION 'fixture book derivative failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER ci_book_return_fail BEFORE INSERT ON reader_book_return_subjects FOR EACH ROW EXECUTE FUNCTION ci_book_return_fail();", one.id)))
         .execute(&owner).await.unwrap();
     let both = sync.clone().with_activity_collection(true);
     let saved = both

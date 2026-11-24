@@ -1,4 +1,5 @@
 //! FLOW: canonical C facts, exact whole-period uniqueness and adjacent UTC windows.
+// SQLx 0.9 test SQL audit: Table, event type, time column and authority selected by a fixed branch.
 //! Run with the migrated disposable PostgreSQL database, never a persistent service.
 use ::time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use sqlx::{PgPool, Row};
@@ -108,7 +109,7 @@ async fn events(f: &Fixture, user: i64, range: (i32, i32), hours_ago: i64, finis
                  'chapter_id',chapter_id,'version_id',first_version_id,
                  'authority','{authority}'),ARRAY['audience-fixture-only'] FROM facts"
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(user)
         .bind(f.book)
         .bind(range.0)

@@ -1,4 +1,5 @@
 //! Isolated observations over the real migrated public-book visibility port.
+// SQLx 0.9 test SQL audit: Fixed schema and table names; ID list is derived from typed i64s.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 const SCHEMA: &str = "ci_flow_group_book_returns";
@@ -13,7 +14,7 @@ async fn scoped_pool(url: &str) -> PgPool {
     PgPoolOptions::new()
         .after_connect(|connection, _| {
             Box::pin(async move {
-                sqlx::query(&format!("SET search_path={SCHEMA},public"))
+                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={SCHEMA},public")))
                     .execute(connection)
                     .await?;
                 Ok(())
@@ -37,11 +38,11 @@ impl Fixture {
             ("tor_ci_legacy_analytics".into(), "tor_migrator".into())
         );
         super::legacy::assert_schema(&admin).await;
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")))
             .execute(&admin)
             .await
             .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {SCHEMA}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {SCHEMA}")))
             .execute(&admin)
             .await
             .unwrap();
@@ -50,9 +51,9 @@ impl Fixture {
             "reader_book_return_subjects",
             "reader_book_return_daily",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {SCHEMA}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&admin)
             .await
             .unwrap();
@@ -74,26 +75,26 @@ impl Fixture {
             .collect::<Vec<_>>()
             .join(",");
         // Keep the production policy and new projection; limit only fixture IDs.
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {SCHEMA}.reader_return_public_books WITH (security_barrier=true) AS
              SELECT * FROM public.reader_return_public_books WHERE id IN ({ids})"
-        ))
+        )))
         .execute(&admin)
         .await
         .unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {SCHEMA} TO tor_app"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {SCHEMA} TO tor_app")))
             .execute(&admin)
             .await
             .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE ALL ON ALL TABLES IN SCHEMA {SCHEMA} FROM tor_app"
-        ))
+        )))
         .execute(&admin)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {SCHEMA} TO tor_app"
-        ))
+        )))
         .execute(&admin)
         .await
         .unwrap();
@@ -165,7 +166,7 @@ impl Fixture {
 
     pub(super) async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {SCHEMA} CASCADE"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {SCHEMA} CASCADE")))
             .execute(&self.owner)
             .await
             .unwrap();

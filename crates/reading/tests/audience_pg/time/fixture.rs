@@ -1,4 +1,5 @@
 use sqlx::{postgres::PgPoolOptions, Row};
+// SQLx 0.9 test SQL audit: Timestamp-generated fixture schema; parsed epoch bound.
 use tor_reading::services::audience::time::ReadingTimeCounts;
 
 pub use super::super::canonical::fixture::Fixture;
@@ -13,10 +14,10 @@ pub async fn fixture(clock: &str) -> Fixture {
         GRANT SELECT ON reader_chapter_starts,reading_test_clock TO tor_app",
     )
     .await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {}.reading_test_clock VALUES(to_timestamp($1::bigint::double precision))",
         f.schema
-    ))
+    )))
     .bind(parsed.unix_timestamp())
     .execute(&f.owner)
     .await
@@ -37,7 +38,7 @@ pub async fn fixture(clock: &str) -> Fixture {
         .after_connect(move |connection, _| {
             let schema = namespace.clone();
             Box::pin(async move {
-                sqlx::query(&format!("SET search_path={schema},pg_catalog"))
+                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},pg_catalog")))
                     .execute(&mut *connection)
                     .await?;
                 sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")

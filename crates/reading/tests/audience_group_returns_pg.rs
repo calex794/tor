@@ -1,4 +1,5 @@
 //! Real PostgreSQL: current groups sum complete bounded same-book observations.
+// SQLx 0.9 test SQL audit: Fixed hide/restore assignment pairs; book ID bound.
 //! Synthetic dates prove the report contract; production has no group collector.
 #[path = "audience_group_returns_pg/fixtures.rs"]
 mod fixtures;
@@ -240,13 +241,13 @@ async fn current_membership_and_visibility(fixture: &Fixture, store: &PgReadingR
         ("access_level='adult'", "access_level='basic'"),
         ("access_level='pro_adult'", "access_level='basic'"),
     ] {
-        sqlx::query(&format!("UPDATE public.books SET {hide} WHERE id=$1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE public.books SET {hide} WHERE id=$1")))
             .bind(fixture.books[0])
             .execute(&fixture.owner)
             .await
             .unwrap();
         assert_hidden(fixture, store).await;
-        sqlx::query(&format!("UPDATE public.books SET {restore} WHERE id=$1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE public.books SET {restore} WHERE id=$1")))
             .bind(fixture.books[0])
             .execute(&fixture.owner)
             .await

@@ -1,4 +1,5 @@
 //! Actual C read port with an isolated, fixed database clock and SELECT-only role.
+// SQLx 0.9 test SQL audit: Fixed table list and timestamp-generated fixture schema.
 #[path = "time/fixture.rs"]
 mod fixture;
 
@@ -263,10 +264,10 @@ async fn readonly_permissions_locks_and_invalid_input_never_become_zero() {
         "outbox_events",
     ] {
         let mut lock = f.owner.begin().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "LOCK TABLE {}.{table} IN ACCESS EXCLUSIVE MODE",
             f.schema
-        ))
+        )))
         .execute(&mut *lock)
         .await
         .unwrap();

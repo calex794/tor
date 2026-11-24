@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Fixed table and view names.
 
 #[derive(Clone, Copy)]
 pub struct Book {
@@ -34,7 +35,7 @@ pub async fn pool(max: u32) -> PgPool {
     // These approved projections must remain legal row-locking ports, even
     // though retired analytics identities are no longer exposed through them.
     for view in ["reader_activity_consent", "reader_flow_consent"] {
-        let rows = sqlx::query(&format!("SELECT user_id FROM {view} FOR UPDATE"))
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT user_id FROM {view} FOR UPDATE")))
             .fetch_all(&pool)
             .await
             .unwrap();
@@ -130,7 +131,7 @@ pub async fn optional_counts(pool: &PgPool) -> Vec<i64> {
         "reader_book_return_subjects",
     ] {
         values.push(
-            sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
                 .fetch_one(pool)
                 .await
                 .unwrap(),
