@@ -8,7 +8,7 @@ pub(super) fn filters(
     query: &BookDiscoveryQuery,
     report: Option<&BookDiscoveryReport>,
 ) {
-    body.push_str(r#"<form class="author-form audience-books-filters" id="audience-books-filters" method="get" action="/admin/audience/books">
+    body.push_str(r#"<form class="author-form audience-books-filters" id="audience-books-filters" method="get" action="/odmen/audience/books">
         <div><label for="books-days">Длительность периода</label><select id="books-days" name="days">"#);
     for (value, label) in [
         (1, "1 день"),
@@ -54,7 +54,7 @@ pub(super) fn filters(
             <span>{missing_label}</span></label></div>"#).expect("String");
     }
     write!(body, r#"<p class="audience-books-filter-actions"><button class="button" type="submit">Показать</button>
-        <a href="/admin/audience/books?days={}">Сбросить фильтры</a></p></form>"#, query.days).expect("String");
+        <a href="/odmen/audience/books?days={}">Сбросить фильтры</a></p></form>"#, query.days).expect("String");
     body.push_str("<p>Для выбора «Только без жанра» или «Только без тега» оставьте соответствующее поле пустым.</p>");
     if report.is_some_and(|r| r.filter_options_truncated) {
         body.push_str("<p>В подсказках показаны первые 100 значений. Нужный жанр или тег можно ввести целиком.</p>");
@@ -62,7 +62,7 @@ pub(super) fn filters(
 }
 
 pub(super) fn url(query: &BookDiscoveryQuery, after_id: Option<i64>) -> String {
-    let mut url = format!("/admin/audience/books?days={}", query.days);
+    let mut url = format!("/odmen/audience/books?days={}", query.days);
     for (key, value) in [("genre", &query.genre), ("tag", &query.tag)] {
         if let Some(value) = value {
             write!(url, "&{key}={}", encode(value)).expect("String");

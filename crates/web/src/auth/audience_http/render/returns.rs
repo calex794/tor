@@ -18,7 +18,7 @@ pub(crate) fn page(days: i32, report: Option<&ReadingReturnsReport>) -> Html<Str
     );
     write!(
         body,
-        r#"<p><a href="/admin/audience?days={days}">Вернуться в «Аудиторию»</a></p>"#
+        r#"<p><a href="/odmen/audience?days={days}">Вернуться в «Аудиторию»</a></p>"#
     )
     .expect("String");
     super::retirement::notice(&mut body, "возвращения на заданный день и их доля");
@@ -67,7 +67,7 @@ pub(crate) fn page(days: i32, report: Option<&ReadingReturnsReport>) -> Html<Str
 fn filters(body: &mut String, days: i32) {
     body.push_str(
         r#"<form class="author-form audience-books-filters" id="audience-returns-filters"
-        method="get" action="/admin/audience/returns"><div>
+        method="get" action="/odmen/audience/returns"><div>
         <label for="returns-days">Когда началось наблюдение за читателями</label>
         <select id="returns-days" name="days">"#,
     );

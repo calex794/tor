@@ -110,7 +110,7 @@ mod tests {
             "view=top20&kind=tags&after_label=a",
             "view=top20&view=all",
         ] {
-            let uri = format!("/admin/audience/reading?{raw}").parse().unwrap();
+            let uri = format!("/odmen/audience/reading?{raw}").parse().unwrap();
             assert!(
                 Query::<ReadingQuery>::try_from_uri(&uri)
                     .map_err(|_| AudienceError::Invalid)
@@ -124,7 +124,7 @@ mod tests {
             ("days=7&view=all&after_id=20", false),
             ("days=7&view=top20&kind=genres&genre=Fantasy", true),
         ] {
-            let uri = format!("/admin/audience/reading?{raw}").parse().unwrap();
+            let uri = format!("/odmen/audience/reading?{raw}").parse().unwrap();
             let Query(query) = Query::<ReadingQuery>::try_from_uri(&uri).unwrap();
             let (query, actual) = query.validated().unwrap();
             assert_eq!(actual, ranked);
