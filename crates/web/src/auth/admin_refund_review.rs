@@ -29,14 +29,14 @@ pub(super) struct Cursor {
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/admin/finance/refunds", get(page))
-        .route("/admin/finance/refunds/user/{id}", get(buyer))
+        .route("/odmen/finance/refunds", get(page))
+        .route("/odmen/finance/refunds/user/{id}", get(buyer))
         .route(
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             post(prepare::submit).layer(DefaultBodyLimit::max(4096)),
         )
         .route(
-            "/admin/finance/refunds/approve",
+            "/odmen/finance/refunds/approve",
             post(approval::submit).layer(DefaultBodyLimit::max(4096)),
         )
 }
@@ -98,11 +98,11 @@ pub(super) async fn page(
         Err(status) => return deny(status),
     };
     let mut body = String::from(
-        "<form method=\"get\" action=\"/admin/finance/refunds\" class=\"auth-form\">
+        "<form method=\"get\" action=\"/odmen/finance/refunds\" class=\"auth-form\">
          <label for=\"refund-user-search\">Пользователь: имя, @handle или ID</label>
          <input id=\"refund-user-search\" name=\"q\" maxlength=\"80\" required>
          <button type=\"submit\">Найти</button></form>
-         <p><a href=\"/admin/support\">Обращения в поддержку</a></p>",
+         <p><a href=\"/odmen/support\">Обращения в поддержку</a></p>",
     );
     if let Some(term) = query.q.as_deref() {
         match PgSupportRefunds::new(state.accounts.pool().clone())
@@ -117,7 +117,7 @@ pub(super) async fn page(
                     let handle = user.handle.unwrap_or_default();
                     write!(
                         body,
-                        "<p><a href=\"/admin/finance/refunds/user/{}\">{}
+                        "<p><a href=\"/odmen/finance/refunds/user/{}\">{}
                          (@{}) · ID {}</a></p>",
                         user.id,
                         pages::escape_html(&user.name),
@@ -198,7 +198,7 @@ fn render_purchase(
                 if let Some(conversation) = support {
                     write!(
                         body,
-                        "<form method=\"post\" action=\"/admin/finance/refunds/prepare\" autocomplete=\"off\">
+                        "<form method=\"post\" action=\"/odmen/finance/refunds/prepare\" autocomplete=\"off\">
                          <input type=\"hidden\" name=\"buyer_id\" value=\"{}\">
                          <input type=\"hidden\" name=\"purchase_id\" value=\"{}\">
                          <input type=\"hidden\" name=\"conversation_id\" value=\"{}\">
@@ -256,7 +256,7 @@ pub(super) async fn buyer(
     };
     let mut body = format!(
         "<h2>Профиль: {} · ID {}</h2><p>Имя пользователя: @{}</p>
-         <p><a href=\"/admin/finance/refunds\">Вернуться к поиску</a></p>",
+         <p><a href=\"/odmen/finance/refunds\">Вернуться к поиску</a></p>",
         pages::escape_html(&detail.user.name),
         detail.user.id,
         pages::escape_html(detail.user.handle.as_deref().unwrap_or("не задано")),
@@ -264,7 +264,7 @@ pub(super) async fn buyer(
     if let Some(case_id) = detail.support_conversation_id {
         write!(
             body,
-            "<p><a href=\"/admin/support/{}\">Обращение в поддержку №{}</a></p>",
+            "<p><a href=\"/odmen/support/{}\">Обращение в поддержку №{}</a></p>",
             case_id, case_id
         )
         .expect("case link");
@@ -292,7 +292,7 @@ pub(super) async fn buyer(
         if let Some(last) = next {
             write!(
                 body,
-                "<p><a href=\"/admin/finance/refunds/user/{}?before={}\">Следующие покупки</a></p>",
+                "<p><a href=\"/odmen/finance/refunds/user/{}?before={}\">Следующие покупки</a></p>",
                 user_id, last
             )
             .expect("purchase cursor");
@@ -330,6 +330,6 @@ mod tests {
         assert!(html.contains("name=\"conversation_id\" value=\"7\""));
         assert!(!html.contains("name=\"amount_minor\""));
         assert!(html.contains("Позиция 2"));
-        assert!(html.contains("action=\"/admin/finance/refunds/prepare\""));
+        assert!(html.contains("action=\"/odmen/finance/refunds/prepare\""));
     }
 }

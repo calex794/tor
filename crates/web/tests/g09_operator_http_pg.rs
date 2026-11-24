@@ -130,9 +130,9 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
          VALUES(decode('{digest}','hex'),{actor},clock_timestamp()+interval '1 day')"
         ),
     );
-    let path = "/admin/storage/g09";
-    let command = "/admin/storage/g09/pg-to-s3/chapter/next";
-    let body_command = "/admin/storage/g09/get-sha/chapter/run";
+    let path = "/odmen/storage/g09";
+    let command = "/odmen/storage/g09/pg-to-s3/chapter/next";
+    let body_command = "/odmen/storage/g09/get-sha/chapter/run";
     assert_eq!(
         request(&app, "GET", path, None, &csrf, &csrf, ORIGIN).await,
         StatusCode::UNAUTHORIZED
@@ -220,7 +220,7 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         request(
             &app,
             "POST",
-            "/admin/storage/g09/get-sha/cover/run",
+            "/odmen/storage/g09/get-sha/cover/run",
             Some(&session),
             &csrf,
             &csrf,
@@ -259,7 +259,7 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         request(
             &app,
             "POST",
-            "/admin/storage/g09/delete/chapter/next",
+            "/odmen/storage/g09/delete/chapter/next",
             Some(&session),
             &csrf,
             &csrf,

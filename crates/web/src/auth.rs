@@ -392,7 +392,7 @@ fn router_inner(
         )
         .route("/me/stats/continuations", get(continuation_stats::owner))
         .route(
-            "/admin/audience/continuations",
+            "/odmen/audience/continuations",
             get(continuation_stats::administrator),
         )
         .route("/me/books", get(author_books).post(create_book))

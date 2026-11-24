@@ -41,7 +41,7 @@ class EditorialGuardTests(unittest.TestCase):
                 original = path.read_text()
                 self.assertIn(marker, original)
                 path.write_text(original.replace(marker, "UNGUARDED", 1))
-                self.assertTrue(any("/admin/promotion/editorial" in row for row in check(self.root)))
+                self.assertTrue(any("/odmen/promotion/editorial" in row for row in check(self.root)))
                 path.write_text(original)
 
     def test_inventory_cannot_downgrade_either_method(self):
@@ -50,7 +50,7 @@ class EditorialGuardTests(unittest.TestCase):
         for method in ("GET", "POST"):
             with self.subTest(method=method):
                 data = json.loads(original)
-                next(row for row in data["routes"] if row["template"] == "/admin/promotion/editorial"
+                next(row for row in data["routes"] if row["template"] == "/odmen/promotion/editorial"
                      and row["method"] == method)["policy"] = "session"
                 path.write_text(json.dumps(data))
                 self.assertTrue(any("live administrator" in row for row in check(self.root)))

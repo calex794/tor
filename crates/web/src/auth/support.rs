@@ -19,7 +19,7 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/support", get(page))
         .route("/assets/newboo-support-widget.js", get(widget_script))
-        .route("/assets/newboo-admin-support.js", get(admin_script))
+        .route("/assets/newboo-odmen-support.js", get(admin_script))
         .route("/support/widget", get(widget))
         .route("/support/messages", get(messages).post(submit))
         .route("/api/v1/support/tickets", get(widget).post(json_submit))

@@ -94,7 +94,7 @@ pub(super) async fn refresh(
     let store = PgSeoAnalytics::new(state.accounts.pool().clone());
     match timeout_at(deadline, store.request_refresh(provider)).await {
         Ok(Ok(_)) => secure(Redirect::to(&format!(
-            "/admin/audience/seo?provider={}",
+            "/odmen/audience/seo?provider={}",
             provider.key()
         ))),
         _ => secure(StatusCode::SERVICE_UNAVAILABLE),

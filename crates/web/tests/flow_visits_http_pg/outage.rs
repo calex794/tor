@@ -89,7 +89,7 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
     );
     assert_current_schema(&url);
     let baseline = optional_snapshot(&url, reader);
-    let initial = admin_browser.get(&app, "/admin/audience/visits").await;
+    let initial = admin_browser.get(&app, "/odmen/audience/visits").await;
     assert_eq!(initial.status(), StatusCode::OK);
     assert!(text(initial)
         .await
@@ -102,7 +102,7 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
         started.elapsed() < Duration::from_millis(950),
         "telemetry write delayed allowed HTML"
     );
-    let response = admin_browser.get(&app, "/admin/audience/visits").await;
+    let response = admin_browser.get(&app, "/odmen/audience/visits").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&response);
     let html = text(response).await;
@@ -119,7 +119,7 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
     assert_eq!(optional_snapshot(&url, reader), baseline);
     assert_eq!(
         admin_browser
-            .get(&app, "/admin/audience/visits")
+            .get(&app, "/odmen/audience/visits")
             .await
             .status(),
         StatusCode::OK

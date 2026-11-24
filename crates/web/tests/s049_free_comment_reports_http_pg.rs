@@ -313,7 +313,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
         StatusCode::CONFLICT,
     );
     eprintln!("S049_FREE_ADMIN report accepted, opening admin queue");
-    let admin_queue = "/admin/free-comment-reports";
+    let admin_queue = "/odmen/free-comment-reports";
     assert_eq!(
         request(&app, "GET", admin_queue, "", ORIGIN, "")
             .await

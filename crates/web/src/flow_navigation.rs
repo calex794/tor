@@ -7,14 +7,14 @@ pub(crate) fn links(days: i32) -> String {
     };
     format!(
         r#"<nav class="audience-books-pagination" aria-label="Отчёты аудитории">
-<a href="/admin/audience?days={days}">Аудитория и часы</a>
-<a href="/admin/audience/reading?days={days}">Подтверждённое чтение</a>
-<a href="/admin/audience/exposure?days={days}">Показы карточек</a>
-<a href="/admin/audience/seo?days={days}">Google и Яндекс</a>
-<a href="/admin/audience/signals?days={days}">Сигналы</a>
-<a href="/admin/audience/pages">Публичные страницы</a>
-<a href="/admin/promotion/editorial">Редакционное продвижение</a>
-<a href="/me/recommendations/contextual">Контекстные рекомендации</a>
+<a href="/odmen/audience?days={days}">Аудитория и часы</a>
+<a href="/odmen/audience/reading?days={days}">Подтверждённое чтение</a>
+<a href="/odmen/audience/exposure?days={days}">Показы карточек</a>
+<a href="/odmen/audience/seo?days={days}">Google и Яндекс</a>
+<a href="/odmen/audience/signals?days={days}">Сигналы</a>
+<a href="/odmen/audience/pages">Публичные страницы</a>
+<a href="/odmen/promotion/editorial">Редакционное продвижение</a>
+<a href="/odmen/recommendations/contextual">Контекстные рекомендации</a>
 </nav>"#
     )
 }

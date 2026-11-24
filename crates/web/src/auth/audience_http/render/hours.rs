@@ -19,7 +19,7 @@ pub(super) fn section(body: &mut String, days: i32, report: Option<&FlowHourlyRe
             "<section class=\"book-section-card\" data-testid=\"audience-hours-unsupported\">\
              <h2>Просмотры по часам</h2><p>Сравнение просмотров доступно за сутки и неделю. \
              Часовые данные хранятся 30 дней: двух полных периодов по 30 или 90 дней здесь нет.</p>\
-             <p><a href=\"/admin/audience?days=7\">Показать неделю</a>. \
+             <p><a href=\"/odmen/audience?days=7\">Показать неделю</a>. \
              Источники и подтверждённое чтение за выбранный период доступны ниже.</p></section>",
         );
         return;
@@ -170,7 +170,7 @@ mod tests {
         body.clear();
         section(&mut body, 30, None);
         assert!(body.contains("audience-hours-unsupported"));
-        assert!(body.contains("/admin/audience?days=7"));
+        assert!(body.contains("/odmen/audience?days=7"));
         assert!(!body.contains("role=\"alert\""));
     }
 

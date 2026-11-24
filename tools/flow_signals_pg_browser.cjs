@@ -148,7 +148,7 @@ function savedPages() {
     browser = await chromium.launch({headless: true});
     const context = await browser.newContext({javaScriptEnabled: false, viewport: {width: 1440, height: 900}});
     const page = await context.newPage();
-    for (const route of ['/admin/audience/signals', '/admin/audience/pages']) await response(await page.goto(base + route), 401);
+    for (const route of ['/odmen/audience/signals', '/odmen/audience/pages']) await response(await page.goto(base + route), 401);
     await page.goto(base + '/register');
     const email = marker.toLowerCase() + '@tor-ci.example';
     await page.getByLabel('Отображаемое имя').fill('Signal report operator');
@@ -157,9 +157,9 @@ function savedPages() {
     await page.getByRole('button', {name: 'Создать учётную запись', exact: true}).click();
     await page.waitForURL('**/me');
     actor = Number(sql('SELECT id FROM users WHERE email_normalized=' + quote(email)));
-    for (const route of ['/admin/audience/signals', '/admin/audience/pages']) await response(await page.goto(base + route), 403);
+    for (const route of ['/odmen/audience/signals', '/odmen/audience/pages']) await response(await page.goto(base + route), 403);
     sql("INSERT INTO account_roles(user_id,role) VALUES(" + actor + ",'administrator')");
-    await readonlyGet(page, '/admin/audience/signals');
+    await readonlyGet(page, '/odmen/audience/signals');
     assert.equal(await page.locator('[data-testid="signal-state"]').count(), 13);
     assert.equal(await page.locator('[data-testid="signal-state"][data-state="unknown"]').count(), 13);
     assert.equal(await page.locator('[data-testid="signal-state"][data-state="healthy"]').count(), 0);
@@ -182,7 +182,7 @@ function savedPages() {
       last_notice_ms: now(), window_label: injection,
     });
     save([active]); event(active, 'opened');
-    await readonlyGet(page, '/admin/audience/signals?days=7');
+    await readonlyGet(page, '/odmen/audience/signals?days=7');
     const genre = page.locator('[data-testid="signal-state"][data-rule="underexposed_genres"]');
     assert.equal(await genre.getAttribute('data-state'), 'active');
     assert.equal(await genre.locator('[data-testid="signal-open-episode"]').count(), 1);
@@ -190,7 +190,7 @@ function savedPages() {
     assert.equal(await genre.locator('script,img,iframe').count(), 0);
     save([{...active, status: 'unknown', reason: 'missing_measurement', available: false,
       current_value: null, previous_value: null, checked_at_ms: now(), unknown_entities: 1}]);
-    await readonlyGet(page, '/admin/audience/signals?days=7');
+    await readonlyGet(page, '/odmen/audience/signals?days=7');
     assert.equal(await genre.getAttribute('data-state'), 'unknown');
     assert.equal(await genre.locator('[data-testid="signal-open-episode"]').count(), 1);
     assert.equal(await page.locator('[data-testid="signal-event"][data-kind="recovered"]').count(), 0);
@@ -205,7 +205,7 @@ function savedPages() {
     const publicHealthy = {...publicActive, status: 'healthy', reason: 'within_threshold', current_value: 0,
       checked_at_ms: now(), episode_reason: null, episode_opened_ms: null, episode_emitted: false};
     save([publicHealthy]); event(publicHealthy, 'recovered');
-    await readonlyGet(page, '/admin/audience/signals?days=7');
+    await readonlyGet(page, '/odmen/audience/signals?days=7');
     assert.equal(await genre.getAttribute('data-state'), 'healthy');
     assert.equal(await genre.locator('[data-testid="signal-open-episode"]').count(), 0);
     const publicState = page.locator('[data-testid="signal-state"][data-rule="public_page_loss"]');
@@ -216,7 +216,7 @@ function savedPages() {
     assert.ok(!(await publicRecovery.innerText()).includes('Подтверждено восстановление'));
     assert.equal(await page.locator('[data-testid="signal-event"][data-kind="recovered"]').count(), 2);
     save([{...healthy, checked_at_ms: now() - 301000}]);
-    await readonlyGet(page, '/admin/audience/signals?days=7');
+    await readonlyGet(page, '/odmen/audience/signals?days=7');
     assert.equal(await genre.getAttribute('data-state'), 'unknown', 'stale healthy evidence is not a current recovery');
     save([{...healthy, checked_at_ms: now()}]);
     for (let n = 0; n < 55; n++) {
@@ -225,7 +225,7 @@ function savedPages() {
         episode_seq: 1, episode_reason: 'recorded_drop', episode_opened_ms: now(), episode_emitted: true, last_notice_ms: now(),
         window_label: marker + ' history ' + n}), 'opened');
     }
-    await readonlyGet(page, '/admin/audience/signals?days=7');
+    await readonlyGet(page, '/odmen/audience/signals?days=7');
     const first = await page.locator('[data-testid="signal-event"]').allTextContents();
     assert.equal(first.length, 50);
     const beforePage = fingerprint();
@@ -236,30 +236,30 @@ function savedPages() {
     assert.ok(second.length > 0 && second.length <= 50);
     assert.ok(second.every(value => !first.includes(value)), 'keyset pages must not repeat rows');
     assert.equal(fingerprint(), beforePage);
-    await readonlyGet(page, '/admin/audience/pages');
+    await readonlyGet(page, '/odmen/audience/pages');
     assert.equal(await page.locator('[data-testid="public-page-state"]').count(), 4);
     assert.deepEqual(await page.locator('[data-testid="public-page-state"]').evaluateAll(rows => rows.map(row => row.dataset.slot)), ['1','2','3','4']);
     assert.equal(await page.locator('[data-testid="pages-unknown"]').count(), 1);
     assert.equal(await page.locator('[data-testid="pages-current-healthy"]').count(), 0);
     savedPages();
-    await readonlyGet(page, '/admin/audience/pages');
+    await readonlyGet(page, '/odmen/audience/pages');
     assert.equal(await page.locator('[data-testid="public-page-state"][data-state="healthy"]').count(), 4);
     assert.ok((await page.locator('[data-testid="pages-current-healthy"]').innerText()).includes(disclaimer));
     await screenshots(page, 'public-pages-current-sample');
     sql('UPDATE flow_public_page_results SET http_status=503 WHERE slot=3');
-    await readonlyGet(page, '/admin/audience/pages');
+    await readonlyGet(page, '/odmen/audience/pages');
     assert.equal(await page.locator('[data-testid="pages-loss"]').count(), 1);
     sql('UPDATE flow_public_page_results SET baseline_known=false,last_success_at=NULL WHERE slot=3');
-    await readonlyGet(page, '/admin/audience/pages');
+    await readonlyGet(page, '/odmen/audience/pages');
     assert.equal(await page.locator('[data-testid="public-page-state"][data-slot="3"]').getAttribute('data-state'), 'unknown');
     assert.equal(await page.locator('[data-testid="pages-loss"]').count(), 0);
     assert.equal(await page.locator('[data-testid="pages-current-healthy"]').count(), 0);
     savedPages();
     sql("UPDATE flow_public_page_probe SET finished_at=now()-interval '181 seconds'");
-    await readonlyGet(page, '/admin/audience/pages');
+    await readonlyGet(page, '/odmen/audience/pages');
     assert.equal(await page.locator('[data-testid="public-page-state"][data-state="unknown"]').count(), 4);
     sql('DELETE FROM account_roles WHERE user_id=' + actor);
-    for (const route of ['/admin/audience/signals', '/admin/audience/pages']) await response(await page.goto(base + route), 403);
+    for (const route of ['/odmen/audience/signals', '/odmen/audience/pages']) await response(await page.goto(base + route), 403);
     console.log('FLOW_SIGNALS_BROWSER_PASS saved journal fixtures; native no-JS 1/7/30/90; 13 rules; unknown/open/recovered/stale; keyset; XSS; current-sample wording; 4 page slots; GET read-only; 390/1440; live role');
   } finally {
     if (browser) await browser.close();

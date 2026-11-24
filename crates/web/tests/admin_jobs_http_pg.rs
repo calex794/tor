@@ -113,7 +113,7 @@ async fn request(
 ) -> (StatusCode, String) {
     let mut builder = Request::builder()
         .method("POST")
-        .uri(format!("/api/v1/admin/jobs/{id}/retry"))
+        .uri(format!("/api/v1/odmen/jobs/{id}/retry"))
         .header(header::ORIGIN, origin);
     if let Some(token) = session {
         builder = builder.header(

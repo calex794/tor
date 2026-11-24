@@ -56,7 +56,7 @@ pub fn instrument(app: Router, marker: &'static str) -> (Router, Arc<Traffic>) {
                     && (path.starts_with("/reader/")
                         || path.starts_with("/read/")
                         || path.starts_with("/me/library/saved/")
-                        || path.contains("/admin-")
+                        || path.contains("/odmen-")
                         || path.ends_with("/free-grant"));
                 let no_script_source = request.method() == Method::GET
                     && path

@@ -85,7 +85,7 @@ fn value(html: &str, cohort: &str, name: &str) -> i64 {
 
 pub(super) async fn choices(app: &Router, cookies: (&str, &str, &str), book: i64) {
     let (admin, reader, csrf) = cookies;
-    let before = page(call(app, "GET", "/admin/audience?days=7", admin, "", "").await).await;
+    let before = page(call(app, "GET", "/odmen/audience?days=7", admin, "", "").await).await;
     for route in [
         format!("/me/library/{book}/save"),
         format!("/me/books/{book}/follow"),
@@ -100,7 +100,7 @@ pub(super) async fn choices(app: &Router, cookies: (&str, &str, &str), book: i64
             assert_eq!(result.headers()[header::CACHE_CONTROL], "no-store");
         }
     }
-    let snapshot = call(app, "GET", "/admin/audience?days=7", admin, "", "").await;
+    let snapshot = call(app, "GET", "/odmen/audience?days=7", admin, "", "").await;
     assert_eq!(snapshot.status(), StatusCode::OK);
     private(&snapshot);
     let snapshot = page(snapshot).await;
@@ -125,7 +125,7 @@ pub(super) async fn choices(app: &Router, cookies: (&str, &str, &str), book: i64
     let owner_url = std::env::var("MIGRATOR_URL").unwrap();
     let lock = LockedFollows::acquire(&owner_url);
     let started = std::time::Instant::now();
-    let failed = call(app, "GET", "/admin/audience?days=7", admin, "", "").await;
+    let failed = call(app, "GET", "/odmen/audience?days=7", admin, "", "").await;
     assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&failed);
     assert!(started.elapsed() < std::time::Duration::from_secs(3));
@@ -134,7 +134,7 @@ pub(super) async fn choices(app: &Router, cookies: (&str, &str, &str), book: i64
     assert!(!failed.contains("data-testid=\"audience-intents-total\""));
     assert!(failed.contains("data-testid=\"audience-current\""));
     drop(lock);
-    let recovered = call(app, "GET", "/admin/audience?days=7", admin, "", "").await;
+    let recovered = call(app, "GET", "/odmen/audience?days=7", admin, "", "").await;
     assert_eq!(recovered.status(), StatusCode::OK);
     assert_eq!(
         value(&page(recovered).await, "total", "library-links"),
@@ -149,7 +149,7 @@ pub(super) async fn choices(app: &Router, cookies: (&str, &str, &str), book: i64
             StatusCode::SEE_OTHER
         );
     }
-    let removed = page(call(app, "GET", "/admin/audience?days=7", admin, "", "").await).await;
+    let removed = page(call(app, "GET", "/odmen/audience?days=7", admin, "", "").await).await;
     for name in [
         "library-links",
         "library-accounts",

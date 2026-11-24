@@ -176,18 +176,18 @@ async fn observed_hours_guarded_periods_timezone_timeout_and_recovery() {
         .until_epoch;
     let fixtures = ObservedFixtures::install(&url, anchor);
     private(
-        &call(&app, "/admin/audience?time_zone=invalid", "").await,
+        &call(&app, "/odmen/audience?time_zone=invalid", "").await,
         StatusCode::UNAUTHORIZED,
     );
     private(
-        &call(&app, "/admin/audience?time_zone=UTC", &cookies[1]).await,
+        &call(&app, "/odmen/audience?time_zone=UTC", &cookies[1]).await,
         StatusCode::FORBIDDEN,
     );
     for days in [1, 7, 30, 90] {
         let report = repo.observed_report(days, "Europe/Moscow").await.unwrap();
         let response = call(
             &app,
-            &format!("/admin/audience?days={days}&time_zone=Europe%2FMoscow"),
+            &format!("/odmen/audience?days={days}&time_zone=Europe%2FMoscow"),
             &cookies[0],
         )
         .await;
@@ -198,10 +198,10 @@ async fn observed_hours_guarded_periods_timezone_timeout_and_recovery() {
         assert!(!html.contains("Clock fixture"));
     }
     for path in [
-        "/admin/audience?time_zone=unknown",
-        "/admin/audience?time_zone=UTC&time_zone=Europe/Moscow",
-        "/admin/audience?time_zone=%3Cscript%3E",
-        "/admin/audience?days=0",
+        "/odmen/audience?time_zone=unknown",
+        "/odmen/audience?time_zone=UTC&time_zone=Europe/Moscow",
+        "/odmen/audience?time_zone=%3Cscript%3E",
+        "/odmen/audience?days=0",
     ] {
         private(
             &call(&app, path, &cookies[0]).await,
@@ -211,7 +211,7 @@ async fn observed_hours_guarded_periods_timezone_timeout_and_recovery() {
     let lock = LockedObserved::acquire(&url);
     let response = call(
         &app,
-        "/admin/audience?days=7&time_zone=Europe/Moscow",
+        "/odmen/audience?days=7&time_zone=Europe/Moscow",
         &cookies[0],
     )
     .await;
@@ -223,12 +223,12 @@ async fn observed_hours_guarded_periods_timezone_timeout_and_recovery() {
     assert!(html.contains("value=\"Europe/Moscow\" selected"));
     drop(lock);
     private(
-        &call(&app, "/admin/audience?days=90", &cookies[0]).await,
+        &call(&app, "/odmen/audience?days=90", &cookies[0]).await,
         StatusCode::OK,
     );
     pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
     private(
-        &call(&app, "/admin/audience", &cookies[0]).await,
+        &call(&app, "/odmen/audience", &cookies[0]).await,
         StatusCode::FORBIDDEN,
     );
     drop(fixtures);

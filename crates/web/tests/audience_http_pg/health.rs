@@ -123,7 +123,7 @@ impl HealthFixture {
         let response = call(
             &self.app,
             "GET",
-            "/admin/audience?days=1",
+            "/odmen/audience?days=1",
             &self.cookie,
             "",
             "",
@@ -233,7 +233,7 @@ fn observed_total<'a>(html: &'a str, period: &str) -> &'a str {
 #[ignore = "requires disposable PostgreSQL 18 tor_ci with HTML health migration"]
 async fn html_health_http_preserves_legacy_counts_and_requires_durable_complete_zero() {
     let f = HealthFixture::new().await;
-    let anonymous = call(&f.app, "GET", "/admin/audience?days=1", "", "", "").await;
+    let anonymous = call(&f.app, "GET", "/odmen/audience?days=1", "", "", "").await;
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
     private(&anonymous);
     assert!(!page(anonymous).await.contains("data-metric="));
@@ -324,7 +324,7 @@ async fn html_health_http_preserves_legacy_counts_and_requires_durable_complete_
             f.admin
         ),
     );
-    let denied = call(&f.app, "GET", "/admin/audience?days=1", &f.cookie, "", "").await;
+    let denied = call(&f.app, "GET", "/odmen/audience?days=1", &f.cookie, "", "").await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     private(&denied);
     assert!(!page(denied).await.contains("audience-durable-quality"));
@@ -339,7 +339,7 @@ async fn html_health_http_preserves_legacy_counts_and_requires_durable_complete_
         .revoke_session(&session_token_digest(&f.token))
         .await
         .unwrap();
-    let denied = call(&f.app, "GET", "/admin/audience?days=1", &f.cookie, "", "").await;
+    let denied = call(&f.app, "GET", "/odmen/audience?days=1", &f.cookie, "", "").await;
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     private(&denied);
     f.finish().await;

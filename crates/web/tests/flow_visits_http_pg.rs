@@ -324,7 +324,7 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
         (&moderator_browser, StatusCode::FORBIDDEN),
     ] {
         let response = browser
-            .get(&app, "/admin/audience/visits?days=invalid")
+            .get(&app, "/odmen/audience/visits?days=invalid")
             .await;
         assert_eq!(response.status(), status);
         private(&response);
@@ -498,7 +498,7 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
     for days in [1, 7, 30, 90] {
         let report = visits.report(days).await.unwrap();
         let response = admin_browser
-            .get(&app, &format!("/admin/audience/visits?days={days}"))
+            .get(&app, &format!("/odmen/audience/visits?days={days}"))
             .await;
         assert_eq!(response.status(), StatusCode::OK);
         private(&response);
@@ -524,14 +524,14 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
     }
     assert_eq!(
         admin_browser
-            .get(&app, "/admin/audience/visits?days=2")
+            .get(&app, "/odmen/audience/visits?days=2")
             .await
             .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(optional_snapshot(&url, reader), baseline);
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let denied = admin_browser.get(&app, "/admin/audience/visits").await;
+    let denied = admin_browser.get(&app, "/odmen/audience/visits").await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     private(&denied);
     assert!(!text(denied).await.contains("data-metric="));

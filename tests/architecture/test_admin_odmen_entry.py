@@ -1,4 +1,4 @@
-"""Admin alias: retain role enforcement and all existing /admin/ ACLs."""
+"""Admin alias: retain role enforcement and all existing /odmen/ ACLs."""
 from pathlib import Path
 import unittest
 
@@ -16,12 +16,14 @@ class AdminAliasTests(unittest.TestCase):
         self.assertIn("StatusCode::NOT_FOUND", module)
         self.assertIn("noindex, nofollow", module)
         self.assertIn('href=\\"/odmen\\"', account)
-        self.assertIn('href=\\"/admin/audience\\"', account)
+        self.assertIn('href=\\"/odmen/audience\\"', account)
 
     def test_does_not_advertise_alias_as_role_security(self):
         doc = (ROOT / "docs/security/admin-odmen-alias.md").read_text()
         self.assertIn("NOT a security boundary", doc)
-        self.assertIn("remain accessible", doc)
+        self.assertIn("no longer registered", doc)
+        self.assertIn("return 404", doc)
+        self.assertIn("No old aliases", doc)
 
 
 if __name__ == "__main__":

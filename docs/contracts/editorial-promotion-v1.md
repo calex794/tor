@@ -42,7 +42,7 @@
 
 ## Управление без JavaScript
 
-`GET /admin/promotion/editorial` выводит форму создания, расписание, статус,
+`GET /odmen/promotion/editorial` выводит форму создания, расписание, статус,
 предпросмотр и ссылки на агрегаты. `POST` того же пути принимает обычную
 `application/x-www-form-urlencoded` форму. Ссылка из кабинета есть только
 у действующего администратора. Анонимный запрос получает 401, читатель и
@@ -132,7 +132,7 @@ revision, книга и место должны ещё действовать, �
 не оплачиваемые показы и не защита финансового settlement от мошенничества.
 
 Кампания ведёт на
-`/admin/audience/exposure?source=editorial&campaign={id}&days=7`.
+`/odmen/audience/exposure?source=editorial&campaign={id}&days=7`.
 Узкий `EditorialObservationGuard::campaign_book` сообщает общему отчёту
 единственную назначенную книгу, включая черновик до первого события и
 завершённую кампанию. Отчёт повторно применяет текущую доступность B.

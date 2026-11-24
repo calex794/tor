@@ -29,10 +29,10 @@ const tag = 'после удаления';
 const keys = ['issued','impressions','clicks','book-opens','starts'];
 const retained = ['22','13','15','15','14'];
 const unknown = keys.map(() => 'Нет данных');
-const paths = ['/admin/audience?days=7','/admin/audience/books?days=7',
-  '/admin/audience/groups?days=7&kind=genres','/admin/audience/visits?days=7'];
-const booksPath = '/admin/audience/books?days=7&genre='+encodeURIComponent(common);
-const groupsPath = '/admin/audience/groups?days=7&kind=genres';
+const paths = ['/odmen/audience?days=7','/odmen/audience/books?days=7',
+  '/odmen/audience/groups?days=7&kind=genres','/odmen/audience/visits?days=7'];
+const booksPath = '/odmen/audience/books?days=7&genre='+encodeURIComponent(common);
+const groupsPath = '/odmen/audience/groups?days=7&kind=genres';
 const email = 'retirement-browser-'+randomBytes(8).toString('hex')+'@example.invalid';
 let browser, user;
 fs.mkdirSync(shots, {recursive:true});

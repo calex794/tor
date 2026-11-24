@@ -168,7 +168,7 @@ impl Runtime {
                     post(ingest::event).layer(DefaultBodyLimit::max(4096)),
                 )
                 .route("/assets/flow-observations.js", get(client::script))
-                .route("/admin/audience/exposure", get(report::page))
+                .route("/odmen/audience/exposure", get(report::page))
                 .with_state(self),
         ))
     }

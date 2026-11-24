@@ -144,10 +144,10 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/recommendations", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 131
     RouteRegistration::new("/me/recommendations/consent", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 132
     RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 133
-    RouteRegistration::new("/api/v1/admin/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
-    RouteRegistration::new("/api/v1/admin/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
-    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
-    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
+    RouteRegistration::new("/api/v1/odmen/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
+    RouteRegistration::new("/api/v1/odmen/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
+    RouteRegistration::new("/odmen/recommendations/manage", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
+    RouteRegistration::new("/odmen/recommendations/manage", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
     RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 138
     RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 139
     RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 140
@@ -178,9 +178,9 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/books/{id}/room/join", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 165
     RouteRegistration::new("/books/{id}/room/messages", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 166
     RouteRegistration::new("/books/{id}/room/leave", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 167
-    RouteRegistration::new("/admin/mail", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
-    RouteRegistration::new("/admin/mail/users/{user_id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
-    RouteRegistration::new("/admin/mail/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
+    RouteRegistration::new("/odmen/mail", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
+    RouteRegistration::new("/odmen/mail/users/{user_id}", "GET", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
+    RouteRegistration::new("/odmen/mail/{id}", "GET", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
     RouteRegistration::new("/mail/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 171
     RouteRegistration::new("/mail/groups/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 172
     RouteRegistration::new("/mail/groups/{id}/transfer", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 173
@@ -196,10 +196,10 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/mail/group-transfers/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 183
     RouteRegistration::new("/mail/group-transfers/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 184
     RouteRegistration::new("/mail/groups/{id}/transfer/{offer_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 185
-    RouteRegistration::new("/admin/mail/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 186
-    RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
-    RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
-    RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
+    RouteRegistration::new("/odmen/mail/groups", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 186
+    RouteRegistration::new("/odmen/mail/groups/{id}", "GET", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
+    RouteRegistration::new("/odmen/mail/book-rooms", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
+    RouteRegistration::new("/odmen/mail/book-rooms/{id}", "GET", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
     RouteRegistration::new("/me/chapters/{id}/buy", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 190
     RouteRegistration::new("/me/chapters/{id}/buy", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 191
     RouteRegistration::new("/me/books/{book_id}/chapters/import-queue", "POST", "/me/", Prefix, Page, Dashboard, Write), // 192
@@ -216,18 +216,18 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/support/widget", "GET", "/support/", Exact, Api, Dashboard, Read), // 203
     RouteRegistration::new("/support/messages", "GET", "/support/", Exact, Api, Dashboard, Read), // 204
     RouteRegistration::new("/support/messages", "POST", "/support/", Exact, Api, Dashboard, Write), // 205
-    RouteRegistration::new("/admin/support", "GET", "/support/", Exact, TrafficSurface::Admin, Dashboard, Read), // 206
-    RouteRegistration::new("/admin/support/{id}", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 207
-    RouteRegistration::new("/admin/support/{id}/messages", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 208
-    RouteRegistration::new("/admin/support/{id}/messages", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 209
+    RouteRegistration::new("/odmen/support", "GET", "/support/", Exact, TrafficSurface::Admin, Dashboard, Read), // 206
+    RouteRegistration::new("/odmen/support/{id}", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 207
+    RouteRegistration::new("/odmen/support/{id}/messages", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 208
+    RouteRegistration::new("/odmen/support/{id}/messages", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 209
     RouteRegistration::new("/api/v1/support/tickets", "GET", "/support/", Exact, Api, Dashboard, Read), // 210
     RouteRegistration::new("/api/v1/support/tickets", "POST", "/support/", Exact, Api, Dashboard, Write), // 211
-    RouteRegistration::new("/admin/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 212
+    RouteRegistration::new("/odmen/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 212
     RouteRegistration::new("/assets/newboo-support-widget.js", "GET", "/assets/", Exact, Static, System, Free), // 213
-    RouteRegistration::new("/assets/newboo-admin-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
+    RouteRegistration::new("/assets/newboo-odmen-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/text-issues", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 215
-    RouteRegistration::new("/admin/support/{id}/close", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 216
-    RouteRegistration::new("/admin/support/{id}/reopen", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 217
+    RouteRegistration::new("/odmen/support/{id}/close", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 216
+    RouteRegistration::new("/odmen/support/{id}/reopen", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 217
     RouteRegistration::new("/assets/newboo-free-reader.js", "GET", "/assets/", Exact, Static, System, Free), // 218
     RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/schedule", "POST", "/me/", Prefix, Page, Dashboard, Write), // 219
     RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/cancel-schedule", "POST", "/me/", Prefix, Page, Dashboard, Write), // 220
@@ -247,14 +247,14 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 234
     RouteRegistration::new("/me/books/{id}/settings/sources", "GET", "/me/", Prefix, Page, Dashboard, Read), // 235
     RouteRegistration::new("/me/books/{id}/settings/sources", "POST", "/me/", Prefix, Page, Dashboard, Write), // 236
-    RouteRegistration::new("/read/admin/{chapter_id}", "GET", "/read/", Prefix, TrafficSurface::Admin, Reading, Read), // 237
-    RouteRegistration::new("/assets/newboo-admin-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 238
-    RouteRegistration::new("/admin/finance/refunds/user/{id}", "GET", "/admin/finance/", Prefix, TrafficSurface::Admin, ProductArea::Billing, Read), // 239
-    RouteRegistration::new("/admin/finance/refunds/prepare", "POST", "/admin/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 240
-    RouteRegistration::new("/admin/finance/refunds", "GET", "/admin/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Read), // 241
+    RouteRegistration::new("/read/odmen/{chapter_id}", "GET", "/read/", Prefix, TrafficSurface::Admin, Reading, Read), // 237
+    RouteRegistration::new("/assets/newboo-odmen-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 238
+    RouteRegistration::new("/odmen/finance/refunds/user/{id}", "GET", "/odmen/finance/", Prefix, TrafficSurface::Admin, ProductArea::Billing, Read), // 239
+    RouteRegistration::new("/odmen/finance/refunds/prepare", "POST", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 240
+    RouteRegistration::new("/odmen/finance/refunds", "GET", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Read), // 241
     RouteRegistration::new("/assets/book-title-suggestions.js", "GET", "/assets/", Exact, Static, System, Free), // 242
     RouteRegistration::new("/me/books/title-suggestions", "GET", "/me/", Prefix, Api, Dashboard, Read), // 243
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-unsealed", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 244
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-unsealed", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 244
     RouteRegistration::new("/me/books/{id}/settings/project-status", "GET", "/me/", Prefix, Page, Dashboard, Read), // 245
     RouteRegistration::new("/me/books/{id}/settings/project-status", "POST", "/me/", Prefix, Page, Dashboard, Write), // 246
     RouteRegistration::new("/me/books/{id}/settings/titles", "GET", "/me/", Prefix, Page, Dashboard, Read), // 247
@@ -263,7 +263,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/books/{id}/settings/related/search", "POST", "/me/", Prefix, Page, Dashboard, Write), // 250
     RouteRegistration::new("/me/books/{id}/settings/related/add", "POST", "/me/", Prefix, Page, Dashboard, Write), // 251
     RouteRegistration::new("/me/books/{id}/settings/related/remove", "POST", "/me/", Prefix, Page, Dashboard, Write), // 252
-    RouteRegistration::new("/admin/finance/refunds/approve", "POST", "/admin/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 253
+    RouteRegistration::new("/odmen/finance/refunds/approve", "POST", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 253
     RouteRegistration::new("/moderation/books", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 254
     RouteRegistration::new("/moderation/books/{id}/hold", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 255
     RouteRegistration::new("/me/books/{id}/settings/origin", "GET", "/me/", Prefix, Page, Dashboard, Read), // 256
@@ -273,11 +273,11 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/books/{id}/settings", "GET", "/me/", Prefix, Page, Dashboard, Read), // 260
     RouteRegistration::new("/__bp_honeypot/{*trap_name}", "GET", "/auth/honeypot/", Prefix, Service, Auth, Free), // 261
     RouteRegistration::new("/moderation/books/{id}/visibility", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 262
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 265
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 266
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 267
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 265
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 266
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 267
     RouteRegistration::new("/api/v1/covers/{id}/{variant}/direct-grant", "GET", "/api/v1/covers/", Prefix, Api, ProductArea::Storage, Read), // 268
     RouteRegistration::new("/users/{target_user_id}/subscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 269
     RouteRegistration::new("/users/{target_user_id}/unsubscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 270
@@ -351,86 +351,86 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/api/v1/books/{id}/toc/window", "GET", "/api/v1/books/", Prefix, Api, Reading, Read), // 338
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/toc/window", "GET", "/api/v1/reader/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 339
     RouteRegistration::new("/api/v1/reader/layer/{chapter_id}/toc/window", "GET", "/api/v1/reader/layer/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 340
-    RouteRegistration::new("/admin/recommendation-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 341
-    RouteRegistration::new("/admin/recommendation-reports/{share_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 342
+    RouteRegistration::new("/odmen/recommendation-reports", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 341
+    RouteRegistration::new("/odmen/recommendation-reports/{share_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 342
     RouteRegistration::new("/api/v1/me/library/saved/{id}/toc/window", "GET", "/api/v1/me/library/saved/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 343
     RouteRegistration::new("/books/{id}/report", "GET", "/books/", Prefix, Page, Social, Read), // 344
     RouteRegistration::new("/books/{id}/report", "POST", "/books/", Prefix, Page, Social, Write), // 345
-    RouteRegistration::new("/admin/book-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 346
-    RouteRegistration::new("/admin/book-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 347
+    RouteRegistration::new("/odmen/book-reports", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 346
+    RouteRegistration::new("/odmen/book-reports/{report_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 347
     RouteRegistration::new("/me/comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 348
     RouteRegistration::new("/me/comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 349
-    RouteRegistration::new("/admin/book-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 350
-    RouteRegistration::new("/admin/book-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 351
+    RouteRegistration::new("/odmen/book-comment-appeals", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 350
+    RouteRegistration::new("/odmen/book-comment-appeals/{appeal_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 351
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/paid-comments/report", "POST", "/api/v1/reader/chapters/", Prefix, Api, Social, Write), // 352
-    RouteRegistration::new("/admin/paid-comment-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 353
-    RouteRegistration::new("/admin/paid-comment-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 354
+    RouteRegistration::new("/odmen/paid-comment-reports", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 353
+    RouteRegistration::new("/odmen/paid-comment-reports/{report_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 354
     RouteRegistration::new("/me/finance", "GET", "/me/", Exact, Page, ProductArea::Billing, Read), // 355
     RouteRegistration::new("/me/finance", "POST", "/me/", Exact, Page, ProductArea::Billing, Write), // 356
     RouteRegistration::new("/me/paid-comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 357
     RouteRegistration::new("/me/paid-comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 358
-    RouteRegistration::new("/admin/paid-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 359
-    RouteRegistration::new("/admin/paid-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 360
+    RouteRegistration::new("/odmen/paid-comment-appeals", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 359
+    RouteRegistration::new("/odmen/paid-comment-appeals/{appeal_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 360
     RouteRegistration::new("/reader/{chapter_id}/comments/{comment_id}/report", "GET", "/reader/", Prefix, Page, Social, Read), // 361
     RouteRegistration::new("/reader/{chapter_id}/comments/{comment_id}/report", "POST", "/reader/", Prefix, Page, Social, Write), // 362
-    RouteRegistration::new("/admin/free-comment-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 363
-    RouteRegistration::new("/admin/free-comment-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 364
-    RouteRegistration::new("/admin/audience", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 365
+    RouteRegistration::new("/odmen/free-comment-reports", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 363
+    RouteRegistration::new("/odmen/free-comment-reports/{report_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 364
+    RouteRegistration::new("/odmen/audience", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 365
     RouteRegistration::new("/me/free-comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 366
     RouteRegistration::new("/me/free-comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 367
-    RouteRegistration::new("/admin/free-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 368
-    RouteRegistration::new("/admin/free-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 369
-    RouteRegistration::new("/api/v1/admin/jobs/{id}/retry", "POST", "/api/v1/admin/jobs/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 370
-    RouteRegistration::new("/admin/finance/payouts", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 371
-    RouteRegistration::new("/admin/finance/payouts/{id}/reject", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 372
-    RouteRegistration::new("/admin/finance/payouts/{id}/quote", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 373
-    RouteRegistration::new("/admin/audience/books", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 374
-    RouteRegistration::new("/admin/audience/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 375
-    RouteRegistration::new("/admin/storage/g09", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 376
-    RouteRegistration::new("/admin/storage/g09/{direction}/{scope}/{action}", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 377
-    RouteRegistration::new("/admin/audience/returns", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 378
+    RouteRegistration::new("/odmen/free-comment-appeals", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 368
+    RouteRegistration::new("/odmen/free-comment-appeals/{appeal_id}/decision", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 369
+    RouteRegistration::new("/api/v1/odmen/jobs/{id}/retry", "POST", "/api/v1/odmen/jobs/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 370
+    RouteRegistration::new("/odmen/finance/payouts", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 371
+    RouteRegistration::new("/odmen/finance/payouts/{id}/reject", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 372
+    RouteRegistration::new("/odmen/finance/payouts/{id}/quote", "GET", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 373
+    RouteRegistration::new("/odmen/audience/books", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 374
+    RouteRegistration::new("/odmen/audience/groups", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 375
+    RouteRegistration::new("/odmen/storage/g09", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 376
+    RouteRegistration::new("/odmen/storage/g09/{direction}/{scope}/{action}", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 377
+    RouteRegistration::new("/odmen/audience/returns", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 378
     RouteRegistration::new("/me/notification-email/confirm", "POST", "/me/", Exact, Page, Dashboard, Write), // 379
     RouteRegistration::new("/me/notification-email/request", "POST", "/me/", Exact, Page, Dashboard, Write), // 380
     RouteRegistration::new("/me/notification-email/revoke", "POST", "/me/", Exact, Page, Dashboard, Write), // 381
     RouteRegistration::new("/me/recommendations/flow-consent", "POST", "/me/", Exact, Page, Dashboard, Write), // 382
-    RouteRegistration::new("/admin/audience/visits", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 383
-    RouteRegistration::new("/admin/audience/funnel", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 384
-    RouteRegistration::new("/admin/audience/reading", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 385
+    RouteRegistration::new("/odmen/audience/visits", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 383
+    RouteRegistration::new("/odmen/audience/funnel", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 384
+    RouteRegistration::new("/odmen/audience/reading", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 385
     RouteRegistration::new("/api/v1/me/surprises/plan", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 386
     RouteRegistration::new("/api/v1/me/surprises/claim", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 387
     RouteRegistration::new("/api/v1/me/surprises/open", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 388
     RouteRegistration::new("/api/v1/me/surprises/disable", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 389
     RouteRegistration::new("/assets/surprise.js", "GET", "/assets/", Exact, Static, System, Free), // 390
     RouteRegistration::new("/assets/surprise.css", "GET", "/assets/", Exact, Static, System, Free), // 391
-    RouteRegistration::new("/admin/surprises", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 392
-    RouteRegistration::new("/admin/surprises/policy", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 393
-    RouteRegistration::new("/admin/surprises/create", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 394
-    RouteRegistration::new("/admin/surprises/{id}/state", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 395
-    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "GET", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 396
-    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "POST", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 397
-    RouteRegistration::new("/me/recommendations/contextual", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 398
-    RouteRegistration::new("/me/recommendations/contextual", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
-    RouteRegistration::new("/admin/audience/seo", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 400
-    RouteRegistration::new("/admin/audience/seo/refresh", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 401
+    RouteRegistration::new("/odmen/surprises", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 392
+    RouteRegistration::new("/odmen/surprises/policy", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 393
+    RouteRegistration::new("/odmen/surprises/create", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 394
+    RouteRegistration::new("/odmen/surprises/{id}/state", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 395
+    RouteRegistration::new("/api/v1/odmen/recommendations/contextual", "GET", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 396
+    RouteRegistration::new("/api/v1/odmen/recommendations/contextual", "POST", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 397
+    RouteRegistration::new("/odmen/recommendations/contextual", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 398
+    RouteRegistration::new("/odmen/recommendations/contextual", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
+    RouteRegistration::new("/odmen/audience/seo", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 400
+    RouteRegistration::new("/odmen/audience/seo/refresh", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 401
     RouteRegistration::new("/api/v1/flow/observations", "POST", "/api/v1/", Exact, Api, ProductArea::Recommendations, Write), // 402
     RouteRegistration::new("/assets/flow-observations.js", "GET", "/assets/", Exact, Static, System, Free), // 403
-    RouteRegistration::new("/admin/audience/exposure", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 404
-    RouteRegistration::new("/admin/promotion/editorial", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 405
-    RouteRegistration::new("/admin/promotion/editorial", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 406
-    RouteRegistration::new("/admin/audience/signals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 407
-    RouteRegistration::new("/admin/audience/pages", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 408
+    RouteRegistration::new("/odmen/audience/exposure", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 404
+    RouteRegistration::new("/odmen/promotion/editorial", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 405
+    RouteRegistration::new("/odmen/promotion/editorial", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 406
+    RouteRegistration::new("/odmen/audience/signals", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 407
+    RouteRegistration::new("/odmen/audience/pages", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 408
     RouteRegistration::new("/favicon.ico", "GET", "/assets/", Exact, Static, System, Free), // 409
     RouteRegistration::new("/favicon.svg", "GET", "/assets/", Exact, Static, System, Free), // 410
     RouteRegistration::new("/favicon-32x32.png", "GET", "/assets/", Exact, Static, System, Free), // 411
     RouteRegistration::new("/apple-touch-icon.png", "GET", "/assets/", Exact, Static, System, Free), // 412
     RouteRegistration::new("/icon-192.png", "GET", "/assets/", Exact, Static, System, Free), // 413
     RouteRegistration::new("/site.webmanifest", "GET", "/assets/", Exact, Static, System, Free), // 414
-    RouteRegistration::new("/me/recommendations/shelf-preview", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
+    RouteRegistration::new("/odmen/recommendations/shelf-preview", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
     RouteRegistration::new("/robots.txt", "GET", "/assets/", Exact, Static, System, Free), // 416
     RouteRegistration::new("/sitemap.xml", "GET", "/catalog/", Exact, Page, Catalog, CostClass::ExpensiveRead), // 417
     RouteRegistration::new("/sitemaps/books/{bucket}", "GET", "/catalog/", Prefix, Page, Catalog, CostClass::ExpensiveRead), // 418
-    RouteRegistration::new("/admin/recommendations", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 419
-    RouteRegistration::new("/admin/recommendations", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 420
+    RouteRegistration::new("/odmen/recommendations", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 419
+    RouteRegistration::new("/odmen/recommendations", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 420
     RouteRegistration::new("/me/layers/{id}/cover", "POST", "/me/", Prefix, Page, Dashboard, Write), // 421
     RouteRegistration::new("/layers/{layer_id}/cover/{variant}", "GET", "/layers/", Prefix, Page, ProductArea::Billing, Read), // 422
     RouteRegistration::new("/me/layers/{layer_id}/cover/{mode}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 423
@@ -439,7 +439,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/moderation/layers/covers/{id}/decision", "POST", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 426
     RouteRegistration::new("/me/layers/{layer_id}/sales", "GET", "/me/", Prefix, Page, Dashboard, Read), // 427
     RouteRegistration::new("/me/layers/{layer_id}/sales", "POST", "/me/", Prefix, Page, Dashboard, Write), // 428
-    RouteRegistration::new("/admin/finance/payouts/{id}/post", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 429
+    RouteRegistration::new("/odmen/finance/payouts/{id}/post", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 429
     RouteRegistration::new("/me/layers/{layer_id}/cover-choice", "POST", "/me/", Prefix, Page, Dashboard, Write), // 430
     RouteRegistration::new("/moderation/books/{id}/cover-withdraw", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 431
     RouteRegistration::new("/api/v1/chapters/{id}/free-grant", "GET", "/api/v1/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 432
@@ -453,11 +453,11 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/assets/newboo-layer-free-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 440
     RouteRegistration::new("/api/v1/reader/layer/free/{id}/pack", "POST", "/api/v1/reader/layer/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 441
     RouteRegistration::new("/me/stats/continuations", "GET", "/me/", Exact, Page, Dashboard, CostClass::ExpensiveRead), // 442
-    RouteRegistration::new("/admin/audience/continuations", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 443
+    RouteRegistration::new("/odmen/audience/continuations", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 443
     RouteRegistration::new("/assets/tor-appearance.js", "GET", "/assets/", Exact, Static, System, Free), // 444
     RouteRegistration::new("/assets/tor-home-order.js", "GET", "/assets/", Exact, Static, System, Free), // 445
     RouteRegistration::new("/api/v1/chapters/{id}/free-open", "POST", "/api/v1/chapters/", Prefix, Api, Reading, Write), // 446
-    RouteRegistration::new("/odmen", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 447
+    RouteRegistration::new("/odmen", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 447
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

@@ -22,84 +22,84 @@ INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 EXPECTED_HOST = "pandaolate.ru"
 EXPECTED_UPSTREAM = "http://127.0.0.1:3000"
 AUDITED_ADMIN_MAIL = {
-    ("GET", "/admin/mail", "admin_mail::index", "admin_mail"),
-    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user", "admin_mail"),
-    ("GET", "/admin/mail/{id}", "admin_mail::conversation", "admin_mail"),
-    ("GET", "/admin/mail/groups", "admin_mail::groups", "admin_mail"),
-    ("GET", "/admin/mail/groups/{id}", "admin_mail::group", "admin_mail"),
-    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms", "admin_mail"),
-    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room", "admin_mail"),
+    ("GET", "/odmen/mail", "admin_mail::index", "admin_mail"),
+    ("GET", "/odmen/mail/users/{user_id}", "admin_mail::user", "admin_mail"),
+    ("GET", "/odmen/mail/{id}", "admin_mail::conversation", "admin_mail"),
+    ("GET", "/odmen/mail/groups", "admin_mail::groups", "admin_mail"),
+    ("GET", "/odmen/mail/groups/{id}", "admin_mail::group", "admin_mail"),
+    ("GET", "/odmen/mail/book-rooms", "admin_mail::book_rooms", "admin_mail"),
+    ("GET", "/odmen/mail/book-rooms/{id}", "admin_mail::book_room", "admin_mail"),
 }
 AUDITED_S049_ADMIN = {
-    ("GET", "/admin/recommendation-reports", "admin_reports::queue", "admin_share_reports"),
-    ("POST", "/admin/recommendation-reports/{share_id}/decision",
+    ("GET", "/odmen/recommendation-reports", "admin_reports::queue", "admin_share_reports"),
+    ("POST", "/odmen/recommendation-reports/{share_id}/decision",
      "admin_reports::decide", "admin_share_reports"),
 }
 AUDITED_S049_BOOK_ADMIN = {
-    ("GET", "/admin/book-reports", "content_reports::queue", "admin_book_reports"),
-    ("POST", "/admin/book-reports/{report_id}/decision",
+    ("GET", "/odmen/book-reports", "content_reports::queue", "admin_book_reports"),
+    ("POST", "/odmen/book-reports/{report_id}/decision",
      "content_reports::decide", "admin_book_reports"),
 }
 AUDITED_S049_PAID_COMMENT_APPEALS = {
-    ("GET", "/admin/paid-comment-appeals", "paid_comment_appeals::queue", "admin_paid_comment_appeals"),
-    ("POST", "/admin/paid-comment-appeals/{appeal_id}/decision",
+    ("GET", "/odmen/paid-comment-appeals", "paid_comment_appeals::queue", "admin_paid_comment_appeals"),
+    ("POST", "/odmen/paid-comment-appeals/{appeal_id}/decision",
      "paid_comment_appeals::decide", "admin_paid_comment_appeals"),
 }
 AUDITED_S049_FREE_COMMENT_APPEALS = {
-    ("GET", "/admin/free-comment-appeals", "free_comment_appeals::queue", "admin_free_comment_appeals"),
-    ("POST", "/admin/free-comment-appeals/{appeal_id}/decision",
+    ("GET", "/odmen/free-comment-appeals", "free_comment_appeals::queue", "admin_free_comment_appeals"),
+    ("POST", "/odmen/free-comment-appeals/{appeal_id}/decision",
      "free_comment_appeals::decide", "admin_free_comment_appeals"),
 }
 AUDITED_S049_FREE_COMMENT_ADMIN = {
-    ("GET", "/admin/free-comment-reports", "free_comment_reviews::queue", "admin_free_comment_reports"),
-    ("POST", "/admin/free-comment-reports/{report_id}/decision",
+    ("GET", "/odmen/free-comment-reports", "free_comment_reviews::queue", "admin_free_comment_reports"),
+    ("POST", "/odmen/free-comment-reports/{report_id}/decision",
      "free_comment_reviews::decide", "admin_free_comment_reports"),
 }
 AUDITED_S049_PAID_COMMENT_ADMIN = {
-    ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue", "admin_paid_comment_reports"),
-    ("POST", "/admin/paid-comment-reports/{report_id}/decision",
+    ("GET", "/odmen/paid-comment-reports", "paid_comment_reviews::queue", "admin_paid_comment_reports"),
+    ("POST", "/odmen/paid-comment-reports/{report_id}/decision",
      "paid_comment_reviews::decide", "admin_paid_comment_reports"),
 }
 AUDITED_S049_COMMENT_APPEALS = {
-    ("GET", "/admin/book-comment-appeals", "comment_appeals::queue", "admin_comment_appeals"),
-    ("POST", "/admin/book-comment-appeals/{appeal_id}/decision",
+    ("GET", "/odmen/book-comment-appeals", "comment_appeals::queue", "admin_comment_appeals"),
+    ("POST", "/odmen/book-comment-appeals/{appeal_id}/decision",
      "comment_appeals::decide", "admin_comment_appeals"),
 }
 AUDITED_REFUND_ADMIN = {
-    ("GET", "/admin/finance/refunds", "page", "admin_refund"),
-    ("GET", "/admin/finance/refunds/user/{id}", "buyer", "admin_refund"),
-    ("POST", "/admin/finance/refunds/prepare", "prepare::submit", "admin_refund_prepare"),
-    ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
+    ("GET", "/odmen/finance/refunds", "page", "admin_refund"),
+    ("GET", "/odmen/finance/refunds/user/{id}", "buyer", "admin_refund"),
+    ("POST", "/odmen/finance/refunds/prepare", "prepare::submit", "admin_refund_prepare"),
+    ("POST", "/odmen/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
 }
 AUDITED_G09_ADMIN = {
-    ("GET", "/admin/storage/g09", "page", "admin_g09"),
-    ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command", "admin_g09"),
+    ("GET", "/odmen/storage/g09", "page", "admin_g09"),
+    ("POST", "/odmen/storage/g09/{direction}/{scope}/{action}", "command", "admin_g09"),
 }
 AUDITED_SURPRISE_ADMIN = {
-    ("GET", "/admin/surprises", "page", "admin_surprises"),
-    ("POST", "/admin/surprises/policy", "policy", "admin_surprises"),
-    ("POST", "/admin/surprises/create", "create", "admin_surprises"),
-    ("POST", "/admin/surprises/{id}/state", "set_state", "admin_surprises"),
+    ("GET", "/odmen/surprises", "page", "admin_surprises"),
+    ("POST", "/odmen/surprises/policy", "policy", "admin_surprises"),
+    ("POST", "/odmen/surprises/create", "create", "admin_surprises"),
+    ("POST", "/odmen/surprises/{id}/state", "set_state", "admin_surprises"),
 }
 AUDITED_PAYOUT_ADMIN = {
-    ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
-    ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
-    ("GET", "/admin/finance/payouts/{id}/quote", "quote", "admin_payout"),
-    ("POST", "/admin/finance/payouts/{id}/post", "posting::submit", "admin_payout"),
+    ("GET", "/odmen/finance/payouts", "queue", "admin_payout"),
+    ("POST", "/odmen/finance/payouts/{id}/reject", "reject", "admin_payout"),
+    ("GET", "/odmen/finance/payouts/{id}/quote", "quote", "admin_payout"),
+    ("POST", "/odmen/finance/payouts/{id}/post", "posting::submit", "admin_payout"),
 }
 AUDITED_SUPPORT_ADMIN = {
-    ("GET", "/admin/support", "index", "support_admin"),
-    ("GET", "/admin/support/{id}", "page", "support_admin"),
-    ("GET", "/admin/support/{id}/messages", "messages", "support_admin"),
-    ("POST", "/admin/support/{id}/messages", "submit", "support_admin"),
-    ("POST", "/admin/support/{id}/read", "mark_read", "support_admin"),
-    ("POST", "/admin/support/{id}/close", "close", "support_admin"),
-    ("POST", "/admin/support/{id}/reopen", "reopen", "support_admin"),
+    ("GET", "/odmen/support", "index", "support_admin"),
+    ("GET", "/odmen/support/{id}", "page", "support_admin"),
+    ("GET", "/odmen/support/{id}/messages", "messages", "support_admin"),
+    ("POST", "/odmen/support/{id}/messages", "submit", "support_admin"),
+    ("POST", "/odmen/support/{id}/read", "mark_read", "support_admin"),
+    ("POST", "/odmen/support/{id}/close", "close", "support_admin"),
+    ("POST", "/odmen/support/{id}/reopen", "reopen", "support_admin"),
 }
 PRIVATE_PROBES = (
     ("/me", {301, 302, 303, 307, 308, 401, 403, 404}),
     ("/api/v1/chapters/1/read", {403, 404}),
-    ("/admin", {403, 404}),
+    ("/odmen", {403, 404}),
     ("/internal/metrics", {403, 404}),
     ("/.env", {403, 404}),
 )
@@ -146,7 +146,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
     for row in routes:
         template = row["template"]
         policy = row["policy"]
-        if (template.startswith(("/admin", "/internal")) or template == "/odmen") and policy != "deny":
+        if (template.startswith(("/odmen", "/internal")) or template == "/odmen") and policy != "deny":
             key = (row["method"], template, row["handler"], policy)
             allow_odmen = (
                 row["source"] == "crates/web/src/auth.rs"
@@ -161,19 +161,29 @@ def check_repository(root: Path = ROOT) -> list[str]:
             allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
                          and key in AUDITED_G09_ADMIN)
             allow_editorial = (row["source"] == "crates/web/src/editorial_http/mod.rs"
-                               and key in {("GET", "/admin/promotion/editorial", "admin::page", "admin_editorial"),
-                                           ("POST", "/admin/promotion/editorial", "admin::submit", "admin_editorial")})
+                               and key in {("GET", "/odmen/promotion/editorial", "admin::page", "admin_editorial"),
+                                           ("POST", "/odmen/promotion/editorial", "admin::submit", "admin_editorial")})
             # Only these two handler names have the independently reviewed
             # live administrator and session-bound CSRF/CAS proof in RIL-08.
             allow_ratio_admin = (
                 row["source"] == "crates/web/src/recommendation_http/mod.rs"
                 and key in {
-                    ("GET", "/admin/recommendations", "admin::shares_page", "administrator"),
-                    ("POST", "/admin/recommendations", "admin::shares_submit", "administrator"),
+                    ("GET", "/odmen/recommendations", "admin::shares_page", "administrator"),
+                    ("POST", "/odmen/recommendations", "admin::shares_submit", "administrator"),
+                }
+            )
+            allow_rec_admin_page = (
+                row["source"] == "crates/web/src/recommendation_http/mod.rs"
+                and key in {
+                    ("GET", "/odmen/recommendations/manage", "admin::page", "administrator"),
+                    ("POST", "/odmen/recommendations/manage", "admin::form_control", "administrator"),
+                    ("GET", "/odmen/recommendations/contextual", "admin::contextual::page", "administrator"),
+                    ("POST", "/odmen/recommendations/contextual", "admin::contextual::form", "administrator"),
+                    ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page", "administrator"),
                 }
             )
             allow_observations = (row["source"] == "crates/web/src/flow_exposure/mod.rs"
-                                  and key == ("GET", "/admin/audience/exposure", "report::page", "administrator"))
+                                  and key == ("GET", "/odmen/audience/exposure", "report::page", "administrator"))
             allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
                               and key in AUDITED_SURPRISE_ADMIN)
             allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
@@ -193,24 +203,24 @@ def check_repository(root: Path = ROOT) -> list[str]:
             allow_audience = (
                 row["source"] == "crates/web/src/auth/audience_http.rs"
                 and key in {
-                    ("GET", "/admin/audience", "page", "administrator"),
-                    ("GET", "/admin/audience/books", "books::page", "administrator"),
-                    ("GET", "/admin/audience/groups", "groups::page", "administrator"),
-                    ("GET", "/admin/audience/returns", "returns::page", "administrator"),
-                    ("GET", "/admin/audience/visits", "visits::page", "administrator"),
-                    ("GET", "/admin/audience/funnel", "funnel::page", "administrator"),
-                    ("GET", "/admin/audience/reading", "canonical::page", "administrator"),
-                    ("GET", "/admin/audience/signals", "signals::page", "administrator"),
-                    ("GET", "/admin/audience/pages", "public_pages::page", "administrator"),
-                    ("GET", "/admin/audience/seo", "seo::page", "administrator"),
-                    ("POST", "/admin/audience/seo/refresh", "seo::refresh", "administrator"),
+                    ("GET", "/odmen/audience", "page", "administrator"),
+                    ("GET", "/odmen/audience/books", "books::page", "administrator"),
+                    ("GET", "/odmen/audience/groups", "groups::page", "administrator"),
+                    ("GET", "/odmen/audience/returns", "returns::page", "administrator"),
+                    ("GET", "/odmen/audience/visits", "visits::page", "administrator"),
+                    ("GET", "/odmen/audience/funnel", "funnel::page", "administrator"),
+                    ("GET", "/odmen/audience/reading", "canonical::page", "administrator"),
+                    ("GET", "/odmen/audience/signals", "signals::page", "administrator"),
+                    ("GET", "/odmen/audience/pages", "public_pages::page", "administrator"),
+                    ("GET", "/odmen/audience/seo", "seo::page", "administrator"),
+                    ("POST", "/odmen/audience/seo/refresh", "seo::refresh", "administrator"),
                 }
             )
             # RET-R03 is the exact administrator-only sitewide read.
             # Live role proof is independently enforced by check_ril_governance.py.
             allow_continuation_admin = (
                 row["source"] == "crates/web/src/auth.rs"
-                and key == ("GET", "/admin/audience/continuations",
+                and key == ("GET", "/odmen/audience/continuations",
                             "continuation_stats::administrator", "administrator")
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
@@ -218,7 +228,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
             if not (allow_odmen or allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
-                    or allow_ratio_admin or allow_continuation_admin):
+                    or allow_ratio_admin or allow_rec_admin_page or allow_continuation_admin):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

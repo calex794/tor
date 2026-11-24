@@ -28,7 +28,7 @@ pub(super) async fn registration_after_library(app: &Router) -> Response {
         assert!(html.contains(&format!("name=\"next\" value=\"{target}\"")));
         assert!(html.contains(&format!("href=\"/register?next={target}\"")));
     }
-    for target in ["https://evil.test", "//evil.test", "/admin", "/reader/0"] {
+    for target in ["https://evil.test", "//evil.test", "/odmen", "/reader/0"] {
         let login = send(
             app,
             request("GET", &format!("/login?next={target}"), "", "", ORIGIN),

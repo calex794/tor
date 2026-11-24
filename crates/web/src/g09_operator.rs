@@ -74,9 +74,9 @@ pub fn router(accounts: PgAccounts, store: S3PrivateStore, secure: bool, origin:
         inflight: Arc::new(Semaphore::new(1)),
     };
     Router::new()
-        .route("/admin/storage/g09", get(page))
+        .route("/odmen/storage/g09", get(page))
         .route(
-            "/admin/storage/g09/{direction}/{scope}/{action}",
+            "/odmen/storage/g09/{direction}/{scope}/{action}",
             post(command).layer(DefaultBodyLimit::max(1024)),
         )
         .with_state(state)
@@ -106,7 +106,7 @@ fn action_button(
 ) {
     write!(
         body,
-        "<form method=\"post\" action=\"/admin/storage/g09/{}/{}/{}\">
+        "<form method=\"post\" action=\"/odmen/storage/g09/{}/{}/{}\">
         <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
         <button type=\"submit\">{}</button></form>",
         slug(direction),
@@ -375,7 +375,7 @@ fn accepted() -> Response {
     private_response(
         (
             StatusCode::ACCEPTED,
-            axum::response::Html("<p>Принято. <a href=\"/admin/storage/g09\">К панели</a></p>"),
+            axum::response::Html("<p>Принято. <a href=\"/odmen/storage/g09\">К панели</a></p>"),
         ),
         &[],
     )

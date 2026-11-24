@@ -4,7 +4,7 @@ use crate::pages::escape_html;
 use std::fmt::Write;
 pub(super) fn page(status: Option<&Status>, csrf: &str, enabled: bool) -> String {
     let mut out = String::from(
-        r#"<section class="section"><div class="container audience-books-width"><h1>Контекстные рекомендации</h1><p>Подбор по жанрам, тегам и ручным связям книг. История чтения и поведенческие оценки не используются.</p><p><a href="/me/recommendations/manage">Контекстные рекомендации: metadata_manual_v1</a></p>"#,
+        r#"<section class="section"><div class="container audience-books-width"><h1>Контекстные рекомендации</h1><p>Подбор по жанрам, тегам и ручным связям книг. История чтения и поведенческие оценки не используются.</p><p><a href="/odmen/recommendations/manage">Контекстные рекомендации: metadata_manual_v1</a></p>"#,
     );
     if !enabled {
         out.push_str(r#"<p data-testid="contextual-product-disabled">Выдача рекомендаций отключена продуктовым флагом. Сборка модели его не включает.</p>"#);
@@ -95,7 +95,7 @@ fn form(
     revision: i64,
     csrf: &str,
 ) {
-    write!(out,r#"<form class="author-form" method="post" action="/me/recommendations/contextual" data-action="{action}"><input type="hidden" name="action" value="{action}"><input type="hidden" name="expected_revision" value="{revision}"><input type="hidden" name="csrf_token" value="{}">"#,escape_html(csrf)).expect("String");
+    write!(out,r#"<form class="author-form" method="post" action="/odmen/recommendations/contextual" data-action="{action}"><input type="hidden" name="action" value="{action}"><input type="hidden" name="expected_revision" value="{revision}"><input type="hidden" name="csrf_token" value="{}">"#,escape_html(csrf)).expect("String");
     if let Some(id) = generation {
         write!(
             out,

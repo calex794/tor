@@ -173,10 +173,10 @@ async fn upgraded_reports_keep_unknown_evidence_private_and_unaffected_books_mea
         ORIGIN.to_owned(),
     );
     let paths = [
-        "/admin/audience?days=7",
-        "/admin/audience/books?days=7",
-        "/admin/audience/groups?kind=genres&days=7",
-        "/admin/audience/visits?days=7",
+        "/odmen/audience?days=7",
+        "/odmen/audience/books?days=7",
+        "/odmen/audience/groups?kind=genres&days=7",
+        "/odmen/audience/visits?days=7",
     ];
     for path in paths {
         let anonymous = body(get(&app, path, "").await, StatusCode::UNAUTHORIZED).await;
@@ -214,7 +214,7 @@ async fn upgraded_reports_keep_unknown_evidence_private_and_unaffected_books_mea
 
     let book_path = |id: i64| {
         if id > 1 {
-            format!("/admin/audience/books?days=7&after_id={}", id - 1)
+            format!("/odmen/audience/books?days=7&after_id={}", id - 1)
         } else {
             paths[1].to_owned()
         }

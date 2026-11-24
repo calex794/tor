@@ -23,7 +23,7 @@ pub(super) async fn check(
 ) {
     let tag = format!("c-http-{stamp}");
     pg(url,&format!("UPDATE books SET tags=ARRAY['{tag}'],genres=ARRAY['canonical-http'],title='<img src=x onerror=alert(1)>' WHERE id={book}"));
-    let route = format!("/admin/audience/reading?tag={tag}");
+    let route = format!("/odmen/audience/reading?tag={tag}");
     for (cookie, status) in [
         ("", StatusCode::UNAUTHORIZED),
         (cookies[1].as_str(), StatusCode::FORBIDDEN),
@@ -32,7 +32,7 @@ pub(super) async fn check(
         let response = call(
             app,
             "GET",
-            "/admin/audience/reading?days=invalid",
+            "/odmen/audience/reading?days=invalid",
             cookie,
             "",
             "",
@@ -54,7 +54,7 @@ pub(super) async fn check(
         let response = call(
             app,
             "GET",
-            &format!("/admin/audience/reading?{query}"),
+            &format!("/odmen/audience/reading?{query}"),
             &cookies[0],
             "",
             "",

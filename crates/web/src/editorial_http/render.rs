@@ -43,7 +43,7 @@ fn campaign(c: &Campaign, csrf: &str) -> String {
     } else {
         "Книга сейчас недоступна для продвижения; выдача остановлена."
     };
-    let mut body=format!("<article class=\"book-section-card\" data-editorial-management=\"{}\"><h2>{}</h2><p>{} · {} · Приоритет {}</p><p>С {} до {}. {availability}</p><p><a href=\"/admin/audience/exposure?source=editorial&amp;campaign={}&amp;days=7\">Показы и переходы</a> · <a href=\"/admin/audience/reading?days=7\">Подтверждённое чтение книг</a></p>",c.id,escape_html(&c.title),slot_label(c.slot),status,c.priority,escape_html(&c.starts_at),escape_html(&c.ends_at),c.id);
+    let mut body=format!("<article class=\"book-section-card\" data-editorial-management=\"{}\"><h2>{}</h2><p>{} · {} · Приоритет {}</p><p>С {} до {}. {availability}</p><p><a href=\"/odmen/audience/exposure?source=editorial&amp;campaign={}&amp;days=7\">Показы и переходы</a> · <a href=\"/odmen/audience/reading?days=7\">Подтверждённое чтение книг</a></p>",c.id,escape_html(&c.title),slot_label(c.slot),status,c.priority,escape_html(&c.starts_at),escape_html(&c.ends_at),c.id);
     if c.status != "ended" {
         let options = if c.status == "active" {
             "<option value=\"pause\">Приостановить</option>"
@@ -77,7 +77,7 @@ pub(super) fn page(
     enabled: bool,
     changed: Option<i64>,
 ) -> Html<String> {
-    let mut content=String::from("<section class=\"section\"><div class=\"container\"><nav><a href=\"/me\">Кабинет</a> · <a href=\"/admin/audience\">Аудитория</a></nav><h1>Редакционное продвижение</h1><p>Продвигайте собственные книги на главной, в карточках книг и после бесплатных глав. Размещения не связаны с оплатой.</p>");
+    let mut content=String::from("<section class=\"section\"><div class=\"container\"><nav><a href=\"/me\">Кабинет</a> · <a href=\"/odmen/audience\">Аудитория</a></nav><h1>Редакционное продвижение</h1><p>Продвигайте собственные книги на главной, в карточках книг и после бесплатных глав. Размещения не связаны с оплатой.</p>");
     if !enabled {
         content.push_str("<p role=\"status\">Публичные размещения сейчас отключены. Назначения можно подготовить и проверить.</p>");
     }

@@ -108,7 +108,7 @@ async function filter(page, days, genre, tag='') {
   await page.locator('#books-genre').fill(genre);
   await page.locator('#books-tag').fill(tag);
   await page.locator('#audience-books-filters').getByRole('button',{name:'Показать',exact:true}).click();
-  await page.waitForURL(url => url.pathname === '/admin/audience/books'
+  await page.waitForURL(url => url.pathname === '/odmen/audience/books'
     && url.searchParams.get('days') === String(days)
     && url.searchParams.get('genre') === genre && url.searchParams.get('tag') === tag);
 }
@@ -158,7 +158,7 @@ async function periods(page, days) {
     }
     const [adminPage,readerPage] = pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/books?days=invalid'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/books?days=invalid'),403);
     assert.equal(await readerPage.getByTestId('audience-book-row').count(),0);
     retired.oldScopes(users.slice(1));
     const scope = retired.scopeSnapshot(users);
@@ -186,10 +186,10 @@ async function periods(page, days) {
     const zero = create('zero','Новая книга без наблюдений '+run);
     sql(`UPDATE books SET admin_hold=true WHERE id=${fixture('hidden').book}`);
     await adminPage.goto(base+'/me');
-    await adminPage.locator('a[href="/admin/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
-    await adminPage.locator('a[href^="/admin/audience/books"]').click();
-    await adminPage.waitForURL(url => url.pathname === '/admin/audience/books');
+    await adminPage.locator('a[href="/odmen/audience"]').click();
+    await adminPage.waitForURL('**/odmen/audience');
+    await adminPage.locator('a[href^="/odmen/audience/books"]').click();
+    await adminPage.waitForURL(url => url.pathname === '/odmen/audience/books');
     await filter(adminPage,7,genre,tag);
     await periods(adminPage,7);
     await retired.marked(adminPage,['audience-books-current','audience-books-previous']);
@@ -244,7 +244,7 @@ async function periods(page, days) {
     assert.equal(await adminPage.getByTestId('audience-book-row').count(),0);
     assert.equal(await adminPage.getByTestId('audience-books-empty').count(),1);
     await adminPage.getByRole('link',{name:'Сбросить фильтры',exact:true}).click();
-    await adminPage.waitForURL(base+'/admin/audience/books?days=7');
+    await adminPage.waitForURL(base+'/odmen/audience/books?days=7');
     assert.equal(await adminPage.locator('#books-genre').inputValue(),'');
     assert.equal(await adminPage.locator('#books-tag').inputValue(),'');
     await filter(adminPage,7,genre,tag);

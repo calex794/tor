@@ -162,7 +162,7 @@ async function assertReport(page, days) {
     const guestPage = await guestContext.newPage();
     assert.equal((await guestPage.goto(base+`/books/${book}`)).status(),200);
     await assertNoControls(guestPage);
-    await privateResponse(await guestPage.goto(base+'/admin/audience/visits'),401);
+    await privateResponse(await guestPage.goto(base+'/odmen/audience/visits'),401);
     await guestContext.close();
     const botContext = await browser.newContext({storageState:await readerContext.storageState(),userAgent:'Googlebot/2.1'});
     const botPage = await botContext.newPage();
@@ -174,10 +174,10 @@ async function assertReport(page, days) {
       assert.equal((await readerPage.request.get(base+target)).status(),200,target);
     }
     assert.equal((await readerPage.goto(base+'/books/9223372036854775807')).status(),404);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/visits'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/visits'),403);
     assert.deepEqual(optionalSnapshot(reader),before);
     for (const days of [1,7,30,90]) {
-      await privateResponse(await adminPage.goto(base+`/admin/audience/visits?days=${days}`));
+      await privateResponse(await adminPage.goto(base+`/odmen/audience/visits?days=${days}`));
       assert.equal(await adminPage.getByTestId('collection-retired').count(),1);
       assert.equal(await adminPage.locator('[data-current-measurement="unavailable"]').count(),1);
       assert.equal(await adminPage.locator('[data-measurement="legacy-consented"]').count(),2);
@@ -189,7 +189,7 @@ async function assertReport(page, days) {
     }
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:900});
-      await adminPage.goto(base+'/admin/audience/visits?days=7');
+      await adminPage.goto(base+'/odmen/audience/visits?days=7');
       assert.ok(await adminPage.getByRole('heading',{name:'Визиты и входы',exact:true}).isVisible());
       assert.equal(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1),true);
       await adminPage.screenshot({path:path.join(shots,`flow-visits-${width}.png`),fullPage:true});
@@ -206,7 +206,7 @@ async function assertReport(page, days) {
       assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),'unexpected cookie '+cookie.name);
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${admin} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/visits'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/visits'),403);
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);

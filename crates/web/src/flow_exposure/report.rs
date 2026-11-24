@@ -230,7 +230,7 @@ mod tests {
             "window=arbitrary",
             "window=closed&window=calendar",
         ] {
-            let uri = format!("/admin/audience/exposure?{raw}").parse().unwrap();
+            let uri = format!("/odmen/audience/exposure?{raw}").parse().unwrap();
             assert!(
                 Query::<Selection>::try_from_uri(&uri)
                     .map_err(|_| ExposureError::Invalid)
@@ -250,7 +250,7 @@ mod tests {
                 ReportWindow::Closed,
             ),
         ] {
-            let uri = format!("/admin/audience/exposure?{raw}").parse().unwrap();
+            let uri = format!("/odmen/audience/exposure?{raw}").parse().unwrap();
             let Query(selection) = Query::<Selection>::try_from_uri(&uri).unwrap();
             let (filter, window) = selection.filter().unwrap();
             assert_eq!(window, expected);

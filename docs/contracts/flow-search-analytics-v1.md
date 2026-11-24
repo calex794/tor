@@ -4,8 +4,8 @@ Source plan: https://app.notion.com/p/41132a84beec81c08561f999c74144fb
 
 ## User path and boundaries
 
-Administrator opens `/admin/audience/seo`, chooses Google or Yandex and
-1/7/30/90 provider-labelled dates. A native POST `/admin/audience/seo/refresh`
+Administrator opens `/odmen/audience/seo`, chooses Google or Yandex and
+1/7/30/90 provider-labelled dates. A native POST `/odmen/audience/seo/refresh`
 coalesces seven recent dates. GET performs no writes. Fresh account authority,
 Origin/CSRF on POST, private/no-store/noindex/CSP and a common 950 ms deadline
 include authorization. No visitor, account, cookie, IP, search query, credential,

@@ -17,13 +17,13 @@ module.exports = async function historyAcceptance({
       "body_markdown) VALUES(" + chapter + ",2,'HISTORY-SECOND-PRIVATE') RETURNING id");
     pg("INSERT INTO chapter_working_drafts(chapter_id,version_id) VALUES(" +
       chapter + "," + second + ")");
-    const endpoint = SITE + "/api/v1/reader/chapters/" + chapter + "/admin-history";
+    const endpoint = SITE + "/api/v1/reader/chapters/" + chapter + "/odmen-history";
     const ctx = await contextFor(browser, admin_session);
     try {
       const page = await ctx.newPage();
       await page.setViewportSize(index === 0 ? { width: 1440, height: 900 }
         : { width: 390, height: 844 });
-      const response = await page.goto(SITE + "/read/admin/" + chapter);
+      const response = await page.goto(SITE + "/read/odmen/" + chapter);
       assert.equal(response.status(), 200);
       const shell = await response.text();
       assert(!shell.includes("HISTORY-FIRST-PRIVATE"));
@@ -82,7 +82,7 @@ module.exports = async function historyAcceptance({
       // Hold a real server response until pagehide, then let the reader finish.
       // Await the exported loader itself: no timing-based sleep or fake body.
       const lateBody = await page.evaluate(async () => {
-        const { startAdministratorReader } = await import("/assets/newboo-admin-reader.mjs");
+        const { startAdministratorReader } = await import("/assets/newboo-odmen-reader.mjs");
         const originalFetch = window.fetch;
         let received, release;
         const arrived = new Promise(resolve => { received = resolve; });

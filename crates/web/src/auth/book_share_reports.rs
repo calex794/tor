@@ -55,7 +55,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             r#"<article class="me-now-card">
             <h2>Жалоба #{}</h2><p>Книга #{} · отправитель #{} · получатель #{}</p>
             <p>Причина: {}</p><p>Сообщение: {}</p><p>Дополнение: {}</p>
-            <form method="post" action="/admin/recommendation-reports/{}/decision">
+            <form method="post" action="/odmen/recommendation-reports/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Комментарий решения<input name="note" maxlength="500" required></label>
             <button type="submit" name="decision" value="reviewed">Признать обоснованной</button>
@@ -100,5 +100,5 @@ pub(super) async fn decide(
 }
 
 fn deny_redirect() -> Response {
-    super::private_response(Redirect::to("/admin/recommendation-reports"), &[])
+    super::private_response(Redirect::to("/odmen/recommendation-reports"), &[])
 }

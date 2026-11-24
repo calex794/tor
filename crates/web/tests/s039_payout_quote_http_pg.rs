@@ -80,7 +80,7 @@ async fn s039_quote_http_disabled_by_default() {
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let site = app(accounts, catalog);
     assert_eq!(
-        get(&site, "/admin/finance/payouts/1/quote", "")
+        get(&site, "/odmen/finance/payouts/1/quote", "")
             .await
             .status(),
         StatusCode::NOT_FOUND
@@ -166,7 +166,7 @@ async fn s039_quote_http_admin_only_and_no_wallet_movement() {
         .await
         .unwrap();
     let site = app(accounts, catalog);
-    let uri = format!("/admin/finance/payouts/{id}/quote");
+    let uri = format!("/odmen/finance/payouts/{id}/quote");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     assert_eq!(
@@ -188,7 +188,7 @@ async fn s039_quote_http_admin_only_and_no_wallet_movement() {
     assert!(markup.contains("Доступно без резерва этой заявки: 700 коп."));
     assert!(markup.contains("не подтверждение"));
     assert!(!markup.contains("Подтвердить выплату"));
-    assert!(!markup.contains(&format!("action=\"/admin/finance/payouts/{id}/approve\"")));
+    assert!(!markup.contains(&format!("action=\"/odmen/finance/payouts/{id}/approve\"")));
     assert_eq!(
         pg(
             &url,

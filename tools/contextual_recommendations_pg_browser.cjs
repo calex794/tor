@@ -17,7 +17,7 @@ fs.mkdirSync(shots,{recursive:true});
 function sql(statement){return execFileSync('psql',['-XAtq','-v','ON_ERROR_STOP=1','--dbname',db,'-c',statement],{encoding:'utf8',env:{...process.env,PGOPTIONS:'-c statement_timeout=5000 -c lock_timeout=2000'}}).trim();}
 function number(statement){const value=Number(sql(statement));assert.ok(Number.isSafeInteger(value));return value;}
 const {optionalSnapshot,assertNoControls}=require('./collection_retirement_fixtures.cjs')(sql);
-const PAGE='/me/recommendations/contextual',API='/api/v1/admin/recommendations/contextual';
+const PAGE='/odmen/recommendations/contextual',API='/api/v1/odmen/recommendations/contextual';
 async function privateResponse(response,status=200){assert.equal(response.status(),status);const h=await response.allHeaders();assert.equal(h['cache-control'],'no-store');assert.match(h['x-robots-tag'],/noindex/);}
 async function submit(page,form){const [response]=await Promise.all([page.waitForResponse(r=>r.url()===base+PAGE&&r.request().method()==='POST'),form.getByRole('button').click()]);await privateResponse(response,303);await page.waitForURL(base+PAGE);}
 async function poll(page,id,seeds){
@@ -134,7 +134,7 @@ async function feed(context,seed){const response=await context.request.get(base+
   const rev=await revision(page);const csrf=(await admin.cookies()).find(c=>c.name==='tor-dev-csrf').value;
   const forged=await page.request.post(base+API,{headers:{Origin:base,'x-csrf-token':'wrong'},data:{action:'refresh',expected_revision:rev,generation:null}});assert.equal(forged.status(),403);
   assert.equal(await revision(page),rev);
-  const legacy=await page.request.post(base+'/api/v1/admin/recommendations/control',{headers:{Origin:base,'x-csrf-token':csrf},data:{action:'refresh',expected_revision:rev}});assert.equal(legacy.status(),410);
+  const legacy=await page.request.post(base+'/api/v1/odmen/recommendations/control',{headers:{Origin:base,'x-csrf-token':csrf},data:{action:'refresh',expected_revision:rev}});assert.equal(legacy.status(),410);
   sql(`UPDATE account_roles SET is_active=false WHERE user_id=${actor} AND role='administrator'`);
   await privateResponse(await page.goto(base+PAGE),403);
   const revoked=await page.request.post(base+API,{headers:{Origin:base,'x-csrf-token':csrf},data:{action:'refresh',expected_revision:rev,generation:null}});assert.equal(revoked.status(),403);

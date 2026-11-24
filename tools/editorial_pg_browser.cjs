@@ -18,7 +18,7 @@ function sql(query){return execFileSync('psql',['-XAtq','-v','ON_ERROR_STOP=1','
 function id(query){const result=Number(sql(query));assert.ok(Number.isSafeInteger(result)&&result>0);return result;}
 function sums(campaign){return sql(`SELECT coalesce(sum(opportunities),0)||'|'||coalesce(sum(rendered),0)||'|'||coalesce(sum(views),0)||'|'||coalesce(sum(clicks),0) FROM flow_observation_hourly WHERE campaign_id=${campaign}`).split('|').map(Number);}
 async function poll(assertion){let last;for(let n=0;n<40;n++){try{return assertion();}catch(error){last=error;await new Promise(r=>setTimeout(r,150));}}throw last;}
-const PAGE='/admin/promotion/editorial';
+const PAGE='/odmen/promotion/editorial';
 async function privateResponse(response,status=200){assert.equal(response.status(),status);assert.equal((await response.allHeaders())['cache-control'],'no-store');assert.match((await response.allHeaders())['x-robots-tag'],/noindex/);}
 async function submit(page,form){const [response]=await Promise.all([page.waitForResponse(r=>r.url()===base+PAGE&&r.request().method()==='POST'),form.getByRole('button').click()]);await privateResponse(response,303);await page.waitForURL(url=>url.pathname===PAGE&&url.searchParams.has('changed'));}
 async function action(page,campaign,value){await page.goto(base+PAGE);const form=page.locator(`[data-editorial-state="${campaign}"]`);await form.locator('select[name="action"]').selectOption(value);await submit(page,form);}
@@ -176,7 +176,7 @@ async function observedCard(page,card,campaign,before,response,events){
   assert((await homeOrder()).indexOf('editorial')>(await homeOrder()).indexOf('latest'));
   await publicPage.goto(base+'/');await publicPage.locator(`[data-editorial-campaign="${campaigns[0]}"] a`).click();await publicPage.waitForURL(base+`/books/${promoted}`);
   assert.equal(await publicPage.locator('.editorial-promotion').count(),0);
-  if(expectObservations){await poll(()=>{const [opportunities,rendered,views,clicks]=sums(campaigns[0]);assert.ok(opportunities>=1&&rendered>=1&&views>=1&&clicks>=1);});await privateResponse(await page.goto(base+`/admin/audience/exposure?source=editorial&campaign=${campaigns[0]}&days=7`));}
+  if(expectObservations){await poll(()=>{const [opportunities,rendered,views,clicks]=sums(campaigns[0]);assert.ok(opportunities>=1&&rendered>=1&&views>=1&&clicks>=1);});await privateResponse(await page.goto(base+`/odmen/audience/exposure?source=editorial&campaign=${campaigns[0]}&days=7`));}
   await publicPage.goto(base+'/catalog');assert.equal(await publicPage.locator('.editorial-promotion').count(),0);
   await action(page,campaigns[0],'pause');await publicPage.goto(base+'/');assert.equal(await publicPage.locator(`[data-editorial-campaign="${campaigns[0]}"]`).count(),0);
   await page.goto(base+PAGE);const editable=page.locator(`[data-editorial-management="${campaigns[0]}"]`);await editable.getByText('Изменить расписание и приоритет',{exact:true}).click();

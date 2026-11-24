@@ -86,10 +86,10 @@ async function device(browser, label, width, height) {
     assert.equal(balance(owner), '1000', 'a pending request must not debit the wallet');
     assert.equal(reserved(owner), '900');
 
-    const queue = await adminPage.goto(base + '/admin/finance/payouts');
+    const queue = await adminPage.goto(base + '/odmen/finance/payouts');
     assert.equal(queue.status(), 200);
     assert.equal(queue.headers()['cache-control'], 'no-store');
-    const action = '/admin/finance/payouts/' + first + '/post';
+    const action = '/odmen/finance/payouts/' + first + '/post';
     const form = adminPage.locator('form[action="' + action + '"]');
     assert.equal(await form.count(), 1);
     assert.equal(await form.locator('[name="amount_minor"], [name="amount_rub"]').count(), 0);
@@ -117,7 +117,7 @@ async function device(browser, label, width, height) {
     assert.equal(balance(owner), '1000');
     assert.equal(reserved(owner), '900');
 
-    await adminPage.goto(base + '/admin/finance/payouts');
+    await adminPage.goto(base + '/odmen/finance/payouts');
     await form.getByLabel('Основание внутреннего списания').fill(data.reason);
     await form.getByLabel('Текущий пароль администратора').fill(password);
     const posted = adminPage.waitForResponse(r =>

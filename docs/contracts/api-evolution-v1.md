@@ -1,7 +1,7 @@
 # TOR HTTP v1 — выполнение OpenAPI, ошибок, сериализации и совместимости (PREF-07)
 
 **REC contextual additive revision 2026-11-11.v3:** new admin-only
-`GET/POST /api/v1/admin/recommendations/contextual` and equivalent native forms
+`GET/POST /api/v1/odmen/recommendations/contextual` and equivalent native forms
 control only `metadata_manual_v1`. Existing legacy control/collection URLs retain
 private 410. New build/activate/hold/cancel/rollback commands use policy CAS:
 a stale revision is 409, not replay of an earlier receipt. Response versions and

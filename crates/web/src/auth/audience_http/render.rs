@@ -31,21 +31,21 @@ fn start(days: i32, zone: &str) -> String {
          <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>{navigation}\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/admin/audience/seo?days={days}\">SEO</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
-         <p><a class=\"button button--quiet\" href=\"/admin/audience/continuations\">Продолжения — спрос читателей</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",
+         <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/odmen/audience/seo?days={days}\">SEO</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/odmen/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/odmen/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/odmen/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
+         <p><a class=\"button button--quiet\" href=\"/odmen/audience/continuations\">Продолжения — спрос читателей</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/odmen/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/odmen/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/odmen/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",
     );
     period_form(&mut body, days, zone, false);
     body
 }
 
 pub(super) fn period_form(body: &mut String, days: i32, zone: &str, reading: bool) {
-    body.push_str("<form class=\"author-form\" method=\"get\" action=\"/admin/audience\"><label for=\"audience-view\">Представление</label><select id=\"audience-view\" name=\"view\">");
+    body.push_str("<form class=\"author-form\" method=\"get\" action=\"/odmen/audience\"><label for=\"audience-view\">Представление</label><select id=\"audience-view\" name=\"view\">");
     for (value, label, selected) in [
         ("overview", "Общая сводка и HTML по времени", !reading),
         ("reading_hours", "Чтение по времени", reading),

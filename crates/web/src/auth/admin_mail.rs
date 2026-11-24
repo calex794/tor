@@ -46,7 +46,7 @@ fn shell(title: &str, body: &str) -> Html<String> {
         title,
         "Административное чтение личной почты с аудитом.",
         &format!(
-            r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/admin/mail">Личная почта</a> · <a href="/admin/mail/groups">Группы</a> · <a href="/admin/mail/book-rooms">Книжные чаты</a></nav>{body}</div></section>"#
+            r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/odmen/mail">Личная почта</a> · <a href="/odmen/mail/groups">Группы</a> · <a href="/odmen/mail/book-rooms">Книжные чаты</a></nav>{body}</div></section>"#
         ),
     )
 }
@@ -81,20 +81,20 @@ pub(super) async fn index(
         Err(error) => return deny(super::mail::status(error)),
     };
     let mut body = format!(
-        r#"<header class="ui-page-header"><h1>Почта пользователей</h1></header><section class="me-section"><p>Все просмотры регистрируются в журнале аудита.</p><form action="/admin/mail" method="get"><label for="mail-search">Имя пользователя</label><input class="ui-input" id="mail-search" name="q" maxlength="80" value="{}"><button class="ui-button" type="submit">Поиск</button></form>"#,
+        r#"<header class="ui-page-header"><h1>Почта пользователей</h1></header><section class="me-section"><p>Все просмотры регистрируются в журнале аудита.</p><form action="/odmen/mail" method="get"><label for="mail-search">Имя пользователя</label><input class="ui-input" id="mail-search" name="q" maxlength="80" value="{}"><button class="ui-button" type="submit">Поиск</button></form>"#,
         escape_html(q)
     );
     if users.is_empty() {
         body.push_str("<p>Пользователи не найдены.</p>");
     }
     for user in &users {
-        write!(body, r#"<article class="me-now-card"><a href="/admin/mail/users/{}">{}</a><p>Диалогов: {}</p></article>"#, user.user_id, escape_html(&user.display_name), user.conversation_count).expect("user");
+        write!(body, r#"<article class="me-now-card"><a href="/odmen/mail/users/{}">{}</a><p>Диалогов: {}</p></article>"#, user.user_id, escape_html(&user.display_name), user.conversation_count).expect("user");
     }
     if users.len() == 50 {
         if let Some(last) = users.last() {
             write!(
                 body,
-                r#"<a href="/admin/mail?q={}&amp;before={}">Предыдущие пользователи</a>"#,
+                r#"<a href="/odmen/mail?q={}&amp;before={}">Предыдущие пользователи</a>"#,
                 encode_query(q),
                 last.user_id
             )
@@ -128,13 +128,13 @@ pub(super) async fn user(
         body.push_str("<p>Переписок нет.</p>");
     }
     for row in &rows {
-        write!(body, r#"<article class="me-now-card"><a href="/admin/mail/{}">Диалог #{}</a><p>Участники: {} и {}. Сообщений: {}</p></article>"#, row.id, row.id, row.user_low, row.user_high, row.message_count).expect("mailbox");
+        write!(body, r#"<article class="me-now-card"><a href="/odmen/mail/{}">Диалог #{}</a><p>Участники: {} и {}. Сообщений: {}</p></article>"#, row.id, row.id, row.user_low, row.user_high, row.message_count).expect("mailbox");
     }
     if rows.len() == 50 {
         if let Some(last) = rows.last() {
             write!(
                 body,
-                r#"<a href="/admin/mail/users/{user_id}?before={}">Предыдущие диалоги</a>"#,
+                r#"<a href="/odmen/mail/users/{user_id}?before={}">Предыдущие диалоги</a>"#,
                 last.id
             )
             .expect("pagination");
@@ -173,7 +173,7 @@ pub(super) async fn conversation(
         if let Some(first) = rows.first() {
             write!(
                 body,
-                r#"<a href="/admin/mail/{id}?before={}">Предыдущие сообщения</a>"#,
+                r#"<a href="/odmen/mail/{id}?before={}">Предыдущие сообщения</a>"#,
                 first.id
             )
             .expect("pagination");
@@ -235,7 +235,7 @@ pub(super) async fn groups(
     for group in &rows {
         write!(
             body,
-            r#"<article class="me-now-card"><a href="/admin/mail/groups/{}">{}</a><p>Сообщений: {}</p></article>"#,
+            r#"<article class="me-now-card"><a href="/odmen/mail/groups/{}">{}</a><p>Сообщений: {}</p></article>"#,
             group.id,
             escape_html(&group.title),
             group.message_count,
@@ -246,7 +246,7 @@ pub(super) async fn groups(
         if let Some(last) = rows.last() {
             write!(
                 body,
-                r#"<a href="/admin/mail/groups?before={}">Предыдущие группы</a>"#,
+                r#"<a href="/odmen/mail/groups?before={}">Предыдущие группы</a>"#,
                 last.id,
             )
             .expect("group pagination");
@@ -275,7 +275,7 @@ pub(super) async fn group(
     };
     let body = format!(
         "<h1>Групповой чат #{id}</h1>{}",
-        messages_section(&rows, &format!("/admin/mail/groups/{id}")),
+        messages_section(&rows, &format!("/odmen/mail/groups/{id}")),
     );
     private_response(shell("Сообщения группы", &body), &[])
 }
@@ -303,7 +303,7 @@ pub(super) async fn book_rooms(
     for book in &rows {
         write!(
             body,
-            r#"<article class="me-now-card"><a href="/admin/mail/book-rooms/{}">{}</a><p>Сообщений: {}</p></article>"#,
+            r#"<article class="me-now-card"><a href="/odmen/mail/book-rooms/{}">{}</a><p>Сообщений: {}</p></article>"#,
             book.book_id,
             escape_html(&book.title),
             book.message_count,
@@ -314,7 +314,7 @@ pub(super) async fn book_rooms(
         if let Some(last) = rows.last() {
             write!(
                 body,
-                r#"<a href="/admin/mail/book-rooms?before={}">Предыдущие книжные чаты</a>"#,
+                r#"<a href="/odmen/mail/book-rooms?before={}">Предыдущие книжные чаты</a>"#,
                 last.book_id,
             )
             .expect("book-room pagination");
@@ -343,7 +343,7 @@ pub(super) async fn book_room(
     };
     let body = format!(
         "<h1>Книжный чат #{id}</h1>{}",
-        messages_section(&rows, &format!("/admin/mail/book-rooms/{id}")),
+        messages_section(&rows, &format!("/odmen/mail/book-rooms/{id}")),
     );
     private_response(shell("Сообщения книжного чата", &body), &[])
 }

@@ -13,7 +13,7 @@ async fn decision(
 ) -> Response {
     let form = format!("csrf_token={csrf}&decision={action}&note=Manual+review+accepted");
     let req = Request::builder()
-        .uri(format!("/admin/paid-comment-reports/{report}/decision"))
+        .uri(format!("/odmen/paid-comment-reports/{report}/decision"))
         .method("POST")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .header(header::ORIGIN, origin)
@@ -83,7 +83,7 @@ pub(super) async fn check(
         &format!("UPDATE discussion_comments SET visibility='visible' WHERE id={comment}"),
     );
 
-    let path = "/admin/paid-comment-reports";
+    let path = "/odmen/paid-comment-reports";
     assert_eq!(
         read_page(app, path, None).await.status(),
         StatusCode::UNAUTHORIZED

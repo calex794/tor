@@ -103,7 +103,7 @@ fn render(
     sitewide: bool,
 ) -> axum::response::Html<String> {
     let base = if sitewide {
-        "/admin/audience/continuations"
+        "/odmen/audience/continuations"
     } else {
         "/me/stats/continuations"
     };
@@ -119,9 +119,9 @@ fn render(
         "<p class=\"eyebrow\">Администратор · статистика сайта</p>\
          <h1>Статистика — Продолжения</h1>\
          <nav aria-label=\"Вкладки статистики\">\
-         <a href=\"/admin/audience\">Общая статистика</a> · \
-         <a href=\"/admin/audience/books\">Книги</a> · \
-         <a href=\"/admin/audience/continuations\" aria-current=\"page\">Продолжения</a>\
+         <a href=\"/odmen/audience\">Общая статистика</a> · \
+         <a href=\"/odmen/audience/books\">Книги</a> · \
+         <a href=\"/odmen/audience/continuations\" aria-current=\"page\">Продолжения</a>\
          </nav>"
     } else {
         "<p class=\"eyebrow\">Кабинет владельца</p><h1>Статистика — Продолжения</h1>\
@@ -185,7 +185,7 @@ fn render(
         );
     }
     if sitewide {
-        body.push_str("<p><a href=\"/admin/audience\">Вернуться к общей статистике</a></p>");
+        body.push_str("<p><a href=\"/odmen/audience\">Вернуться к общей статистике</a></p>");
     }
     body.push_str(if sitewide {
         "</div></section>"

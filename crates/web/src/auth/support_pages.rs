@@ -10,14 +10,14 @@ pub(super) fn invalid_message(body: &str, csrf: &str, base: &str) -> Html<String
 
 pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> {
     let base = if admin {
-        format!("/admin/support/{}", data.chat.id)
+        format!("/odmen/support/{}", data.chat.id)
     } else {
         "/support".into()
     };
     let mut body =
         String::from("<section class=\"me-page\"><div class=\"container\"><h1>Поддержка</h1>");
     if admin {
-        body.push_str("<p><a href=\"/admin/support\">Все обращения</a></p>");
+        body.push_str("<p><a href=\"/odmen/support\">Все обращения</a></p>");
     } else if data.chat.requester_id.is_none() {
         write!(body,"<p>{}. Если войдёте, переписка сохранится. Без входа она удалится через 30 дней.</p><p><a href=\"/login\">Войти в учётную запись</a></p>",escape_html(&data.chat.guest_alias)).expect("support alias");
     } else {
@@ -86,7 +86,7 @@ pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> 
         .expect("closed support admin page");
     }
     if admin {
-        body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-admin-support.js\" defer></script>");
+        body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-odmen-support.js\" defer></script>");
     }
     layout("Поддержка", "Переписка со службой поддержки.", &body)
 }
@@ -109,13 +109,13 @@ pub(super) fn index(chats: &[(Chat, String)]) -> Html<String> {
         } else {
             "Открыто"
         };
-        write!(body,"<article class=\"me-now-card\"><h2><a href=\"/admin/support/{}\">{}</a></h2><p>{}</p><p>{unread}</p><p>{lifecycle}</p></article>",chat.id,escape_html(name),escape_html(&chat.last_message_preview)).expect("support list");
+        write!(body,"<article class=\"me-now-card\"><h2><a href=\"/odmen/support/{}\">{}</a></h2><p>{}</p><p>{unread}</p><p>{lifecycle}</p></article>",chat.id,escape_html(name),escape_html(&chat.last_message_preview)).expect("support list");
     }
     if chats.len() == 100 {
         if let Some((last, _)) = chats.last() {
             write!(
                 body,
-                "<a href=\"/admin/support?before={}\">Следующие обращения</a>",
+                "<a href=\"/odmen/support?before={}\">Следующие обращения</a>",
                 last.id
             )
             .expect("support next");

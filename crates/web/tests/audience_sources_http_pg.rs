@@ -370,7 +370,7 @@ async fn audience_sources_http_retained_history_real_reading_and_retired_capture
         (("", ""), StatusCode::UNAUTHORIZED),
         (reader_auth, StatusCode::FORBIDDEN),
     ] {
-        let response = call(&app, "GET", "/admin/audience?days=invalid", auth, "", false).await;
+        let response = call(&app, "GET", "/odmen/audience?days=invalid", auth, "", false).await;
         assert_eq!(response.status(), status);
         private(&response);
         assert!(!text(response).await.contains("data-metric="));
@@ -490,7 +490,7 @@ async fn audience_sources_http_retained_history_real_reading_and_retired_capture
         let response = call(
             &app,
             "GET",
-            &format!("/admin/audience?days={days}"),
+            &format!("/odmen/audience?days={days}"),
             admin_auth,
             "",
             false,
@@ -543,7 +543,7 @@ async fn audience_sources_http_retained_history_real_reading_and_retired_capture
         baseline.current
     );
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let denied = call(&app, "GET", "/admin/audience", admin_auth, "", false).await;
+    let denied = call(&app, "GET", "/odmen/audience", admin_auth, "", false).await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     private(&denied);
     assert!(!text(denied).await.contains("data-metric="));

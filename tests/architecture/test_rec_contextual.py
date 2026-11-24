@@ -28,7 +28,7 @@ class ContextualModelTests(unittest.TestCase):
         text=p.read_text().replace('actor(state, headers).await?;', '')
         p.write_text(text)
         errors=guard.check(root)
-        self.assertTrue(any('GET /api/v1/admin/recommendations/contextual' in e and 'administrator' in e for e in errors),errors)
+        self.assertTrue(any('GET /api/v1/odmen/recommendations/contextual' in e and 'administrator' in e for e in errors),errors)
     def test_mutating_delegate_cannot_drop_csrf(self):
         root=self.copy();p=root/'crates/web/src/recommendation_http/admin/contextual.rs'
         p.write_text(p.read_text().replace('csrf(&state, &headers, &token)','always_ok(&state, &headers, &token)'))
@@ -37,7 +37,7 @@ class ContextualModelTests(unittest.TestCase):
     def test_model_admin_cannot_become_reader_policy(self):
         root=self.copy();p=root/'docs/contracts/ril-route-guards-v1.json';data=json.loads(p.read_text())
         for row in data['routes']:
-            if row['template']=='/me/recommendations/contextual':row['policy']='scoped'
+            if row['template']=='/odmen/recommendations/contextual':row['policy']='scoped'
         p.write_text(json.dumps(data))
         self.assertTrue(any('recommendation administration policy downgraded' in e for e in guard.check(root)))
 if __name__=='__main__':unittest.main()

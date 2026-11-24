@@ -7,13 +7,13 @@ const ADMIN_MENU: &str = r#"<section class="section"><div class="container">
 <p>Доступ разрешён только действующему администратору.</p>
 <nav aria-label="Разделы администрирования">
 <ul>
-<li><a href="/admin/audience">Аудитория</a></li>
-<li><a href="/admin/promotion/editorial">Редакционное продвижение</a></li>
-<li><a href="/admin/recommendations">Рекомендации</a></li>
-<li><a href="/admin/surprises">Сюрпризы</a></li>
-<li><a href="/admin/mail">Почта</a></li>
-<li><a href="/admin/support">Поддержка</a></li>
-<li><a href="/admin/finance/refunds">Возвраты</a></li>
+<li><a href="/odmen/audience">Аудитория</a></li>
+<li><a href="/odmen/promotion/editorial">Редакционное продвижение</a></li>
+<li><a href="/odmen/recommendations">Рекомендации</a></li>
+<li><a href="/odmen/surprises">Сюрпризы</a></li>
+<li><a href="/odmen/mail">Почта</a></li>
+<li><a href="/odmen/support">Поддержка</a></li>
+<li><a href="/odmen/finance/refunds">Возвраты</a></li>
 </ul>
 </nav>
 <p><a href="/me">Личный кабинет</a></p>
@@ -28,7 +28,7 @@ fn body() -> Html<String> {
 }
 
 /// An unknown visitor and a logged-in non-admin get identical 404 responses.
-/// Neither the alias nor the legacy /admin sections bypass the real role gate.
+/// Every /odmen subroute retains its own authorization gate; the URL is not one.
 pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::NOT_FOUND);
@@ -60,8 +60,8 @@ mod tests {
     fn landing_contains_only_known_server_side_tools() {
         let html = body().0;
         assert!(html.contains("Администрирование TOR"));
-        assert!(html.contains(r#"href="/admin/audience""#));
-        assert!(html.contains(r#"href="/admin/support""#));
+        assert!(html.contains(r#"href="/odmen/audience""#));
+        assert!(html.contains(r#"href="/odmen/support""#));
         assert!(html.contains(r#"href="/me""#));
         assert!(!html.contains("csrf_token"));
         assert!(!html.contains("security/traffic"));

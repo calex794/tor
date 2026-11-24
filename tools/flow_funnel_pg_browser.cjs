@@ -183,7 +183,7 @@ async function assertReport(page,days) {
     const historyQuery=`SELECT jsonb_agg(to_jsonb(d) ORDER BY cohort_day)
       FROM flow_book_daily d WHERE book_id=${catalog.book}`;
     const historical=sql(historyQuery);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/funnel'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/funnel'),403);
     await navigate(readerPage,catalog,'catalog');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${reader}`),0,
       'GET and native link do not manufacture reading');
@@ -210,7 +210,7 @@ async function assertReport(page,days) {
       'real accepted C commands must not add optional activity, return, source or FLOW proof');
 
     for (const days of [1,7,30,90]) {
-      await privateResponse(await adminPage.goto(base+`/admin/audience/funnel?days=${days}`));
+      await privateResponse(await adminPage.goto(base+`/odmen/audience/funnel?days=${days}`));
       assert.equal(await adminPage.getByTestId('collection-retired').count(),1);
       assert.equal(await adminPage.locator('[data-current-measurement="unavailable"]').count(),1);
       assert.equal(await adminPage.locator('[data-measurement="legacy-consented"]').count(),2);
@@ -222,7 +222,7 @@ async function assertReport(page,days) {
     }
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:900});
-      await adminPage.goto(base+'/admin/audience/funnel?days=90');
+      await adminPage.goto(base+'/odmen/audience/funnel?days=90');
       assert.ok(await adminPage.getByRole('heading',{name:'Путь от визита к чтению',exact:true}).isVisible());
       assert.ok(await adminPage.locator('[data-current-measurement="unavailable"]').isVisible());
       assert.equal(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
@@ -241,7 +241,7 @@ async function assertReport(page,days) {
     assert.equal(scalar(`SELECT count(*) FROM reader_library_items WHERE user_id=${reader}`),1);
     assert.equal(scalar(`SELECT count(*) FROM reader_book_follows WHERE user_id=${reader}`),1);
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${admin} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/funnel'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/funnel'),403);
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);

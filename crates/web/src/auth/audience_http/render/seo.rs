@@ -44,7 +44,7 @@ pub(in crate::auth::audience_http) fn page(
     report: Option<&SeoReport>,
     csrf: &str,
 ) -> Html<String> {
-    let mut body=String::from("<section class=\"section\"><div class=\"container author-width\"><h1>SEO: поисковый трафик</h1><p>Показы и клики из поисковых кабинетов, не посещения TOR и не чтение.</p><form method=\"get\" action=\"/admin/audience/seo\" class=\"author-form\"><label>Источник<select name=\"provider\">");
+    let mut body=String::from("<section class=\"section\"><div class=\"container author-width\"><h1>SEO: поисковый трафик</h1><p>Показы и клики из поисковых кабинетов, не посещения TOR и не чтение.</p><form method=\"get\" action=\"/odmen/audience/seo\" class=\"author-form\"><label>Источник<select name=\"provider\">");
     for (value, label) in [
         (Provider::Google, "Google Search Console"),
         (Provider::Yandex, "Яндекс Вебмастер"),
@@ -70,7 +70,7 @@ pub(in crate::auth::audience_http) fn page(
     if let Some(r) = report {
         let configured = r.sources.iter().find(|s| s.source.key.provider == provider);
         if let Some(s) = configured {
-            write!(body,"<section class=\"book-section-card\" data-testid=\"seo-source\"><h2>{}</h2><p>Календарь: {}. Последняя загрузка: {}.</p><p>Ожидают: {}; в работе: {}; ошибка: {}.</p><form method=\"post\" action=\"/admin/audience/seo/refresh\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"provider\" value=\"{}\"><button class=\"button\">Обновить последние 7 дат</button></form></section>",escape_html(&s.source.key.property),provider.calendar(),escape_html(s.last_success.as_deref().unwrap_or("Не загружено")),s.pending,s.running,escape_html(s.last_error.as_deref().unwrap_or("нет")),escape_html(csrf),provider.key()).unwrap();
+            write!(body,"<section class=\"book-section-card\" data-testid=\"seo-source\"><h2>{}</h2><p>Календарь: {}. Последняя загрузка: {}.</p><p>Ожидают: {}; в работе: {}; ошибка: {}.</p><form method=\"post\" action=\"/odmen/audience/seo/refresh\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"provider\" value=\"{}\"><button class=\"button\">Обновить последние 7 дат</button></form></section>",escape_html(&s.source.key.property),provider.calendar(),escape_html(s.last_success.as_deref().unwrap_or("Не загружено")),s.pending,s.running,escape_html(s.last_error.as_deref().unwrap_or("нет")),escape_html(csrf),provider.key()).unwrap();
         } else {
             body.push_str(
                 "<p data-testid=\"seo-unconfigured\">Источник не подключён. Данные неизвестны.</p>",
@@ -100,12 +100,12 @@ pub(in crate::auth::audience_http) fn page(
             );
         }
         if let Some(next) = &r.next {
-            write!(body,"<a class=\"button\" data-testid=\"seo-next\" href=\"/admin/audience/seo?provider={}&amp;days={days}&amp;after={}\">Далее</a>",provider.key(),escape_html(next)).unwrap();
+            write!(body,"<a class=\"button\" data-testid=\"seo-next\" href=\"/odmen/audience/seo?provider={}&amp;days={days}&amp;after={}\">Далее</a>",provider.key(),escape_html(next)).unwrap();
         }
     } else {
         body.push_str("<p role=\"alert\" data-testid=\"seo-unavailable\">Источник временно недоступен. Нули не подставляются.</p>");
     }
-    body.push_str("<section class=\"book-section-card\"><h2>Границы измерения</h2><p>Google и Яндекс не складываются. Итоги сайта и строки URL имеют разную агрегацию. Лимиты провайдера могут скрывать строки. Нет связи клика с отдельным читателем, покупкой или чтением. Текущая дата и две предыдущие не включены из-за задержки источника.</p></section><p><a href=\"/admin/audience\">Аудитория</a></p></div></section>");
+    body.push_str("<section class=\"book-section-card\"><h2>Границы измерения</h2><p>Google и Яндекс не складываются. Итоги сайта и строки URL имеют разную агрегацию. Лимиты провайдера могут скрывать строки. Нет связи клика с отдельным читателем, покупкой или чтением. Текущая дата и две предыдущие не включены из-за задержки источника.</p></section><p><a href=\"/odmen/audience\">Аудитория</a></p></div></section>");
     layout("SEO", "Закрытая поисковая аналитика", &body)
 }
 

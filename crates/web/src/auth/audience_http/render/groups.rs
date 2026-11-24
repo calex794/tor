@@ -19,8 +19,8 @@ pub(crate) fn page(
     );
     write!(
         body,
-        r#"<p><a href="/admin/audience?days={0}">Вернуться в «Аудиторию»</a>
-        · <a href="/admin/audience/books?days={0}">Все книги</a></p>"#,
+        r#"<p><a href="/odmen/audience?days={0}">Вернуться в «Аудиторию»</a>
+        · <a href="/odmen/audience/books?days={0}">Все книги</a></p>"#,
         query.days
     )
     .expect("String");
@@ -76,7 +76,7 @@ fn kind_key(kind: GroupDiscoveryKind) -> &'static str {
 fn filters(body: &mut String, query: &GroupDiscoveryQuery) {
     body.push_str(
         r#"<form class="author-form audience-books-filters audience-groups-filters"
-        id="audience-groups-filters" method="get" action="/admin/audience/groups">
+        id="audience-groups-filters" method="get" action="/odmen/audience/groups">
         <div><label for="groups-kind">Сравнить</label><select id="groups-kind" name="kind">"#,
     );
     for (kind, label) in [
@@ -234,7 +234,7 @@ fn group_row(body: &mut String, query: &GroupDiscoveryQuery, group: &GroupDiscov
 
 fn url(query: &GroupDiscoveryQuery, after: Option<&str>) -> String {
     let mut url = format!(
-        "/admin/audience/groups?days={}&kind={}",
+        "/odmen/audience/groups?days={}&kind={}",
         query.days,
         kind_key(query.kind)
     );
@@ -251,12 +251,12 @@ fn books_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
     };
     match label {
         Some(label) => format!(
-            "/admin/audience/books?days={}&{key}={}",
+            "/odmen/audience/books?days={}&{key}={}",
             query.days,
             evidence::encode(label)
         ),
         None => format!(
-            "/admin/audience/books?days={}&without_{key}=true",
+            "/odmen/audience/books?days={}&without_{key}=true",
             query.days
         ),
     }
@@ -264,7 +264,7 @@ fn books_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
 
 fn returns_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
     let mut url = format!(
-        "/admin/audience/returns?days={}&kind={}",
+        "/odmen/audience/returns?days={}&kind={}",
         query.days,
         kind_key(query.kind)
     );

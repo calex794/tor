@@ -280,7 +280,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
              VALUES({chat},'user','user:{buyer}',{buyer},'Прошу рассмотреть возврат')"
         ),
     );
-    let detail_path = format!("/admin/finance/refunds/user/{buyer}");
+    let detail_path = format!("/odmen/finance/refunds/user/{buyer}");
     assert_eq!(
         request(&site, "GET", &detail_path, &buyer_cookie, ORIGIN, "")
             .await
@@ -304,7 +304,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     let search = request(
         &site,
         "GET",
-        "/admin/finance/refunds?q=Refund",
+        "/odmen/finance/refunds?q=Refund",
         &admin_cookie,
         ORIGIN,
         "",
@@ -320,8 +320,8 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     assert!(markup.contains(&format!("Покупка №{purchase}")));
     assert!(markup.contains("&lt;script&gt;"));
     assert!(!markup.contains("<script>x</script>"));
-    assert!(markup.contains(&format!("/admin/support/{chat}")));
-    assert!(markup.contains("action=\"/admin/finance/refunds/prepare\""));
+    assert!(markup.contains(&format!("/odmen/support/{chat}")));
+    assert!(markup.contains("action=\"/odmen/finance/refunds/prepare\""));
     let command_key = hidden(&markup, "command_key");
     let body = format!(
         "buyer_id={buyer}&purchase_id={purchase}&conversation_id={chat}&command_key={command_key}&csrf_token={csrf}&reason=Support+goodwill"
@@ -330,7 +330,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &buyer_cookie,
             ORIGIN,
             &body
@@ -343,7 +343,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &admin_cookie,
             "https://evil.invalid",
             &body
@@ -356,7 +356,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &admin_cookie,
             ORIGIN,
             &body.replace(&csrf, "invalid")
@@ -369,7 +369,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &admin_cookie,
             ORIGIN,
             &body.replace(
@@ -385,7 +385,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &admin_cookie,
             ORIGIN,
             &body
@@ -398,7 +398,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/prepare",
+            "/odmen/finance/refunds/prepare",
             &admin_cookie,
             ORIGIN,
             &body
@@ -430,7 +430,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         ),
     );
     let ready = html(request(&site, "GET", &detail_path, &admin_cookie, ORIGIN, "").await).await;
-    assert!(ready.contains("action=\"/admin/finance/refunds/approve\""));
+    assert!(ready.contains("action=\"/odmen/finance/refunds/approve\""));
     let approval = format!(
         "csrf_token={csrf}&request_id={request_id}&expected_revision=1&reason=Approved+support+goodwill&current_password=S036RefundOtherPassword2026"
     );
@@ -438,7 +438,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/approve",
+            "/odmen/finance/refunds/approve",
             &admin_cookie,
             "https://evil.invalid",
             &approval
@@ -451,7 +451,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         request(
             &site,
             "POST",
-            "/admin/finance/refunds/approve",
+            "/odmen/finance/refunds/approve",
             &admin_cookie,
             ORIGIN,
             &approval.replace("S036RefundOtherPassword2026", "BadPassword")
@@ -463,7 +463,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     let accepted = request(
         &site,
         "POST",
-        "/admin/finance/refunds/approve",
+        "/odmen/finance/refunds/approve",
         &admin_cookie,
         ORIGIN,
         &approval,
@@ -499,7 +499,7 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     let replay = request(
         &site,
         "POST",
-        "/admin/finance/refunds/approve",
+        "/odmen/finance/refunds/approve",
         &admin_cookie,
         ORIGIN,
         &approval,
