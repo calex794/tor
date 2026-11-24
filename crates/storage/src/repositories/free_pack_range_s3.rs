@@ -7,11 +7,13 @@
 
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
-use tokio::io::AsyncReadExt;
 
 use crate::{
     domain::provider::StorageError,
-    services::{free_pack_read::PackFrameStore, free_placement::ValidatedPackReference},
+    services::{
+        bounded_body::read_bounded_body, free_pack_read::PackFrameStore,
+        free_placement::ValidatedPackReference,
+    },
 };
 
 #[derive(Clone)]
@@ -76,12 +78,7 @@ impl PackFrameStore for S3PackFrameStore {
             return Err(StorageError::Corrupt);
         }
 
-        let mut reader = response.body.into_async_read().take(m.frame_bytes + 1);
-        let mut encoded = Vec::with_capacity((m.frame_bytes as usize).min(65_536));
-        reader
-            .read_to_end(&mut encoded)
-            .await
-            .map_err(|_| StorageError::Unavailable)?;
+        let encoded = read_bounded_body(response.body.into_async_read(), m.frame_bytes).await?;
         if encoded.len() as u64 != m.frame_bytes {
             return Err(StorageError::Corrupt);
         }
