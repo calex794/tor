@@ -1,4 +1,5 @@
 //! FLOW-09 current sample: production policy queries, fenced snapshots and real HEAD.
+// SQLx 0.9 test SQL audit: Assignment is selected from the fixed test-case list.
 #[path = "public_pages_pg/fixtures.rs"]
 mod fixtures;
 #[path = "public_pages_pg/head.rs"]
@@ -164,7 +165,7 @@ async fn policy_and_revision_changes_never_turn_legitimate_withdrawal_into_loss(
         "access_level='adult'",
         "lifecycle_status='pending_deletion'",
     ] {
-        sqlx::query(&format!("UPDATE books SET {assignment} WHERE id=1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE books SET {assignment} WHERE id=1")))
             .execute(&f.pool)
             .await
             .unwrap();

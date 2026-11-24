@@ -192,7 +192,7 @@ async fn s349_cancelled_import_does_not_occupy_numbers_and_stale_epoch_never_com
     );
     pool.close().await;
 }
-async fn count(pool: &PgPool, query: &str, chapter: i64) -> i64 {
+async fn count(pool: &PgPool, query: &'static str, chapter: i64) -> i64 {
     sqlx::query_scalar(query)
         .bind(chapter)
         .fetch_one(pool)

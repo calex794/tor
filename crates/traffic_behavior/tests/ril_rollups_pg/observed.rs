@@ -1,4 +1,5 @@
 //! Actual PG projection, immutable retry UUID, skew, retention and local hours.
+// SQLx 0.9 test SQL audit: Fixture schema is generated from a UUID; table names and anchored SQL are checked-in constants.
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::time::Duration;
 use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
@@ -25,7 +26,7 @@ impl Fixture {
         }
         let owner = PgPool::connect(&owner_url).await.unwrap();
         let schema = format!("flow_observed_{}", Uuid::new_v4().simple());
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -47,9 +48,9 @@ impl Fixture {
             "ril_flow_health_epochs",
             "ril_flow_health_hourly",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
@@ -61,7 +62,7 @@ impl Fixture {
                 "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
             ),
         ] {
-            sqlx::query(&query).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(query)).execute(&owner).await.unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -70,7 +71,7 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let schema = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path={schema},public"))
+                    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
                         .execute(&mut *connection)
                         .await?;
                     sqlx::query("SET statement_timeout = '1s'")
@@ -96,7 +97,7 @@ impl Fixture {
     }
     pub(super) async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
             .execute(&self.owner)
             .await
             .unwrap();
@@ -252,7 +253,7 @@ async fn every_period_is_exact_and_timezone_does_not_change_totals() {
     // Real query at a fixed test-only anchor validates the repeated DST hour.
     let query = include_str!("../../src/repositories/audience/observed.sql")
         .replace("now()", "TIMESTAMPTZ '2026-10-25T04:00:00Z'");
-    let rows = sqlx::query(&query)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
         .bind(24_i32)
         .bind("Europe/Amsterdam")
         .fetch_all(&fixture.app)
@@ -320,10 +321,10 @@ async fn missing_zero_retention_and_query_failure_are_distinct() {
         0
     );
     let mut lock = fixture.owner.begin().await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE {}.ril_flow_observed_hourly IN ACCESS EXCLUSIVE MODE",
         fixture.schema
-    ))
+    )))
     .execute(&mut *lock)
     .await
     .unwrap();
