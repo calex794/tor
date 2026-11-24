@@ -98,7 +98,7 @@ async function metric(locator,key) {
   return (await locator.locator(`[data-metric='${key}']`).innerText()).trim();
 }
 async function report(page,days=90) {
-  await privateResponse(await page.goto(base+'/admin/audience/returns?days='+days));
+  await privateResponse(await page.goto(base+'/odmen/audience/returns?days='+days));
   await legacy.labelled(page,'audience-returns');
   const result = {};
   for (const period of ['current','previous']) {
@@ -133,7 +133,7 @@ function pendingDelta(before,after,delta) {
 async function select(page,days) {
   await page.locator('select[name="days"]').selectOption(String(days));
   await page.getByRole('button',{name:'Показать',exact:true}).click();
-  await page.waitForURL(url => url.pathname === '/admin/audience/returns'
+  await page.waitForURL(url => url.pathname === '/odmen/audience/returns'
     && url.searchParams.get('days') === String(days));
 }
 async function periods(page,days) {
@@ -173,14 +173,14 @@ async function periods(page,days) {
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
     coverage=legacy.coverage('global');
-    await privateResponse(await readerPage.goto(base+'/admin/audience/returns?days=bad'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/returns?days=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-returns-current').count(),0);
     await adminPage.goto(base+'/me');
-    await adminPage.locator('a[href="/admin/audience"]').click();
+    await adminPage.locator('a[href="/odmen/audience"]').click();
     await adminPage.waitForURL('**/admin/audience');
-    await adminPage.goto(base+'/admin/audience?days=7');
+    await adminPage.goto(base+'/odmen/audience?days=7');
     await adminPage.getByTestId('audience-returns-link').click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns' && url.searchParams.get('days')==='7');
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/returns' && url.searchParams.get('days')==='7');
     await select(adminPage,90); await periods(adminPage,90);
     assert.ok(await adminPage.getByTestId('audience-returns-observation-start').isVisible());
     const before=await report(adminPage);
@@ -258,12 +258,12 @@ async function periods(page,days) {
     assert.deepEqual(legacy.snapshot(users[1]),frozen);
     assert.equal(daysFor(users[1]),0);
     assert.deepEqual(await report(adminPage),enrolled);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/returns?days=2'),400);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/returns?days=2'),400);
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/returns?days=90'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/returns?days=90'),403);
     assert.equal(await adminPage.getByTestId('audience-returns-current').count(),0);
     const anonymous=await browser.newPage();
-    await privateResponse(await anonymous.goto(base+'/admin/audience/returns'),401);
+    await privateResponse(await anonymous.goto(base+'/odmen/audience/returns'),401);
     assert.deepEqual(errors,[]);
     console.log('FLOW returns browser PASS: real CAS/manual progress without optional capture despite enabled legacy subject, explicit historical D1/D7/D30 fixtures, retired consent410/no writes, private labelled reports, periods, live admin, 390/1440');
   } finally {

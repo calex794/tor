@@ -163,7 +163,7 @@ async function calendarPeriods(page, days) {
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
     await readerPage.goto(base+'/catalog?sort=newest');
     assert.equal(await readerPage.locator('[data-organic-ticket]').count(), 0);
-    await privateResponse(await readerPage.goto(base+'/admin/audience'), 403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience'), 403);
     assert.equal(await readerPage.locator('[data-metric]').count(), 0);
     retired.oldScopes(users.slice(1));
     const scope = retired.scopeSnapshot(users);
@@ -172,7 +172,7 @@ async function calendarPeriods(page, days) {
     await retired.settings(directPage);
     legacyTokens.push(await retired.rejectedLegacyCommands(directPage));
     retired.legacyBoundary();
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
     const before = await numbers(adminPage);
     const previous = await numbers(adminPage,'previous');
     const legacyRecOpens = sql(`SELECT EXISTS(SELECT 1 FROM rec_quality_daily
@@ -189,7 +189,7 @@ async function calendarPeriods(page, days) {
       {book:fixture('mixed').book,source:'recommendations',impressions:2,clicks:1,opens:1},
     ]);
     retired.noCapture(users,fixtures.map(item=>item.book));
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
     const historical = await numbers(adminPage);
     await retired.marked(adminPage,['audience-sources-current','audience-sources-previous']);
 
@@ -216,7 +216,7 @@ async function calendarPeriods(page, days) {
     assert.equal(scalar(`SELECT COALESCE(sum(book_opens),0) FROM rec_quality_daily
       WHERE book_id IN(${fixtures.map(item => item.book).join(',')})`),2,
       'retained fixture totals remain unchanged after genuine navigation');
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
     assert.deepEqual(await numbers(adminPage),historical,'new C facts cannot augment old source totals');
     const changes = {
       catalog:{clicks:2,'book-opens':2,starts:1,completions:1},
@@ -229,7 +229,7 @@ async function calendarPeriods(page, days) {
     sql(`UPDATE books SET admin_hold=true WHERE id=${mixed}`);
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width === 390 ? 844 : 900});
-      await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+      await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
       assertDelta(before,await numbers(adminPage),changes,legacyRecOpens);
       assert.deepEqual(await numbers(adminPage,'previous'),previous);
       await calendarPeriods(adminPage,7);
@@ -246,8 +246,8 @@ async function calendarPeriods(page, days) {
     }
     for (const days of [1,30,90]) {
       await adminPage.locator('select[name="days"]').selectOption(String(days));
-      await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')===String(days));
+      await adminPage.locator('form[action="/odmen/audience"]').getByRole('button').click();
+      await adminPage.waitForURL(url => url.pathname==='/odmen/audience' && url.searchParams.get('days')===String(days));
       await calendarPeriods(adminPage,days);
     }
 
@@ -258,7 +258,7 @@ async function calendarPeriods(page, days) {
     assert.equal(await readerPage.locator('[data-organic-ticket],[data-rec-ticket]').count(),0);
     retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
     assert.deepEqual(await numbers(adminPage),historical,'later reading also leaves history unchanged');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${users[1]}`),6,
       'ordinary C progress remains usable without optional collection');
@@ -267,7 +267,7 @@ async function calendarPeriods(page, days) {
     assert.equal(retired.scopeSnapshot(users),scope,'retired commands do not toggle old scopes');
     retired.noCapture(users,fixtures.map(item=>item.book));
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience'),403);
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(errors,[]);
     console.log('FLOW sources browser PASS: labelled source history, genuine ordinary navigation/C reads, no optional raw or deliveries, chapter distinction, live admin, private 390/1440 report');

@@ -89,9 +89,9 @@ async function snapshot(page, name, target) {
     const readerPage = await readerContext.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    const ranked = base + '/admin/audience/reading?days=7&tag=' + encodeURIComponent(f.tag) + '&view=top20';
-    const all = base + '/admin/audience/reading?days=7&tag=' + encodeURIComponent(f.tag);
-    const calendar = base + '/admin/audience/exposure?days=1&group=tag&label=' + encodeURIComponent(f.tag);
+    const ranked = base + '/odmen/audience/reading?days=7&tag=' + encodeURIComponent(f.tag) + '&view=top20';
+    const all = base + '/odmen/audience/reading?days=7&tag=' + encodeURIComponent(f.tag);
+    const calendar = base + '/odmen/audience/exposure?days=1&group=tag&label=' + encodeURIComponent(f.tag);
     const closed = calendar + '&window=closed';
     await privateResponse(await page.goto(ranked), 401);
     await privateResponse(await page.goto(closed), 401);
@@ -124,7 +124,7 @@ async function snapshot(page, name, target) {
     await page.getByTestId('canonical-first').click();
     await page.waitForURL(url => !url.searchParams.has('after_id'));
     await page.getByLabel('Представление', {exact: true}).selectOption('top20');
-    await submit(page, '/admin/audience/reading', url => url.searchParams.get('view') === 'top20');
+    await submit(page, '/odmen/audience/reading', url => url.searchParams.get('view') === 'top20');
     assert.deepEqual((await ids(page, 'canonical-rank-row')).slice(0, 2), f.books.slice(51, 53));
     assert.equal(await page.getByTestId('canonical-rank-row').count(), 20);
     assert.equal(await metric(page.getByTestId('canonical-rank-totals'), 'books'), '53');
@@ -146,12 +146,12 @@ async function snapshot(page, name, target) {
     }
     for (const days of [1, 30, 90]) {
       await page.getByLabel('Дней в периоде', {exact: true}).selectOption(String(days));
-      await submit(page, '/admin/audience/reading', url => url.searchParams.get('days') === String(days));
+      await submit(page, '/odmen/audience/reading', url => url.searchParams.get('days') === String(days));
       assert.equal(await metric(page.getByTestId('canonical-rank-totals'), 'current'), '2');
     }
     for (const kind of ['genres', 'tags']) {
       await page.getByLabel('Группировать по', {exact: true}).selectOption(kind);
-      await submit(page, '/admin/audience/reading', url => url.searchParams.get('kind') === kind);
+      await submit(page, '/odmen/audience/reading', url => url.searchParams.get('kind') === kind);
       assert.equal(await metric(page.getByTestId('canonical-rank-totals'), 'books'), '53');
       assert.equal(await metric(page.getByTestId('canonical-rank-totals'), 'current'), '2');
       assert.equal(await page.getByTestId('canonical-rank-row').count(), kind === 'genres' ? 4 : 1);
@@ -160,7 +160,7 @@ async function snapshot(page, name, target) {
     await privateResponse(await page.goto(calendar));
     assert.equal(await page.getByTestId('exposure-reading').count(), 0, 'calendar mode does not mix windows');
     await page.getByLabel('Граница периода', {exact: true}).selectOption('closed');
-    await submit(page, '/admin/audience/exposure', url => url.searchParams.get('window') === 'closed');
+    await submit(page, '/odmen/audience/exposure', url => url.searchParams.get('window') === 'closed');
     assert.equal(await readingState(page, f.books[1]), 'unknown', 'no durable health means unknown');
     f.certify();
     await privateResponse(await page.reload());
@@ -198,7 +198,7 @@ async function snapshot(page, name, target) {
     assert.equal(await readingState(page, f.books[51]), 'reading-recorded');
     assert.equal(await readingState(page, f.books[52]), 'reading-recorded');
     await page.getByLabel('Наблюдения', {exact: true}).selectOption('observed');
-    await submit(page, '/admin/audience/exposure', url => url.searchParams.get('class') === 'observed' && !url.searchParams.has('after'));
+    await submit(page, '/odmen/audience/exposure', url => url.searchParams.get('class') === 'observed' && !url.searchParams.has('after'));
     assert.ok(!(await ids(page, 'exposure-row')).includes(f.books[3]));
     assert.equal(await metric(page.getByTestId('exposure-totals'), 'books'), '53',
       'page diagnostics do not redefine complete F totals');
