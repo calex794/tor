@@ -78,7 +78,7 @@ async function shot(page,name) {
     const page=await context.newPage();
     const guest=await browser.newContext({javaScriptEnabled:false});
     const anonymous=await guest.newPage();
-    await privateResponse(await anonymous.goto(base+'/admin/audience'),401);
+    await privateResponse(await anonymous.goto(base+'/odmen/audience'),401);
     assert.equal(await anonymous.locator('[data-metric]').count(),0);
     await page.goto(base+'/register');
     await page.getByLabel('Отображаемое имя').fill('Проверка качества HTML');
@@ -87,12 +87,12 @@ async function shot(page,name) {
     await page.getByRole('button',{name:'Создать учётную запись'}).click();
     await page.waitForURL('**/me');
     administrator=integer("SELECT id FROM users WHERE email_normalized='"+email+"'");
-    await privateResponse(await page.goto(base+'/admin/audience'),403);
+    await privateResponse(await page.goto(base+'/odmen/audience'),403);
     sql("INSERT INTO account_roles(user_id,role) VALUES("+administrator+",'administrator')");
     await page.goto(base+'/me');
     await page.getByRole('link',{name:'Аудитория',exact:true}).click();
-    await page.waitForURL(base+'/admin/audience');
-    await privateResponse(await page.goto(base+'/admin/audience?days=1'));
+    await page.waitForURL(base+'/odmen/audience');
+    await privateResponse(await page.goto(base+'/odmen/audience?days=1'));
     const bounds=await quality(page,'unknown','unknown');
     const anchor=bounds.current[1];
     assert.equal(await total(page,'previous'),'Нет измерения');
@@ -128,14 +128,14 @@ async function shot(page,name) {
       'report GET must not advance a worker acknowledgement');
     for(const days of [7,30,90]) {
       await page.locator('select[name="days"]').selectOption(String(days));
-      await page.locator('form[action="/admin/audience"]').getByRole('button').click();
+      await page.locator('form[action="/odmen/audience"]').getByRole('button').click();
       await page.waitForURL(url=>url.searchParams.get('days')===String(days));
       await quality(page,'unknown','unknown',days);
       assert.equal(await total(page,'previous'),'Нет измерения');
     }
     await page.locator('select[name="days"]').selectOption('1');
     await page.locator('select[name="time_zone"]').selectOption('Europe/Amsterdam');
-    await page.locator('form[action="/admin/audience"]').getByRole('button').click();
+    await page.locator('form[action="/odmen/audience"]').getByRole('button').click();
     await page.waitForURL(url=>url.searchParams.get('days')==='1'&&url.searchParams.get('time_zone')==='Europe/Amsterdam');
     assert.deepEqual(await quality(page,'confirmed','confirmed'),bounds,'display timezone does not change the closed UTC windows');
     sql("INSERT INTO ril_flow_health_hourly(epoch,bucket_ms,had_loss) VALUES("+epoch+","+

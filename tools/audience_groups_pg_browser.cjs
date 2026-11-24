@@ -107,7 +107,7 @@ async function select(page, kind, days) {
   await page.locator('#groups-kind').selectOption(kind);
   await page.locator('#groups-days').selectOption(String(days));
   await page.locator('#audience-groups-filters').getByRole('button',{name:'Показать',exact:true}).click();
-  await page.waitForURL(url => url.pathname === '/admin/audience/groups'
+  await page.waitForURL(url => url.pathname === '/odmen/audience/groups'
     && url.searchParams.get('kind') === kind && url.searchParams.get('days') === String(days));
 }
 async function periods(page, days) {
@@ -132,7 +132,7 @@ async function detail(page, kind, label, days) {
     states[p]=await row.locator(`[data-period='${p}'] [data-state]`).allTextContents();
   }
   await row.getByTestId('audience-group-books').click();
-  await page.waitForURL(url => url.pathname === '/admin/audience/books');
+  await page.waitForURL(url => url.pathname === '/odmen/audience/books');
   const url = new URL(page.url());
   assert.equal(url.searchParams.get('days'),String(days));
   const name = kind === 'genres' ? 'genre' : 'tag';
@@ -179,7 +179,7 @@ async function detail(page, kind, label, days) {
     }
     const [adminPage,readerPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/groups?kind=bad'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/groups?kind=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-group-row').count(),0);
     retired.oldScopes(users.slice(1));
     const scope = retired.scopeSnapshot(users);
@@ -201,10 +201,10 @@ async function detail(page, kind, label, days) {
     retired.noCapture(users,fixtures.map(item=>item.book));
     const zero = create('zero','Книга без наблюдений '+run,[genreA],[tagA]);
     await adminPage.goto(base+'/me');
-    await adminPage.locator('a[href="/admin/audience"]').click();
+    await adminPage.locator('a[href="/odmen/audience"]').click();
     await adminPage.waitForURL('**/admin/audience');
     await adminPage.getByTestId('audience-groups-link').click();
-    await adminPage.waitForURL(url => url.pathname === '/admin/audience/groups');
+    await adminPage.waitForURL(url => url.pathname === '/odmen/audience/groups');
     await select(adminPage,'genres',7); await periods(adminPage,7);
     await retired.marked(adminPage,['audience-groups-current','audience-groups-previous']);
     const baseline = {};
@@ -229,7 +229,7 @@ async function detail(page, kind, label, days) {
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width===390 ? 844 : 900});
       for (const [kind,labels] of [['genres',[genreA,genreB,'']],['tags',[tagA,tagB,'']]]) {
-        await privateResponse(await adminPage.goto(base+`/admin/audience/groups?kind=${kind}&days=7`));
+        await privateResponse(await adminPage.goto(base+`/odmen/audience/groups?kind=${kind}&days=7`));
         const html=await adminPage.content();
         for (const forbidden of [secret,'HIDDEN-GROUP-SENTINEL','Readable text',...emails,...legacyTokens]) assert.ok(!html.includes(forbidden),'no private metadata or identity');
         assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1),'groups fit viewport');
@@ -248,27 +248,27 @@ async function detail(page, kind, label, days) {
     for (const days of [1,30,90]) {
       await select(adminPage,'genres',days); await periods(adminPage,days);
       assert.equal((await detail(adminPage,'genres',genreA,days)).current.starts,2);
-      await adminPage.goto(base+'/admin/audience/groups?kind=genres&days='+days);
+      await adminPage.goto(base+'/odmen/audience/groups?kind=genres&days='+days);
     }
     // Moving the current tag moves existing anonymous facts; hiding removes them.
     sql(`UPDATE books SET tags=ARRAY['${tagB}'] WHERE id=${recommended.book}`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/groups?kind=tags&days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/groups?kind=tags&days=7'));
     assert.equal((await values(group(adminPage,tagA).locator('[data-period="current"]'))).starts,1);
     assert.equal((await values(group(adminPage,tagB).locator('[data-period="current"]'))).starts,3);
     await detail(adminPage,'tags',tagB,7);
     sql(`UPDATE books SET admin_hold=true WHERE id=${recommended.book}`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/groups?kind=tags&days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/groups?kind=tags&days=7'));
     assert.equal((await values(group(adminPage,tagB).locator('[data-period="current"]'))).starts,2);
     // Untouched book remains visible without any invented measured zero.
-    await adminPage.goto(base+'/admin/audience/books?genre='+encodeURIComponent(genreA)+'&days=7');
+    await adminPage.goto(base+'/odmen/audience/books?genre='+encodeURIComponent(genreA)+'&days=7');
     assert.ok(Object.values(await values(adminPage.locator(`[data-book-id='${zero.book}'] [data-period='current']`))).every(value=>value===null));
     retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     assert.equal(retired.scopeSnapshot(users),scope,'ordinary activity does not mutate old scopes');
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/groups?kind=genres&days=7'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/groups?kind=genres&days=7'),403);
     assert.equal(await adminPage.getByTestId('audience-group-row').count(),0);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/books?without_genre=true&days=7'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/books?without_genre=true&days=7'),403);
     assert.deepEqual(errors,[]);
     console.log('FLOW groups browser PASS: labelled historical fixtures, real ordinary C reads without capture, overlapping and missing labels, exact details, periods, current visibility, live admin, 390/1440');
   } finally {

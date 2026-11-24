@@ -171,9 +171,9 @@ function publicCounts(from) {
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${administrator},'administrator')`);
     await adminPage.goto(base+'/me');
     await adminPage.getByRole('link', {name:'Аудитория',exact:true}).click();
-    await adminPage.waitForURL(base+'/admin/audience');
-    await privateResponse(await guestPage.goto(base+'/admin/audience'),401);
-    await privateResponse(await readerPage.goto(base+'/admin/audience'),403);
+    await adminPage.waitForURL(base+'/odmen/audience');
+    await privateResponse(await guestPage.goto(base+'/odmen/audience'),401);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience'),403);
     assert.equal(await readerPage.getByTestId('audience-hours').count(), 0);
 
     const anchor = scalar("SELECT extract(epoch FROM date_trunc('hour',now(),'UTC'))::bigint");
@@ -181,7 +181,7 @@ function publicCounts(from) {
     observedHistory = observed.history(anchor);
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width===390 ? 844 : 900});
-      await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+      await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
       await checkReport(adminPage,7);
       await observed.report(adminPage,7);
       const hours = adminPage.getByTestId('audience-hours');
@@ -208,8 +208,8 @@ function publicCounts(from) {
     }
     for (const days of [1,30,90]) {
       await adminPage.locator('select[name="days"]').selectOption(String(days));
-      await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')===String(days));
+      await adminPage.locator('form[action="/odmen/audience"]').getByRole('button').click();
+      await adminPage.waitForURL(url => url.pathname==='/odmen/audience' && url.searchParams.get('days')===String(days));
       await observed.report(adminPage,days);
       if (days===1) await checkReport(adminPage,days);
       else {
@@ -220,11 +220,11 @@ function publicCounts(from) {
     }
 
     await adminPage.locator('select[name="time_zone"]').selectOption('Europe/Amsterdam');
-    await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
+    await adminPage.locator('form[action="/odmen/audience"]').getByRole('button').click();
     await adminPage.waitForURL(url=>url.searchParams.get('time_zone')==='Europe/Amsterdam');
     await observed.report(adminPage,90,'Europe/Amsterdam');
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7&time_zone=bad'),400);
-    await privateResponse(await guestPage.goto(base+'/admin/audience?time_zone=bad'),401);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7&time_zone=bad'),400);
+    await privateResponse(await guestPage.goto(base+'/odmen/audience?time_zone=bad'),401);
     book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
       VALUES('ci:flow:hours:${run}','ru','FLOW-HOURS-PRIVATE-SENTINEL-${run}','public','basic') RETURNING id`);
     const chapter = scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
@@ -253,17 +253,17 @@ function publicCounts(from) {
     assert.deepEqual(publicCounts(captureFrom),expected,'API, 404 and bot requests must not become pageviews');
     assert.deepEqual(observed.counts(captureFrom),observedExpected,'observed-hour projection excludes API/errors/robots');
     await botContext.close();
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'));
     await checkReport(adminPage,7);
     const content = await adminPage.content();
     for (const forbidden of [adminEmail,readerEmail,'FLOW-HOURS-PRIVATE-SENTINEL','Hours actual page text']) {
       assert.ok(!content.includes(forbidden),'aggregate report exposed identity or content');
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${administrator} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience'),403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience'),403);
     assert.equal(await adminPage.getByTestId('audience-hours').count(),0);
     await adminPage.goto(base+'/me');
-    assert.equal(await adminPage.locator('a[href="/admin/audience"]').count(),0);
+    assert.equal(await adminPage.locator('a[href="/odmen/audience"]').count(),0);
     assert.deepEqual(errors,[]);
     execFileSync('bash',['tools/flow_reading_time_browser_acceptance.sh'],{
       stdio:'inherit',

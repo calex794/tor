@@ -97,16 +97,16 @@ async function periodBoundaries(page, days) {
     const audienceLink = adminPage.getByRole('link', {name:'Аудитория',exact:true});
     assert.ok(await audienceLink.isVisible(), 'administrator must discover the report in their account');
     await audienceLink.click();
-    await adminPage.waitForURL(base+'/admin/audience');
+    await adminPage.waitForURL(base+'/odmen/audience');
     assert.equal((await readerPage.goto(base+'/me')).status(), 200);
-    assert.equal(await readerPage.locator('a[href="/admin/audience"]').count(), 0,
+    assert.equal(await readerPage.locator('a[href="/odmen/audience"]').count(), 0,
       'reader account must not advertise the administrator report');
 
-    await privateResponse(await guestPage.goto(base+'/admin/audience'), 401);
+    await privateResponse(await guestPage.goto(base+'/odmen/audience'), 401);
     assert.equal(await guestPage.locator('[data-metric]').count(), 0);
-    await privateResponse(await readerPage.goto(base+'/admin/audience'), 403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience'), 403);
     assert.equal(await readerPage.locator('[data-metric]').count(), 0);
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'), 200);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'), 200);
     const before = await numbers(adminPage);
     const intentBefore = await intents.snapshot(adminPage);
 
@@ -141,10 +141,10 @@ async function periodBoundaries(page, days) {
     const event = sql(`SELECT source_event_id FROM reader_chapter_completions WHERE user_id=${reader} AND chapter_id=${chapter}`);
     await intents.choices(readerPage,book,csrf);
     await intents.choices(readerPage,book,csrf); // idempotent repeated user commands
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'),200);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'),200);
     intents.delta(intentBefore,await intents.snapshot(adminPage),1);
     await intents.choices(readerPage,book,csrf,true);
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'),200);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'),200);
     intents.delta(intentBefore,await intents.snapshot(adminPage),0);
     await intents.choices(readerPage,book,csrf);
     await canonical.check({adminPage,readerPage,guestPage,base,shots,book,run,sql,privateResponse,event});
@@ -153,7 +153,7 @@ async function periodBoundaries(page, days) {
 
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width === 390 ? 844 : 900});
-      await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'), 200);
+      await privateResponse(await adminPage.goto(base+'/odmen/audience?days=7'), 200);
       const after = await numbers(adminPage);
       for (const field of ['starts','completions','readers']) {
         assert.equal(after[field], before[field]+1, `C ${field} must count the real fact once`);
@@ -169,23 +169,23 @@ async function periodBoundaries(page, days) {
         'audience page has horizontal overflow');
       await adminPage.screenshot({path:path.join(shots,`audience-${width}.png`),fullPage:true});
       await adminPage.locator('select[name="days"]').selectOption('30');
-      await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')==='30');
+      await adminPage.locator('form[action="/odmen/audience"]').getByRole('button').click();
+      await adminPage.waitForURL(url => url.pathname==='/odmen/audience' && url.searchParams.get('days')==='30');
       await periodBoundaries(adminPage, 30);
     }
     for (const days of [1,90]) {
-      await privateResponse(await adminPage.goto(base+`/admin/audience?days=${days}`), 200);
+      await privateResponse(await adminPage.goto(base+`/odmen/audience?days=${days}`), 200);
       await periodBoundaries(adminPage, days);
       assert.equal(await adminPage.locator('select[name="days"]').inputValue(), String(days));
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${administrator} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience'), 403);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/reading'), 403);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/seo'), 403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience'), 403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/reading'), 403);
+    await privateResponse(await adminPage.goto(base+'/odmen/audience/seo'), 403);
     assert.equal(await adminPage.locator('[data-metric]').count(), 0,
       'revoked administrator must not receive audience data');
     assert.equal((await adminPage.goto(base+'/me')).status(), 200);
-    assert.equal(await adminPage.locator('a[href="/admin/audience"]').count(), 0,
+    assert.equal(await adminPage.locator('a[href="/odmen/audience"]').count(), 0,
       'revoked administrator must lose the report link without losing their session');
     assert.deepEqual(errors, []);
     console.log('FLOW audience browser PASS: actual C progress/replay, live admin role/revocation, private aggregates, 1/7/30/90 periods, 390/1440 px');

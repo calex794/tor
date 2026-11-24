@@ -96,7 +96,7 @@ async function metric(locator,key) {
   return (await locator.locator(`[data-metric='${key}']`).innerText()).trim();
 }
 async function report(page,book,days=90) {
-  await privateResponse(await page.goto(base+`/admin/audience/returns?book_id=${book}&days=${days}`));
+  await privateResponse(await page.goto(base+`/odmen/audience/returns?book_id=${book}&days=${days}`));
   await legacy.labelled(page,'audience-book-returns');
   assert.equal(await page.getByRole('heading',{name:'Возвращаются ли к этой книге',exact:true}).count(),1);
   assert.equal(await page.locator('input[type="hidden"][name="book_id"]').inputValue(),String(book));
@@ -138,7 +138,7 @@ function pendingDelta(before,after,delta) {
 async function select(page,book,days) {
   await page.locator('select[name="days"]').selectOption(String(days));
   await page.getByRole('button',{name:'Показать',exact:true}).click();
-  await page.waitForURL(url => url.pathname === '/admin/audience/returns'
+  await page.waitForURL(url => url.pathname === '/odmen/audience/returns'
     && url.searchParams.get('days') === String(days)
     && url.searchParams.get('book_id') === String(book));
 }
@@ -183,13 +183,13 @@ async function periods(page,days) {
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
     coverage=legacy.coverage('book');
-    await privateResponse(await readerPage.goto(base+`/admin/audience/returns?book_id=${first.book}&days=bad`),403);
+    await privateResponse(await readerPage.goto(base+`/odmen/audience/returns?book_id=${first.book}&days=bad`),403);
     assert.equal(await readerPage.getByTestId('audience-book-returns-current').count(),0);
     await adminPage.goto(base+'/me');
-    await adminPage.locator('a[href="/admin/audience"]').click();
+    await adminPage.locator('a[href="/odmen/audience"]').click();
     await adminPage.waitForURL('**/admin/audience');
-    await adminPage.locator('a[href^="/admin/audience/books"]').click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/books');
+    await adminPage.locator('a[href^="/odmen/audience/books"]').click();
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/books');
     await adminPage.locator('#books-days').selectOption('7');
     await adminPage.locator('#books-genre').fill(genre);
     await adminPage.locator('#audience-books-filters').getByRole('button',{name:'Показать',exact:true}).click();
@@ -199,11 +199,11 @@ async function periods(page,days) {
     const link=row.getByTestId('audience-book-returns-link');
     assert.equal(await link.count(),1,'selected book has one administrative return link');
     const href=new URL(await link.getAttribute('href'),base);
-    assert.equal(href.pathname,'/admin/audience/returns');
+    assert.equal(href.pathname,'/odmen/audience/returns');
     assert.equal(href.searchParams.get('book_id'),String(first.book));
     assert.equal(href.searchParams.get('days'),'7');
     await link.click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns'
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/returns'
       && url.searchParams.get('book_id')===String(first.book) && url.searchParams.get('days')==='7');
     assert.equal(await adminPage.getByTestId('audience-book-returns-title').innerText(),title);
     await select(adminPage,first.book,90); await periods(adminPage,90);
@@ -334,17 +334,17 @@ async function periods(page,days) {
     sql(`UPDATE books SET admin_hold=true WHERE id=${first.book}`);
     await privateResponse(await adminPage.goto(listUrl));
     assert.equal(await adminPage.locator(`[data-book-id='${first.book}']`).count(),0);
-    await privateResponse(await adminPage.goto(base+`/admin/audience/returns?book_id=${first.book}&days=90`),404);
+    await privateResponse(await adminPage.goto(base+`/odmen/audience/returns?book_id=${first.book}&days=90`),404);
     assert.equal(await adminPage.getByTestId('audience-book-returns-current').count(),0);
     assert.ok(!(await adminPage.content()).includes(title),'current hidden metadata cannot leak');
     sql(`UPDATE books SET admin_hold=false WHERE id=${first.book}`);
     assert.deepEqual(await report(adminPage,first.book),enrolled);
-    await privateResponse(await adminPage.goto(base+`/admin/audience/returns?book_id=${first.book}&days=2`),400);
+    await privateResponse(await adminPage.goto(base+`/odmen/audience/returns?book_id=${first.book}&days=2`),400);
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+`/admin/audience/returns?book_id=${first.book}&days=90`),403);
+    await privateResponse(await adminPage.goto(base+`/odmen/audience/returns?book_id=${first.book}&days=90`),403);
     assert.equal(await adminPage.getByTestId('audience-book-returns-current').count(),0);
     const anonymous=await browser.newPage();
-    await privateResponse(await anonymous.goto(base+`/admin/audience/returns?book_id=${first.book}`),401);
+    await privateResponse(await anonymous.goto(base+`/odmen/audience/returns?book_id=${first.book}`),401);
     assert.deepEqual(errors,[]);
     console.log('FLOW book returns browser PASS: labelled explicit legacy book fixtures, real CAS/manual/device progress without capture, retired consent410/no writes, same-book isolation, periods, current visibility, live admin, 390/1440');
   } finally {
