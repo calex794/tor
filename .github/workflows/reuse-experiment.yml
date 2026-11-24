@@ -43,7 +43,7 @@ jobs:
           bin="$RUNNER_TEMP/reuse-bin"
           case "$TOOL" in
             cargo-dupes)
-              docker run --rm -v "$bin:/out" rust:1.91-bookworm cargo install cargo-dupes --version 0.2.1 --locked --root /out
+              docker run --rm -v "$bin:/out" rust:1.93.0-bookworm cargo install cargo-dupes --version 0.2.1 --locked --root /out
               ;;
             doppelscan)
               url=https://github.com/CMaintz/doppelscan/releases/download/v0.9.0/doppelscan-v0.9.0-x86_64-unknown-linux-gnu.tar.gz
@@ -107,7 +107,7 @@ jobs:
               ;;
             jscpd)
               run_scan exact /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --reporters json --output /reports --report-name exact . || failed=1
-              run_scan structural /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --ignore-identifiers consistent --ignore-literals --similarity=0.8 --min-nodes 20 --reporters json --output /reports --report-name structural . || failed=1
+              run_scan structural /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --ignore-identifiers=consistent --ignore-literals --similarity=0.8 --min-nodes 20 --reporters json --output /reports --report-name structural . || failed=1
               ;;
           esac
           exit "$failed"
