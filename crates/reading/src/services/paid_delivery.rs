@@ -9,12 +9,24 @@ mod assets;
 pub use assets::{issue_paid_admin_asset_grant, issue_paid_asset_grant};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use tor_contracts::paid_delivery::{
     Actor, ChapterVersionPort, ContentCodec, DeliveryError, DeliveryGrant, DenialReason,
     EncryptedObjectKind, EntitlementDecision, EntitlementPort, GrantedContent, PositiveId,
     PrivateObjectDeliveryPort, DEFAULT_SIGNED_GET_TTL,
 };
+
+// Preserve the existing whole-second UTC wire format, rounding expiry down.
+// An unrepresentable date fails closed rather than extending a signed URL.
+fn grant_expiry(issued_at: OffsetDateTime) -> Result<String, DeliveryError> {
+    issued_at
+        .checked_add(Duration::seconds(DEFAULT_SIGNED_GET_TTL.as_secs() as i64))
+        .ok_or(DeliveryError::Unavailable)?
+        .replace_nanosecond(0)
+        .map_err(|_| DeliveryError::Unavailable)?
+        .format(&Rfc3339)
+        .map_err(|_| DeliveryError::Unavailable)
+}
 
 fn denied(reason: DenialReason) -> DeliveryError {
     match reason {
@@ -63,7 +75,7 @@ pub async fn issue_paid_chapter_grant(
 
     // Start the promised expiry before the signing request. This timestamp
     // cannot claim the URL lives longer than its 90s S3 presign period.
-    let issued_at = Utc::now();
+    let issued_at = OffsetDateTime::now_utc();
     let signed = storage
         .grant_verified_object(&encrypted, DEFAULT_SIGNED_GET_TTL)
         .await?;
@@ -88,8 +100,7 @@ pub async fn issue_paid_chapter_grant(
         EntitlementDecision::Denied { reason } => return Err(denied(reason)),
     }
 
-    let expires_at = (issued_at + ChronoDuration::seconds(DEFAULT_SIGNED_GET_TTL.as_secs() as i64))
-        .to_rfc3339_opts(SecondsFormat::Secs, true);
+    let expires_at = grant_expiry(issued_at)?;
     Ok(DeliveryGrant::for_pinned_version(
         pinned,
         expires_at,
@@ -112,4 +123,15 @@ fn verify_granted_content(
         return Err(DeliveryError::Unavailable);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+
+    #[test]
+    fn expiry_keeps_whole_seconds_and_utc_across_day_boundary() {
+        let issued = OffsetDateTime::parse("2026-12-31T23:59:30.999Z", &Rfc3339).unwrap();
+        assert_eq!(grant_expiry(issued).unwrap(), "2027-01-01T00:01:00Z");
+    }
 }

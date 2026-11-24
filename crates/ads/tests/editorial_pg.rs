@@ -1,6 +1,6 @@
 //! FLOW-08: actual nonfinancial campaigns, current authority and three safe slots.
 #![forbid(unsafe_code)]
-use chrono::{DateTime, Utc};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -118,9 +118,10 @@ fn key_string(key: u32) -> String {
     format!("{key:043}")
 }
 fn date(seconds: i64) -> String {
-    DateTime::<Utc>::from_timestamp(seconds, 0)
+    OffsetDateTime::from_unix_timestamp(seconds)
         .unwrap()
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        .format(&Rfc3339)
+        .unwrap()
 }
 fn create(book_id: i64, slot: PromotionSlot) -> Command {
     let now = SystemTime::now()

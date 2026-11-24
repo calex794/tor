@@ -1,7 +1,7 @@
 //! E / S018: bounded UTC cadence policy based on confirmed first chapter starts.
 //! No transport selection, contact consent, queue, or external delivery.
 use super::notification_preferences::DeliveryMode;
-use chrono::{DateTime, Duration, Timelike, Utc};
+use time::{Duration, OffsetDateTime, Time, UtcOffset};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HourConfidence {
@@ -70,16 +70,12 @@ pub fn choose_preferred_hour(counts: &[u32; 24]) -> PreferredSendHour {
 pub enum SendTiming {
     Disabled,
     Now,
-    AtUtc(DateTime<Utc>),
+    AtUtc(OffsetDateTime),
 }
 
-fn next_utc_hour(now: DateTime<Utc>, hour: u8) -> DateTime<Utc> {
-    let mut next = now
-        .with_hour(u32::from(hour))
-        .and_then(|t| t.with_minute(0))
-        .and_then(|t| t.with_second(0))
-        .and_then(|t| t.with_nanosecond(0))
-        .expect("validated 0..23 UTC hour");
+fn next_utc_hour(now: OffsetDateTime, hour: u8) -> OffsetDateTime {
+    let now = now.to_offset(UtcOffset::UTC);
+    let mut next = now.replace_time(Time::from_hms(hour, 0, 0).expect("validated 0..23 UTC hour"));
     if next <= now {
         next += Duration::days(1);
     }
@@ -91,7 +87,7 @@ fn next_utc_hour(now: DateTime<Utc>, hour: u8) -> DateTime<Utc> {
 pub fn plan_send_time(
     mode: DeliveryMode,
     preference: PreferredSendHour,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> SendTiming {
     match mode {
         DeliveryMode::Disabled => SendTiming::Disabled,
@@ -133,10 +129,19 @@ mod tests {
     }
 
     #[test]
+    fn next_hour_uses_utc_even_for_offset_input_and_rolls_over_year() {
+        use time::format_description::well_known::Rfc3339;
+        let now = OffsetDateTime::parse("2026-12-31T23:30:00+01:00", &Rfc3339).unwrap();
+        let expected = OffsetDateTime::parse("2027-01-01T12:00:00Z", &Rfc3339).unwrap();
+        assert_eq!(next_utc_hour(now, 12), expected);
+        assert_eq!(next_utc_hour(now, 12).offset(), UtcOffset::UTC);
+    }
+
+    #[test]
     fn four_modes_and_exact_utc_hour_boundary_are_deterministic() {
-        let now = DateTime::parse_from_rfc3339("2026-11-10T12:00:00Z")
+        let now = OffsetDateTime::parse("2026-11-10T12:00:00Z", &time::format_description::well_known::Rfc3339)
             .unwrap()
-            .with_timezone(&Utc);
+            .to_offset(UtcOffset::UTC);
         let mut counts = [0; 24];
         counts[16] = 5;
         let preferred = choose_preferred_hour(&counts);
@@ -151,17 +156,17 @@ mod tests {
         assert_eq!(
             plan_send_time(DeliveryMode::SmartTime, preferred, now),
             SendTiming::AtUtc(
-                DateTime::parse_from_rfc3339("2026-11-10T16:00:00Z")
+                OffsetDateTime::parse("2026-11-10T16:00:00Z", &time::format_description::well_known::Rfc3339)
                     .unwrap()
-                    .with_timezone(&Utc)
+                    .to_offset(UtcOffset::UTC)
             )
         );
         assert_eq!(
             plan_send_time(DeliveryMode::DailyDigest, preferred, now),
             SendTiming::AtUtc(
-                DateTime::parse_from_rfc3339("2026-11-11T12:00:00Z")
+                OffsetDateTime::parse("2026-11-11T12:00:00Z", &time::format_description::well_known::Rfc3339)
                     .unwrap()
-                    .with_timezone(&Utc)
+                    .to_offset(UtcOffset::UTC)
             )
         );
         assert_eq!(

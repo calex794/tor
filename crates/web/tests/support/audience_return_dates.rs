@@ -1,6 +1,6 @@
 //! Calendar assertions for FLOW reports that render an explicit UTC measurement time.
 
-use chrono::{DateTime, Duration as CalendarDuration};
+use time::{format_description::well_known::Rfc3339, Duration as CalendarDuration, OffsetDateTime};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub async fn wait_for_fixture_day() {
@@ -22,9 +22,9 @@ pub fn assert_period_bounds(html: &str, current: &str, previous: &str, days: i32
         .map(|(timestamp, _)| timestamp)
         .expect("report measurement timestamp");
     assert!(timestamp.ends_with('Z'), "report measurement is UTC");
-    let today = DateTime::parse_from_rfc3339(timestamp)
+    let today = OffsetDateTime::parse(timestamp, &Rfc3339)
         .unwrap()
-        .date_naive();
+        .date();
     let days = i64::from(days);
     for (name, section, ages) in [
         ("current", current, [days - 1, -1]),

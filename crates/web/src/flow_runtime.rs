@@ -9,8 +9,11 @@ use tor_traffic_behavior::{
 };
 
 pub(crate) fn utc(epoch: i64) -> String {
-    chrono::DateTime::from_timestamp(epoch, 0)
-        .map(|at| at.format("%Y-%m-%d %H:%M UTC").to_string())
+    time::OffsetDateTime::from_unix_timestamp(epoch)
+        .ok()
+        .and_then(|at| {
+            at.format(time::macros::format_description!("[year]-[month]-[day] [hour]:[minute] UTC")).ok()
+        })
         .unwrap_or_else(|| "время неизвестно".into())
 }
 
