@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Fixed table lists; event UUID is bound.
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
@@ -62,7 +63,7 @@ async fn organic_flag_off_does_not_collect_even_with_rec_consent_on() {
         "organic_discovery_unattributed_reads",
     ] {
         let query = format!("SELECT count(*) FROM {table} WHERE source_event_id=$1::uuid");
-        let n: i64 = sqlx::query_scalar(&query)
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
             .bind(&event)
             .fetch_one(&pool)
             .await
@@ -130,7 +131,7 @@ async fn organic_flag_off_does_not_collect_even_with_rec_consent_on() {
         "organic_discovery_unattributed_reads",
     ] {
         let query = format!("SELECT count(*) FROM {table} WHERE source_event_id=$1::uuid");
-        let count: i64 = sqlx::query_scalar(&query)
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
             .bind(&event)
             .fetch_one(&older_pool)
             .await

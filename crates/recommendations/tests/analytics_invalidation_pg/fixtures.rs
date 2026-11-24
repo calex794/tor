@@ -1,4 +1,5 @@
 use sqlx::{postgres::PgPoolOptions, PgPool};
+// SQLx 0.9 test SQL audit: Validated fixture schema and integer ID range, fixed table list.
 use tor_recommendations::{
     repositories::audience::PgDiscoveryAudience,
     services::audience::{
@@ -22,7 +23,7 @@ async fn scoped_pool(url: &str, schema: &'static str, read_only: bool) -> PgPool
         .max_connections(3)
         .after_connect(move |connection, _| {
             Box::pin(async move {
-                sqlx::query(&format!("SET search_path={schema},public"))
+                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema},public")))
                     .execute(&mut *connection)
                     .await?;
                 if read_only {
@@ -47,7 +48,7 @@ impl Fixture {
         let owner_url = super::current_analytics::url("MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
         super::current_analytics::assert_schema(&owner).await;
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
             .execute(&owner)
             .await
             .unwrap();
@@ -70,7 +71,7 @@ impl Fixture {
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -84,27 +85,27 @@ impl Fixture {
             "organic_discovery_dirty",
             "rec_worker_health",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {schema}.rec_public_books WITH (security_barrier=true) AS
              SELECT * FROM public.rec_public_books WHERE id BETWEEN {base} AND {base}+199"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
             .execute(&owner)
             .await
             .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -196,7 +197,7 @@ impl Fixture {
 
     pub async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
             .execute(&self.owner)
             .await
             .unwrap();

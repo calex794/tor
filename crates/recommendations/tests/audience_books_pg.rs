@@ -1,4 +1,5 @@
 //! Real migrated PostgreSQL: full ranges, bounded pages, current public metadata,
+// SQLx 0.9 test SQL audit: Validated fixture schema and integer range; fixed table and assignment lists.
 //! retained unknown values and no mutation while reading the admin report.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tor_recommendations::{
@@ -40,11 +41,11 @@ impl Fixture {
                     ARRAY[CASE WHEN i%3=0 THEN 'flow-books-tag' ELSE 'other' END]
              FROM generate_series(0,$2::int-1) i",
         ).bind(base).bind(count).execute(&owner).await.unwrap();
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
             .execute(&owner)
             .await
             .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -56,24 +57,24 @@ impl Fixture {
             "organic_discovery_dirty",
             "rec_worker_health",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
         // Preserve the actual current eligibility view, only limit fixture IDs.
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {schema}.rec_public_books AS SELECT * FROM public.rec_public_books WHERE id BETWEEN {base} AND {base}+199"
-        )).execute(&owner).await.unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
+        ))).execute(&owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
             .execute(&owner)
             .await
             .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -82,7 +83,7 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let command = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(&command).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(command)).execute(connection).await?;
                     Ok(())
                 })
             })
@@ -99,7 +100,7 @@ impl Fixture {
 
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
             .execute(&self.owner)
             .await
             .unwrap();
@@ -184,7 +185,7 @@ async fn flow_books_full_periods_filters_paging_and_current_public_eligibility()
         (30, "access_level='adult'"),
         (31, "lifecycle_status='pending_deletion'"),
     ] {
-        sqlx::query(&format!("UPDATE books SET {update},genres=ARRAY['secret-genre'],tags=ARRAY['secret-tag'] WHERE id=$1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE books SET {update},genres=ARRAY['secret-genre'],tags=ARRAY['secret-tag'] WHERE id=$1")))
             .bind(base+offset).execute(owner).await.unwrap();
     }
     sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'adult')")

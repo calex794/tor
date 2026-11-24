@@ -1,4 +1,5 @@
 //! Real PostgreSQL acceptance on disposable tor_ci only. No production writes.
+// SQLx 0.9 test SQL audit: Validated fixture label and fixed table list.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tor_recommendations::repositories::surprises::{PgSurprises, PlanState, SurpriseError};
 
@@ -16,12 +17,13 @@ impl Fixture {
         let owner_url = std::env::var("MIGRATOR_URL").expect("isolated migrator URL");
         assert!(app_url.ends_with("/tor_ci") && owner_url.ends_with("/tor_ci"));
         let owner = PgPool::connect(&owner_url).await.unwrap();
+        assert!(!label.is_empty() && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'));
         let schema = format!("surprise_{label}");
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA IF EXISTS {schema} CASCADE")))
             .execute(&owner)
             .await
             .unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -32,26 +34,26 @@ impl Fixture {
             "surprise_daily_decisions",
             "surprise_admin_events",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
             .execute(&owner)
             .await
             .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -61,7 +63,7 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let cmd = format!("SET search_path={path},public");
                 Box::pin(async move {
-                    sqlx::query(&cmd).execute(connection).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(cmd)).execute(connection).await?;
                     Ok(())
                 })
             })
@@ -116,7 +118,7 @@ impl Fixture {
             .execute(&self.app)
             .await
             .unwrap();
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
             .execute(&self.owner)
             .await
             .unwrap();

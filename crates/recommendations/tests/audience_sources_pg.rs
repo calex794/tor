@@ -1,4 +1,5 @@
 //! FLOW source totals against migrated disposable PostgreSQL. Canonical C facts
+// SQLx 0.9 test SQL audit: Fixed table lists or enum-like branch, and checked-in migration CTE.
 //! below use the published DB contract; HTTP/browser tests exercise C's writer.
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tor_recommendations::{
@@ -61,9 +62,9 @@ async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
         "organic_discovery_dirty",
         "rec_worker_health",
     ] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE TABLE flow_source_empty.{table} (LIKE public.{table} INCLUDING ALL)"
-        ))
+        )))
         .execute(&database)
         .await
         .unwrap();
@@ -136,9 +137,9 @@ async fn clear_daily_fixture(pool: &PgPool) {
         "rec_dirty_buckets",
         "organic_discovery_dirty",
     ] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "DELETE FROM {table} WHERE book_id BETWEEN $1 AND $1+2"
-        ))
+        )))
         .bind(DAILY_BOOK)
         .execute(pool)
         .await
@@ -326,7 +327,7 @@ async fn flow_source_full_totals_cover_180_days_without_a_row_limit() {
     sqlx::query("INSERT INTO rec_worker_health(singleton,last_success) VALUES(true,now()-interval '1 hour') ON CONFLICT(singleton) DO UPDATE SET last_success=EXCLUDED.last_success")
         .execute(&pool).await.unwrap();
     for table in ["rec_dirty_buckets", "organic_discovery_dirty"] {
-        sqlx::query(&format!("INSERT INTO {table}(bucket_date,book_id) VALUES((now() AT TIME ZONE 'UTC')::date,$1) ON CONFLICT DO NOTHING"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {table}(bucket_date,book_id) VALUES((now() AT TIME ZONE 'UTC')::date,$1) ON CONFLICT DO NOTHING")))
             .bind(DAILY_BOOK).execute(&pool).await.unwrap();
     }
     let fingerprint = mutation_fingerprint(&pool).await;
@@ -385,7 +386,7 @@ async fn clean_journey(pool: &PgPool) {
         "rec_dirty_buckets",
         "organic_discovery_dirty",
     ] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE book_id=ANY($1)"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE book_id=ANY($1)")))
             .bind(&ids)
             .execute(pool)
             .await
@@ -465,7 +466,7 @@ async fn canonical_fact(
     // Mirrors C's fact + matching domain event in one commit, never a naked
     // browser payload. Production C writing is separately exercised over HTTP.
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query(&format!("INSERT INTO {table}(user_id,book_id,chapter_id,first_version_id,source_event_id) VALUES($1,$2,$3,$4,$5::uuid)"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {table}(user_id,book_id,chapter_id,first_version_id,source_event_id) VALUES($1,$2,$3,$4,$5::uuid)")))
         .bind(actor).bind(book.0).bind(book.1).bind(book.2).bind(&event)
         .execute(&mut *tx).await.unwrap();
     sqlx::query(
@@ -724,7 +725,7 @@ async fn verify_book_open_backfill(pool: &PgPool, book: i64) {
     let (_, backfill) = migration
         .split_once("WITH")
         .expect("migration backfill CTE");
-    sqlx::raw_sql(&format!("WITH{backfill}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("WITH{backfill}")))
         .execute(pool)
         .await
         .unwrap();

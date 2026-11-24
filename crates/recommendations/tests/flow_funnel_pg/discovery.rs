@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Fixed two-table loop; subject ID is bound.
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL tor_ci"]
@@ -66,10 +67,10 @@ async fn discovery_uses_real_navigation_proof_latest_click_and_rec_tie_break() {
     // Equal source time has one documented deterministic priority.
     let mut tx = f.app.begin().await.unwrap();
     for table in ["rec_assignments", "organic_discovery_touches"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE {table} SET clicked_at=transaction_timestamp(),
             book_opened_at=transaction_timestamp() WHERE subject_id=$1::uuid"
-        ))
+        )))
         .bind(&f.scope.subject_id)
         .execute(&mut *tx)
         .await

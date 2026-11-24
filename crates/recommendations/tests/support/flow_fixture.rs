@@ -1,4 +1,5 @@
 use sqlx::{
+// SQLx 0.9 test SQL audit: Timestamp-generated schema, validated table names.
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
@@ -47,32 +48,32 @@ impl Fixture {
                 .as_nanos()
         );
         let mut tx = admin.begin().await.unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&mut *tx)
             .await
             .unwrap();
         for table in tables {
             assert!(table.bytes().all(|c| c.is_ascii_lowercase() || c == b'_'));
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&mut *tx)
             .await
             .unwrap();
         }
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO tor_app")))
             .execute(&mut *tx)
             .await
             .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&mut *tx)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -94,7 +95,7 @@ impl Fixture {
     }
     pub async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
             .execute(&self.admin)
             .await
             .unwrap();
