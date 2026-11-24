@@ -125,11 +125,7 @@ async fn switch_publication(
     assert_eq!(changed.rows_affected(), 1);
 }
 
-async fn assert_pins(
-    f: &Fixture,
-    offers: &[BatchChapterOffer],
-    receipts: &[PurchaseReceipt],
-) {
+async fn assert_pins(f: &Fixture, offers: &[BatchChapterOffer], receipts: &[PurchaseReceipt]) {
     assert_eq!(receipts.len(), offers.len());
     for (offer, receipt) in offers.iter().zip(receipts) {
         assert_eq!(receipt.pinned, offer.edition);
@@ -188,7 +184,10 @@ async fn editor_wins(mode: Mode, name: &str) {
         .await
         .expect("publication must release checkout")
         .expect("checkout task must join");
-    assert_eq!(result, Err(BatchCheckoutError::Checkout(CheckoutError::StaleOffer)));
+    assert_eq!(
+        result,
+        Err(BatchCheckoutError::Checkout(CheckoutError::StaleOffer))
+    );
     no_partial(&f, 1_000).await;
     let direct_claims: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_purchase_commands WHERE user_id=$1")
