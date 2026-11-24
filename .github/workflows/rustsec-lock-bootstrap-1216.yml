@@ -1,54 +1,60 @@
-name: One-time audited candidate lockfile transfer (PR 1216)
+name: One-time RustSec integration preflight 1216
 on:
   push:
     branches: ['tools/rustsec-lock-bootstrap-1216']
     paths: ['.github/workflows/rustsec-lock-bootstrap-1216.yml']
 permissions:
   contents: write
-  actions: read
 concurrency:
   group: rustsec-lock-bootstrap-1216
   cancel-in-progress: false
 jobs:
-  transfer:
+  preflight:
     if: github.repository == 'calex794/tor' && github.ref == 'refs/heads/tools/rustsec-lock-bootstrap-1216'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      TARGET: tools/rustsec-chrono-removal-1216
-      EXPECTED_HEAD: 4e7c23a781f21212baec8954cb1f4ca5a8f1e830
-      SNAPSHOT_COMMIT: 0bf04a47d1f5a9a694bce14fc62cf96e8f538d6f
+      TARGET: tools/rustsec-integrated-1216
+      EXPECTED_HEAD: 3b03e55b90c1a5c4517b1b770e2dcc3adda83bac
       LOCK_SHA256: 7e677aa3da7d4b2a7c85f3c0af88cf4af8a49532231cccdc04b5bc2561d9ff47
-      ARTIFACT: '14961135001'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 4e7c23a781f21212baec8954cb1f4ca5a8f1e830
+          ref: 3b03e55b90c1a5c4517b1b770e2dcc3adda83bac
           persist-credentials: false
-          fetch-depth: 1
-      - name: Verify and commit the exact successful compile and audit snapshot
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format and verify the combined candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
+          cargo metadata --locked --all-features --format-version 1 > /dev/null
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git diff --check
+          test -z "$(git diff --name-only | grep -vE '^crates/.*\.rs$' || true)"
+          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
+          git diff --stat
+      - name: Commit rustfmt-only changes to the isolated candidate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT" |
-            jq -e '.id == 14961135001 and .name == "remediation-report" and .expired == false and .workflow_run.id == 45475500855 and .workflow_run.head_sha == "0bf04a47d1f5a9a694bce14fc62cf96e8f538d6f"'
-          curl --fail --silent --show-error --location --retry 2 --proto '=https' --proto-redir '=https' \
-            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT/zip" -o "$RUNNER_TEMP/lock.zip"
-          unzip -p "$RUNNER_TEMP/lock.zip" head.txt > "$RUNNER_TEMP/head.txt"
-          test "$(cat "$RUNNER_TEMP/head.txt")" = "$SNAPSHOT_COMMIT"
-          unzip -p "$RUNNER_TEMP/lock.zip" audit.json | jq -e '.vulnerabilities.count == 0 and ([.warnings[] | length] | add // 0) == 0'
-          unzip -p "$RUNNER_TEMP/lock.zip" Cargo.lock > Cargo.lock
-          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
-          cargo metadata --locked --format-version 1 --all-features > /dev/null
-          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
-          gh auth setup-git --hostname github.com
-          test "$(git ls-remote origin "refs/heads/$TARGET" | cut -f1)" = "$EXPECTED_HEAD"
-          git -c core.hooksPath=/dev/null add -- Cargo.lock
-          test "$(git diff --cached --name-only)" = Cargo.lock
-          git -c core.hooksPath=/dev/null -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'I-07: freeze the compiled and RustSec-clean dependency snapshot'
-          git -c core.hooksPath=/dev/null push origin "HEAD:refs/heads/$TARGET"
-          printf 'TOR_LOCK_TRANSFERRED %s %s\n' "$(git rev-parse HEAD)" "$LOCK_SHA256"
+          if ! git diff --quiet; then
+            gh auth setup-git --hostname github.com
+            test "$(git ls-remote origin "refs/heads/$TARGET" | cut -f1)" = "$EXPECTED_HEAD"
+            git add -u -- crates
+            test -z "$(git diff --cached --name-only | grep -vE '^crates/.*\.rs$' || true)"
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'I-07: rustfmt combined dependency-remediation candidate'
+            git push origin "HEAD:refs/heads/$TARGET"
+          fi
+          printf 'TOR_FORMATTED_CANDIDATE %s\n' "$(git rev-parse HEAD)"
+      - name: Feature boundaries and architecture guards
+        run: |
+          python3 tools/check_feature_layout.py
+          python3 tools/check_contracts.py
+          python3 -m unittest discover -s tests/architecture -v
