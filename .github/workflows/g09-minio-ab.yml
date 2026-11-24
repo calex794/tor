@@ -1,0 +1,72 @@
+name: G09 MinIO upstream response experiment (temporary)
+on:
+  push:
+    branches: [experiment/g09-minio-response-ab-20261124]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GOTOOLCHAIN: local
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.8'
+          cache: false
+      - name: Verified September release
+        run: |
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 "$url/$release" -o "$RUNNER_TEMP/minio-release"
+          curl --fail --location --silent --show-error --retry 3 "$url/$release.sha256sum" -o "$RUNNER_TEMP/minio-release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/minio-release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          test "$(sha256sum "$RUNNER_TEMP/minio-release" | cut -d ' ' -f1)" = "$expected"
+          chmod 700 "$RUNNER_TEMP/minio-release"
+      - name: Build immediate parent and upstream fix with identical Go toolchain
+        run: |
+          git init "$RUNNER_TEMP/minio-source"
+          cd "$RUNNER_TEMP/minio-source"
+          git remote add origin https://github.com/minio/minio.git
+          for arm in parent fixed; do
+            case "$arm" in
+              parent) sha=c6d3aac5c436d8468cf5a807498b6a97db421979 ;;
+              fixed) sha=52eee5a2f19ea8ef06bf2dd5ab64ab41424cb591 ;;
+            esac
+            git fetch --depth=1 origin "$sha"
+            git checkout --detach "$sha"
+            test "$(git rev-parse HEAD)" = "$sha"
+            flags=$(go run buildscripts/gen-ldflags.go)
+            CGO_ENABLED=0 go build -mod=readonly -tags kqueue -trimpath -ldflags "$flags" -o "$RUNNER_TEMP/minio-$arm" .
+            git diff --exit-code -- go.mod go.sum
+          done
+      - name: Compile exactly one TOR test binary for all arms
+        run: |
+          rustc --version
+          cargo test -p tor-storage --features s3 --test g09_minio_ab --no-run
+      - name: Measure first GET failures and integrity on each fresh server
+        run: |
+          failed=0
+          for arm in release parent fixed; do
+            if ! bash tools/g09_minio_ab.sh "$arm" "$RUNNER_TEMP/minio-$arm"; then
+              echo "G09_AB_INCOMPLETE arm=$arm"
+              failed=1
+            fi
+          done
+          {
+            echo '## G-09 upstream MinIO experiment'
+            echo 'Completion is not strict G-09 acceptance.'
+            for arm in release parent fixed; do
+              echo "### $arm"
+              grep '^G09_AB_RESULT ' "$RUNNER_TEMP/g09-ab-$arm-result.log" || echo 'INCOMPLETE'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
