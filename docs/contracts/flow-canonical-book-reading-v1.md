@@ -3,7 +3,7 @@
 ## Administrator journey
 
 A live site administrator opens Audience -> Confirmed reading by book
-(`/admin/audience/reading`). Select 1/7/30/90 days, books/genres/tags and optional
+(`/odmen/audience/reading`). Select 1/7/30/90 days, books/genres/tags and optional
 current genre/tag filters. Missing labels have their own genuine null group.
 A reader, moderator or revoked administrator cannot use this route or obtain its
 numbers. Each response, including errors, is private, no-store and noindex.

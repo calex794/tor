@@ -158,7 +158,7 @@ FLOW-06/09 integration; replay and expiry are not mislabeled ingestion losses.
 
 ## Administrative report and integration ports
 
-`GET /admin/audience/exposure` requires a current A administrator session. Auth
+`GET /odmen/audience/exposure` requires a current A administrator session. Auth
 and all report/guard reads share a 950 ms HTTP deadline. Reports use a repeatable
 read, read-only transaction with 750 ms statement / 75 ms lock limits. Responses
 are `no-store`, `noindex, nofollow`; errors show unavailable, never invented zeros.
