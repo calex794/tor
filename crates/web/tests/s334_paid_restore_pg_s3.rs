@@ -381,7 +381,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
                 WalletId::new(buyer_v2).unwrap(),
                 pinned_v2,
                 MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}5", "S".repeat(42))).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "S".repeat(42))).unwrap(),
             )
             .unwrap(),
         )
