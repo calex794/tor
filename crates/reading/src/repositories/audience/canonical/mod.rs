@@ -1,6 +1,9 @@
 //! Single read-only snapshot over C facts and the already approved public catalogue port.
 mod rank;
 
+const REPORT_SQL: &str = concat!(include_str!("common.sql"), include_str!("report_tail.sql"));
+const RANK_SQL: &str = concat!(include_str!("common.sql"), include_str!("rank_tail.sql"));
+
 use super::{unavailable, AudienceError, PgAudience};
 use crate::services::audience::canonical::{
     CanonicalCounts, CanonicalDimension, CanonicalQuery, CanonicalReport, CanonicalRow,
@@ -23,7 +26,7 @@ impl PgAudience {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let records = sqlx::query(include_str!("report.sql"))
+        let records = sqlx::query(REPORT_SQL)
             .bind(query.days)
             .bind(&query.genre)
             .bind(&query.tag)
