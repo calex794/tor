@@ -81,7 +81,7 @@ task: D-06 / FIN-B05
 scope: crates/commerce/** + contracts/finance
 branch/PR: URL
 commit_sha: full 40 hex
-API: POST /api/v1/admin/refunds/{id}/decide
+API: POST /api/v1/odmen/refunds/{id}/decide
 PG migrations: paths and transaction isolation
 test_results: exact command + passed/failed + PG connection mode
 browser_evidence: Chromium run URL or explicit NOT_RUN
