@@ -40,6 +40,7 @@ mod reader_paid;
 pub use reader_paid::{
     paid_reader_shell, purchased_chapters_page, purchased_chapters_page_with_reader,
 };
+pub(crate) mod book_card_parts;
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{

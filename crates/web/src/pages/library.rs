@@ -1,5 +1,5 @@
 //! Signed-in reading library and book/creator-follow release feed.
-use super::{escape_html, private_account_layout as layout};
+use super::{book_card_parts::library_cover_image, escape_html, private_account_layout as layout};
 use axum::response::Html;
 use std::fmt::Write;
 
@@ -75,11 +75,22 @@ fn book_art(
     let confirmed =
         confirmed_covers.is_none_or(|ids| u64::try_from(book_id).is_ok_and(|id| ids.contains(&id)));
     let image = if public_visible && book_id > 0 && confirmed {
-        format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
+        library_cover_image(book_id)
     } else {
         String::new()
     };
     format!("<div class=\"library-book-art\" aria-hidden=\"true\"><span class=\"library-book-art__spine\"></span><span class=\"library-book-art__glyph\">✦</span>{image}</div>")
+}
+
+/// Shared saved/purchased label; ordinary deletion has priority.
+fn deletion_notice(ordinary_deleted: bool, pending_deletion: bool) -> &'static str {
+    if ordinary_deleted {
+        "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
+    } else if pending_deletion {
+        "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
+    } else {
+        ""
+    }
 }
 
 fn purchase_only_book_cards(
@@ -93,13 +104,7 @@ fn purchase_only_book_cards(
     let mut cards = String::new();
     for book in &page.items {
         let title = escape_html(&book.title);
-        let status = if book.ordinary_deleted {
-            "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
-        } else if book.pending_deletion {
-            "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
-        } else {
-            ""
-        };
+        let status = deletion_notice(book.ordinary_deleted, book.pending_deletion);
         let navigation = if paid_reader_available {
             format!(
                 "<p><a href=\"/me/library/{}/saved\">Купленные главы</a></p>",
@@ -178,13 +183,7 @@ fn my_library_inner(
             let title = escape_html(&book.title);
             // A saved Book is still present after ordinary deletion.
             // Its public detail URL is gone; use only the private pinned reader.
-            let state = if book.ordinary_deleted {
-                "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
-            } else if book.pending_deletion {
-                "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
-            } else {
-                ""
-            };
+            let state = deletion_notice(book.ordinary_deleted, book.pending_deletion);
             let title_view = if book.ordinary_deleted {
                 format!("<h3>{title}</h3>")
             } else {
@@ -527,72 +526,5 @@ mod archived_continue_tests {
 }
 
 #[cfg(test)]
-mod purchase_only_book_tests {
-    use super::*;
-    use tor_reading::{
-        repositories::follow_updates::FollowedReleasePage,
-        services::library::{PurchasedOnlyBook, PurchasedOnlyBookPage, SavedBookPage},
-    };
-
-    #[test]
-    fn bought_only_deleted_book_stays_in_library_without_remove_bookmark_action() {
-        let bookmarked = SavedBookPage {
-            items: vec![],
-            next_cursor: None,
-        };
-        let only_bought = PurchasedOnlyBookPage {
-            items: vec![
-                PurchasedOnlyBook {
-                    book_id: 88,
-                    title: "Removed <script>alert(1)</script>".into(),
-                    pending_deletion: false,
-                    ordinary_deleted: true,
-                },
-                PurchasedOnlyBook {
-                    book_id: 77,
-                    title: "Pending".into(),
-                    pending_deletion: true,
-                    ordinary_deleted: false,
-                },
-            ],
-            next_cursor: Some(77),
-        };
-        let updates = FollowedReleasePage {
-            items: vec![],
-            next_cursor: None,
-        };
-        let html = my_library_with_updates_and_layers_and_purchased_only_selected(
-            &[],
-            &bookmarked,
-            "csrf",
-            (true, false),
-            false,
-            (&updates, &[]),
-            (&only_bought, Some("purchased"), None),
-        )
-        .0;
-        assert!(html.contains("aria-label=\"Книги с покупками\""));
-        assert!(html.contains("href=\"/me/library/88/saved\""));
-        assert!(html.contains("href=\"/me/library/77/saved\""));
-        assert!(html.contains("href=\"/me/library?purchased_after=77\""));
-        assert!(html.contains("Удалена"));
-        assert!(html.contains("Ожидает удаления"));
-        assert!(html.contains("&lt;script&gt;"));
-        assert!(!html.contains("<script>alert(1)</script>"));
-        assert!(!html.contains("action=\"/me/library/88/remove\""));
-        assert!(!html.contains("action=\"/me/library/77/remove\""));
-
-        let unavailable = my_library_with_updates_and_layers_and_purchased_only_selected(
-            &[],
-            &bookmarked,
-            "csrf",
-            (false, false),
-            false,
-            (&updates, &[]),
-            (&only_bought, Some("purchased"), None),
-        )
-        .0;
-        assert!(unavailable.contains("чтение временно недоступно"));
-        assert!(!unavailable.contains("href=\"/me/library/88/saved\""));
-    }
-}
+#[path = "library/purchased/tests.rs"]
+mod purchase_only_book_tests;

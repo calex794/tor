@@ -1,11 +1,12 @@
 //! Shared organic/editorial chapter-end BookCard markup. Source attribution
 //! remains on the enclosing article, never on the reader-facing card.
-use crate::pages::escape_html;
+use crate::pages::{book_card_parts::mini_cover, escape_html};
 use std::fmt::Write;
 use tor_recommendations::repositories::feedback::ShelfCardPreview;
 
 pub(crate) fn markup(id: i64, title: &str, preview: Option<&ShelfCardPreview>) -> String {
     let title = escape_html(title);
+    let cover = mini_cover(id, true);
     let mut details = String::new();
     if let Some(preview) = preview.filter(|value| value.book_id == id) {
         if !preview.genres.is_empty() {
@@ -46,7 +47,7 @@ pub(crate) fn markup(id: i64, title: &str, preview: Option<&ShelfCardPreview>) -
         r#"<div class="book-mini-card__visual" data-reader-shelf-card>
 <div class="book-mini-card__flip-inner">
 <div class="book-mini-card__flip-front">
-<a class="book-mini-card__cover-link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async" draggable="false"></div></a>
+<a class="book-mini-card__cover-link" data-flow-link href="/books/{id}" aria-label="{title}">{cover}</a>
 </div>
 <div class="book-mini-card__flip-back"><a class="book-mini-card__flip-back-link" data-flow-link href="/books/{id}" aria-label="Открыть книгу: {title}"><strong class="book-mini-card__flip-title">{title}</strong>{details}<span class="book-mini-card__flip-open">Открыть книгу</span></a></div>
 </div>
