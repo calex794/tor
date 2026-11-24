@@ -337,7 +337,7 @@ async fn rec13_retirement_preserves_business_settings_reading_preferences_and_gu
         call(
             &app,
             "GET",
-            "/me/recommendations/manage",
+            "/odmen/recommendations/manage",
             "",
             (ORIGIN, ""),
             "",

@@ -172,6 +172,16 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("POST", "/odmen/recommendations", "admin::shares_submit", "administrator"),
                 }
             )
+            allow_rec_admin_page = (
+                row["source"] == "crates/web/src/recommendation_http/mod.rs"
+                and key in {
+                    ("GET", "/odmen/recommendations/manage", "admin::page", "administrator"),
+                    ("POST", "/odmen/recommendations/manage", "admin::form_control", "administrator"),
+                    ("GET", "/odmen/recommendations/contextual", "admin::contextual::page", "administrator"),
+                    ("POST", "/odmen/recommendations/contextual", "admin::contextual::form", "administrator"),
+                    ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page", "administrator"),
+                }
+            )
             allow_observations = (row["source"] == "crates/web/src/flow_exposure/mod.rs"
                                   and key == ("GET", "/odmen/audience/exposure", "report::page", "administrator"))
             allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
@@ -218,7 +228,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
             if not (allow_odmen or allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
-                    or allow_ratio_admin or allow_continuation_admin):
+                    or allow_ratio_admin or allow_rec_admin_page or allow_continuation_admin):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

@@ -88,6 +88,25 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
         self.assertIn("obsoleteWrite.status(), 404", browser)
         self.assertIn("denied.status(), 404", browser)
 
+    def test_administrator_only_recommendation_pages_are_not_public_me_routes(self):
+        import json
+        data = json.loads((ROOT / "docs/contracts/ril-route-guards-v1.json")
+                          .read_text(encoding="utf-8"))
+        expected = {
+            ("GET", "/odmen/recommendations/manage"),
+            ("POST", "/odmen/recommendations/manage"),
+            ("GET", "/odmen/recommendations/contextual"),
+            ("POST", "/odmen/recommendations/contextual"),
+            ("GET", "/odmen/recommendations/shelf-preview"),
+        }
+        actual = {(item["method"], item["template"]) for item in data["routes"]
+                  if item["policy"] == "administrator"
+                  and item["template"].startswith("/odmen/recommendations/")}
+        self.assertEqual(actual, expected)
+        self.assertFalse(any(item["policy"] == "administrator"
+                             and item["template"].startswith("/me/recommendations/")
+                             for item in data["routes"]))
+
     def test_unrelated_honeypot_name_is_intentionally_preserved(self):
         decoy = (ROOT / "tools/a09_honeypot_browser.cjs").read_text(encoding="utf-8")
         self.assertIn("__bp_honeypot/admin/private", decoy)

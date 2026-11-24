@@ -275,7 +275,7 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
     let response = request(
         &site,
         "GET",
-        "/me/recommendations/shelf-preview",
+        "/odmen/recommendations/shelf-preview",
         &admin_cookie,
         ORIGIN,
         "",

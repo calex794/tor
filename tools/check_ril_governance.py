@@ -62,7 +62,7 @@ RETIRED_COLLECTION_ROUTES = {
     ("POST", "/api/v1/discovery/activate", "crates/web/src/recommendation_http/mod.rs", "organic::activate"): "scoped",
     ("GET", "/api/v1/odmen/recommendations/quality", "crates/web/src/recommendation_http/mod.rs", "admin::quality"): "administrator",
     ("POST", "/api/v1/odmen/recommendations/control", "crates/web/src/recommendation_http/mod.rs", "admin::control"): "administrator",
-    ("POST", "/me/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
+    ("POST", "/odmen/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
 }
 
 SCOPE_CALLS = {
@@ -919,6 +919,26 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and "!verified.administrator" in evidence
         and "StatusCode::FORBIDDEN" in evidence
     )
+    # Exact former /me administrator-only routes now use /odmen. The shared
+    # admin::actor helper still requires a live PG-backed administrator; for
+    # POST actions the origin-bound CSRF helper must remain reachable.
+    audited_rec_admin_pages = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+        and admin_key in {
+            ("GET", "/odmen/recommendations/manage", "admin::page"),
+            ("POST", "/odmen/recommendations/manage", "admin::form_control"),
+            ("GET", "/odmen/recommendations/contextual", "admin::contextual::page"),
+            ("POST", "/odmen/recommendations/contextual", "admin::contextual::form"),
+            ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page"),
+        }
+        and all(t in evidence for t in (
+            "session_actor(", "!verified.administrator", "StatusCode::FORBIDDEN",
+        ))
+        and (entry["method"] == "GET" or (
+            "same_origin(" in evidence and "valid_csrf(" in evidence
+        ))
+    )
     audited_continuation_admin = (
         policy == "administrator"
         and entry["source"] == "crates/web/src/auth.rs"
@@ -936,7 +956,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_continuation_admin or admin_entry_proof):
+            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1813,14 +1833,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("GET", "/api/v1/odmen/recommendations/quality", "admin::quality"),
         ("GET", "/api/v1/odmen/recommendations/contextual", "admin::contextual::status"),
         ("POST", "/api/v1/odmen/recommendations/contextual", "admin::contextual::control"),
-        ("GET", "/me/recommendations/contextual", "admin::contextual::page"),
-        ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
+        ("GET", "/odmen/recommendations/contextual", "admin::contextual::page"),
+        ("POST", "/odmen/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/odmen/recommendations/control", "admin::control"),
-        ("GET", "/me/recommendations/manage", "admin::page"),
+        ("GET", "/odmen/recommendations/manage", "admin::page"),
         ("GET", "/odmen/recommendations", "admin::shares_page"),
         ("POST", "/odmen/recommendations", "admin::shares_submit"),
-        ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
-        ("POST", "/me/recommendations/manage", "admin::form_control"),
+        ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page"),
+        ("POST", "/odmen/recommendations/manage", "admin::form_control"),
     }
     if (entry["template"] == "/me/refunds"
             and entry["source"] == "crates/web/src/auth/refund_browser.rs"):

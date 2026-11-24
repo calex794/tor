@@ -41,7 +41,7 @@ limits do not promise an end-to-end SLA for every catalogue/database outage.
 
 ## Build, activation, hold, rollback and cancellation
 
-Native administrator page: `GET/POST /me/recommendations/contextual`.
+Native administrator page: `GET/POST /odmen/recommendations/contextual`.
 JSON control: `GET/POST /api/v1/odmen/recommendations/contextual`.
 Fresh administrator/session and Origin/CSRF checks remain mandatory. Both UI and
 JSON call the same operation; no user IDs or rollout percentage are accepted.
