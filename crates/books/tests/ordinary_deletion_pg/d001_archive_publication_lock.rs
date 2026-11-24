@@ -5,7 +5,10 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::time::Duration;
 use tor_books::{
-    repositories::{free_s3_publish::PgFreeS3Publication, postgres::PgAuthoring},
+    repositories::{
+        free_s3_publish::{PgFreeS3Publication, PreparedFreeEdit},
+        postgres::PgAuthoring,
+    },
     services::authoring::{save_chapter, AuthorError, SaveChapter, SaveChapterRequest},
 };
 
@@ -69,9 +72,23 @@ async fn verify_receipt(pool: &PgPool, chapter: i64, version: i64, body: &str) {
     assert_eq!(object_sha.as_slice(), expected.as_slice());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL tor_ci"]
-async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
+const OWNER_HASH: &str = "$argon2id$d001-archive-ci-fixture";
+
+struct ArchiveRaceFixture {
+    pool: PgPool,
+    owner: i64,
+    reader: i64,
+    token: [u8; 32],
+    book: i64,
+    chapter: i64,
+    store: PgFreeS3Publication,
+    initial: SaveChapter,
+    input: SaveChapter,
+    v1: i64,
+    v2: PreparedFreeEdit,
+}
+
+async fn archive_race_fixture() -> ArchiveRaceFixture {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG");
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:"));
     let pool = PgPool::connect(&url).await.unwrap();
@@ -79,13 +96,12 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let hash = "$argon2id$d001-archive-ci-fixture";
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'D001 owner',$2) RETURNING id",
     )
     .bind(format!("d001-archive-owner-{nonce}@example.invalid"))
-    .bind(hash)
+    .bind(OWNER_HASH)
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -94,7 +110,7 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
          VALUES($1,'D001 reader',$2) RETURNING id",
     )
     .bind(format!("d001-archive-reader-{nonce}@example.invalid"))
-    .bind(hash)
+    .bind(OWNER_HASH)
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -168,6 +184,37 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
     let v2 = store.prepare_edit(owner, &input).await.unwrap();
     assert!(!v2.published);
     assert_ne!(v1.version_id, v2.version_id);
+    ArchiveRaceFixture {
+        pool,
+        owner,
+        reader,
+        token,
+        book,
+        chapter,
+        store,
+        initial,
+        input,
+        v1: v1.version_id,
+        v2,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
+    let ArchiveRaceFixture {
+        pool,
+        owner,
+        reader,
+        token,
+        book,
+        chapter,
+        store,
+        initial,
+        input,
+        v1,
+        v2,
+    } = archive_race_fixture().await;
     let version2 = v2.version_id;
     let expected_v2_body = input.body.clone();
 
@@ -194,7 +241,7 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
 
     let repo = PgAuthoring::new(pool.clone());
     let deletion = tokio::spawn(async move {
-        repo.advance_ordinary_deletion(owner, book, 1, "start", &token, hash)
+        repo.advance_ordinary_deletion(owner, book, 1, "start", &token, OWNER_HASH)
             .await
     });
     wait_blocked_by(&pool, editor_pid).await;
@@ -240,8 +287,8 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(saved, v1.version_id);
-    verify_receipt(&pool, chapter, v1.version_id, &initial.body).await;
+    assert_eq!(saved, v1);
+    verify_receipt(&pool, chapter, v1, &initial.body).await;
     verify_receipt(&pool, chapter, version2, &expected_v2_body).await;
 
     let counts: (i64, i64, i64) = sqlx::query_as(
@@ -255,7 +302,7 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
     assert_eq!(counts, (2, 2, 2));
     assert_eq!(
         PgAuthoring::new(pool.clone())
-            .advance_ordinary_deletion(owner, book, 1, "start", &token, hash)
+            .advance_ordinary_deletion(owner, book, 1, "start", &token, OWNER_HASH)
             .await,
         Err(AuthorError::Conflict)
     );
@@ -267,5 +314,150 @@ async fn d001_layer_archive_waits_for_author_publication_and_keeps_saved_v1() {
     .await
     .unwrap();
     assert_eq!(archive_count, 1, "replay must not rewrite the archive");
+    pool.close().await;
+}
+
+async fn blocked_sql(pool: &PgPool, pid: i32) -> String {
+    sqlx::query_scalar("SELECT query FROM pg_stat_activity WHERE pid=$1")
+        .bind(pid)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d001_layer_archive_deletion_first_freezes_v1_before_waiting_author_edit() {
+    let ArchiveRaceFixture {
+        pool,
+        owner,
+        reader,
+        token,
+        book,
+        chapter,
+        store,
+        initial,
+        input,
+        v1,
+        v2,
+    } = archive_race_fixture().await;
+    let version2 = v2.version_id;
+    let expected_v2_body = input.body.clone();
+
+    // The archive INSERT's non-deferrable FK takes KEY SHARE on V1.
+    // Hold that version (not the Book or Chapter) so deletion can acquire the
+    // real Book lock before we let the author attempt to attach its V2.
+    let mut guard = pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *guard)
+        .await
+        .unwrap();
+    let locked: i64 = sqlx::query_scalar("SELECT id FROM chapter_versions WHERE id=$1 FOR UPDATE")
+        .bind(v1)
+        .fetch_one(&mut *guard)
+        .await
+        .unwrap();
+    assert_eq!(locked, v1);
+    let repo = PgAuthoring::new(pool.clone());
+    let deletion = tokio::spawn(async move {
+        repo.advance_ordinary_deletion(owner, book, 1, "start", &token, OWNER_HASH)
+            .await
+    });
+    let deletion_pid = wait_blocked_by(&pool, blocker).await;
+    assert!(blocked_sql(&pool, deletion_pid)
+        .await
+        .contains("INSERT INTO book_layer_free_archive_versions"));
+
+    let editor = tokio::spawn(async move {
+        store
+            .attach_edit(owner, &input, &v2, receipt(&input.body))
+            .await
+    });
+    let editor_pid = wait_blocked_by(&pool, deletion_pid).await;
+    assert!(blocked_sql(&pool, editor_pid)
+        .await
+        .contains("SELECT id FROM books"));
+    guard.commit().await.unwrap();
+
+    let request_revision = tokio::time::timeout(Duration::from_secs(15), deletion)
+        .await
+        .expect("releasing V1 must unblock the archive")
+        .expect("deletion task must join")
+        .expect("ordinary deletion request must succeed");
+    assert_eq!(request_revision, 2);
+    tokio::time::timeout(Duration::from_secs(15), editor)
+        .await
+        .expect("deletion commit must unblock the editor")
+        .expect("author task must join")
+        .expect("V2 must attach on the now-hidden Book");
+
+    let lifecycle: (String, String, i64) = sqlx::query_as(
+        "SELECT lifecycle_status,visibility,lifecycle_revision FROM books WHERE id=$1",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        lifecycle,
+        ("pending_deletion".to_owned(), "draft".to_owned(), 2)
+    );
+    let pointer: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pointer, version2);
+    let saved: i64 = sqlx::query_scalar(
+        "SELECT version_id FROM reader_saved_free_chapters WHERE user_id=$1 AND chapter_id=$2",
+    )
+    .bind(reader)
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(saved, v1);
+    verify_receipt(&pool, chapter, v1, &initial.body).await;
+    verify_receipt(&pool, chapter, version2, &expected_v2_body).await;
+
+    let roles: Vec<(i64, bool, bool, bool)> = sqlx::query_as(
+        "SELECT version_id,is_published_head,has_saved_free,has_layer_free_archive
+         FROM d001_chapter_materialization_roles
+         WHERE chapter_id=$1 ORDER BY version_id",
+    )
+    .bind(chapter)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    // is_published_head describes the materialization pointer, not public ACL.
+    assert_eq!(
+        roles,
+        vec![(v1, false, true, true), (version2, true, false, false)]
+    );
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT logical_editions,reader_retained_editions,physical_materializations
+         FROM d001_chapter_logical_counts WHERE chapter_id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (2, 2, 2));
+    assert_eq!(
+        PgAuthoring::new(pool.clone())
+            .advance_ordinary_deletion(owner, book, 1, "start", &token, OWNER_HASH)
+            .await,
+        Err(AuthorError::Conflict)
+    );
+    let archived: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT request_revision,chapter_id,version_id FROM book_layer_free_archive_versions
+         WHERE book_id=$1",
+    )
+    .bind(book)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(archived, vec![(request_revision, chapter, v1)]);
     pool.close().await;
 }
