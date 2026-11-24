@@ -475,7 +475,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_admin_chapter_access_audit WHERE admin_user_id={owner} AND chapter_id={chapter}")),"3");
     pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={owner} AND role='administrator'"));
     assert_eq!(
-        http.get(format!("{ORIGIN}/read/admin/{chapter}"))
+        http.get(format!("{ORIGIN}/read/odmen/{chapter}"))
             .header("cookie", format!("tor-dev-session={session}"))
             .send()
             .await

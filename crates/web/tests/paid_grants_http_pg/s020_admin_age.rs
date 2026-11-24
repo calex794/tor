@@ -45,7 +45,7 @@ pub(super) async fn assert_admin_can_inspect_all_book_states(
         user_id: PositiveId::new(admin_id).unwrap(),
     };
     let chapter_id = PositiveId::new(chapter).unwrap();
-    let path = format!("/read/admin/{chapter}");
+    let path = format!("/read/odmen/{chapter}");
 
     // A non-indexable Book may remain accessible to a live site
     // administrator, without granting the same access to a moderator,

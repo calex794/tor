@@ -165,7 +165,7 @@ let stage = 'launch';
         networkErrors.push('S3 GET failed: ' + event.errorText);
         signalFirstS3();
       });
-      const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
+      const html = await page.goto(config.admin ? `${config.origin}/read/odmen/${config.chapter}` : config.saved
         ? `${config.origin}/me/library/saved/${config.chapter}` : config.private
           ? `${config.origin}/read/${config.chapter}` : `${config.origin}/reader/${config.chapter}`);
       assert.equal(html.status(), 200);

@@ -38,7 +38,7 @@ pub(super) async fn check(
     let (comment, hide_report, original_admin) = sanctioned;
     eprintln!("S049_PAID_APPEAL beginning");
     let path = "/me/paid-comment-appeals";
-    let admin_path = "/admin/paid-comment-appeals";
+    let admin_path = "/odmen/paid-comment-appeals";
     let hide_event = scalar(
         url,
         &format!(
