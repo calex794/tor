@@ -1,16 +1,43 @@
 //! S034/S031: write one disposable, mode-0600 browser fixture for direct and Layer readers.
 use super::*;
 
+// Capture the real static route, not a second implementation of bundle assembly.
+pub(super) async fn paid_reader_script(app: &Router) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/newboo-paid-reader.mjs")
+                .header(header::HOST, "127.0.0.1:3098")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/javascript; charset=utf-8"
+    );
+    String::from_utf8(
+        to_bytes(response.into_body(), 512 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
 pub(super) fn save_ephemeral_fixture(
     grant: Value,
     version: i64,
     purchase: i64,
-    direct_reader: (String, String),
+    direct_reader: (String, String, String),
     layer_reader: (String, Value, String),
     expiry_probe_url: Value,
     toc_target: (i64, i64, i64, i64, i64),
 ) {
-    let (reader_html, reader_csp) = direct_reader;
+    let (reader_html, reader_csp, reader_script) = direct_reader;
     let (layer_reader_html, layer_grant, layer_reader_csp) = layer_reader;
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -29,6 +56,7 @@ pub(super) fn save_ephemeral_fixture(
         "purchase_id": purchase.to_string(),
         "reader_html": reader_html,
         "reader_csp": reader_csp,
+        "reader_script": reader_script,
         "layer_reader_html": layer_reader_html,
         "layer_grant": layer_grant,
         "layer_reader_csp": layer_reader_csp,

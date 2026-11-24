@@ -39,3 +39,14 @@ The base image remains the repository's existing `postgres:18` family; the built
 Run the architectural contract tests, then the full existing Integration CI on the exact integrated commit. Require the `I11_PITR_ISOLATED_DRILL_OK` marker and validated JSON in `sealed-remote-copy`; green compilation or an earlier SHA is insufficient. The helper refuses non-CI execution. Local Docker/PG execution is not claimed.
 
 Remaining line-I gates remain explicit: independent permitted staging; offsite PG/WAL plus objects and recovery keys; distinct-version release/rollback with compatible migrations; HTTP-to-background trace correlation; final REL evidence on one SHA. These are not closed by this drill.
+
+## RECOVERY-03b: exact UTC cutoff and paused recovery
+
+The existing isolated container also exercises an exclusive time target on
+a pinned timeline, using two commits separated by a real UTC cutoff. After
+restoring the exact backup set, it starts with fresh socket-only config
+instead of inherited auto.conf, checks actual paused recovery via SQL,
+verifies both transaction boundaries and shuts down without promoting.
+Three additional mandatory Boolean checks cover replay, transaction boundary
+and no promotion. These are new acceptance requirements, not yet evidence
+of a passed run or external restore.

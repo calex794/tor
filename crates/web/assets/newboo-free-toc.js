@@ -126,8 +126,6 @@
       void load("after");
     }
   };
-  const hide = () => { root.open = false; summary.focus(); };
-  const focusable = () => [close, ...modal.querySelectorAll("a[href]")];
   root.addEventListener("toggle", () => {
     if (root.open) {
       oldBodyOverflow = document.body.style.overflow;
@@ -144,24 +142,5 @@
     }
   });
   viewport.addEventListener("scroll", onScroll, { passive: true });
-  close.addEventListener("click", hide);
-  backdrop.addEventListener("click", hide);
-  document.addEventListener("keydown", event => {
-    if (!root.open) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      hide();
-    } else if (event.key === "Tab") {
-      const nodes = focusable().filter(node => node.getClientRects().length);
-      if (!nodes.length) return;
-      const first = nodes[0], last = nodes[nodes.length - 1];
-      if (event.shiftKey && (document.activeElement === first ||
-          !modal.contains(document.activeElement))) {
-        event.preventDefault(); last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last ||
-          !modal.contains(document.activeElement))) {
-        event.preventDefault(); first.focus();
-      }
-    }
-  });
+  bindTocDialog(root, summary, modal, close, backdrop, []);
 })();
