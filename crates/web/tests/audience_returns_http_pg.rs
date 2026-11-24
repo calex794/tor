@@ -269,7 +269,7 @@ fn delta(before: Counts, after: Counts, expected: Counts) {
 }
 
 async fn report(app: &Router, cookie: &str, days: i32) -> String {
-    let response = call(app, &format!("/admin/audience/returns?days={days}"), cookie).await;
+    let response = call(app, &format!("/odmen/audience/returns?days={days}"), cookie).await;
     private(&response, StatusCode::OK);
     let html = body(response).await;
     assert!(html.contains("data-testid=\"collection-retired\""));
@@ -331,7 +331,7 @@ async fn returns_http_exact_maturity_unknown_zero_history_and_live_admin() {
     ] {
         let denied = call(
             &app,
-            "/admin/audience/returns?days=bad&subject_id=forged",
+            "/odmen/audience/returns?days=bad&subject_id=forged",
             cookie,
         )
         .await;
@@ -350,7 +350,7 @@ async fn returns_http_exact_maturity_unknown_zero_history_and_live_admin() {
     ] {
         let invalid = call(
             &app,
-            &format!("/admin/audience/returns?{query}"),
+            &format!("/odmen/audience/returns?{query}"),
             &cookies[0],
         )
         .await;
@@ -544,19 +544,19 @@ async fn returns_http_exact_maturity_unknown_zero_history_and_live_admin() {
         assert_eq!(counts(&repeat, "current"), counts(&html, "current"));
         assert_eq!(counts(&repeat, "previous"), counts(&html, "previous"));
     }
-    let default = call(&app, "/admin/audience/returns", &cookies[0]).await;
+    let default = call(&app, "/odmen/audience/returns", &cookies[0]).await;
     private(&default, StatusCode::OK);
     let default = body(default).await;
     let ninety = report(&app, &cookies[0], 90).await;
     assert_eq!(counts(&default, "current"), counts(&ninety, "current"));
     assert_eq!(counts(&default, "previous"), counts(&ninety, "previous"));
-    let overview = body(call(&app, "/admin/audience?days=30", &cookies[0]).await).await;
+    let overview = body(call(&app, "/odmen/audience?days=30", &cookies[0]).await).await;
     assert!(overview.contains("data-testid=\"audience-returns-link\""));
-    assert!(overview.contains("href=\"/admin/audience/returns?days=30\""));
+    assert!(overview.contains("href=\"/odmen/audience/returns?days=30\""));
 
     let lock = LockedReport::acquire(&url);
     let started = Instant::now();
-    let unavailable = call(&app, "/admin/audience/returns?days=90", &cookies[0]).await;
+    let unavailable = call(&app, "/odmen/audience/returns?days=90", &cookies[0]).await;
     private(&unavailable, StatusCode::SERVICE_UNAVAILABLE);
     assert!(
         started.elapsed() < Duration::from_secs(2),
@@ -575,7 +575,7 @@ async fn returns_http_exact_maturity_unknown_zero_history_and_live_admin() {
     );
 
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let revoked = call(&app, "/admin/audience/returns?days=90", &cookies[0]).await;
+    let revoked = call(&app, "/odmen/audience/returns?days=90", &cookies[0]).await;
     private(&revoked, StatusCode::FORBIDDEN);
     assert!(!body(revoked).await.contains("data-metric="));
 }

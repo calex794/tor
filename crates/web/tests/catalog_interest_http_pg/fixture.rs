@@ -297,11 +297,11 @@ impl Fixture {
         )::text)")
     }
     pub fn rank_url(&self) -> String {
-        format!("/admin/audience/reading?days=7&tag={}&view=top20", self.tag)
+        format!("/odmen/audience/reading?days=7&tag={}&view=top20", self.tag)
     }
     pub fn exposure_url(&self) -> String {
         format!(
-            "/admin/audience/exposure?days=1&window=closed&group=tag&label={}",
+            "/odmen/audience/exposure?days=1&window=closed&group=tag&label={}",
             self.tag
         )
     }

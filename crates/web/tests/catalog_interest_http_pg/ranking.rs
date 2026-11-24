@@ -13,7 +13,7 @@ async fn full_scope_top_twenty_preserves_keysets_authority_filters_and_small_sam
     ] {
         let html = f
             .get(
-                "/admin/audience/reading?view=top20&days=bad",
+                "/odmen/audience/reading?view=top20&days=bad",
                 cookie,
                 expected,
             )
@@ -29,14 +29,14 @@ async fn full_scope_top_twenty_preserves_keysets_authority_filters_and_small_sam
         "view=top20&view=all",
     ] {
         f.get(
-            &format!("/admin/audience/reading?{query}"),
+            &format!("/odmen/audience/reading?{query}"),
             &f.cookie,
             StatusCode::BAD_REQUEST,
         )
         .await;
     }
     let before = f.fingerprint();
-    let all = format!("/admin/audience/reading?days=7&tag={}", f.tag);
+    let all = format!("/odmen/audience/reading?days=7&tag={}", f.tag);
     let first = f.get(&all, &f.cookie, StatusCode::OK).await;
     assert_eq!(ids(&first, "canonical-row"), f.books[..20]);
     assert_eq!(metric(&first, "books"), "53");
