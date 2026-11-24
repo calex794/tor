@@ -39,7 +39,10 @@ use tor_storage::{
         paid_delivery::PgPrivateDelivery, registry::PgStorageRegistry, s3::S3PrivateStore,
     },
     services::{
-        crypto::{seal_chapter, sha256_bytes, ContentKek, CryptoError},
+        crypto::{
+            seal_chapter, seal_chapter_with_keyring, sha256_bytes, ContentKek, ContentKeyring,
+            CryptoError,
+        },
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -51,6 +54,8 @@ const BACKUP_BUCKET: &str = "tor-s334-backup-ci";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ID: &str = "f0c0e034-2026-4034-8034-000000000134";
 const MARKDOWN: &str = "S334 купленная редакция V1: А😀Б и 第二章";
+const ID_V2: &str = "f0c0e034-2026-4034-8034-000000000234";
+const MARKDOWN_V2: &str = "S334 вторая купленная редакция под ключом V2";
 const SOURCE: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci";
 const RESTORED: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_restore_ci";
 
@@ -85,6 +90,12 @@ fn ci_file(name: &str) -> PathBuf {
 fn key() -> Arc<ContentKek> {
     let data = fs::read(ci_file("s334-content-kek.bin")).expect("offline KEK must survive");
     let bytes: [u8; 32] = data.try_into().expect("KEK is exactly 32 bytes");
+    Arc::new(ContentKek::from_bytes(bytes))
+}
+
+fn key_v2() -> Arc<ContentKek> {
+    let data = fs::read(ci_file("s334-content-kek-v2.bin")).expect("offline V2 KEK must survive");
+    let bytes: [u8; 32] = data.try_into().expect("V2 KEK is exactly 32 bytes");
     Arc::new(ContentKek::from_bytes(bytes))
 }
 
@@ -160,12 +171,17 @@ async fn grant(
 }
 
 async fn app(url: &str, client: Client, kek: Arc<ContentKek>) -> Router {
+    app_with_keyring(url, client, ContentKeyring::v1_only(kek)).await
+}
+
+async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) -> Router {
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool();
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
-    let signer = PgPrivateDelivery::new(pool, store, kek, BUCKET.to_owned()).unwrap();
+    let signer =
+        PgPrivateDelivery::with_keyring(pool, store, Arc::new(keyring), BUCKET.to_owned()).unwrap();
     tor_web::router_with_postgres_reading_auth_paid_grants(
         catalog,
         reader,
@@ -236,6 +252,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let (author, _) = register(&accounts, "s334-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = register(&accounts, "s334-buyer@tor-ci.example").await;
+    let (buyer_v2, buyer_v2_cookie) = register(&accounts, "s334-buyer-v2@tor-ci.example").await;
     let (_stranger, stranger_cookie) = register(&accounts, "s334-stranger@tor-ci.example").await;
     let csrf = generate_session_token();
 
@@ -243,7 +260,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         url,
         &format!(
             "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
-             VALUES({buyer},600,'RUB')"
+             VALUES({buyer},600,'RUB'),({buyer_v2},600,'RUB')"
         ),
     );
     let book = scalar(
@@ -320,13 +337,56 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         url,
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-             VALUES({chapter},2,'New V2 not purchased') RETURNING id"
+             VALUES({chapter},2,'{MARKDOWN_V2}') RETURNING id"
         ),
     );
     pg(
         url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
+    // A second buyer purchases the new edition encrypted with independent KEK V2.
+    let pinned_v2 = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter).unwrap(),
+        version_id: PositiveId::new(v2).unwrap(),
+    };
+    let object_v2 = ObjectId::parse(ID_V2).unwrap();
+    let keyring = ContentKeyring::with_v2(kek.clone(), key_v2())
+        .unwrap()
+        .with_active_id("content-kek-v2")
+        .unwrap();
+    let sealed_v2 =
+        seal_chapter_with_keyring(pinned_v2, object_v2.clone(), MARKDOWN_V2, &keyring).unwrap();
+    let reference_v2 = registry
+        .reserve_pending_with_keyring(&sealed_v2, &keyring, BUCKET)
+        .await
+        .unwrap();
+    let receipt_v2 = upload_and_verify(&store, &reference_v2, &sealed_v2.ciphertext)
+        .await
+        .unwrap();
+    registry.mark_ready(&receipt_v2).await.unwrap();
+    PgPaidStorage::new(pool.clone())
+        .attach_verified_and_publish(
+            author,
+            book,
+            pinned_v2,
+            &object_v2,
+            PaidPublication::KeepCurrent,
+        )
+        .await
+        .unwrap();
+    let purchase_v2 = PgCheckout::new(pool.clone())
+        .checkout_once(
+            &PurchaseCommand::new(
+                PositiveId::new(buyer_v2).unwrap(),
+                WalletId::new(buyer_v2).unwrap(),
+                pinned_v2,
+                MoneyMinor::new(175).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "S".repeat(42))).unwrap(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
     pg(
         url,
         &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
@@ -336,12 +396,19 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
     );
 
-    let a = app(url, c, kek).await;
+    // Roll the active writer back to V1, keeping V2 available for reading.
+    let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
+    let a = app_with_keyring(url, c, reader_keys).await;
     let response = grant(&a, chapter, Some(&buyer_cookie), Some(&csrf), "{}").await;
     assert_eq!(response.status(), StatusCode::OK);
     let grant_data = decoded(response).await;
     assert_eq!(grant_data["version_id"], v1.to_string());
     assert!(!grant_data.to_string().contains(MARKDOWN));
+    let response_v2 = grant(&a, chapter, Some(&buyer_v2_cookie), Some(&csrf), "{}").await;
+    assert_eq!(response_v2.status(), StatusCode::OK);
+    let grant_v2 = decoded(response_v2).await;
+    assert_eq!(grant_v2["version_id"], v2.to_string());
+    assert!(!grant_v2.to_string().contains(MARKDOWN_V2));
     assert_eq!(
         grant(&a, chapter, Some(&stranger_cookie), Some(&csrf), "{}")
             .await
@@ -365,6 +432,9 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
             "v1_id": v1,
             "v2_id": v2,
             "purchase_id": purchase.purchase_id.get(),
+            "purchase_v2_id": purchase_v2.purchase_id.get(),
+            "buyer_v2_cookie": buyer_v2_cookie,
+            "sha256_ciphertext_v2": hex::encode(reference_v2.sha256_ciphertext),
             "buyer_cookie": buyer_cookie,
             "stranger_cookie": stranger_cookie,
             "csrf": csrf,
@@ -372,6 +442,42 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         }),
     );
     pool.close().await;
+}
+
+async fn restore_object(url: &str, c: &Client, id: &str, digest: &str) {
+    let backup_key = format!("s334/private/chapter-versions/{id}.enc");
+    let response = c
+        .get_object()
+        .bucket(BACKUP_BUCKET)
+        .key(&backup_key)
+        .send()
+        .await
+        .unwrap();
+    let bytes = response.body.collect().await.unwrap().into_bytes().to_vec();
+    assert_eq!(hex::encode(sha256_bytes(&bytes)), digest);
+    let size = scalar(
+        url,
+        &format!("SELECT size_bytes FROM storage_objects WHERE id='{id}'::uuid"),
+    );
+    let reference = ObjectRef::new(
+        ObjectId::parse(id).unwrap(),
+        tor_contracts::paid_delivery::EncryptedObjectKind::Chapter,
+        sha256_bytes(&bytes),
+        size.try_into().unwrap(),
+    )
+    .unwrap();
+    c.put_object()
+        .bucket(BUCKET)
+        .key(format!("private/chapter-versions/{id}.enc"))
+        .content_type("application/octet-stream")
+        .metadata("sha256", digest)
+        .if_none_match("*")
+        .body(ByteStream::from(bytes))
+        .send()
+        .await
+        .unwrap();
+    let store = S3PrivateStore::new((*c).clone(), BUCKET.to_owned()).unwrap();
+    assert!(store.get_verified(&reference).await.is_ok());
 }
 
 #[tokio::test]
@@ -383,14 +489,15 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
     let v1 = snapshot["v1_id"].as_i64().unwrap();
     let v2 = snapshot["v2_id"].as_i64().unwrap();
     let buyer = snapshot["buyer_cookie"].as_str().unwrap();
+    let buyer_v2 = snapshot["buyer_v2_cookie"].as_str().unwrap();
+    let purchase_v2_id = snapshot["purchase_v2_id"].as_i64().unwrap();
+    let digest_v2 = snapshot["sha256_ciphertext_v2"].as_str().unwrap();
     let stranger = snapshot["stranger_cookie"].as_str().unwrap();
     let csrf = snapshot["csrf"].as_str().unwrap();
     let purchase_id = snapshot["purchase_id"].as_i64().unwrap();
     let digest = snapshot["sha256_ciphertext"].as_str().unwrap();
-    let object_id = ObjectId::parse(ID).unwrap();
     let c = client();
     let kek = key();
-    let store = S3PrivateStore::new(c.clone(), BUCKET.to_string()).unwrap();
 
     let restored = scalar(
         url,
@@ -399,6 +506,16 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         ),
     );
     assert_eq!(restored, v1);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT v.id FROM chapter_versions v JOIN storage_objects s ON s.id=v.storage_object_id
+                 WHERE v.id={v2} AND s.id='{ID_V2}'::uuid AND s.kek_id='content-kek-v2' AND s.state='attached'"
+            ),
+        ),
+        v2
+    );
     let current = scalar(
         url,
         &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
@@ -418,39 +535,31 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    // Retrieve exact historical bytes from separate private backup namespace.
-    let backup_key = format!("s334/private/chapter-versions/{ID}.enc");
-    let response = c
-        .get_object()
-        .bucket(BACKUP_BUCKET)
-        .key(&backup_key)
-        .send()
-        .await
-        .unwrap();
-    let bytes = response.body.collect().await.unwrap().into_bytes().to_vec();
-    assert_eq!(hex::encode(sha256_bytes(&bytes)), digest);
-    let size = scalar(
-        url,
-        &format!("SELECT size_bytes FROM storage_objects WHERE id='{ID}'::uuid"),
+    let reader_keys = ContentKeyring::with_v2(kek.clone(), key_v2()).unwrap();
+    let missing_v2 = app_with_keyring(url, c.clone(), reader_keys).await;
+    assert_eq!(
+        grant(&missing_v2, chapter, Some(buyer_v2), Some(csrf), "{}")
+            .await
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
     );
-    let reference = ObjectRef::new(
-        object_id,
-        tor_contracts::paid_delivery::EncryptedObjectKind::Chapter,
-        sha256_bytes(&bytes),
-        size.try_into().unwrap(),
-    )
-    .unwrap();
-    c.put_object()
-        .bucket(BUCKET)
-        .key(format!("private/chapter-versions/{ID}.enc"))
-        .content_type("application/octet-stream")
-        .metadata("sha256", digest)
-        .if_none_match("*")
-        .body(ByteStream::from(bytes))
-        .send()
-        .await
-        .unwrap();
-    assert!(store.get_verified(&reference).await.is_ok());
+    restore_object(url, &c, ID, digest).await;
+    restore_object(url, &c, ID_V2, digest_v2).await;
+    let missing_key_v2 = app(url, c.clone(), kek.clone()).await;
+    let incorrect = Arc::new(ContentKek::from_bytes([99_u8; 32]));
+    let reader_keys = ContentKeyring::with_v2(kek.clone(), incorrect).unwrap();
+    let wrong_key_v2 = app_with_keyring(url, c.clone(), reader_keys).await;
+    for incomplete in [&missing_key_v2, &wrong_key_v2] {
+        assert_eq!(
+            grant(incomplete, chapter, Some(buyer_v2), Some(csrf), "{}")
+                .await
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let old = grant(incomplete, chapter, Some(buyer), Some(csrf), "{}").await;
+        assert_eq!(old.status(), StatusCode::OK);
+        assert_eq!(decoded(old).await["version_id"], v1.to_string());
+    }
 
     // RET-02c: simulate a transport-level S3 outage *after* restoring the
     // exact purchased V1. A live purchase and intact KEK must not bypass HEAD;
@@ -498,7 +607,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    let correct = app(url, c, kek).await;
+    let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
+    let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
         grant(&correct, chapter, None, None, "{}").await.status(),
         StatusCode::UNAUTHORIZED
@@ -541,16 +651,42 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         }),
     );
 
+    let accepted_v2 = grant(&correct, chapter, Some(buyer_v2), Some(csrf), "{}").await;
+    assert_eq!(accepted_v2.status(), StatusCode::OK);
+    assert_eq!(
+        accepted_v2.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let authorized_v2 = decoded(accepted_v2).await;
+    assert_eq!(authorized_v2["version_id"], v2.to_string());
+    assert_eq!(authorized_v2["content"]["object_sha256"], digest_v2);
+    assert!(!authorized_v2.to_string().contains(MARKDOWN_V2));
+    save_json(
+        ci_file("s334-webcrypto-v2.json"),
+        &json!({
+            "grant": authorized_v2,
+            "purchased_version_id": v2.to_string(),
+            "expected_markdown": MARKDOWN_V2,
+        }),
+    );
+
     // A refund in the restored database must reject further signed grants.
     pg(
         url,
         &format!(
             "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
-             VALUES({purchase_id},'ci:s334-refund-after-restore','refund')"
+             VALUES({purchase_id},'ci:s334-refund-after-restore','refund'),
+                   ({purchase_v2_id},'ci:s334-refund-v2-after-restore','refund')"
         ),
     );
     assert_eq!(
         grant(&correct, chapter, Some(buyer), Some(csrf), "{}")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        grant(&correct, chapter, Some(buyer_v2), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN

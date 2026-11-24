@@ -19,6 +19,8 @@ use tor_accounts::{
 use tor_social::repositories::book_shares::{BookShareError, PgBookShares};
 #[path = "book_share_reports.rs"]
 mod admin_reports;
+#[path = "book_appeal_markup.rs"]
+mod appeal_markup;
 #[path = "book_comment_appeals.rs"]
 mod comment_appeals;
 #[path = "book_content_reports.rs"]

@@ -25,7 +25,7 @@ impl PgAudience {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let records = sqlx::query(include_str!("rank.sql"))
+        let records = sqlx::query(super::RANK_SQL)
             .bind(query.days)
             .bind(&query.genre)
             .bind(&query.tag)
