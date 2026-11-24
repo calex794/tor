@@ -1,4 +1,7 @@
 //! BR-060 owner-only two-phase ordinary deletion, disposable PG runtime.
+#[path = "ordinary_deletion_pg/d001_archive_publication_lock.rs"]
+mod d001_archive_publication_lock;
+
 use sqlx::{PgPool, Row};
 use tor_books::repositories::postgres::PgAuthoring;
 use tor_books::services::authoring::AuthorError;
