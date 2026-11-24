@@ -70,10 +70,7 @@ mod tests {
     #[tokio::test]
     async fn ascii_admin_alias_is_routable() {
         // ASCII aliases survive proxy routing without percent-encoding.
-        let router = Router::new().route(
-            "/odmen",
-            get(|| async { StatusCode::NO_CONTENT }),
-        );
+        let router = Router::new().route("/odmen", get(|| async { StatusCode::NO_CONTENT }));
         let response = router
             .oneshot(
                 axum::http::Request::builder()
