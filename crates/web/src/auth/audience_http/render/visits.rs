@@ -11,10 +11,10 @@ pub(in crate::auth::audience_http) fn page(
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
          <p class=\"eyebrow\">Администратору сайта</p><h1>Визиты и входы</h1>\
-         <p><a href=\"/admin/audience?days={days}\">Аудитория</a> · <a href=\"/admin/audience/books?days={days}\">Книги</a> · <a href=\"/admin/audience/funnel?days={days}\">Путь к чтению</a></p>\
+         <p><a href=\"/odmen/audience?days={days}\">Аудитория</a> · <a href=\"/odmen/audience/books?days={days}\">Книги</a> · <a href=\"/odmen/audience/funnel?days={days}\">Путь к чтению</a></p>\
          <p>Исторические наблюдения визитов аккаунтов, отдельно согласившихся на прежнее измерение. \
          Гости и аккаунты без согласия сюда не входят. Это не число людей и не все посещения сайта.</p>\
-         <form class=\"author-form\" method=\"get\" action=\"/admin/audience/visits\">\
+         <form class=\"author-form\" method=\"get\" action=\"/odmen/audience/visits\">\
          <label for=\"flow-visit-days\">Длительность периода</label><select id=\"flow-visit-days\" name=\"days\">"
     );
     for (value, label) in [

@@ -139,8 +139,8 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
         <h1>Апелляции по скрытым комментариям книг</h1>
         <p>Только администратор. Сотрудник, скрывший комментарий, не вправе пересматривать своё решение.
         Восстановление — отдельное явное решение, не следствие подачи обращения.</p>
-        <p><a href="/admin/book-reports">К очереди жалоб</a></p>
-        <p><a href="/admin/paid-comment-appeals">Апелляции по купленным главам</a></p>"#,
+        <p><a href="/odmen/book-reports">К очереди жалоб</a></p>
+        <p><a href="/odmen/paid-comment-appeals">Апелляции по купленным главам</a></p>"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Ожидающих апелляций нет.</p>");
@@ -152,7 +152,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             <p>Книга #{} · комментарий #{} · исходное решение #{}
             · автор #{} · скрыл сотрудник #{}</p>
             <p>Обоснование: {}</p>
-            <form method="post" action="/admin/book-comment-appeals/{}/decision">
+            <form method="post" action="/odmen/book-comment-appeals/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Мотивировка решения <input name="note" maxlength="500" required></label>
             <button name="decision" value="denied" type="submit">Оставить скрытым</button>
@@ -191,7 +191,7 @@ pub(super) async fn decide(
         .decide(&digest, appeal_id, &form.decision, &form.note)
         .await
     {
-        Ok(()) => super::private_response(Redirect::to("/admin/book-comment-appeals"), &[]),
+        Ok(()) => super::private_response(Redirect::to("/odmen/book-comment-appeals"), &[]),
         Err(error) => deny(status(error)),
     }
 }

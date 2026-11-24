@@ -86,20 +86,20 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let public_pages =
         tor_search::repositories::public_pages::PgPublicPages::new(accounts.pool().clone());
     Router::new()
-        .route("/admin/audience", get(page))
-        .route("/admin/audience/signals", get(signals::page))
-        .route("/admin/audience/pages", get(public_pages::page))
-        .route("/admin/audience/seo", get(seo::page))
+        .route("/odmen/audience", get(page))
+        .route("/odmen/audience/signals", get(signals::page))
+        .route("/odmen/audience/pages", get(public_pages::page))
+        .route("/odmen/audience/seo", get(seo::page))
         .route(
-            "/admin/audience/seo/refresh",
+            "/odmen/audience/seo/refresh",
             axum::routing::post(seo::refresh).layer(axum::extract::DefaultBodyLimit::max(4096)),
         )
-        .route("/admin/audience/books", get(books::page))
-        .route("/admin/audience/reading", get(canonical::page))
-        .route("/admin/audience/groups", get(groups::page))
-        .route("/admin/audience/returns", get(returns::page))
-        .route("/admin/audience/visits", get(visits::page))
-        .route("/admin/audience/funnel", get(funnel::page))
+        .route("/odmen/audience/books", get(books::page))
+        .route("/odmen/audience/reading", get(canonical::page))
+        .route("/odmen/audience/groups", get(groups::page))
+        .route("/odmen/audience/returns", get(returns::page))
+        .route("/odmen/audience/visits", get(visits::page))
+        .route("/odmen/audience/funnel", get(funnel::page))
         .with_state(AudienceState {
             accounts,
             cookies,
@@ -232,7 +232,7 @@ mod tests {
     fn only_bounded_periods_are_accepted() {
         assert_eq!(AudienceQuery::default().days(), Ok(7));
         for days in [1, 7, 30, 90] {
-            let uri: Uri = format!("/admin/audience?days={days}").parse().unwrap();
+            let uri: Uri = format!("/odmen/audience?days={days}").parse().unwrap();
             let query = Query::<AudienceQuery>::try_from_uri(&uri).unwrap();
             assert_eq!(query.days(), Ok(days));
         }
@@ -245,7 +245,7 @@ mod tests {
             "days=7&days=1",
             "reader=8",
         ] {
-            let uri: Uri = format!("/admin/audience?{raw}").parse().unwrap();
+            let uri: Uri = format!("/odmen/audience?{raw}").parse().unwrap();
             let result = Query::<AudienceQuery>::try_from_uri(&uri)
                 .map_err(|_| StatusCode::BAD_REQUEST)
                 .and_then(|Query(query)| query.days());
@@ -257,12 +257,12 @@ mod tests {
     fn time_view_is_explicit_and_unknown_values_are_rejected() {
         assert_eq!(AudienceQuery::default().reading_hours(), Ok(false));
         for (value, expected) in [("overview", false), ("reading_hours", true)] {
-            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            let uri: Uri = format!("/odmen/audience?view={value}").parse().unwrap();
             let query = Query::<AudienceQuery>::try_from_uri(&uri).unwrap();
             assert_eq!(query.reading_hours(), Ok(expected));
         }
         for value in ["", "reading", "HTML", "reading_hours&view=overview"] {
-            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            let uri: Uri = format!("/odmen/audience?view={value}").parse().unwrap();
             assert!(Query::<AudienceQuery>::try_from_uri(&uri)
                 .map_err(|_| StatusCode::BAD_REQUEST)
                 .and_then(|Query(query)| query.reading_hours())

@@ -67,7 +67,7 @@ pub(super) async fn queue(
         <p>Доступно только администратору. Признание жалобы обоснованной не скрывает комментарий.
         Отдельное действие «Скрыть комментарий» относится только к указанной редакции.
         Покупка и текст главы не меняются.</p>
-        <p><a href="/admin/paid-comment-appeals">Апелляции на ручное скрытие платных комментариев</a></p>"#,
+        <p><a href="/odmen/paid-comment-appeals">Апелляции на ручное скрытие платных комментариев</a></p>"#,
     );
     if pending.is_empty() {
         body.push_str("<p>Ожидающих жалоб нет.</p>");
@@ -80,7 +80,7 @@ pub(super) async fn queue(
             <p>Глава #{} · редакция #{} · комментарий #{} · заявитель #{}</p>
             <p>Причина: {}</p><p>Описание: {}</p>
             <blockquote>{}</blockquote>
-            <form method="post" action="/admin/paid-comment-reports/{}/decision">
+            <form method="post" action="/odmen/paid-comment-reports/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Мотивировка решения
             <input name="note" maxlength="500" required></label>
@@ -126,7 +126,7 @@ pub(super) async fn queue(
     if let Some(before) = history.next_cursor {
         write!(
             body,
-            r#"<p><a href="/admin/paid-comment-reports?history_before={before}">
+            r#"<p><a href="/odmen/paid-comment-reports?history_before={before}">
             Более ранние решения</a></p>"#,
         )
         .expect("bounded S049 paid comment cursor");
@@ -152,7 +152,7 @@ pub(super) async fn decide(
         .decide(&digest, report_id, &form.decision, &form.note)
         .await
     {
-        Ok(()) => super::private_response(Redirect::to("/admin/paid-comment-reports"), &[]),
+        Ok(()) => super::private_response(Redirect::to("/odmen/paid-comment-reports"), &[]),
         Err(error) => deny(status(error)),
     }
 }
