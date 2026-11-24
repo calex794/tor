@@ -42,14 +42,14 @@ fn quote_enabled() -> bool {
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/admin/finance/payouts", get(queue))
-        .route("/admin/finance/payouts/{id}/quote", get(quote))
+        .route("/odmen/finance/payouts", get(queue))
+        .route("/odmen/finance/payouts/{id}/quote", get(quote))
         .route(
-            "/admin/finance/payouts/{id}/reject",
+            "/odmen/finance/payouts/{id}/reject",
             post(reject).layer(DefaultBodyLimit::max(4096)),
         )
         .route(
-            "/admin/finance/payouts/{id}/post",
+            "/odmen/finance/payouts/{id}/post",
             post(posting::submit).layer(DefaultBodyLimit::max(4096)),
         )
 }
@@ -116,7 +116,7 @@ fn render_request(
     if allow_reject && row.state == "pending" {
         write!(
             html,
-            r#"<form method="post" action="/admin/finance/payouts/{}/reject"
+            r#"<form method="post" action="/odmen/finance/payouts/{}/reject"
                 autocomplete="off">
               <input type="hidden" name="csrf_token" value="{}">
               <label>Мотивировка отклонения
@@ -132,7 +132,7 @@ fn render_request(
     if allow_post && row.state == "pending" {
         write!(
             html,
-            r#"<form method="post" action="/admin/finance/payouts/{}/post"
+            r#"<form method="post" action="/odmen/finance/payouts/{}/post"
                 autocomplete="off">
               <input type="hidden" name="csrf_token" value="{}">
               <label>Основание внутреннего списания
@@ -195,7 +195,7 @@ async fn queue(
         if quote_enabled() && row.state == "pending" {
             write!(
                 body,
-                r#"<p><a href="/admin/finance/payouts/{}/quote">
+                r#"<p><a href="/odmen/finance/payouts/{}/quote">
                 Проверить резерв (без перевода)</a></p>"#,
                 row.id
             )
@@ -206,7 +206,7 @@ async fn queue(
         if let Some(last) = rows.last() {
             write!(
                 body,
-                r#"<p><a href="/admin/finance/payouts?before={}">
+                r#"<p><a href="/odmen/finance/payouts?before={}">
                 Предыдущие заявки</a></p>"#,
                 last.id
             )
@@ -256,7 +256,7 @@ async fn quote(
         перевод. При финансовом решении сервер обязан повторить проверку
         и записать все изменения в одной транзакции.</p>
         </article>
-        <p><a href="/admin/finance/payouts">К очереди заявок</a></p>"#,
+        <p><a href="/odmen/finance/payouts">К очереди заявок</a></p>"#,
         q.request_id,
         q.user_id,
         q.amount_minor,
@@ -296,7 +296,7 @@ async fn reject(
         .reject_once(&digest, id, &form.reason)
         .await
     {
-        Ok(_) => private_response(Redirect::to("/admin/finance/payouts"), &[]).into_response(),
+        Ok(_) => private_response(Redirect::to("/odmen/finance/payouts"), &[]).into_response(),
         Err(error) => deny(status(error)),
     }
 }
@@ -314,7 +314,7 @@ mod tests {
             created_utc: "2026-11-10 00:00".into(),
         };
         let html = render_request(&row, "csrf", true, false);
-        assert!(html.contains("action=\"/admin/finance/payouts/9/reject\""));
+        assert!(html.contains("action=\"/odmen/finance/payouts/9/reject\""));
         assert!(html.contains("name=\"csrf_token\""));
         assert!(!html.contains("name=\"amount_minor\""));
         assert!(!html.contains("Подтвердить выплату"));
@@ -331,7 +331,7 @@ mod tests {
         assert!(!render_request(&row, "csrf", true, false).contains("<script>"));
         row.created_utc = "2026-11-10 00:00".into();
         let post_form = render_request(&row, "csrf", false, true);
-        assert!(post_form.contains("action=\"/admin/finance/payouts/9/post\""));
+        assert!(post_form.contains("action=\"/odmen/finance/payouts/9/post\""));
         assert!(post_form.contains("name=\"current_password\""));
         assert!(post_form.contains("name=\"csrf_token\""));
         assert!(!post_form.contains("name=\"amount_minor\""));

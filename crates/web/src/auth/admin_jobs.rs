@@ -22,7 +22,7 @@ struct RetryAccepted {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/api/v1/admin/jobs/{id}/retry", post(retry))
+    Router::new().route("/api/v1/odmen/jobs/{id}/retry", post(retry))
 }
 
 async fn retry(
