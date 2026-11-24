@@ -298,7 +298,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
     assert.equal(await readerPage.getByTestId('audience-group-returns-current').count(),0);
     await adminPage.goto(base+'/me');
     await adminPage.locator('a[href="/odmen/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
+    await adminPage.waitForURL('**/odmen/audience');
     await adminPage.getByTestId('audience-groups-link').click();
     await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/groups');
     await adminPage.locator('#groups-days').selectOption('7');

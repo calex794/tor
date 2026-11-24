@@ -177,7 +177,7 @@ async function periods(page,days) {
     assert.equal(await readerPage.getByTestId('audience-returns-current').count(),0);
     await adminPage.goto(base+'/me');
     await adminPage.locator('a[href="/odmen/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
+    await adminPage.waitForURL('**/odmen/audience');
     await adminPage.goto(base+'/odmen/audience?days=7');
     await adminPage.getByTestId('audience-returns-link').click();
     await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/returns' && url.searchParams.get('days')==='7');

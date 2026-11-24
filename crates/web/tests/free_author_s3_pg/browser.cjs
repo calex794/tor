@@ -183,7 +183,7 @@ let stage = 'launch';
         }
         const root = page.locator('[data-admin-chapter-reader]');
         const csrf = await root.getAttribute('data-csrf-token');
-        const denied = await context.request.post(`${config.origin}/api/v1/reader/chapters/${config.chapter}/admin-unsealed`, {
+        const denied = await context.request.post(`${config.origin}/api/v1/reader/chapters/${config.chapter}/odmen-unsealed`, {
           headers: { Origin: config.origin, 'X-CSRF-Token': 'x'.repeat(43) }, maxRedirects: 0,
         });
         assert.equal(denied.status(), 403);

@@ -202,7 +202,7 @@ async function detail(page, kind, label, days) {
     const zero = create('zero','Книга без наблюдений '+run,[genreA],[tagA]);
     await adminPage.goto(base+'/me');
     await adminPage.locator('a[href="/odmen/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
+    await adminPage.waitForURL('**/odmen/audience');
     await adminPage.getByTestId('audience-groups-link').click();
     await adminPage.waitForURL(url => url.pathname === '/odmen/audience/groups');
     await select(adminPage,'genres',7); await periods(adminPage,7);

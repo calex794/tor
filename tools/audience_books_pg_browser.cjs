@@ -187,7 +187,7 @@ async function periods(page, days) {
     sql(`UPDATE books SET admin_hold=true WHERE id=${fixture('hidden').book}`);
     await adminPage.goto(base+'/me');
     await adminPage.locator('a[href="/odmen/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
+    await adminPage.waitForURL('**/odmen/audience');
     await adminPage.locator('a[href^="/odmen/audience/books"]').click();
     await adminPage.waitForURL(url => url.pathname === '/odmen/audience/books');
     await filter(adminPage,7,genre,tag);

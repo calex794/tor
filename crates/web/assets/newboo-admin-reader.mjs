@@ -70,7 +70,7 @@ async function freeEdition(payload, chapter, origin) {
 
 async function adminUnsealed(chapter, csrf, freeOrigin) {
   const response = await fetch(
-    "/api/v1/reader/chapters/" + chapter + "/admin-unsealed", {
+    "/api/v1/reader/chapters/" + chapter + "/odmen-unsealed", {
       method: "POST",
       headers: { "X-CSRF-Token": csrf },
       credentials: "same-origin",
@@ -91,7 +91,7 @@ async function adminUnsealed(chapter, csrf, freeOrigin) {
 }
 
 async function adminHistory(chapter, csrf, version = null) {
-  const path = "/api/v1/reader/chapters/" + chapter + "/admin-history" +
+  const path = "/api/v1/reader/chapters/" + chapter + "/odmen-history" +
     (version === null ? "" : "/" + version);
   const response = await fetch(path, {
     method: "POST",
@@ -106,7 +106,7 @@ async function adminHistory(chapter, csrf, version = null) {
 }
 
 async function adminSealedHistory(chapter, csrf, version = null, image = null) {
-  const base = "/api/v1/reader/chapters/" + chapter + "/admin-sealed-history";
+  const base = "/api/v1/reader/chapters/" + chapter + "/odmen-sealed-history";
   const path = version === null ? base : base + "/" + version +
     (image === null ? "/delivery-grants" :
       "/assets/" + image + "/delivery-grants");
