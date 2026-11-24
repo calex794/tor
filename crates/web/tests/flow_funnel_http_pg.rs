@@ -28,14 +28,14 @@ use retirement::{assert_current_schema, optional_snapshot};
 
 #[path = "support/flow_http_fixture.rs"]
 mod fixtures;
-#[path = "support/flow_paid_scenario.rs"]
-mod paid_scenario;
 #[path = "flow_funnel_http_pg/navigation.rs"]
 mod navigation;
 #[path = "flow_funnel_http_pg/outage.rs"]
 mod outage;
 #[path = "flow_funnel_http_pg/paid.rs"]
 mod paid;
+#[path = "support/flow_paid_scenario.rs"]
+mod paid_scenario;
 #[path = "flow_funnel_http_pg/proofs.rs"]
 mod proofs;
 use fixtures::*;

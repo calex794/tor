@@ -25,12 +25,12 @@ use retirement::{assert_current_schema, optional_snapshot};
 #[path = "support/flow_http_fixture.rs"]
 mod fixtures;
 use fixtures::*;
-#[path = "support/flow_paid_scenario.rs"]
-mod paid_scenario;
 #[path = "flow_visits_http_pg/outage.rs"]
 mod outage;
 #[path = "flow_visits_http_pg/paid.rs"]
 mod paid;
+#[path = "support/flow_paid_scenario.rs"]
+mod paid_scenario;
 #[path = "flow_visits_http_pg/startup.rs"]
 mod startup;
 
