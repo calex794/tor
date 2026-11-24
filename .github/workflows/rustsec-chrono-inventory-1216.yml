@@ -1,0 +1,46 @@
+name: RustSec chrono and license inventory 1216
+on:
+  push:
+    branches: ['tools/rustsec-chrono-inventory-1216']
+permissions:
+  contents: read
+concurrency:
+  group: rustsec-chrono-inventory-1216
+  cancel-in-progress: true
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inventory chrono consumers and resolved licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 --all-features > "$RUNNER_TEMP/metadata.json"
+          sha256sum Cargo.lock
+          echo '=== CHRONO REVERSE DEPENDENCY GRAPH ==='
+          cargo tree --locked --workspace --all-features --invert chrono
+          echo '=== CHRONO SOURCE CALL SITES ==='
+          git grep -nE 'chrono::|use chrono|chrono[[:space:]]*=' -- '*.rs' '*Cargo.toml' || test "$?" = 1
+          echo '=== WORKSPACE LICENSE AND PUBLISH METADATA ==='
+          python3 - <<'PY'
+          import collections
+          import json
+          import os
+          from pathlib import Path
+          data = json.loads((Path(os.environ["RUNNER_TEMP"]) / "metadata.json").read_text())
+          members = set(data["workspace_members"])
+          licenses = collections.defaultdict(list)
+          for p in data["packages"]:
+              if p["id"] in members:
+                  print("WORKSPACE", p["name"], "license=", p["license"], "publish=", p["publish"])
+              else:
+                  licenses[p["license"] or "(unspecified)"].append(f'{p["name"]}@{p["version"]}')
+          for license, packages in sorted(licenses.items()):
+              print("EXTERNAL LICENSE", license, "COUNT", len(packages))
+              if "CDLA" in license or license == "(unspecified)":
+                  print("PACKAGES", ", ".join(sorted(packages)))
+          PY
