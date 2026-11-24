@@ -43,7 +43,10 @@ async fn progress_script() -> impl IntoResponse {
             static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
                 let mut js = String::from(include_str!("../../assets/newboo-free-progress.js"));
                 js.push('\n');
-                js.push_str(include_str!("../../assets/newboo-archive-toc.js"));
+                pages::reader_toc_assets::append(
+                    &mut js,
+                    include_str!("../../assets/newboo-archive-toc.js"),
+                );
                 js
             });
             JS.as_str()

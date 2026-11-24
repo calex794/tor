@@ -21,12 +21,10 @@ const purchase = fixture.purchase_id;
 const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
 const data = fixture.reader_html;
 const csp = fixture.reader_csp;
-// Mirror the exact JS bundle returned by pages::paid_reader_script in Rust.
-const script = Buffer.concat([
-  fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs"),
-  Buffer.from("\n"),
-  fs.readFileSync("crates/web/assets/newboo-paid-toc.js"),
-]);
+// Serve the actual asset captured from the Rust HTTP router. No manual bundle.
+assert(typeof fixture.reader_script === "string" && fixture.reader_script.length > 0,
+  "missing actual Rust paid reader script");
+const script = Buffer.from(fixture.reader_script, "utf8");
 const paidCommentScript = fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs");
 // Serve the EXACT two stylesheets used by pages::layout and
 // pages::newboo_stylesheet, not reader-only CSS as both URLs.
