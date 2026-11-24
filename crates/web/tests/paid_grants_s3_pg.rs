@@ -963,6 +963,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     .await;
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
+    let reader_script = fixture_writer::paid_reader_script(&app).await;
     pool.close().await;
     // The 30-second URL is a test-only G/S3 bearer, not a new D grant.
     // Issue it only after all slow PG and browser-fixture work is complete;
@@ -978,7 +979,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         archived_v1,
         v1,
         purchase_id,
-        (visible_html, reader_csp),
+        (visible_html, reader_csp, reader_script),
         layer_evidence,
         expiry_probe_url,
         (

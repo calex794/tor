@@ -20,3 +20,16 @@ all three real scripts with a controlled DOM; unit-level bundle proof and
 the full existing Rust/PG/reader browser CI remain mandatory. No new job,
 dependency, route, release or deployment. Further pagination refactoring
 requires a separate equivalence review; these APIs are not interchangeable.
+
+## Chromium acceptance correction
+
+The first exact-head paid-private-e2e run failed at "desktop: footer TOC
+does not close" because the ephemeral Node HTTP fixture manually appended
+the paid TOC source without its new lexical helper. Repository rules and
+all seven controlled-DOM tests passed; those tests did not cover this
+separate bundle consumer. The Rust PG fixture now captures the actual
+`/assets/newboo-paid-reader.mjs` route into its existing mode-0600 JSON
+and both direct and Layer Chromium fixture servers use those exact bytes.
+No permissive fallback to the raw source, no assertion removal, no change
+to grants, lifetime, authorization, or production route. Require new
+exact-head paid-private-e2e and all CI; the live browser result is pending.
