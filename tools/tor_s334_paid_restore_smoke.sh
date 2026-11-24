@@ -23,8 +23,11 @@ fi
 bucket=tor-private-chapter-ci
 backup=tor-s334-backup-ci
 id=f0c0e034-2026-4034-8034-000000000134
+id_v2=f0c0e034-2026-4034-8034-000000000234
 key="private/chapter-versions/$id.enc"
+key_v2="private/chapter-versions/$id_v2.enc"
 backup_key="s334/$key"
+backup_key_v2="s334/$key_v2"
 object="s334/$GITHUB_SHA/pg18.dump.aesgcm"
 endpoint="$TOR_TEST_S3_ENDPOINT"
 work="$(mktemp -d "$RUNNER_TEMP/tor-s334.XXXXXXXX")"
@@ -52,7 +55,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-[[ -s "$RUNNER_TEMP/s334-state.json" && -s "$RUNNER_TEMP/s334-content-kek.bin" ]] || {
+[[ -s "$RUNNER_TEMP/s334-state.json" && -s "$RUNNER_TEMP/s334-content-kek.bin" &&
+   -s "$RUNNER_TEMP/s334-content-kek-v2.bin" ]] || {
   echo 'FAIL: paid purchase fixture or independent KEK absent' >&2
   exit 1
 }
@@ -67,6 +71,13 @@ sha="$(psql "$TEST_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c "SELECT encode(sha256_ciphertext,'hex') FROM storage_objects WHERE id='$id'::uuid AND state='attached' AND kek_id='content-kek-v1'")"
 [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || {
   echo 'FAIL: pinned encrypted V1 not attached in source PostgreSQL' >&2
+  exit 1
+}
+
+sha_v2="$(psql "$TEST_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 \
+  -c "SELECT encode(sha256_ciphertext,'hex') FROM storage_objects WHERE id='$id_v2'::uuid AND state='attached' AND kek_id='content-kek-v2'")"
+[[ "$sha_v2" =~ ^[0-9a-f]{64}$ ]] || {
+  echo 'FAIL: encrypted V2 not attached in source PostgreSQL' >&2
   exit 1
 }
 
@@ -95,6 +106,16 @@ s3 --upload-file "$work/source-v1.enc" \
   --header 'Content-Type: application/octet-stream' \
   --output /dev/null "$endpoint/$backup/$backup_key"
 
+s3 --output "$work/source-v2.enc" "$endpoint/$bucket/$key_v2"
+[[ "$(sha256sum "$work/source-v2.enc" | cut -d ' ' -f 1)" == "$sha_v2" ]] || {
+  echo 'FAIL: V2 source bytes do not match PostgreSQL registry' >&2
+  exit 1
+}
+s3 --upload-file "$work/source-v2.enc" \
+  --header 'If-None-Match: *' \
+  --header 'Content-Type: application/octet-stream' \
+  --output /dev/null "$endpoint/$backup/$backup_key_v2"
+
 node tools/tor_dr_archive_crypto.cjs new-key "$work/backup.key"
 node tools/tor_dr_archive_crypto.cjs seal "$work/backup.key" \
   "$work/source.dump" "$work/db.enc"
@@ -103,7 +124,7 @@ s3 --upload-file "$work/db.enc" \
   --header 'If-None-Match: *' \
   --header 'Content-Type: application/octet-stream' \
   --output /dev/null "$endpoint/$backup/$object"
-for k in "$backup_key" "$object"; do
+for k in "$backup_key" "$backup_key_v2" "$object"; do
   code="$(curl --silent --max-time 3 --output /dev/null \
     --write-out '%{http_code}' "$endpoint/$backup/$k")"
   [[ "$code" == 403 ]] || { echo 'FAIL: S3 backup is anonymously accessible' >&2; exit 1; }
@@ -118,7 +139,13 @@ missing="$(curl --silent --max-time 5 --output /dev/null -w '%{http_code}' \
   --user "$TOR_TEST_S3_ACCESS_KEY:$TOR_TEST_S3_SECRET_KEY" \
   "$endpoint/$bucket/$key")"
 [[ "$missing" == 404 ]] || { echo 'FAIL: original private V1 did not disappear'; exit 1; }
-rm -f -- "$work/source.dump" "$work/source-v1.enc" "$work/db.enc"
+s3 --request DELETE --output /dev/null "$endpoint/$bucket/$key_v2"
+missing_v2="$(curl --silent --max-time 5 --output /dev/null -w '%{http_code}' \
+  --aws-sigv4 'aws:amz:us-east-1:s3' \
+  --user "$TOR_TEST_S3_ACCESS_KEY:$TOR_TEST_S3_SECRET_KEY" \
+  "$endpoint/$bucket/$key_v2")"
+[[ "$missing_v2" == 404 ]] || { echo 'FAIL: original private V2 did not disappear'; exit 1; }
+rm -f -- "$work/source.dump" "$work/source-v1.enc" "$work/source-v2.enc" "$work/db.enc"
 s3 --output "$work/retrieved-db.enc" "$endpoint/$backup/$object"
 [[ "$(sha256sum "$work/retrieved-db.enc" | cut -d ' ' -f 1)" == "$pg_digest" ]] || {
   echo 'FAIL: independent SQL backup corrupted' >&2
@@ -159,4 +186,7 @@ cargo test -p tor-web --features s3-paid \
 # issued after recovery, never with a cached pre-disaster bearer URL.
 TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/s334-webcrypto.json" \
   node tools/paid_grant_webcrypto_e2e.mjs
+TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/s334-webcrypto-v2.json" \
+  node tools/paid_grant_webcrypto_e2e.mjs
+echo 'S334_HISTORICAL_KEK_V1_V2_RESTORE_PASS'
 echo 'S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS'
