@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 451)  # C-08 open POST and admin /odmen GET.
-        self.assertEqual(report["route_pairs"], 447)  # C-08 adds one independent exact FREE open route.
+        self.assertEqual(report["route_pairs"], 448)  # C-08 FREE open and admin-only /odmen.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
