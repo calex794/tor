@@ -1,0 +1,121 @@
+name: REUSE experiment (advisory)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reuse-experiment.yml'
+      - 'docs/architecture/reuse-experiment.md'
+permissions:
+  contents: read
+jobs:
+  scan:
+    name: reuse / ${{ matrix.tool }}
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [cargo-dupes, doppelscan, jscpd]
+    env:
+      SCAN_SHA: a527bf2e3c05ce577e7a4363296d3c0a5978c69b
+      TOOL: ${{ matrix.tool }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare immutable Rust-only snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reuse-source" "$RUNNER_TEMP/reuse-bin" "$RUNNER_TEMP/reuse-report"
+          git archive "$SCAN_SHA" crates | tar -x -C "$RUNNER_TEMP/reuse-source"
+          find "$RUNNER_TEMP/reuse-source" -type f ! -name '*.rs' -delete
+          find "$RUNNER_TEMP/reuse-source" -type l -delete
+          cd "$RUNNER_TEMP/reuse-source"
+          find . -type f -name '*.rs' -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/reuse-report/input.sha256"
+          printf 'commit=%s\nfiles=%s\n' "$SCAN_SHA" "$(wc -l < "$RUNNER_TEMP/reuse-report/input.sha256")" | tee "$RUNNER_TEMP/reuse-report/input.txt"
+      - name: Install pinned analyzer (no source mounted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/reuse-bin"
+          case "$TOOL" in
+            cargo-dupes)
+              docker run --rm -v "$bin:/out" rust:1.91-bookworm cargo install cargo-dupes --version 0.2.1 --locked --root /out
+              ;;
+            doppelscan)
+              url=https://github.com/CMaintz/doppelscan/releases/download/v0.9.0/doppelscan-v0.9.0-x86_64-unknown-linux-gnu.tar.gz
+              sha=e5d5abd63abfb74dddfc52d60d58144f402218aa49b3b6b6e610d1e3171f355f
+              ;;
+            jscpd)
+              url=https://github.com/kucherenko/jscpd/releases/download/v5.4.3/jscpd-linux-x64-gnu.tar.gz
+              sha=a19d719331b21a047a7537f982566dabcf6d6e5f51581c3b80d9c420979cc92c
+              ;;
+          esac
+          if [[ "$TOOL" != cargo-dupes ]]; then
+            mkdir -p "$bin/bin" "$RUNNER_TEMP/reuse-unpack"
+            curl --fail --silent --show-error --location --retry 3 "$url" -o "$RUNNER_TEMP/reuse-tool.tar.gz"
+            printf '%s  %s\n' "$sha" "$RUNNER_TEMP/reuse-tool.tar.gz" | sha256sum -c -
+            tar -xzf "$RUNNER_TEMP/reuse-tool.tar.gz" -C "$RUNNER_TEMP/reuse-unpack"
+            executable="$(find "$RUNNER_TEMP/reuse-unpack" -type f -name "$TOOL" -print -quit)"
+            test -n "$executable"
+            install -m 0755 "$executable" "$bin/bin/$TOOL"
+          fi
+          docker pull ubuntu:24.04
+      - name: Run offline, bounded, read-only scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/reuse-report"
+          run_scan() {
+            local label="$1"
+            shift
+            local name="reuse-$TOOL-$label"
+            local start status elapsed
+            start=$(date +%s)
+            set +e
+            timeout --kill-after=10s 300s docker run --name "$name" --network none --read-only \
+              --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --cpus 2 --memory 4g \
+              --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              -e HOME=/tmp -v "$RUNNER_TEMP/reuse-source:/src:ro" \
+              -v "$RUNNER_TEMP/reuse-bin/bin:/tools:ro" -v "$report:/reports:rw" -w /src ubuntu:24.04 \
+              sh -c '"$@"; rc=$?; printf "memory_peak_bytes=" >&2; cat /sys/fs/cgroup/memory.peak >&2 || true; exit "$rc"' sh "$@" \
+              > "$report/$label.stdout" 2> "$report/$label.stderr"
+            status=$?
+            set -e
+            elapsed=$(($(date +%s)-start))
+            docker inspect -f '{{.State.OOMKilled}}' "$name" > "$report/$label.oom" 2>/dev/null || true
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            printf '%s exit=%s wall_seconds=%s\n' "$label" "$status" "$elapsed" | tee -a "$report/status.txt"
+            if [[ "$status" != 0 ]]; then
+              printf '::warning::%s/%s exited %s; not a successful scan\n' "$TOOL" "$label" "$status"
+              return 1
+            fi
+          }
+          failed=0
+          run_scan version "/tools/$TOOL" --version || failed=1
+          case "$TOOL" in
+            cargo-dupes)
+              run_scan ast /tools/cargo-dupes dupes --path /src --min-lines 8 --min-nodes 20 --threshold 0.8 --format json report || failed=1
+              ;;
+            doppelscan)
+              run_scan exact /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 --strict || failed=1
+              run_scan renamed /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 || failed=1
+              run_scan near /tools/doppelscan near --format json --limit 0 --only rust --min-tokens 50 --similarity 0.8 || failed=1
+              ;;
+            jscpd)
+              run_scan exact /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --reporters json --output /reports --report-name exact . || failed=1
+              run_scan structural /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --ignore-identifiers consistent --ignore-literals --similarity=0.8 --min-nodes 20 --reporters json --output /reports --report-name structural . || failed=1
+              ;;
+          esac
+          exit "$failed"
+      - name: Retain experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reuse-${{ matrix.tool }}
+          path: ${{ runner.temp }}/reuse-report/
+          retention-days: 7
+          if-no-files-found: warn
