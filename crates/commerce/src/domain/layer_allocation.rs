@@ -6,6 +6,8 @@
 //! verified financial origin are independently approved by D/I.
 use std::collections::HashSet;
 
+use super::apportionment;
+
 const BOOK_WEIGHT_BPS: i128 = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,40 +153,15 @@ fn largest_remainder(
     {
         return Err(AttributionError::InvalidWeights);
     }
-    let mut shares: Vec<(i64, i64, i128)> = weights
+    let amounts = apportionment::allocate(total_minor, weights, denominator)
+        .ok_or(AttributionError::Overflow)?;
+    let mut shares: Vec<(i64, i64)> = weights
         .iter()
-        .map(|(id, weight)| {
-            let product = i128::from(total_minor) * i128::from(*weight);
-            Ok((
-                *id,
-                i64::try_from(product / denominator).map_err(|_| AttributionError::Overflow)?,
-                product % denominator,
-            ))
-        })
-        .collect::<Result<Vec<_>, AttributionError>>()?;
-    let assigned: i128 = shares.iter().map(|(_, value, _)| i128::from(*value)).sum();
-    let left = i128::from(total_minor) - assigned;
-    if left < 0 || left > shares.len() as i128 {
-        return Err(AttributionError::Overflow);
-    }
-    let mut rank: Vec<usize> = (0..shares.len()).collect();
-    rank.sort_by(|a, b| {
-        shares[*b]
-            .2
-            .cmp(&shares[*a].2)
-            .then_with(|| shares[*a].0.cmp(&shares[*b].0))
-    });
-    for index in rank.into_iter().take(left as usize) {
-        shares[index].1 = shares[index]
-            .1
-            .checked_add(1)
-            .ok_or(AttributionError::Overflow)?;
-    }
+        .zip(amounts)
+        .map(|((id, _), amount)| (*id, amount))
+        .collect();
     shares.sort_by_key(|item| item.0);
-    Ok(shares
-        .into_iter()
-        .map(|(id, amount, _)| (id, amount))
-        .collect())
+    Ok(shares)
 }
 
 /// Explicit finance inputs only. No money is posted, transferred, cleared or
