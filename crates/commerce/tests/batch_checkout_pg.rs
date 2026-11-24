@@ -11,10 +11,10 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
-#[path = "batch_checkout_pg/d_s035_age_lock_order.rs"]
-mod d_s035_age_lock_order;
 #[path = "batch_checkout_pg/d001_publication_race.rs"]
 mod d001_publication_race;
+#[path = "batch_checkout_pg/d_s035_age_lock_order.rs"]
+mod d_s035_age_lock_order;
 
 struct Fixture {
     pool: PgPool,
