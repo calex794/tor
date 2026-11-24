@@ -145,6 +145,7 @@ TEST_SUITES = {
     "crates/web/tests/drop_04d_worker_pg_minio/support.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_concurrency.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_import.rs": {"rust", "paid_e2e"},
+    "crates/web/tests/drop_04d_worker_pg_minio/catalog_formats.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_provider.rs": {"rust", "paid_e2e"},
     "crates/books/tests/free_import_transport_pg.rs": {"rust", "paid_e2e"},
     "tools/drop_04d_worker_ci.sh": {"paid_e2e"},
