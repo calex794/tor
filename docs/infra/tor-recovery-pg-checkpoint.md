@@ -93,3 +93,43 @@ not the safe startup of an arbitrary potentially compromised restored
 cluster. The external operational startup tool and trust/extension/link
 validation remain a separate gate; never run the CI fixture on a real
 server. See [the existing CI drill](i11-pitr-ci-drill.md).
+
+## RECOVERY-07: pre-start file and selection checks (no startup)
+
+A successful fresh RECOVERY-03a stage now writes the private,
+non-overwriting `evidence/pg-stage-receipt.json` only after successful
+pgBackRest staging and the initial physical file checks. It pins the
+operator-selected machine IDs, backup label, UTC cutoff/target, timeline,
+port and digest of the generated recovery-only pgBackRest configuration.
+It is not a signature, an independent backup inventory or proof of WAL
+replay. Do not fabricate a receipt for an older or partial stage.
+
+On the separately approved, quiescent isolated restore host, repeat the
+same independently selected CLI arguments from above with
+`tools/tor_recovery_pg_prestart.py` (omit `--restore` and
+`--operator-confirm-read-only-repository`; add
+`--operator-confirm-quiescent-isolated-host`). This reads only local
+files and confirms the private stage receipt, exact generated config
+digest and empty include directory. It refuses unexpected file
+ownership/permissions, symbolic and hard links, special files,
+different-device mounts, active/standby markers and incorrect PG18
+markers. The supported first slice is deliberately limited to a
+single filesystem with no tablespaces, external WAL symlink or group
+readable restored data. Unsupported layouts require separate review;
+never loosen the checks merely to make a restore pass.
+
+The host must actually be quiescent, the postgres OS account unused by
+other processes, and filesystem/network isolation independently verified
+(including same-device bind mounts). The tool does not prove those
+properties or withstand a concurrent writer. It does not authenticate
+arbitrary physical page/WAL/catalog contents, validate extensions or
+recover compromised secrets.
+
+`TOR_RECOVERY_PG_PRESTART_FILES_CHECKED` is a read-only intermediate
+result, **not permission to start PostgreSQL**. Original configuration
+including postgresql.auto.conf remains untouched and untrusted. A
+separately reviewed step must neutralize inherited settings, generate
+trusted recovery-only configuration, check executable/catalog risks,
+run PostgreSQL with external side effects blocked, prove the actual
+exclusive paused UTC replay and explicitly approve any later promotion.
+No part of this tool starts a process or contacts a repository.
