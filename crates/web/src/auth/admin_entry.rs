@@ -28,7 +28,7 @@ fn body() -> Html<String> {
 }
 
 /// An unknown visitor and a logged-in non-admin get identical 404 responses.
-/// Neither the alias nor the legacy /odmen sections bypass the real role gate.
+/// Every /odmen subroute retains its own authorization gate; the URL is not one.
 pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::NOT_FOUND);

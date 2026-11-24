@@ -1,26 +1,29 @@
-# Admin entry: /odmen (ASCII)
+# TOR administrative URL cutover
 
-User-facing administrative entry:
-https://pandaolate.ru/odmen
+**User entry:** https://pandaolate.ru/odmen (ASCII).
+This page requires a verified active administrator session. Anonymous users
+and authenticated non-administrators receive 404 with noindex and private
+cache-control behavior. All child handlers retain their existing server-side
+administrator/owner checks, Origin, CSRF and financial approval invariants.
 
-The route is ASCII and does not require URL encoding. Only authenticated
-administrators may see this page; anonymous visitors and non-admins
-receive the same 404.
-The account page adds a private /odmen entry while retaining the three
-existing deep links required by browser tests and workflows. This is NOT a
-full masking of /admin/*; do not claim that it hides the namespace.
+**All old /admin HTML and form routes are no longer registered** in the
+application. A request to /admin or /admin/... must return 404, not a
+redirect to a discovered admin address. Existing admin navigation, action
+forms and redirects now use /odmen/....
 
-**This alias is NOT a security boundary.** Other administrator-only pages
-such as /admin/audience, /admin/support and /admin/finance/refunds
-**remain accessible** at their original addresses, subject to their existing
-authorization policies. This PR intentionally does not change their paths,
-form POST handlers, API routes or route intelligence registry.
-It provides a private, recognizable starting page, not a complete obscuring
-rename of the administrative namespace. Renaming the entire namespace is a
-separate change requiring form/redirect/asset/route-registry acceptance.
-Do not falsely represent /admin/* as absent, disabled or hidden.
+The administrator-only API path family formerly at /api/v1/admin/...
+is named /api/v1/odmen/...; the privileged chapter read path formerly
+/read/admin/{id} is /read/odmen/{id}. The remaining administrative
+chapter API action segments use odmen-unsealed, odmen-history and
+odmen-sealed-history. These are route changes, **not permission changes**.
+No old aliases are installed.
 
-All authentication, CSRF, session, administrator role, finance approval
-and abuse controls retain their original semantics. The URL is not a substitute
-for strong credentials, second-factor authentication, access logging or
-network-layer protection. No VPS deployment or Nginx edit in this PR.
+**NOT a security boundary.** Changing URL spelling does not conceal
+publicly linked actions nor defeat a determined scanner. Session
+authorization, CSRF enforcement, independent role proof, rate limits,
+monitoring and safe Nginx configuration remain mandatory. Avoid assuming
+the admin interface is protected merely because the route is unfamiliar.
+
+Rollout: apply source and tests together; no redirect or old route fallback.
+This change requires a normal pinned-main release and a separate approval
+for touching the working VPS. It does not deploy or change Nginx.

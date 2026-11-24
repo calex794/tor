@@ -21,7 +21,9 @@ class AdminAliasTests(unittest.TestCase):
     def test_does_not_advertise_alias_as_role_security(self):
         doc = (ROOT / "docs/security/admin-odmen-alias.md").read_text()
         self.assertIn("NOT a security boundary", doc)
-        self.assertIn("remain accessible", doc)
+        self.assertIn("no longer registered", doc)
+        self.assertIn("return 404", doc)
+        self.assertIn("No old aliases", doc)
 
 
 if __name__ == "__main__":
