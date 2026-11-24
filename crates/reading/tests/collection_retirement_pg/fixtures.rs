@@ -95,6 +95,15 @@ pub async fn book(pool: &PgPool, paid: bool) -> Book {
     }
 }
 
+/// A Book bookmark has no FREE pin until the reader has really opened
+/// the exact edition. Isolated current-schema fixture, never a backfill.
+pub async fn opened(pool: &PgPool, actor: i64, chapter: Book) {
+    assert!(PgFreeOpenCapture::new(pool.clone())
+        .record(actor, chapter.chapter, chapter.version)
+        .await
+        .unwrap());
+}
+
 pub fn place(offset: i32) -> ReadingPlace {
     ReadingPlace {
         block_index: 1,

@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 451)  # UI-05 adds one public GET asset binding.
-        self.assertEqual(report["route_pairs"], 448)  # UI-05 adds one independent exact RIL pair.
+        self.assertEqual(report["route_bindings"], 453)  # S3-ADMIN adds two bindings.
+        self.assertEqual(report["route_pairs"], 450)  # S3-ADMIN adds two exact pairs.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -70,13 +70,13 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         baseline = json.loads(path.read_text(encoding="utf-8"))
         for field, replacement in (
-            ("template", "/admin/audience/continuations/export"),
+            ("template", "/odmen/audience/continuations/export"),
             ("policy", "session"),
         ):
             with self.subTest(field=field):
                 payload = json.loads(json.dumps(baseline))
                 row = next(row for row in payload["routes"]
-                           if row["template"] == "/admin/audience/continuations")
+                           if row["template"] == "/odmen/audience/continuations")
                 row[field] = replacement
                 path.write_text(json.dumps(payload), encoding="utf-8")
                 self.assertTrue(any("internal/admin route is not denied" in issue
@@ -93,8 +93,8 @@ class RilExposureTests(unittest.TestCase):
     def test_audience_exception_cannot_extend_or_downgrade(self):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         original = path.read_text(encoding="utf-8")
-        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
-                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
+        for route in ("/odmen/audience", "/odmen/audience/books", "/odmen/audience/groups",
+                      "/odmen/audience/returns", "/odmen/audience/visits", "/odmen/audience/funnel"):
             for field, value in (("template", route + "/export"), ("policy", "session")):
                 with self.subTest(route=route, field=field):
                     data = json.loads(original)
@@ -132,7 +132,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         data["routes"].append({
-            "method": "GET", "template": "/admin/users", "handler": "users",
+            "method": "GET", "template": "/odmen/users", "handler": "users",
             "source": "crates/web/src/lib.rs", "policy": "public",
         })
         path.write_text(json.dumps(data), encoding="utf-8")
@@ -143,7 +143,7 @@ class RilExposureTests(unittest.TestCase):
         target = self.root / "docs/contracts/ril-route-guards-v1.json"
         rows = json.loads(target.read_text())
         rows["routes"].append({
-            "method": "GET", "template": "/admin/mail/export",
+            "method": "GET", "template": "/odmen/mail/export",
             "source": "crates/web/src/auth.rs",
             "handler": "admin_mail::index", "policy": "admin_mail",
         })
@@ -155,7 +155,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         data["routes"].append({
-            "method": "GET", "template": "/admin/finance/refunds/export",
+            "method": "GET", "template": "/odmen/finance/refunds/export",
             "source": "crates/web/src/auth/admin_refund_review.rs",
             "handler": "page", "policy": "admin_refund",
         })
@@ -167,7 +167,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         data["routes"].append({
-            "method": "GET", "template": "/admin/recommendation-reports/export",
+            "method": "GET", "template": "/odmen/recommendation-reports/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "admin_reports::queue", "policy": "admin_share_reports",
         })
@@ -179,7 +179,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         doc = json.loads(path.read_text(encoding="utf-8"))
         doc["routes"].append({
-            "method": "GET", "template": "/admin/free-comment-appeals/export",
+            "method": "GET", "template": "/odmen/free-comment-appeals/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "free_comment_appeals::queue",
             "policy": "admin_free_comment_appeals",
@@ -193,7 +193,7 @@ class RilExposureTests(unittest.TestCase):
         doc = json.loads(target.read_text(encoding="utf-8"))
         doc["routes"].append({
             "method": "GET",
-            "template": "/admin/free-comment-reports/export",
+            "template": "/odmen/free-comment-reports/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "free_comment_reviews::queue",
             "policy": "admin_free_comment_reports",
@@ -207,7 +207,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         data["routes"].append({
-            "method": "GET", "template": "/admin/paid-comment-appeals/export",
+            "method": "GET", "template": "/odmen/paid-comment-appeals/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "paid_comment_appeals::queue",
             "policy": "admin_paid_comment_appeals",
@@ -222,7 +222,7 @@ class RilExposureTests(unittest.TestCase):
         data = json.loads(target.read_text(encoding="utf-8"))
         data["routes"].append({
             "method": "GET",
-            "template": "/admin/paid-comment-reports/export",
+            "template": "/odmen/paid-comment-reports/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "paid_comment_reviews::queue",
             "policy": "admin_paid_comment_reports",
@@ -236,7 +236,7 @@ class RilExposureTests(unittest.TestCase):
         data = json.loads(target.read_text(encoding="utf-8"))
         data["routes"].append({
             "method": "GET",
-            "template": "/admin/book-reports/export",
+            "template": "/odmen/book-reports/export",
             "source": "crates/web/src/auth/book_shares.rs",
             "handler": "content_reports::queue",
             "policy": "admin_book_reports",

@@ -73,7 +73,7 @@ pub(super) async fn submit(
         .await
     {
         Ok(_) => private_response(
-            Redirect::to(&format!("/admin/finance/refunds/user/{buyer}")),
+            Redirect::to(&format!("/odmen/finance/refunds/user/{buyer}")),
             &[],
         ),
         Err(err) => response_error(err),

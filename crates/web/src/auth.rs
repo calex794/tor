@@ -31,6 +31,7 @@ mod access_audit;
 mod account_form_http;
 mod account_home;
 mod admin_creator_payouts;
+mod admin_entry;
 mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
@@ -261,6 +262,7 @@ fn router_inner(
         )
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(account_home::show))
+        .route("/odmen", get(admin_entry::page))
         .merge(creator_follows::router().merge(creator_finance::router()))
         .route(
             "/me/books/{id}/follow-creator",
@@ -397,7 +399,7 @@ fn router_inner(
         )
         .route("/me/stats/continuations", get(continuation_stats::owner))
         .route(
-            "/admin/audience/continuations",
+            "/odmen/audience/continuations",
             get(continuation_stats::administrator),
         )
         .route("/me/books", get(author_books).post(create_book))

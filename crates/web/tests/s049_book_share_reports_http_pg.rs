@@ -174,7 +174,7 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
     ))
     .parse()
     .unwrap();
-    let admin_path = "/admin/recommendation-reports";
+    let admin_path = "/odmen/recommendation-reports";
     assert_eq!(
         send(&app, "GET", admin_path, "", "").await.status(),
         StatusCode::UNAUTHORIZED

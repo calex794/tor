@@ -491,6 +491,7 @@ jobs:
             cargo test -p tor-reading --test library_postgres -- --ignored
             cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
             cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
+            cargo test -p tor-reading --test c08_verified_free_open_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test c08_saved_free_http_pg -- --ignored --test-threads=1
             cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
             cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
@@ -1511,7 +1512,7 @@ jobs:
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
         run: |
-          cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          bash tools/g09_minio_tcp_metadata_ci.sh
           cargo test -p tor-storage --features s3 --test free_chapter_s3 -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --test free_pack_range_s3 -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --test drop_yandex_unversioned fnd02_yandex_scope_rejects_ci_and_unsafe_targets
@@ -1775,6 +1776,8 @@ jobs:
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      foundation_evidence: ${{ steps.foundation.outputs.foundation_evidence }}
     services:
       postgres:
         image: postgres:18
@@ -1875,6 +1878,7 @@ jobs:
           # Fail closed if the real browser cannot launch on this runner.
           node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
+        id: foundation
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
@@ -1883,7 +1887,8 @@ jobs:
         run: |
           set -euo pipefail
           export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
-          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH"' EXIT
+          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
+          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH" "$foundation_log"' EXIT
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-web -- --check
           node --check tools/paid_grant_webcrypto_e2e.mjs
@@ -1919,9 +1924,10 @@ jobs:
           # These checks cannot authorize orphan classification or S3 DELETE.
           cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-books --test free_inventory_cycles_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output
+          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output | tee "$foundation_log"
           cargo test -p tor-storage --features s3 --test free_expected_inventory_s3 -- --ignored --test-threads=1 --show-output
-          bash tools/drop_04d_worker_ci.sh
+          bash tools/drop_04d_worker_ci.sh | tee -a "$foundation_log"
+          python3 tools/verify_ci_gate.py record-foundation paid-private-e2e "$foundation_log"
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4
@@ -1938,6 +1944,8 @@ jobs:
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      foundation_evidence: ${{ steps.foundation.outputs.foundation_evidence }}
     services:
       postgres:
         image: postgres:18
@@ -2033,7 +2041,13 @@ jobs:
       - name: Build real TOR binary off VPS
         run: cargo build -p tor-web
       - name: Encrypted archive to independent MinIO, destroy local copy and restore
-        run: bash tools/tor_dr_s3_backup_smoke.sh
+        id: foundation
+        run: |
+          set -euo pipefail
+          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
+          trap 'rm -f "$foundation_log"' EXIT
+          bash tools/tor_dr_s3_backup_smoke.sh | tee "$foundation_log"
+          python3 tools/verify_ci_gate.py record-foundation sealed-remote-copy "$foundation_log"
       - name: Diagnostic service state without backup contents or keys
         if: failure()
         run: |
@@ -2044,6 +2058,8 @@ jobs:
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      foundation_evidence: ${{ steps.foundation.outputs.foundation_evidence }}
     services:
       postgres:
         image: postgres:18
@@ -2153,9 +2169,13 @@ jobs:
             --test s334_paid_restore_pg_s3 s3_34_seed_paid_v1_and_publish_v2 \
             -- --ignored --exact --test-threads=1
       - name: Restore PostgreSQL, V1 ciphertext and KEK; decrypt through WebCrypto
+        id: foundation
         run: |
           set -euo pipefail
-          bash tools/tor_s334_paid_restore_smoke.sh
+          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
+          trap 'rm -f "$foundation_log"' EXIT
+          bash tools/tor_s334_paid_restore_smoke.sh | tee "$foundation_log"
+          python3 tools/verify_ci_gate.py record-foundation purchased-v1-recovery "$foundation_log"
       - name: Remove ephemeral recovery KEK and bearer grants
         if: always()
         run: |

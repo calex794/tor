@@ -245,7 +245,7 @@ fn counts(html: &str, key: &str) -> Counts {
 }
 
 async fn report(app: &Router, cookie: &str, book: i64, days: i32) -> String {
-    let path = format!("/admin/audience/returns?book_id={book}&days={days}");
+    let path = format!("/odmen/audience/returns?book_id={book}&days={days}");
     let response = call(app, &path, cookie).await;
     private(&response, StatusCode::OK);
     let html = body(response).await;
@@ -360,7 +360,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
         )).parse().unwrap());
     }
     let (book, other) = (fixtures.books[0], fixtures.books[1]);
-    let path = format!("/admin/audience/returns?book_id={book}&days=90");
+    let path = format!("/odmen/audience/returns?book_id={book}&days=90");
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -375,7 +375,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     ] {
         let denied = call(
             &app,
-            "/admin/audience/returns?book_id=bad&days=bad&subject_id=forged",
+            "/odmen/audience/returns?book_id=bad&days=bad&subject_id=forged",
             cookie,
         )
         .await;
@@ -402,7 +402,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     ] {
         let invalid = call(
             &app,
-            &format!("/admin/audience/returns?{query}"),
+            &format!("/odmen/audience/returns?{query}"),
             &cookies[0],
         )
         .await;
@@ -411,7 +411,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     }
     let missing = call(
         &app,
-        "/admin/audience/returns?book_id=9223372036854775807",
+        "/odmen/audience/returns?book_id=9223372036854775807",
         &cookies[0],
     )
     .await;
@@ -602,7 +602,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     assert!(!independent.contains("alert(1)"));
     let default = call(
         &app,
-        &format!("/admin/audience/returns?book_id={book}"),
+        &format!("/odmen/audience/returns?book_id={book}"),
         &cookies[0],
     )
     .await;
@@ -613,7 +613,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
         assert_eq!(counts(&default, key), counts(&ninety, key));
     }
     assert!(default.contains(&format!("name=\"book_id\" value=\"{book}\"")));
-    let global = body(call(&app, "/admin/audience/returns?days=90", &cookies[0]).await).await;
+    let global = body(call(&app, "/odmen/audience/returns?days=90", &cookies[0]).await).await;
     assert!(global.contains("data-testid=\"audience-returns\""));
     assert!(!global.contains("audience-book-returns-title"));
     assert!(!global.contains("alert(1)"));
@@ -621,7 +621,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     // The public list is the real entry point; it preserves the selected period.
     let list = call(
         &app,
-        &format!("/admin/audience/books?days=30&genre={genre}"),
+        &format!("/odmen/audience/books?days=30&genre={genre}"),
         &cookies[0],
     )
     .await;
@@ -731,7 +731,7 @@ async fn book_returns_http_exact_days_isolation_visibility_and_live_admin() {
     assert!(!body(post).await.contains("data-metric="));
     let export = call(
         &app,
-        &format!("/admin/audience/returns/export?book_id={book}"),
+        &format!("/odmen/audience/returns/export?book_id={book}"),
         &cookies[0],
     )
     .await;

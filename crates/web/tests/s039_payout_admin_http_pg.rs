@@ -22,7 +22,7 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
-const PATH: &str = "/admin/finance/payouts";
+const PATH: &str = "/odmen/finance/payouts";
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "never use retained DB");
@@ -98,7 +98,7 @@ async fn s039_http_disabled_by_default() {
         request(
             &site,
             "POST",
-            "/admin/finance/payouts/1/reject",
+            "/odmen/finance/payouts/1/reject",
             "",
             ORIGIN,
             "invalid=form"

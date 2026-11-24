@@ -1,6 +1,9 @@
 //! C-08/BR-060: reader opens exact private saved-free V1, not current V2.
 //! Only disposable PostgreSQL tor_ci. No normal-delete production switch.
-use axum::http::{header, StatusCode};
+use axum::{
+    body::Body,
+    http::{header, Request, StatusCode},
+};
 use std::{
     num::NonZeroU32,
     process::Command,
@@ -12,6 +15,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
@@ -154,6 +158,42 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert_eq!(
         call(&app, "GET", &read, &reader_cookie, "").await.status(),
         StatusCode::NOT_FOUND
+    );
+    for (path, purpose, value) in [
+        ("reader", "sec-purpose", "prefetch;prerender"),
+        ("read", "purpose", "prefetch"),
+    ] {
+        let request = Request::builder()
+            .uri(format!("/{path}/{chapter}"))
+            .header(header::COOKIE, &reader_cookie)
+            .header(purpose, value)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    let opened = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM reader_free_opened_editions
+             WHERE user_id={actor} AND chapter_id={chapter}"
+        ),
+    );
+    assert_eq!(opened, "0", "speculative GETs must not count as opens");
+    // C-08 owner rule: the reader first opens this exact V1. Saving a Book
+    // without this GET must not create an immutable chapter pin.
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("/reader/{chapter}"),
+            &reader_cookie,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::OK
     );
     assert_eq!(
         call(

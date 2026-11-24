@@ -8,7 +8,7 @@ use tor_recommendations::{
 
 pub(super) fn page(days: i32, report: Option<&SignalReport>) -> Html<String> {
     let mut body = format!(
-        r#"<section class="section"><div class="container author-width"><p class="eyebrow">Администратору сайта</p><h1>Сигналы аудитории</h1>{}<p>Сохранённые результаты проверок общих чисел и полноты измерения. Открытие страницы не запускает расчёт и не меняет журнал.</p><form class="author-form" method="get" action="/admin/audience/signals"><label for="signal-days">Длительность периода</label><select id="signal-days" name="days">"#,
+        r#"<section class="section"><div class="container author-width"><p class="eyebrow">Администратору сайта</p><h1>Сигналы аудитории</h1>{}<p>Сохранённые результаты проверок общих чисел и полноты измерения. Открытие страницы не запускает расчёт и не меняет журнал.</p><form class="author-form" method="get" action="/odmen/audience/signals"><label for="signal-days">Длительность периода</label><select id="signal-days" name="days">"#,
         crate::flow_navigation::links(days)
     );
     for value in [1, 7, 30, 90] {
@@ -85,10 +85,10 @@ pub(super) fn page(days: i32, report: Option<&SignalReport>) -> Html<String> {
             body.push_str("</article>");
         }
         if let Some(next) = report.next {
-            write!(body, r#"<p><a data-testid="signal-next" href="/admin/audience/signals?days={days}&amp;before={next}">Предыдущие записи</a></p>"#).expect("String");
+            write!(body, r#"<p><a data-testid="signal-next" href="/odmen/audience/signals?days={days}&amp;before={next}">Предыдущие записи</a></p>"#).expect("String");
         }
     }
-    write!(body, r#"<p><a href="/admin/audience/signals?days={days}">К последним проверкам</a></p></section>"#).expect("String");
+    write!(body, r#"<p><a href="/odmen/audience/signals?days={days}">К последним проверкам</a></p></section>"#).expect("String");
     body.push_str(r#"<section class="book-section-card"><h2>Правила проверки</h2>
 <p>Для HTML-запросов, чтения и карточек сравниваются соседние равные интервалы полностью закрытых часов UTC. Для карточек дополнительно проходит 15 минут на доставку наблюдений. Google и Яндекс сохраняют собственные даты отчётности; они не смешиваются с часами посещений.</p>
 <p>Сигнал падения требует изменения не менее 30% и достаточного предыдущего значения: 100 для HTML-запросов, кликов поиска и показов карточек; 50 для подтверждённого чтения. Число завершений означает первое подтверждённое завершение главы на пару «аккаунт — книга», а не прочтение всей книги.</p>
@@ -223,18 +223,18 @@ fn reason(reason: Reason) -> &'static str {
 }
 fn source_link(rule: Rule, days: i32) -> String {
     match rule {
-        Rule::HtmlQuality | Rule::HtmlChange => format!("/admin/audience?days={days}"),
+        Rule::HtmlQuality | Rule::HtmlChange => format!("/odmen/audience?days={days}"),
         Rule::ReadingStarts | Rule::ReadingCompletions => {
-            format!("/admin/audience/reading?days={days}")
+            format!("/odmen/audience/reading?days={days}")
         }
         Rule::GoogleQuality | Rule::GoogleClicks => {
-            format!("/admin/audience/seo?days={days}&amp;provider=google")
+            format!("/odmen/audience/seo?days={days}&amp;provider=google")
         }
         Rule::YandexQuality | Rule::YandexClicks => {
-            format!("/admin/audience/seo?days={days}&amp;provider=yandex")
+            format!("/odmen/audience/seo?days={days}&amp;provider=yandex")
         }
-        Rule::PublicPageLoss => "/admin/audience/pages".into(),
-        _ => format!("/admin/audience/exposure?days={days}&amp;window=closed"),
+        Rule::PublicPageLoss => "/odmen/audience/pages".into(),
+        _ => format!("/odmen/audience/exposure?days={days}&amp;window=closed"),
     }
 }
 

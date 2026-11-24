@@ -24,7 +24,7 @@ pub(crate) fn page(
         Одна учётная запись с двумя книгами даёт два наблюдения. Это не число людей.</p>"#,
     );
     write!(body, r#"<h2 data-testid="audience-group-returns-title">{}</h2>
-        <p><a href="/admin/audience/groups?kind={}&amp;days={}">Вернуться к жанрам и тегам</a></p>
+        <p><a href="/odmen/audience/groups?kind={}&amp;days={}">Вернуться к жанрам и тегам</a></p>
         <p><a class="button button--quiet" data-testid="audience-group-returns-books" href="{}">Открыть книги этой группы</a></p>"#,
         escape_html(query.label.as_deref().unwrap_or(missing)), query.kind.as_str(), query.days,
         escape_html(&books_url(query))).expect("String");
@@ -73,7 +73,7 @@ pub(crate) fn page(
 
 fn filters(body: &mut String, query: &GroupBookReadingReturnsQuery) {
     write!(body, r#"<form class="author-form audience-books-filters" id="audience-group-returns-filters"
-        method="get" action="/admin/audience/returns"><input type="hidden" name="kind" value="{}">"#,
+        method="get" action="/odmen/audience/returns"><input type="hidden" name="kind" value="{}">"#,
         query.kind.as_str()).expect("String");
     match &query.label {
         Some(label) => write!(
@@ -168,12 +168,12 @@ fn books_url(query: &GroupBookReadingReturnsQuery) -> String {
     };
     match &query.label {
         Some(label) => format!(
-            "/admin/audience/books?days={}&{key}={}",
+            "/odmen/audience/books?days={}&{key}={}",
             query.days,
             evidence::encode(label)
         ),
         None => format!(
-            "/admin/audience/books?days={}&without_{key}=true",
+            "/odmen/audience/books?days={}&without_{key}=true",
             query.days
         ),
     }
@@ -205,7 +205,7 @@ mod tests {
                 .unwrap();
         let html = page(&missing, None).0;
         assert!(html.contains(r#"name="without_label" value="true""#));
-        assert!(html.contains("/admin/audience/books?days=90&amp;without_genre=true"));
+        assert!(html.contains("/odmen/audience/books?days=90&amp;without_genre=true"));
         assert!(html.contains("Без жанра"));
     }
 }

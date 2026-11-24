@@ -191,7 +191,7 @@ pub(super) async fn queue(
             r#"<article class="me-now-card">
             <h2>Жалоба #{}</h2>
             <p>Книга #{} · {} · заявитель #{}</p><p>Причина: {}</p><p>Комментарий: {}</p>
-            <form method="post" action="/admin/book-reports/{}/decision">
+            <form method="post" action="/odmen/book-reports/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Комментарий решения
             <input name="note" maxlength="500" required></label>
@@ -243,7 +243,7 @@ pub(super) async fn queue(
     if let Some(next) = history.next_cursor {
         write!(
             body,
-            r#"<p><a href="/admin/book-reports?history_before={next}">Более ранние решения</a></p>"#,
+            r#"<p><a href="/odmen/book-reports?history_before={next}">Более ранние решения</a></p>"#,
         )
         .expect("bounded S049 history cursor");
     }
@@ -268,7 +268,7 @@ pub(super) async fn decide(
         .decide(&digest, report_id, &form.decision, &form.note)
         .await
     {
-        Ok(()) => super::private_response(Redirect::to("/admin/book-reports"), &[]),
+        Ok(()) => super::private_response(Redirect::to("/odmen/book-reports"), &[]),
         Err(error) => deny(status(error)),
     }
 }

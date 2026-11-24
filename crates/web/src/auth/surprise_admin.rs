@@ -20,10 +20,10 @@ use tor_recommendations::repositories::surprises::{
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/admin/surprises", get(page))
-        .route("/admin/surprises/policy", post(policy))
-        .route("/admin/surprises/create", post(create))
-        .route("/admin/surprises/{id}/state", post(set_state))
+        .route("/odmen/surprises", get(page))
+        .route("/odmen/surprises/policy", post(policy))
+        .route("/odmen/surprises/create", post(create))
+        .route("/odmen/surprises/{id}/state", post(set_state))
 }
 
 async fn administrator(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
@@ -100,13 +100,13 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         "<section class=\"section\"><div class=\"container\"><h1>Случайные открытия</h1>\
          <p>Бесплатные редакционные сюрпризы; оплаченные показы и бонусные деньги не поддерживаются.</p>\
          <p>Система также требует отдельный серверный переключатель TOR_SURPRISE_HTTP_ENABLED.</p>\
-         <h2>Появления</h2><form method=\"post\" action=\"/admin/surprises/policy\">\
+         <h2>Появления</h2><form method=\"post\" action=\"/odmen/surprises/policy\">\
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <label><input type=\"checkbox\" name=\"enabled\" value=\"on\" {}> Включить выбор сюрпризов</label>\
          <label>Вероятность, промилле <input type=\"number\" min=\"0\" max=\"1000\" name=\"probability_per_mille\" value=\"{probability}\"></label>\
          <label><input type=\"checkbox\" name=\"experiment_enabled\" value=\"on\" {}> Эксперимент 20% без подарков / 40% мягкий / 40% обычный (по умолчанию выключен)</label>\
          <button type=\"submit\">Сохранить настройки</button></form>\
-         <h2>Новый сюрприз</h2><form method=\"post\" action=\"/admin/surprises/create\">\
+         <h2>Новый сюрприз</h2><form method=\"post\" action=\"/odmen/surprises/create\">\
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <label>Тип <select name=\"kind\">\
          <option value=\"joke\">Шутка</option><option value=\"fact\">Факт</option>\
@@ -143,7 +143,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         for target in next {
             let _ = write!(
                 body,
-                "<form method=\"post\" action=\"/admin/surprises/{}/state\" style=\"display:inline\">\
+                "<form method=\"post\" action=\"/odmen/surprises/{}/state\" style=\"display:inline\">\
                  <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
                  <input type=\"hidden\" name=\"state\" value=\"{target}\">\
                  <button type=\"submit\">{target}</button></form>",
@@ -202,7 +202,7 @@ async fn policy(
         )
         .await
     {
-        Ok(()) => private_response(Redirect::to("/admin/surprises"), &[]),
+        Ok(()) => private_response(Redirect::to("/odmen/surprises"), &[]),
         Err(error) => problem(error),
     }
 }
@@ -237,7 +237,7 @@ async fn create(
         editorial: form.editorial.as_deref() == Some("on"),
     };
     match repo.admin_create(&digest, &input).await {
-        Ok(_) => private_response(Redirect::to("/admin/surprises"), &[]),
+        Ok(_) => private_response(Redirect::to("/odmen/surprises"), &[]),
         Err(error) => problem(error),
     }
 }
@@ -258,7 +258,7 @@ async fn set_state(
     };
     let repo = PgSurprises::new(state.accounts.pool().clone());
     match repo.admin_state(&digest, id, &form.state).await {
-        Ok(true) => private_response(Redirect::to("/admin/surprises"), &[]),
+        Ok(true) => private_response(Redirect::to("/odmen/surprises"), &[]),
         Ok(false) => deny(StatusCode::CONFLICT),
         Err(error) => problem(error),
     }

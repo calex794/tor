@@ -6,7 +6,11 @@ use aws_sdk_s3::{
     error::ProvideErrorMetadata,
     operation::get_object::GetObjectError,
 };
-use std::{cell::Cell, error::Error};
+use std::{
+    cell::Cell,
+    error::Error,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_contracts::paid_delivery::ObjectRef;
 use tor_storage::{
     domain::provider::StorageError, repositories::s3::S3PrivateStore,
@@ -140,15 +144,24 @@ fn io_error_kind(mut error: &(dyn Error + 'static)) -> Option<std::io::ErrorKind
     }
 }
 
+fn unix_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis())
+}
+
 pub(super) async fn first_get(
     store: &S3PrivateStore,
     object: &ObjectRef,
 ) -> Result<Vec<u8>, StorageError> {
     FIRST_GET_OUTCOME
         .scope(Cell::new(None), async {
+            let started_ms = unix_millis();
             let result = store.get_verified(object).await;
             let outcome = FIRST_GET_OUTCOME.with(Cell::get);
             if let Err(error) = &result {
+                let ended_ms = unix_millis();
+                eprintln!("G09_FIRST_GET_WINDOW unix_ms_start={started_ms} unix_ms_end={ended_ms}");
                 match outcome {
                     Some(GetOutcome::Headers(status)) => {
                         let stage = if *error == StorageError::Unavailable {

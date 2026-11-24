@@ -13,12 +13,12 @@ async function check({adminPage,readerPage,guestPage,base,shots,book,run,sql,pri
         CASE WHEN n=1 THEN ARRAY[]::text[] ELSE ARRAY['canonical-browser'] END
       FROM generate_series(1,22)n RETURNING id`).split('\n').filter(Boolean).map(Number);
     assert.equal(extras.length,22);
-    await privateResponse(await guestPage.goto(base+'/admin/audience/reading?days=bad'),401);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/reading?days=bad'),403);
-    await adminPage.goto(base+'/admin/audience?days=7');
+    await privateResponse(await guestPage.goto(base+'/odmen/audience/reading?days=bad'),401);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/reading?days=bad'),403);
+    await adminPage.goto(base+'/odmen/audience?days=7');
     await adminPage.getByTestId('audience-canonical-link').click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/reading');
-    const scoped=base+'/admin/audience/reading?days=7&tag='+encodeURIComponent(tag);
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/reading');
+    const scoped=base+'/odmen/audience/reading?days=7&tag='+encodeURIComponent(tag);
     for(const width of [390,1440]){
       await adminPage.setViewportSize({width,height:width===390?844:900});
       await privateResponse(await adminPage.goto(scoped),200);
@@ -47,14 +47,14 @@ async function check({adminPage,readerPage,guestPage,base,shots,book,run,sql,pri
     }
     for(const days of [1,30,90]){
       await adminPage.locator('#canonical-days').selectOption(String(days));
-      await adminPage.locator('form[action="/admin/audience/reading"]').getByRole('button').click();
+      await adminPage.locator('form[action="/odmen/audience/reading"]').getByRole('button').click();
       await adminPage.waitForURL(url=>url.searchParams.get('days')===String(days));
       assert.equal(await count(adminPage,'current'),1);
       assert.equal(await count(adminPage,'previous'),0);
     }
     for(const kind of ['genres','tags']){
       await adminPage.locator('#canonical-kind').selectOption(kind);
-      await adminPage.locator('form[action="/admin/audience/reading"]').getByRole('button').click();
+      await adminPage.locator('form[action="/odmen/audience/reading"]').getByRole('button').click();
       await adminPage.waitForURL(url=>url.searchParams.get('kind')===kind);
       assert.equal(await adminPage.getByTestId('canonical-row').count(),kind==='genres'?2:1);
       assert.equal(await count(adminPage,'books'),23);assert.equal(await count(adminPage,'current'),1);

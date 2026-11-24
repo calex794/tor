@@ -290,7 +290,7 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
         "http://127.0.0.1:3098".into(),
     );
     let path = format!(
-        "/admin/audience/books?days=7&genre={}&tag={}",
+        "/odmen/audience/books?days=7&genre={}&tag={}",
         encoded(&genre),
         encoded(tag)
     );
@@ -299,7 +299,7 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
         (cookies[1].as_str(), StatusCode::FORBIDDEN),
         (cookies[2].as_str(), StatusCode::FORBIDDEN),
     ] {
-        let denied = call(&app, "/admin/audience/books?days=invalid", cookie).await;
+        let denied = call(&app, "/odmen/audience/books?days=invalid", cookie).await;
         private(&denied, status);
         assert!(!body(denied).await.contains("data-book-id="));
     }
@@ -314,7 +314,7 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
         "genre=%00",
     ] {
         private(
-            &call(&app, &format!("/admin/audience/books?{raw}"), &cookies[0]).await,
+            &call(&app, &format!("/odmen/audience/books?{raw}"), &cookies[0]).await,
             StatusCode::BAD_REQUEST,
         );
     }

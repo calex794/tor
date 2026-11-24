@@ -16,6 +16,8 @@ jobs:
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      foundation_evidence: ${{ steps.foundation.outputs.foundation_evidence }}
     services:
       postgres:
         image: postgres:18
@@ -111,7 +113,13 @@ jobs:
       - name: Build real TOR binary off VPS
         run: cargo build -p tor-web
       - name: Encrypted archive to independent MinIO, destroy local copy and restore
-        run: bash tools/tor_dr_s3_backup_smoke.sh
+        id: foundation
+        run: |
+          set -euo pipefail
+          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
+          trap 'rm -f "$foundation_log"' EXIT
+          bash tools/tor_dr_s3_backup_smoke.sh | tee "$foundation_log"
+          python3 tools/verify_ci_gate.py record-foundation sealed-remote-copy "$foundation_log"
       - name: Diagnostic service state without backup contents or keys
         if: failure()
         run: |

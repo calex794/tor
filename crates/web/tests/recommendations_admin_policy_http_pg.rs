@@ -20,7 +20,7 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
-const PATH: &str = "/admin/recommendations";
+const PATH: &str = "/odmen/recommendations";
 
 fn pg(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
@@ -275,7 +275,7 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
     let response = request(
         &site,
         "GET",
-        "/me/recommendations/shelf-preview",
+        "/odmen/recommendations/shelf-preview",
         &admin_cookie,
         ORIGIN,
         "",

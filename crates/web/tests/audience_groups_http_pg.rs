@@ -357,7 +357,7 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
         (cookies[1].as_str(), StatusCode::FORBIDDEN),
         (cookies[2].as_str(), StatusCode::FORBIDDEN),
     ] {
-        let denied = call(&app, "/admin/audience/groups?days=invalid", cookie).await;
+        let denied = call(&app, "/odmen/audience/groups?days=invalid", cookie).await;
         private(&denied, status);
         assert!(!body(denied).await.contains("audience-group-row"));
     }
@@ -372,7 +372,7 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
         "actor_id=5",
     ] {
         private(
-            &call(&app, &format!("/admin/audience/groups?{raw}"), &cookies[0]).await,
+            &call(&app, &format!("/odmen/audience/groups?{raw}"), &cookies[0]).await,
             StatusCode::BAD_REQUEST,
         );
     }
@@ -385,12 +385,12 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
         "without_tag=true&without_tag=false",
     ] {
         private(
-            &call(&app, &format!("/admin/audience/books?{raw}"), &cookies[0]).await,
+            &call(&app, &format!("/odmen/audience/books?{raw}"), &cookies[0]).await,
             StatusCode::BAD_REQUEST,
         );
     }
     let path = format!(
-        "/admin/audience/groups?kind=genres&days=90&after={}",
+        "/odmen/audience/groups?kind=genres&days=90&after={}",
         encoded(&prefix)
     );
     let response = call(&app, &path, &cookies[0]).await;
@@ -476,7 +476,7 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
         let overview = body(
             call(
                 &app,
-                &format!("/admin/audience/groups?kind={kind}&days=90"),
+                &format!("/odmen/audience/groups?kind={kind}&days=90"),
                 &cookies[0],
             )
             .await,

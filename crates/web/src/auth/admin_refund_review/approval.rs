@@ -33,7 +33,7 @@ pub(super) fn enabled(state: &AuthState) -> bool {
 
 pub(super) fn support_form(request: i64, revision: i64, csrf: &str) -> String {
     format!(
-        r#"<form method="post" action="/admin/finance/refunds/approve" autocomplete="off">
+        r#"<form method="post" action="/odmen/finance/refunds/approve" autocomplete="off">
         <h3>Подтверждение возврата №{request}</h3>
         <input type="hidden" name="request_id" value="{request}">
         <input type="hidden" name="expected_revision" value="{revision}">
@@ -216,7 +216,7 @@ pub(super) async fn submit(
                 &format!(
                     r#"<p role="status">Решение по заявке №{} принято.
                        Внутренний возврат: {} коп.
-                       {}.</p><p><a href="/admin/finance/refunds">К заявкам</a></p>"#,
+                       {}.</p><p><a href="/odmen/finance/refunds">К заявкам</a></p>"#,
                     receipt.request_id,
                     receipt.credited_minor,
                     if receipt.replayed {

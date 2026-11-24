@@ -15,7 +15,7 @@ pub(crate) fn page(query: &CanonicalQuery, report: Option<&CanonicalReport>) -> 
     );
     write!(
         body,
-        r#"<p><a href="/admin/audience?days={}">Вернуться в «Аудиторию»</a></p>"#,
+        r#"<p><a href="/odmen/audience?days={}">Вернуться в «Аудиторию»</a></p>"#,
         query.days
     )
     .expect("String");
@@ -77,7 +77,7 @@ fn metrics(body: &mut String, c: CanonicalCounts) {
     }
 }
 fn filters(body: &mut String, q: &CanonicalQuery, ranked: bool) {
-    body.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/admin/audience/reading"><div><label for="canonical-days">Дней в периоде</label><select id="canonical-days" name="days">"#);
+    body.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/odmen/audience/reading"><div><label for="canonical-days">Дней в периоде</label><select id="canonical-days" name="days">"#);
     for days in [1, 7, 30, 90] {
         write!(
             body,
@@ -118,11 +118,11 @@ fn filters(body: &mut String, q: &CanonicalQuery, ranked: bool) {
     ] {
         write!(body,r#"<div><label for="canonical-{key}">{label}</label><input id="canonical-{key}" name="{key}" maxlength="40" value="{}"><label class="audience-missing-label"><input type="checkbox" name="without_{key}" value="true"{}><span>Без метки</span></label></div>"#,escape_html(value.as_deref().unwrap_or("")),if missing{" checked"}else{""}).expect("String");
     }
-    write!(body,r#"<p><button class="button" type="submit">Показать</button> <a href="/admin/audience/reading?days={}">Сбросить фильтры</a></p></form>"#,q.days).expect("String");
+    write!(body,r#"<p><button class="button" type="submit">Показать</button> <a href="/odmen/audience/reading?days={}">Сбросить фильтры</a></p></form>"#,q.days).expect("String");
 }
 fn url(q: &CanonicalQuery, id: Option<i64>, label: Option<&str>) -> String {
     let mut url = format!(
-        "/admin/audience/reading?days={}&kind={}",
+        "/odmen/audience/reading?days={}&kind={}",
         q.days,
         q.dimension.key()
     );

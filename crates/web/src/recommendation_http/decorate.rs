@@ -279,7 +279,7 @@ mod shelf_precedence_tests {
         }
         for path in [
             "/read/paid/41",
-            "/read/admin/41",
+            "/read/odmen/41",
             "/read/0",
             "/reader/0",
             "/reader/41/extra",

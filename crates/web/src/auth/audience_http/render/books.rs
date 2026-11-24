@@ -21,8 +21,8 @@ pub(crate) fn page(
     );
     write!(
         body,
-        r#"<p><a href="/admin/audience?days={0}">Вернуться в «Аудиторию»</a>
-        · <a href="/admin/audience/groups?days={0}&amp;kind=genres">Сравнить жанры и теги</a></p>"#,
+        r#"<p><a href="/odmen/audience?days={0}">Вернуться в «Аудиторию»</a>
+        · <a href="/odmen/audience/groups?days={0}&amp;kind=genres">Сравнить жанры и теги</a></p>"#,
         query.days
     )
     .expect("String");
@@ -146,7 +146,7 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
 fn book_row(body: &mut String, book: &BookDiscoveryRow, days: i32) {
     write!(body, r#"<article class="book-section-card audience-book-row" data-testid="audience-book-row" data-book-id="{}">
         <h3><a href="/books/{}">{}</a></h3>"#, book.book_id, book.book_id, escape_html(&book.title)).expect("String");
-    write!(body, r#"<p><a data-testid="audience-book-returns-link" href="/admin/audience/returns?book_id={}&amp;days={days}">Возвращения к книге</a></p>"#, book.book_id).expect("String");
+    write!(body, r#"<p><a data-testid="audience-book-returns-link" href="/odmen/audience/returns?book_id={}&amp;days={days}">Возвращения к книге</a></p>"#, book.book_id).expect("String");
     for (label, values) in [("Жанры", &book.genres), ("Теги", &book.tags)] {
         write!(
             body,

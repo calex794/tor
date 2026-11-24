@@ -236,7 +236,7 @@ pub(super) async fn administrator(
     let managed = call(
         app,
         "GET",
-        "/me/recommendations/manage",
+        "/odmen/recommendations/manage",
         cookie,
         (ORIGIN, csrf),
         "",
@@ -276,7 +276,7 @@ pub(super) async fn administrator(
             call(
                 app,
                 "GET",
-                &format!("/api/v1/admin/recommendations/quality{query}"),
+                &format!("/api/v1/odmen/recommendations/quality{query}"),
                 cookie,
                 (ORIGIN, csrf),
                 "",
@@ -295,7 +295,7 @@ pub(super) async fn administrator(
         let rejected = call(
             app,
             "GET",
-            &format!("/api/v1/admin/recommendations/quality{query}"),
+            &format!("/api/v1/odmen/recommendations/quality{query}"),
             cookie,
             (ORIGIN, csrf),
             "",
@@ -310,7 +310,7 @@ pub(super) async fn administrator(
         call(
             app,
             "POST",
-            "/api/v1/admin/recommendations/control",
+            "/api/v1/odmen/recommendations/control",
             cookie,
             (ORIGIN, csrf),
             &control,
@@ -323,7 +323,7 @@ pub(super) async fn administrator(
         call(
             app,
             "POST",
-            "/me/recommendations/manage",
+            "/odmen/recommendations/manage",
             cookie,
             (ORIGIN, csrf),
             &format!("action=hold&expected_revision=0&csrf_token={csrf}"),
@@ -340,7 +340,7 @@ pub(super) async fn administrator(
         let rejected = call(
             app,
             "POST",
-            "/api/v1/admin/recommendations/control",
+            "/api/v1/odmen/recommendations/control",
             cookie,
             (ORIGIN, csrf),
             &payload.to_string(),
@@ -359,9 +359,9 @@ pub(super) async fn administrator(
     );
     pg(url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={user} AND role='administrator'"));
     for path in [
-        "/api/v1/admin/recommendations/quality?channel=invalid",
-        "/api/v1/admin/recommendations/quality?channel=organic",
-        "/me/recommendations/manage",
+        "/api/v1/odmen/recommendations/quality?channel=invalid",
+        "/api/v1/odmen/recommendations/quality?channel=organic",
+        "/odmen/recommendations/manage",
     ] {
         let rejected = call(app, "GET", path, cookie, (ORIGIN, csrf), "", false).await;
         assert_eq!(rejected.status(), StatusCode::FORBIDDEN);

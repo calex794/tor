@@ -29,8 +29,8 @@ pub(crate) fn page(
     }
     write!(
         body,
-        r#"<p><a href="/admin/audience/books?days={days}">Вернуться к книгам</a>
-        · <a href="/admin/audience/returns?days={days}">Общие возвращения к чтению</a></p>"#
+        r#"<p><a href="/odmen/audience/books?days={days}">Вернуться к книгам</a>
+        · <a href="/odmen/audience/returns?days={days}">Общие возвращения к чтению</a></p>"#
     )
     .expect("String");
     super::retirement::notice(&mut body, "возвращения на заданный день и их доля");
@@ -79,7 +79,7 @@ pub(crate) fn page(
 
 fn filters(body: &mut String, book_id: i64, days: i32) {
     write!(body, r#"<form class="author-form audience-books-filters" id="audience-book-returns-filters"
-        method="get" action="/admin/audience/returns"><input type="hidden" name="book_id" value="{book_id}">
+        method="get" action="/odmen/audience/returns"><input type="hidden" name="book_id" value="{book_id}">
         <div><label for="book-returns-days">Когда началось наблюдение за книгой</label>
         <select id="book-returns-days" name="days">"#).expect("String");
     for (value, label) in [

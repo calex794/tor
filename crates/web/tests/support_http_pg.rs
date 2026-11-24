@@ -208,13 +208,13 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     let outsider = text(call(&app, "GET", "/support/widget", "", "", ORIGIN).await).await;
     assert!(!outsider.contains("PRIVATE"));
     assert_eq!(
-        call(&app, "GET", "/admin/support", "", "", ORIGIN)
+        call(&app, "GET", "/odmen/support", "", "", ORIGIN)
             .await
             .status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        call(&app, "GET", "/admin/support", &sessions[0], "", ORIGIN)
+        call(&app, "GET", "/odmen/support", &sessions[0], "", ORIGIN)
             .await
             .status(),
         StatusCode::FORBIDDEN
@@ -227,9 +227,9 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
         ),
     )
     .await;
-    let list = text(call(&app, "GET", "/admin/support", &sessions[2], "", ORIGIN).await).await;
+    let list = text(call(&app, "GET", "/odmen/support", &sessions[2], "", ORIGIN).await).await;
     assert!(list.contains("PRIVATE &lt;script&gt;"));
-    let path = format!("/admin/support/{chat}");
+    let path = format!("/odmen/support/{chat}");
     let detail = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
     assert!(detail.contains("PRIVATE &lt;script&gt;"));
     assert!(detail.contains("Статус: открыто."));

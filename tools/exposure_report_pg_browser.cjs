@@ -62,7 +62,7 @@ async function privateResponse(response, expected = 200) {
     browser = await chromium.launch({headless: true});
     const context = await browser.newContext({javaScriptEnabled: false, viewport: {width: 1440, height: 900}});
     const page = await context.newPage();
-    await privateResponse(await page.goto(base + '/admin/audience/exposure?window=closed'), 401);
+    await privateResponse(await page.goto(base + '/odmen/audience/exposure?window=closed'), 401);
     await page.goto(base + '/register');
     const email = 'flow-report-' + stamp + '@tor-ci.example';
     await page.getByLabel('Отображаемое имя').fill('Report operator');
@@ -71,9 +71,9 @@ async function privateResponse(response, expected = 200) {
     await page.getByRole('button', {name: 'Создать учётную запись', exact: true}).click();
     await page.waitForURL('**/me');
     actor = Number(sql("SELECT id FROM users WHERE email_normalized='" + email + "'"));
-    await privateResponse(await page.goto(base + '/admin/audience/exposure?window=closed'), 403);
+    await privateResponse(await page.goto(base + '/odmen/audience/exposure?window=closed'), 403);
     sql("INSERT INTO account_roles(user_id,role) VALUES(" + actor + ",'administrator')");
-    await privateResponse(await page.goto(base + '/admin/audience/exposure?group=tag&label=' + encodeURIComponent(label)));
+    await privateResponse(await page.goto(base + '/odmen/audience/exposure?group=tag&label=' + encodeURIComponent(label)));
     assert.equal(await page.locator('[data-testid="exposure-health"]').count(), 0);
     await page.getByLabel('Граница периода').selectOption('closed');
     await page.getByLabel('Дней в периоде').selectOption('1');

@@ -221,8 +221,8 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
         ORIGIN.into(),
     );
     for path in [
-        "/admin/audience/signals?days=bad",
-        "/admin/audience/pages?unknown=true",
+        "/odmen/audience/signals?days=bad",
+        "/odmen/audience/pages?unknown=true",
     ] {
         get(&app, path, "", StatusCode::UNAUTHORIZED).await;
         get(&app, path, &cookies[1], StatusCode::FORBIDDEN).await;
@@ -238,7 +238,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
     ] {
         get(
             &app,
-            &format!("/admin/audience/signals?{query}"),
+            &format!("/odmen/audience/signals?{query}"),
             &cookies[0],
             StatusCode::BAD_REQUEST,
         )
@@ -279,7 +279,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
     for days in [1, 7, 30, 90] {
         let html = get(
             &app,
-            &format!("/admin/audience/signals?days={days}"),
+            &format!("/odmen/audience/signals?days={days}"),
             &cookies[0],
             StatusCode::OK,
         )
@@ -292,7 +292,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
             assert!(!html.contains("<script>bad()"));
         }
     }
-    let pages = get(&app, "/admin/audience/pages", &cookies[0], StatusCode::OK).await;
+    let pages = get(&app, "/odmen/audience/pages", &cookies[0], StatusCode::OK).await;
     assert_eq!(
         pages.matches(r#"data-testid="public-page-state""#).count(),
         4
@@ -308,7 +308,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
     let started = Instant::now();
     let unavailable = get(
         &app,
-        "/admin/audience/signals?days=7",
+        "/odmen/audience/signals?days=7",
         &cookies[0],
         StatusCode::SERVICE_UNAVAILABLE,
     )
@@ -340,7 +340,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
     );
     let html = get(
         &app,
-        "/admin/audience/signals?days=7",
+        "/odmen/audience/signals?days=7",
         &cookies[0],
         StatusCode::OK,
     )
@@ -390,7 +390,7 @@ async fn signals_and_pages_have_live_authority_saved_evidence_and_bounded_read_o
         &url,
         &format!("DELETE FROM account_roles WHERE user_id={}", users[0]),
     );
-    for path in ["/admin/audience/signals", "/admin/audience/pages"] {
+    for path in ["/odmen/audience/signals", "/odmen/audience/pages"] {
         get(&app, path, &cookies[0], StatusCode::FORBIDDEN).await;
     }
     let scopes = Rule::ALL

@@ -99,7 +99,7 @@ async function metric(locator,key) {
 function reportPath(kind,label,days=90) {
   const params=new URLSearchParams({kind,days:String(days)});
   params.set(label===null?'without_label':'label',label===null?'true':label);
-  return '/admin/audience/returns?'+params;
+  return '/odmen/audience/returns?'+params;
 }
 async function snapshot(page,kind,label) {
   await legacy.labelled(page,'audience-group-returns');
@@ -155,7 +155,7 @@ async function select(page,kind,label,days) {
   const form=page.locator('#audience-group-returns-filters');
   await form.locator('select[name="days"]').selectOption(String(days));
   await form.getByRole('button',{name:'Показать',exact:true}).click();
-  await page.waitForURL(url=>url.pathname==='/admin/audience/returns'
+  await page.waitForURL(url=>url.pathname==='/odmen/audience/returns'
     && url.searchParams.get('kind')===kind && url.searchParams.get('days')===String(days)
     && (label===null ? url.searchParams.get('without_label')==='true' : url.searchParams.get('label')===label));
 }
@@ -182,7 +182,7 @@ async function nextListPage(page,surface,visited) {
   const filters=url=>[...url.searchParams].filter(([key])=>key!==cursor)
     .sort(([left],[right])=>left.localeCompare(right));
   assert.equal(next.origin,current.origin);
-  assert.equal(next.pathname,'/admin/audience/'+surface);
+  assert.equal(next.pathname,'/odmen/audience/'+surface);
   assert.equal(next.pathname,current.pathname);
   assert.deepEqual(filters(next),filters(current),'pagination preserves every filter and the selected period');
   assert.ok(next.searchParams.get(cursor),'the next link has an explicit cursor');
@@ -220,12 +220,12 @@ async function findBook(page,book) {
   return findRow(page,'books',page.locator(`[data-testid='audience-book-row'][data-book-id='${book}']`),'selected book');
 }
 async function enterGroup(page,kind,label,days) {
-  await privateResponse(await page.goto(base+`/admin/audience/groups?kind=${kind}&days=${days}`));
+  await privateResponse(await page.goto(base+`/odmen/audience/groups?kind=${kind}&days=${days}`));
   const row=await findRow(page,'groups',group(page,label),'selected group');
   const link=row.getByTestId('audience-group-returns-link');
   assert.equal(await link.count(),1);
   const href=new URL(await link.getAttribute('href'),base);
-  assert.equal(href.pathname,'/admin/audience/returns');
+  assert.equal(href.pathname,'/odmen/audience/returns');
   assert.equal(href.searchParams.get('kind'),kind);
   assert.equal(href.searchParams.get('days'),String(days));
   assert.equal(href.searchParams.get(label===null?'without_label':'label'),label===null?'true':label);
@@ -237,7 +237,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
   const link=page.getByTestId('audience-group-returns-books');
   const href=new URL(await link.getAttribute('href'),base);
   const field=kind==='genres'?'genre':'tag';
-  assert.equal(href.pathname,'/admin/audience/books');
+  assert.equal(href.pathname,'/odmen/audience/books');
   assert.equal(href.searchParams.get('days'),String(days));
   assert.equal(href.searchParams.get(label===null?'without_'+field:field),label===null?'true':label);
   await link.click();
@@ -294,20 +294,20 @@ async function exactBooks(page,kind,label,days,bookIds) {
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
     coverage=legacy.coverage('book');
-    await privateResponse(await readerPage.goto(base+'/admin/audience/returns?kind=bad&label=&days=bad'),403);
+    await privateResponse(await readerPage.goto(base+'/odmen/audience/returns?kind=bad&label=&days=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-group-returns-current').count(),0);
     await adminPage.goto(base+'/me');
-    await adminPage.locator('a[href="/admin/audience"]').click();
-    await adminPage.waitForURL('**/admin/audience');
+    await adminPage.locator('a[href="/odmen/audience"]').click();
+    await adminPage.waitForURL('**/odmen/audience');
     await adminPage.getByTestId('audience-groups-link').click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/groups');
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/groups');
     await adminPage.locator('#groups-days').selectOption('7');
     await adminPage.locator('#audience-groups-filters').getByRole('button',{name:'Показать',exact:true}).click();
     await adminPage.waitForURL(url=>url.searchParams.get('days')==='7');
     const selectedGroup=await findRow(adminPage,'groups',group(adminPage,genre),'selected group');
     const entry=selectedGroup.getByTestId('audience-group-returns-link');
     await entry.click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns'
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/returns'
       && url.searchParams.get('kind')==='genres' && url.searchParams.get('label')===genre && url.searchParams.get('days')==='7');
     const entered=await snapshot(adminPage,'genres',genre);
     assert.equal(entered.books,2);
@@ -418,7 +418,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
     await exactBooks(adminPage,'genres',genre,90,[first.book,second.book]);
     const selectedBook=await findBook(adminPage,first.book);
     await selectedBook.getByTestId('audience-book-returns-link').click();
-    await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns'
+    await adminPage.waitForURL(url=>url.pathname==='/odmen/audience/returns'
       && url.searchParams.get('book_id')===String(first.book) && url.searchParams.get('days')==='90');
     assert.equal(await metric(adminPage.getByTestId('audience-book-returns-current'),'cohort'),'2');
     assert.equal(await metric(adminPage.getByTestId('audience-book-returns-current').locator('[data-return-day="7"]'),'returned'),'—');
@@ -452,7 +452,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
     const hidden=await report(adminPage,'genres',genre);
     assert.equal(hidden.books,1); assert.equal(hidden.current.cohort,1);
     await exactBooks(adminPage,'genres',genre,90,[second.book]);
-    await privateResponse(await adminPage.goto(base+`/admin/audience/returns?book_id=${first.book}`),404);
+    await privateResponse(await adminPage.goto(base+`/odmen/audience/returns?book_id=${first.book}`),404);
     assert.equal(await adminPage.getByTestId('audience-book-returns-current').count(),0);
     sql(`UPDATE books SET admin_hold=false WHERE id=${first.book}`);
     assert.deepEqual(await report(adminPage,'genres',genre),enrolled);

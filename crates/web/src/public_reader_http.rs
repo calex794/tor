@@ -9,6 +9,20 @@ use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
+use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
+
+pub(crate) fn is_speculative_navigation(headers: &HeaderMap) -> bool {
+    ["sec-purpose", "purpose"].into_iter().any(|name| {
+        headers.get_all(name).iter().any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split([';', ',']).any(|purpose| {
+                    purpose.trim().eq_ignore_ascii_case("prefetch")
+                        || purpose.trim().eq_ignore_ascii_case("prerender")
+                })
+            })
+        })
+    })
+}
 
 /// A cookie is not an entitlement: PgReader rechecks session, account and
 /// grant in the SAME statement that returns a chapter body or Book metadata.
@@ -88,7 +102,7 @@ async fn administrator_private_redirect(
     // Redirect only; actual plaintext or encrypted grant is authorized again
     // by the admin reader, so a role revoked mid-navigation cannot leak bytes.
     let mut response =
-        auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
+        auth_cookies::private_response(Redirect::to(&format!("/read/odmen/{id}")), &[]);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -109,6 +123,11 @@ pub(super) async fn reader_page(
     method: Method,
     observation: crate::editorial_http::display::Issuer,
 ) -> Response {
+    // An error response keeps browsers from reusing a speculative response
+    // on the real navigation, when the server can record the rendered edition.
+    if is_speculative_navigation(&headers) {
+        return auth_cookies::private_response(StatusCode::FORBIDDEN, &[]);
+    }
     let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
@@ -154,6 +173,7 @@ pub(super) async fn reader_page(
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
+    let mut verified_open_actor = None;
     let mut progress_csrf = None;
     let mut progress_cookies = Vec::new();
     if method == Method::GET {
@@ -172,6 +192,7 @@ pub(super) async fn reader_page(
                 },
                 None => None,
             };
+            verified_open_actor = actor;
             // Only verified sessions may receive a CSRF pair for the existing
             // actor-bound PUT /api/v1/me/progress/free endpoint.
             if actor.is_some() {
@@ -254,6 +275,24 @@ pub(super) async fn reader_page(
     response
         .headers_mut()
         .insert("content-security-policy", csp);
+    // Record only a successfully rendered plaintext FREE chapter, using the
+    // server-selected exact version, never a book bookmark or TOC preview.
+    // S3 bodyless HTML is merely a shell: its reader confirms after SHA check.
+    if method == Method::GET && !chapter.body_markdown.is_empty() {
+        if let (Some(actor), Some(catalog), Ok(chapter_id), Ok(version_id)) = (
+            verified_open_actor,
+            state.postgres.as_ref(),
+            i64::try_from(id),
+            i64::try_from(chapter.version_id),
+        ) {
+            if let Err(error) = PgFreeOpenCapture::new(catalog.pool().clone())
+                .record(actor, chapter_id, version_id)
+                .await
+            {
+                tracing::warn!(?error, "exact FREE open not recorded");
+            }
+        }
+    }
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }
 

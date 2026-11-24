@@ -1,4 +1,6 @@
 //! FND-07 / S023: multi-book import and byte-for-byte accounting after restart.
+#[path = "catalog_formats.rs"]
+mod formats;
 #[path = "catalog_provider.rs"]
 mod provider;
 
@@ -154,22 +156,7 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
     let mut expected_keys = BTreeSet::new();
     for import in &imports {
         verify_import(&fixture, import).await;
-        let editions: Vec<Edition> = query_json(
-            &fixture,
-            &format!(
-                "SELECT coalesce(json_agg(e ORDER BY e.chapter_no),'[]') FROM (
-                SELECT c.id AS chapter_id,v.id AS version_id,c.chapter_no,v.version_no,c.title,
-                       v.body_markdown IS NULL AS bodyless, p.version_id=v.id AS published,
-                       encode(v.content_sha256,'hex') AS edition_hash,
-                       encode(o.sha256,'hex') AS object_hash,o.bucket,o.object_key,o.size_bytes
-                FROM chapters c JOIN chapter_versions v ON v.chapter_id=c.id
-                JOIN chapter_publications p ON p.chapter_id=c.id
-                JOIN free_chapter_storage_objects o ON o.chapter_id=c.id AND o.version_id=v.id
-                WHERE c.book_id={}
-            ) e",
-                import.book,
-            ),
-        );
+        let editions = published_editions(&fixture, import.book);
         assert_eq!(
             editions.len(),
             import.chapters.len(),
@@ -241,6 +228,24 @@ async fn fnd07_ten_books_survive_worker_restart_and_reconcile_exact_s3_bytes() {
     if endpoint == provider::YANDEX_ENDPOINT {
         println!("FND07_YANDEX_FREE_CATALOG_OK provider=Yandex versioning=never-enabled signed_download=verified");
     }
+}
+
+fn published_editions(fixture: &Fixture, book: i64) -> Vec<Edition> {
+    query_json(
+        fixture,
+        &format!(
+            "SELECT coalesce(json_agg(e ORDER BY e.chapter_no),'[]') FROM (
+                SELECT c.id AS chapter_id,v.id AS version_id,c.chapter_no,v.version_no,c.title,
+                       v.body_markdown IS NULL AS bodyless, p.version_id=v.id AS published,
+                       encode(v.content_sha256,'hex') AS edition_hash,
+                       encode(o.sha256,'hex') AS object_hash,o.bucket,o.object_key,o.size_bytes
+                FROM chapters c JOIN chapter_versions v ON v.chapter_id=c.id
+                JOIN chapter_publications p ON p.chapter_id=c.id
+                JOIN free_chapter_storage_objects o ON o.chapter_id=c.id AND o.version_id=v.id
+                WHERE c.book_id={book}
+            ) e",
+        ),
+    )
 }
 
 async fn verify_import(fixture: &Fixture, import: &Import) {

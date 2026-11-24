@@ -21,7 +21,7 @@ pub(super) fn page(
     queue: QueueSnapshot,
 ) -> Html<String> {
     let mut body = String::from(
-        r#"<section class="section"><div class="container audience-books-width"><p class="eyebrow">Администратору сайта</p><h1>Наблюдаемые показы книг</h1><p><a href="/admin/audience">Аудитория</a></p><p>Показ: не менее 60% карточки непрерывно видимо одну секунду при открытой активной вкладке. Браузер сообщает это по одноразовому подтверждению карточки. Это не уникальные люди и не оплачиваемые рекламные показы.</p>"#,
+        r#"<section class="section"><div class="container audience-books-width"><p class="eyebrow">Администратору сайта</p><h1>Наблюдаемые показы книг</h1><p><a href="/odmen/audience">Аудитория</a></p><p>Показ: не менее 60% карточки непрерывно видимо одну секунду при открытой активной вкладке. Браузер сообщает это по одноразовому подтверждению карточки. Это не уникальные люди и не оплачиваемые рекламные показы.</p>"#,
     );
     body.push_str(&crate::flow_navigation::links(q.days));
     filters(&mut body, q, window);
@@ -171,7 +171,7 @@ fn select(out: &mut String, key: &str, label: &str, chosen: &str, values: &[(&st
     out.push_str("</select></div>");
 }
 fn filters(out: &mut String, q: &ExposureFilter, window: ReportWindow) {
-    out.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/admin/audience/exposure">"#);
+    out.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/odmen/audience/exposure">"#);
     select(
         out,
         "window",
@@ -238,7 +238,7 @@ fn filters(out: &mut String, q: &ExposureFilter, window: ReportWindow) {
         q.group.as_ref().map_or("", |g| g.0.as_str()),
         &[("", "Все"), ("genre", "Жанр"), ("tag", "Тег")],
     );
-    write!(out,r#"<div><label for="exposure-label">Значение метки (пустое — без метки)</label><input id="exposure-label" name="label" maxlength="160" value="{}"></div><div><label for="exposure-campaign">Номер редакционной кампании</label><input id="exposure-campaign" name="campaign" type="number" min="1" value="{}"></div><p><button class="button" type="submit">Показать</button> <a href="/admin/audience/exposure">Сбросить</a></p></form>"#,e(q.group.as_ref().map_or("",|g|g.1.as_str())),q.campaign.map(|v|v.to_string()).unwrap_or_default()).expect("String");
+    write!(out,r#"<div><label for="exposure-label">Значение метки (пустое — без метки)</label><input id="exposure-label" name="label" maxlength="160" value="{}"></div><div><label for="exposure-campaign">Номер редакционной кампании</label><input id="exposure-campaign" name="campaign" type="number" min="1" value="{}"></div><p><button class="button" type="submit">Показать</button> <a href="/odmen/audience/exposure">Сбросить</a></p></form>"#,e(q.group.as_ref().map_or("",|g|g.1.as_str())),q.campaign.map(|v|v.to_string()).unwrap_or_default()).expect("String");
 }
 fn encode(value: &str) -> String {
     let mut out = String::new();
@@ -252,7 +252,7 @@ fn encode(value: &str) -> String {
     out
 }
 fn url(q: &ExposureFilter, window: ReportWindow, after: i64) -> String {
-    let mut url = format!("/admin/audience/exposure?days={}", q.days);
+    let mut url = format!("/odmen/audience/exposure?days={}", q.days);
     if window == ReportWindow::Closed {
         url.push_str("&window=closed");
     }

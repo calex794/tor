@@ -155,7 +155,7 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
         ORIGIN.to_owned(),
     );
     let owner_path = "/me/stats/continuations";
-    let admin_path = "/admin/audience/continuations";
+    let admin_path = "/odmen/audience/continuations";
     assert_eq!(
         get(&app, owner_path, "").await.status(),
         StatusCode::SEE_OTHER
@@ -201,7 +201,7 @@ async fn owner_and_administrator_share_scoped_continuation_data_without_reader_i
     assert_eq!(
         get(
             &app,
-            "/admin/audience/continuations?unexpected=1",
+            "/odmen/audience/continuations?unexpected=1",
             &tokens[2]
         )
         .await

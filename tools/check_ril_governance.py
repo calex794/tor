@@ -19,28 +19,28 @@ POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "ent
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
 ADMIN_MAIL_HANDLERS = {
-    ("GET", "/admin/mail", "admin_mail::index"): "users",
-    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
-    ("GET", "/admin/mail/{id}", "admin_mail::conversation"): "messages",
-    ("GET", "/admin/mail/groups", "admin_mail::groups"): "groups",
-    ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
-    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
-    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+    ("GET", "/odmen/mail", "admin_mail::index"): "users",
+    ("GET", "/odmen/mail/users/{user_id}", "admin_mail::user"): "mailbox",
+    ("GET", "/odmen/mail/{id}", "admin_mail::conversation"): "messages",
+    ("GET", "/odmen/mail/groups", "admin_mail::groups"): "groups",
+    ("GET", "/odmen/mail/groups/{id}", "admin_mail::group"): "group",
+    ("GET", "/odmen/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
+    ("GET", "/odmen/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
 }
 SURPRISE_ADMIN_HANDLERS = {
-    ("GET", "/admin/surprises", "page"),
-    ("POST", "/admin/surprises/policy", "policy"),
-    ("POST", "/admin/surprises/create", "create"),
-    ("POST", "/admin/surprises/{id}/state", "set_state"),
+    ("GET", "/odmen/surprises", "page"),
+    ("POST", "/odmen/surprises/policy", "policy"),
+    ("POST", "/odmen/surprises/create", "create"),
+    ("POST", "/odmen/surprises/{id}/state", "set_state"),
 }
 SUPPORT_ADMIN_HANDLERS = {
-    ("GET", "/admin/support", "index"),
-    ("GET", "/admin/support/{id}", "page"),
-    ("GET", "/admin/support/{id}/messages", "messages"),
-    ("POST", "/admin/support/{id}/messages", "submit"),
-    ("POST", "/admin/support/{id}/read", "mark_read"),
-    ("POST", "/admin/support/{id}/close", "close"),
-    ("POST", "/admin/support/{id}/reopen", "reopen"),
+    ("GET", "/odmen/support", "index"),
+    ("GET", "/odmen/support/{id}", "page"),
+    ("GET", "/odmen/support/{id}/messages", "messages"),
+    ("POST", "/odmen/support/{id}/messages", "submit"),
+    ("POST", "/odmen/support/{id}/read", "mark_read"),
+    ("POST", "/odmen/support/{id}/close", "close"),
+    ("POST", "/odmen/support/{id}/reopen", "reopen"),
 }
 SUPPORT_REQUESTER_HANDLERS = {
     ("GET", "/support", "page"),
@@ -60,9 +60,9 @@ RETIRED_COLLECTION_ROUTES = {
     ("POST", "/api/v1/recommendations/impressions", "crates/web/src/recommendation_http/mod.rs", "api::impressions"): "scoped",
     ("POST", "/api/v1/recommendations/activate", "crates/web/src/recommendation_http/mod.rs", "api::activate"): "scoped",
     ("POST", "/api/v1/discovery/activate", "crates/web/src/recommendation_http/mod.rs", "organic::activate"): "scoped",
-    ("GET", "/api/v1/admin/recommendations/quality", "crates/web/src/recommendation_http/mod.rs", "admin::quality"): "administrator",
-    ("POST", "/api/v1/admin/recommendations/control", "crates/web/src/recommendation_http/mod.rs", "admin::control"): "administrator",
-    ("POST", "/me/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
+    ("GET", "/api/v1/odmen/recommendations/quality", "crates/web/src/recommendation_http/mod.rs", "admin::quality"): "administrator",
+    ("POST", "/api/v1/odmen/recommendations/control", "crates/web/src/recommendation_http/mod.rs", "admin::control"): "administrator",
+    ("POST", "/odmen/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
 }
 
 SCOPE_CALLS = {
@@ -402,6 +402,32 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    # The single ASCII admin alias is audited independently. Never treat
+    # the URL spelling or route policy row as proof of administrator access.
+    admin_entry_route = (
+        entry["method"] == "GET"
+        and entry["template"] == "/odmen"
+        and entry["source"] == "crates/web/src/auth.rs"
+        and entry["handler"] == "admin_entry::page"
+        and entry["policy"] == "administrator"
+    )
+    admin_entry_proof = (
+        admin_entry_route
+        and all(token in body for token in (
+            "state.cookies.session_token(&headers)",
+            "session_token_digest(&session)",
+            "state.accounts.session_actor(&digest).await",
+            "Ok(None) => return deny(StatusCode::NOT_FOUND)",
+            "Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE)",
+            "if !verified.administrator",
+            "return deny(StatusCode::NOT_FOUND)",
+            "let mut response = private_response(body(), &[])",
+            '"x-robots-tag"',
+            "noindex, nofollow",
+        ))
+        and body.index("session_actor(&digest)") < body.index("if !verified.administrator")
+        < body.index("private_response(body(), &[])")
+    )
     contextual = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
                   and entry["handler"] in {"admin::contextual::page", "admin::contextual::status",
                                            "admin::contextual::control", "admin::contextual::form"})
@@ -443,47 +469,47 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     audience_books = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/books", "books::page")
+            == ("GET", "/odmen/audience/books", "books::page")
     )
     audience_groups = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/groups", "groups::page")
+            == ("GET", "/odmen/audience/groups", "groups::page")
     )
     audience_returns = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/returns", "returns::page")
+            == ("GET", "/odmen/audience/returns", "returns::page")
     )
     audience_visits = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/visits", "visits::page")
+            == ("GET", "/odmen/audience/visits", "visits::page")
     )
     audience_funnel = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/funnel", "funnel::page")
+            == ("GET", "/odmen/audience/funnel", "funnel::page")
     )
     audience_canonical = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/reading", "canonical::page")
+            == ("GET", "/odmen/audience/reading", "canonical::page")
     )
     audience_seo = (entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"]) in {
-            ("GET", "/admin/audience/seo", "seo::page"),
-            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
+            ("GET", "/odmen/audience/seo", "seo::page"),
+            ("POST", "/odmen/audience/seo/refresh", "seo::refresh"),
         })
     audience_signals = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/signals", "signals::page")
+            == ("GET", "/odmen/audience/signals", "signals::page")
     )
     audience_pages = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/pages", "public_pages::page")
+            == ("GET", "/odmen/audience/pages", "public_pages::page")
     )
     audience_child = (
         "books" if audience_books else "groups" if audience_groups
@@ -500,14 +526,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     # narrowly named helper in the same Rust file. Only exact reviewed
     # admin-history bindings can use its evidence.
     history_handlers = {
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history", "admin_history::list"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "admin_history::read"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-history", "admin_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}", "admin_history::read"),
     }
     history_binding = (entry["method"], entry["template"], entry["handler"]) in history_handlers
     sealed_handlers = {
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "admin_sealed_history::list"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "admin_sealed_history::grant"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "admin_sealed_history::asset"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history", "admin_sealed_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants", "admin_sealed_history::grant"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "admin_sealed_history::asset"),
     }
     sealed_binding = (entry["method"], entry["template"], entry["handler"]) in sealed_handlers
 
@@ -596,7 +622,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     observation_route = flow_source and admin_key == (
         "POST", "/api/v1/flow/observations", "ingest::event")
     exposure_admin_route = flow_source and admin_key == (
-        "GET", "/admin/audience/exposure", "report::page")
+        "GET", "/odmen/audience/exposure", "report::page")
     audited_exposure = exposure_admin_route and policy == "administrator"
     if observation_route and policy != "observation":
         errors.append(f"{label}: anonymous observation policy downgraded")
@@ -657,8 +683,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not audited_exposure or not all(marker in body for marker in required) or not bounded_owner_reads:
             errors.append(f"{label}: exposure report must remain a bounded live administrator read")
     editorial_route = (entry["source"] == "crates/web/src/editorial_http/mod.rs"
-                       and admin_key in {("GET", "/admin/promotion/editorial", "admin::page"),
-                                         ("POST", "/admin/promotion/editorial", "admin::submit")})
+                       and admin_key in {("GET", "/odmen/promotion/editorial", "admin::page"),
+                                         ("POST", "/odmen/promotion/editorial", "admin::submit")})
     audited_editorial = editorial_route and policy == "admin_editorial"
     if editorial_route or policy == "admin_editorial":
         required = ("administrator(&state, &headers)", "Duration::from_millis(950)",
@@ -677,25 +703,25 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and admin_key in SUPPORT_ADMIN_HANDLERS
     )
     refund_view_handlers = {
-        ("GET", "/admin/finance/refunds", "page"): "recent",
-        ("GET", "/admin/finance/refunds/user/{id}", "buyer"): "user_purchases",
+        ("GET", "/odmen/finance/refunds", "page"): "recent",
+        ("GET", "/odmen/finance/refunds/user/{id}", "buyer"): "user_purchases",
     }
     audited_refund = (policy == "admin_refund"
                       and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
                       and admin_key in refund_view_handlers)
     prepared_refund = (policy == "admin_refund_prepare"
                        and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
-                       and admin_key == ("POST", "/admin/finance/refunds/prepare", "prepare::submit"))
+                       and admin_key == ("POST", "/odmen/finance/refunds/prepare", "prepare::submit"))
     approved_refund = (
         policy == "admin_refund_approve"
         and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
-        and admin_key == ("POST", "/admin/finance/refunds/approve", "approval::submit")
+        and admin_key == ("POST", "/odmen/finance/refunds/approve", "approval::submit")
     )
     payout_admin_ops = {
-        ("GET", "/admin/finance/payouts", "queue"): "list",
-        ("POST", "/admin/finance/payouts/{id}/reject", "reject"): "reject_once",
-        ("GET", "/admin/finance/payouts/{id}/quote", "quote"): "approval_readiness",
-        ("POST", "/admin/finance/payouts/{id}/post", "posting::submit"): "posting_intent",
+        ("GET", "/odmen/finance/payouts", "queue"): "list",
+        ("POST", "/odmen/finance/payouts/{id}/reject", "reject"): "reject_once",
+        ("GET", "/odmen/finance/payouts/{id}/quote", "quote"): "approval_readiness",
+        ("POST", "/odmen/finance/payouts/{id}/post", "posting::submit"): "posting_intent",
     }
     audited_payout = (
         policy == "admin_payout"
@@ -703,8 +729,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and admin_key in payout_admin_ops
     )
     s049_report_ops = {
-        ("GET", "/admin/recommendation-reports", "admin_reports::queue"): "pending",
-        ("POST", "/admin/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
+        ("GET", "/odmen/recommendation-reports", "admin_reports::queue"): "pending",
+        ("POST", "/odmen/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
     }
     audited_s049 = (
         policy == "admin_share_reports"
@@ -720,8 +746,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/books/{id}/report", "content_reports::submit"): "submit",
     }
     s049_book_admin = {
-        ("GET", "/admin/book-reports", "content_reports::queue"): "pending",
-        ("POST", "/admin/book-reports/{report_id}/decision", "content_reports::decide"): "decide",
+        ("GET", "/odmen/book-reports", "content_reports::queue"): "pending",
+        ("POST", "/odmen/book-reports/{report_id}/decision", "content_reports::decide"): "decide",
     }
     is_s049_book = (
         entry["source"] == "crates/web/src/auth/book_shares.rs"
@@ -753,8 +779,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/free-comment-appeals/{hide_event_id}", "free_comment_appeals::submit"): "submit",
     }
     s049_free_appeal_admin = {
-        ("GET", "/admin/free-comment-appeals", "free_comment_appeals::queue"): "pending",
-        ("POST", "/admin/free-comment-appeals/{appeal_id}/decision", "free_comment_appeals::decide"): "decide",
+        ("GET", "/odmen/free-comment-appeals", "free_comment_appeals::queue"): "pending",
+        ("POST", "/odmen/free-comment-appeals/{appeal_id}/decision", "free_comment_appeals::decide"): "decide",
     }
     is_s049_free_appeal_user = (
         entry["source"] == "crates/web/src/auth/book_shares.rs"
@@ -773,8 +799,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/paid-comment-appeals/{hide_event_id}", "paid_comment_appeals::submit"): "submit",
     }
     s049_paid_appeal_admin = {
-        ("GET", "/admin/paid-comment-appeals", "paid_comment_appeals::queue"): "pending",
-        ("POST", "/admin/paid-comment-appeals/{appeal_id}/decision", "paid_comment_appeals::decide"): "decide",
+        ("GET", "/odmen/paid-comment-appeals", "paid_comment_appeals::queue"): "pending",
+        ("POST", "/odmen/paid-comment-appeals/{appeal_id}/decision", "paid_comment_appeals::decide"): "decide",
     }
     is_s049_paid_appeal_user = (
         entry["source"] == "crates/web/src/auth/book_shares.rs"
@@ -789,8 +815,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
     s049_free_review_ops = {
-        ("GET", "/admin/free-comment-reports", "free_comment_reviews::queue"): "pending",
-        ("POST", "/admin/free-comment-reports/{report_id}/decision",
+        ("GET", "/odmen/free-comment-reports", "free_comment_reviews::queue"): "pending",
+        ("POST", "/odmen/free-comment-reports/{report_id}/decision",
          "free_comment_reviews::decide"): "decide",
     }
     audited_s049_free_review = (
@@ -802,8 +828,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
     s049_paid_review_ops = {
-        ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue"): "pending",
-        ("POST", "/admin/paid-comment-reports/{report_id}/decision", "paid_comment_reviews::decide"): "decide",
+        ("GET", "/odmen/paid-comment-reports", "paid_comment_reviews::queue"): "pending",
+        ("POST", "/odmen/paid-comment-reports/{report_id}/decision", "paid_comment_reviews::decide"): "decide",
     }
     audited_s049_paid_review = (
         policy == "admin_paid_comment_reports"
@@ -818,8 +844,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/comment-appeals/{hide_event_id}", "comment_appeals::submit"): "submit",
     }
     s049_appeal_admin = {
-        ("GET", "/admin/book-comment-appeals", "comment_appeals::queue"): "pending",
-        ("POST", "/admin/book-comment-appeals/{appeal_id}/decision", "comment_appeals::decide"): "decide",
+        ("GET", "/odmen/book-comment-appeals", "comment_appeals::queue"): "pending",
+        ("POST", "/odmen/book-comment-appeals/{appeal_id}/decision", "comment_appeals::decide"): "decide",
     }
     is_s049_appeal_user = (
         entry["source"] == "crates/web/src/auth/book_shares.rs"
@@ -837,8 +863,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         policy == "admin_g09"
         and entry["source"] == "crates/web/src/g09_operator.rs"
         and admin_key in {
-            ("GET", "/admin/storage/g09", "page"),
-            ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command"),
+            ("GET", "/odmen/storage/g09", "page"),
+            ("POST", "/odmen/storage/g09/{direction}/{scope}/{action}", "command"),
         }
     )
     if audited_g09:
@@ -846,17 +872,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     audited_audience = (
         policy == "administrator"
         and admin_key in {
-            ("GET", "/admin/audience", "page"),
-            ("GET", "/admin/audience/books", "books::page"),
-            ("GET", "/admin/audience/groups", "groups::page"),
-            ("GET", "/admin/audience/returns", "returns::page"),
-            ("GET", "/admin/audience/visits", "visits::page"),
-            ("GET", "/admin/audience/funnel", "funnel::page"),
-            ("GET", "/admin/audience/reading", "canonical::page"),
-            ("GET", "/admin/audience/signals", "signals::page"),
-            ("GET", "/admin/audience/pages", "public_pages::page"),
-            ("GET", "/admin/audience/seo", "seo::page"),
-            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
+            ("GET", "/odmen/audience", "page"),
+            ("GET", "/odmen/audience/books", "books::page"),
+            ("GET", "/odmen/audience/groups", "groups::page"),
+            ("GET", "/odmen/audience/returns", "returns::page"),
+            ("GET", "/odmen/audience/visits", "visits::page"),
+            ("GET", "/odmen/audience/funnel", "funnel::page"),
+            ("GET", "/odmen/audience/reading", "canonical::page"),
+            ("GET", "/odmen/audience/signals", "signals::page"),
+            ("GET", "/odmen/audience/pages", "public_pages::page"),
+            ("GET", "/odmen/audience/seo", "seo::page"),
+            ("POST", "/odmen/audience/seo/refresh", "seo::refresh"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -867,8 +893,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         policy == "admin_s3_connection"
         and entry["source"] == "crates/web/src/auth/admin_s3.rs"
         and admin_key in {
-            ("GET", "/admin/storage/s3", "page"),
-            ("POST", "/admin/storage/s3", "save"),
+            ("GET", "/odmen/storage/s3", "page"),
+            ("POST", "/odmen/storage/s3", "save"),
         }
     )
     if audited_s3_connection:
@@ -925,19 +951,39 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         policy == "administrator"
         and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
         and admin_key in {
-            ("GET", "/admin/recommendations", "admin::shares_page"),
-            ("POST", "/admin/recommendations", "admin::shares_submit"),
+            ("GET", "/odmen/recommendations", "admin::shares_page"),
+            ("POST", "/odmen/recommendations", "admin::shares_submit"),
         }
         and "actor(&state, &headers).await" in body
         and "session_actor(" in evidence
         and "!verified.administrator" in evidence
         and "StatusCode::FORBIDDEN" in evidence
     )
+    # Exact former /me administrator-only routes now use /odmen. The shared
+    # admin::actor helper still requires a live PG-backed administrator; for
+    # POST actions the origin-bound CSRF helper must remain reachable.
+    audited_rec_admin_pages = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+        and admin_key in {
+            ("GET", "/odmen/recommendations/manage", "admin::page"),
+            ("POST", "/odmen/recommendations/manage", "admin::form_control"),
+            ("GET", "/odmen/recommendations/contextual", "admin::contextual::page"),
+            ("POST", "/odmen/recommendations/contextual", "admin::contextual::form"),
+            ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page"),
+        }
+        and all(t in evidence for t in (
+            "session_actor(", "!verified.administrator", "StatusCode::FORBIDDEN",
+        ))
+        and (entry["method"] == "GET" or (
+            "same_origin(" in evidence and "valid_csrf(" in evidence
+        ))
+    )
     audited_continuation_admin = (
         policy == "administrator"
         and entry["source"] == "crates/web/src/auth.rs"
         and (entry["method"], entry["template"], entry["handler"])
-            == ("GET", "/admin/audience/continuations", "continuation_stats::administrator")
+            == ("GET", "/odmen/audience/continuations", "continuation_stats::administrator")
         and all(marker in body for marker in (
             "session_token_digest(&token)", "session_actor(",
             "if !verified.administrator", "StatusCode::FORBIDDEN",
@@ -945,12 +991,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ))
         and body.index("if !verified.administrator") < body.index(".stats_report(None, cursor)")
     )
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
+    if entry["template"].startswith(("/odmen", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_continuation_admin or audited_s3_connection):
+            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1105,7 +1151,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                            .read_text(encoding="utf-8"))
         authorized_route = (
             entry["source"] == "crates/web/src/auth/admin_jobs.rs"
-            and admin_key == ("POST", "/api/v1/admin/jobs/{id}/retry", "retry")
+            and admin_key == ("POST", "/api/v1/odmen/jobs/{id}/retry", "retry")
         )
         handler_guard = all(token in evidence for token in (
             "session_actor(&digest)", "!actor.administrator",
@@ -1488,6 +1534,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or 'Redirect::to("/login")' in evidence
             or fixed_book_create_return
             or collection_detail_guarded
+            or admin_entry_proof  # exact reviewed 404 for guest/nonadmin
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
@@ -1823,17 +1870,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ):
             errors.append(f"{label}: missing Origin+CSRF rejection")
     rec_admin = {
-        ("GET", "/api/v1/admin/recommendations/quality", "admin::quality"),
-        ("GET", "/api/v1/admin/recommendations/contextual", "admin::contextual::status"),
-        ("POST", "/api/v1/admin/recommendations/contextual", "admin::contextual::control"),
-        ("GET", "/me/recommendations/contextual", "admin::contextual::page"),
-        ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
-        ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
-        ("GET", "/me/recommendations/manage", "admin::page"),
-        ("GET", "/admin/recommendations", "admin::shares_page"),
-        ("POST", "/admin/recommendations", "admin::shares_submit"),
-        ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
-        ("POST", "/me/recommendations/manage", "admin::form_control"),
+        ("GET", "/api/v1/odmen/recommendations/quality", "admin::quality"),
+        ("GET", "/api/v1/odmen/recommendations/contextual", "admin::contextual::status"),
+        ("POST", "/api/v1/odmen/recommendations/contextual", "admin::contextual::control"),
+        ("GET", "/odmen/recommendations/contextual", "admin::contextual::page"),
+        ("POST", "/odmen/recommendations/contextual", "admin::contextual::form"),
+        ("POST", "/api/v1/odmen/recommendations/control", "admin::control"),
+        ("GET", "/odmen/recommendations/manage", "admin::page"),
+        ("GET", "/odmen/recommendations", "admin::shares_page"),
+        ("POST", "/odmen/recommendations", "admin::shares_submit"),
+        ("GET", "/odmen/recommendations/shelf-preview", "admin::shelf::page"),
+        ("POST", "/odmen/recommendations/manage", "admin::form_control"),
     }
     if (entry["template"] == "/me/refunds"
             and entry["source"] == "crates/web/src/auth/refund_browser.rs"):
@@ -1855,7 +1902,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth.rs"
     )
     continuation_stats_admin = (
-        route_key == ("GET", "/admin/audience/continuations", "continuation_stats::administrator")
+        route_key == ("GET", "/odmen/audience/continuations", "continuation_stats::administrator")
         and entry["source"] == "crates/web/src/auth.rs"
     )
     # RET-R03: these two reports must prove their own live guard and explicit
@@ -1882,17 +1929,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: sitewide demand report must prove live administrator authority")
     audience_admin = (
         route_key in {
-            ("GET", "/admin/audience", "page"),
-            ("GET", "/admin/audience/books", "books::page"),
-            ("GET", "/admin/audience/groups", "groups::page"),
-            ("GET", "/admin/audience/returns", "returns::page"),
-            ("GET", "/admin/audience/visits", "visits::page"),
-            ("GET", "/admin/audience/funnel", "funnel::page"),
-            ("GET", "/admin/audience/reading", "canonical::page"),
-            ("GET", "/admin/audience/signals", "signals::page"),
-            ("GET", "/admin/audience/pages", "public_pages::page"),
-            ("GET", "/admin/audience/seo", "seo::page"),
-            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
+            ("GET", "/odmen/audience", "page"),
+            ("GET", "/odmen/audience/books", "books::page"),
+            ("GET", "/odmen/audience/groups", "groups::page"),
+            ("GET", "/odmen/audience/returns", "returns::page"),
+            ("GET", "/odmen/audience/visits", "visits::page"),
+            ("GET", "/odmen/audience/funnel", "funnel::page"),
+            ("GET", "/odmen/audience/reading", "canonical::page"),
+            ("GET", "/odmen/audience/signals", "signals::page"),
+            ("GET", "/odmen/audience/pages", "public_pages::page"),
+            ("GET", "/odmen/audience/seo", "seo::page"),
+            ("POST", "/odmen/audience/seo/refresh", "seo::refresh"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1912,8 +1959,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if entry["source"] == "crates/web/src/recommendation_http/mod.rs" and route_key in {
-        ("GET", "/admin/recommendations", "admin::shares_page"),
-        ("POST", "/admin/recommendations", "admin::shares_submit"),
+        ("GET", "/odmen/recommendations", "admin::shares_page"),
+        ("POST", "/odmen/recommendations", "admin::shares_submit"),
     }:
         expected = (
             "actor(&state, &headers).await",
@@ -1947,13 +1994,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         # command, export or arbitrary privileged route through this policy.
         allowed_shell = (
             entry["method"] == "GET"
-            and entry["template"] == "/read/admin/{chapter_id}"
+            and entry["template"] == "/read/odmen/{chapter_id}"
             and entry["source"] == "crates/web/src/paid_grants_http.rs"
             and entry["handler"] == "admin_reader::admin_reader"
         )
         allowed_unsealed = (
             entry["method"] == "POST"
-            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/admin-unsealed"
+            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/odmen-unsealed"
             and entry["source"] == "crates/web/src/paid_grants_http.rs"
             and entry["handler"] == "admin_unsealed::read"
         )
@@ -2021,11 +2068,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "administrator":
         rec_binding = (route_key in rec_admin
                        and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
-        if not (rec_binding or audience_admin or audited_exposure or continuation_stats_admin):
+        if not (rec_binding or audience_admin or audited_exposure
+                or continuation_stats_admin or admin_entry_proof):
             errors.append(f"{label}: administrator exception is not allowed here")
         role_guard = "!actor.administrator" if audience_admin or audited_exposure else "!verified.administrator"
-        if not ("session_actor(" in evidence and role_guard in evidence
-                and "StatusCode::FORBIDDEN" in evidence):
+        if not admin_entry_proof and not (
+            "session_actor(" in evidence
+            and role_guard in evidence
+            and "StatusCode::FORBIDDEN" in evidence
+        ):
             errors.append(f"{label}: missing independent administrator role guard")
         audience_read = (
             ".report(days, provider, q.after.as_deref())" if audience_seo and entry["method"] == "GET"
@@ -2232,16 +2283,16 @@ def check(root: Path = ROOT) -> list[str]:
         if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
                 and (entry.get("method"), entry.get("template"), entry.get("handler"))
                     in {
-                        ("GET", "/admin/audience/books", "books::page"),
-                        ("GET", "/admin/audience/groups", "groups::page"),
-                        ("GET", "/admin/audience/returns", "returns::page"),
-                        ("GET", "/admin/audience/visits", "visits::page"),
-                        ("GET", "/admin/audience/funnel", "funnel::page"),
-            ("GET", "/admin/audience/reading", "canonical::page"),
-            ("GET", "/admin/audience/signals", "signals::page"),
-            ("GET", "/admin/audience/pages", "public_pages::page"),
-            ("GET", "/admin/audience/seo", "seo::page"),
-            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
+                        ("GET", "/odmen/audience/books", "books::page"),
+                        ("GET", "/odmen/audience/groups", "groups::page"),
+                        ("GET", "/odmen/audience/returns", "returns::page"),
+                        ("GET", "/odmen/audience/visits", "visits::page"),
+                        ("GET", "/odmen/audience/funnel", "funnel::page"),
+            ("GET", "/odmen/audience/reading", "canonical::page"),
+            ("GET", "/odmen/audience/signals", "signals::page"),
+            ("GET", "/odmen/audience/pages", "public_pages::page"),
+            ("GET", "/odmen/audience/seo", "seo::page"),
+            ("POST", "/odmen/audience/seo/refresh", "seo::refresh"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))

@@ -218,7 +218,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     )
     .parse()
     .unwrap();
-    let first_page = send(&app, "GET", "/admin/book-reports", &first, "").await;
+    let first_page = send(&app, "GET", "/odmen/book-reports", &first, "").await;
     let first_cookie = cookie(&first_page, "tor-dev-csrf=");
     let first_csrf = field(&body(first_page).await, "csrf_token");
     let hide = format!("decision=hide_comment&note=Hide+for+review&csrf_token={first_csrf}");
@@ -226,7 +226,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         send(
             &app,
             "POST",
-            &format!("/admin/book-reports/{report}/decision"),
+            &format!("/odmen/book-reports/{report}/decision"),
             &format!("{first}; {first_cookie}"),
             &hide
         )
@@ -351,7 +351,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         false,
     );
 
-    let queue = "/admin/book-comment-appeals";
+    let queue = "/odmen/book-comment-appeals";
     assert_eq!(
         send(&app, "GET", queue, "", "").await.status(),
         StatusCode::UNAUTHORIZED
@@ -498,13 +498,13 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     )
     .parse()
     .unwrap();
-    let moderator_queue = send(&app, "GET", "/admin/book-reports", &moderator, "").await;
+    let moderator_queue = send(&app, "GET", "/odmen/book-reports", &moderator, "").await;
     assert_eq!(moderator_queue.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         send(
             &app,
             "POST",
-            &format!("/admin/book-reports/{mod_report}/decision"),
+            &format!("/odmen/book-reports/{mod_report}/decision"),
             &format!("{moderator}; {moderator_cookie}"),
             &format!("decision=hide_comment&note=No+content+rights&csrf_token={moderator_csrf}")
         )
@@ -520,7 +520,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         "visible",
         "moderator must not hide a comment"
     );
-    let second_queue = send(&app, "GET", "/admin/book-reports", &second, "").await;
+    let second_queue = send(&app, "GET", "/odmen/book-reports", &second, "").await;
     assert_eq!(second_queue.status(), StatusCode::OK);
     let second_queue_cookie = cookie(&second_queue, "tor-dev-csrf=");
     let second_queue_csrf = field(&body(second_queue).await, "csrf_token");
@@ -528,7 +528,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         send(
             &app,
             "POST",
-            &format!("/admin/book-reports/{mod_report}/decision"),
+            &format!("/odmen/book-reports/{mod_report}/decision"),
             &format!("{second}; {second_queue_cookie}"),
             &format!(
                 "decision=hide_comment&note=Administrator+review&csrf_token={second_queue_csrf}"

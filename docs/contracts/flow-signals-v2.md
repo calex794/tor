@@ -78,8 +78,8 @@ previous URLs that are no longer in that sample.
 
 ## HTTP and lifecycle
 
-The administrative entry points are /admin/audience/signals and
-/admin/audience/pages. Each GET independently checks the live account session
+The administrative entry points are /odmen/audience/signals and
+/odmen/audience/pages. Each GET independently checks the live account session
 and administrator role before validating query input or reading an aggregate.
 A single 950 ms deadline includes authorization and the report. All successes
 and failures are private, no-store, noindex/nofollow, with script execution

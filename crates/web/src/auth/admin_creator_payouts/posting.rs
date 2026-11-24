@@ -181,7 +181,7 @@ pub(super) async fn submit(
                     на {} коп. Запись кошелька №{}.
                     {}</p><p><strong>Банковский перевод не выполнялся и не
                     подтверждён.</strong></p>
-                    <p><a href="/admin/finance/payouts">К очереди заявок</a></p>"#,
+                    <p><a href="/odmen/finance/payouts">К очереди заявок</a></p>"#,
                     receipt.request_id,
                     receipt.amount_minor,
                     receipt.wallet_entry_id,

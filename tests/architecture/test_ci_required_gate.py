@@ -3,11 +3,15 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from functools import partial
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import SUITE_JOB_IDS
-from verify_ci_gate import GateError, verify
+from verify_ci_gate import FOUNDATION_MARKERS, GateError, verify as verify_gate, verify_foundation_log
+
+SHA = "a" * 40
+verify = partial(verify_gate, sha=SHA)
 
 
 def evidence(selected=None, selector_result="success"):
@@ -22,6 +26,9 @@ def evidence(selected=None, selector_result="success"):
     jobs["select"] = {
         "result": selector_result, "outputs": {"suites": json.dumps(flags)},
     }
+    for job_id in FOUNDATION_MARKERS:
+        if jobs[job_id]["result"] == "success":
+            jobs[job_id]["outputs"] = {"foundation_evidence": f"{SHA}:{job_id}"}
     return jobs
 
 
@@ -29,7 +36,9 @@ class CIRequiredGateTests(unittest.TestCase):
     def test_main_and_manual_require_complete_pack(self):
         for event in ("push", "workflow_dispatch", "schedule"):
             with self.subTest(event=event):
-                self.assertEqual(verify(event, evidence())["verified"], len(SUITE_JOB_IDS))
+                report = verify(event, evidence())
+                self.assertEqual(report["verified"], len(SUITE_JOB_IDS))
+                self.assertEqual(report["foundation_jobs"], sorted(FOUNDATION_MARKERS))
                 with self.assertRaises(GateError):
                     verify(event, evidence({"rust"}))
 
@@ -100,6 +109,70 @@ class CIRequiredGateTests(unittest.TestCase):
             verify("pull_request", evidence(selector_result="cancelled"))
         with self.assertRaises(GateError):
             verify("merge_group", evidence())
+
+    def test_green_foundation_job_needs_evidence_from_its_own_checkout(self):
+        for job in FOUNDATION_MARKERS:
+            invalid = (None, "", f"{'b' * 40}:{job}", f"{SHA}:other-job")
+            for receipt in invalid:
+                with self.subTest(job=job, receipt=receipt):
+                    data = evidence()
+                    data[job]["outputs"] = {"foundation_evidence": receipt}
+                    with self.assertRaisesRegex(GateError, f"{job}: missing or mismatched"):
+                        verify("push", data)
+
+    def test_selected_pr_checks_only_foundation_jobs_that_ran(self):
+        data = evidence({"backup_recovery"})
+        self.assertEqual(verify("pull_request", data)["foundation_jobs"], ["sealed-remote-copy"])
+        data["sealed-remote-copy"].pop("outputs")
+        with self.assertRaisesRegex(GateError, "sealed-remote-copy: missing or mismatched"):
+            verify("pull_request", data)
+
+    def test_fallback_main_checks_foundation_outputs_even_on_green_jobs(self):
+        data = evidence(selector_result="failure")
+        data["purchased-v1-recovery"]["outputs"] = {}
+        with self.assertRaisesRegex(GateError, "purchased-v1-recovery: missing or mismatched"):
+            verify("pull_request", data)
+
+
+class FoundationLogTests(unittest.TestCase):
+    def test_catalog_requires_each_scenario_and_exact_counts(self):
+        job = "paid-private-e2e"
+        lines = [
+            "FND03_SUPPORTED_UPLOADS_OK formats=4",
+            "FND07_MULTI_BOOK_IMPORT_OK books=10 chapters=30 versions=30 objects=30 missing=0 unexpected=0",
+            "FND03_CONCURRENT_CATALOG_OK books=100 editions=100 objects=100 workers=2",
+            "DROP04D_LOAD_PASS chapters=100000 batches=200 seconds=387.471",
+            "DROP04D_WORKER_RETRY_PASS: reclaimed stage, exact PACK, no SINGLE, atomic job",
+            "DROP07D_PG_MINIO_OPERATOR_PASS: bounded LIST+PG classification across two pages, fenced checkpoint, unknown never GC",
+        ]
+        self.assertEqual(verify_foundation_log(job, lines, SHA), f"{SHA}:{job}")
+        for index, marker in enumerate(lines):
+            with self.subTest(marker=marker):
+                invalid = lines[:index] + [f"warning: {marker}"] + lines[index + 1:]
+                with self.assertRaisesRegex(GateError, "missing foundation evidence"):
+                    verify_foundation_log(job, invalid, SHA)
+        lines[1] = lines[1].replace("missing=0", "missing=1")
+        with self.assertRaisesRegex(GateError, "ten books with exact inventory"):
+            verify_foundation_log(job, lines, SHA)
+
+    def test_recovery_requires_pack_rights_wal_and_independent_paid_proof(self):
+        job = "sealed-remote-copy"
+        log = [
+            "I11_PRIVATE_S3_ENCRYPTED_BACKUP_VERIFIED",
+            "DROP07_RESTORED_PACK_HISTORICAL_V1_OK",
+            "FND05_RESTORED_FREE_ARCHIVE_HTTP_OK",
+            "I11_PITR_ISOLATED_DRILL_OK report=/runner/drill.json",
+        ]
+        self.assertEqual(verify_foundation_log(job, log, SHA), f"{SHA}:{job}")
+        with self.assertRaisesRegex(GateError, "WAL recovery"):
+            verify_foundation_log(job, log[:-1], SHA)
+        paid = "purchased-v1-recovery"
+        with self.assertRaisesRegex(GateError, "purchased V1 and KEK"):
+            verify_foundation_log(paid, log, SHA)
+        self.assertEqual(verify_foundation_log(
+            paid, ["S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS\n"], SHA),
+            f"{SHA}:{paid}",
+        )
 
 
 if __name__ == "__main__":

@@ -84,14 +84,14 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             "/reader/{chapter_id}/comments/{comment_id}/report",
             get(free_comment_reports::form).post(free_comment_reports::submit),
         )
-        .route("/admin/book-reports", get(content_reports::queue))
+        .route("/odmen/book-reports", get(content_reports::queue))
         .route(
-            "/admin/book-reports/{report_id}/decision",
+            "/odmen/book-reports/{report_id}/decision",
             post(content_reports::decide),
         )
-        .route("/admin/recommendation-reports", get(admin_reports::queue))
+        .route("/odmen/recommendation-reports", get(admin_reports::queue))
         .route(
-            "/admin/recommendation-reports/{share_id}/decision",
+            "/odmen/recommendation-reports/{share_id}/decision",
             post(admin_reports::decide),
         )
         .route("/me/comment-appeals", get(comment_appeals::author_page))
@@ -108,11 +108,11 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             post(paid_comment_appeals::submit),
         )
         .route(
-            "/admin/paid-comment-appeals",
+            "/odmen/paid-comment-appeals",
             get(paid_comment_appeals::queue),
         )
         .route(
-            "/admin/paid-comment-appeals/{appeal_id}/decision",
+            "/odmen/paid-comment-appeals/{appeal_id}/decision",
             post(paid_comment_appeals::decide),
         )
         .route(
@@ -124,32 +124,32 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             post(free_comment_appeals::submit),
         )
         .route(
-            "/admin/free-comment-appeals",
+            "/odmen/free-comment-appeals",
             get(free_comment_appeals::queue),
         )
         .route(
-            "/admin/free-comment-appeals/{appeal_id}/decision",
+            "/odmen/free-comment-appeals/{appeal_id}/decision",
             post(free_comment_appeals::decide),
         )
         .route(
-            "/admin/free-comment-reports",
+            "/odmen/free-comment-reports",
             get(free_comment_reviews::queue),
         )
         .route(
-            "/admin/free-comment-reports/{report_id}/decision",
+            "/odmen/free-comment-reports/{report_id}/decision",
             post(free_comment_reviews::decide),
         )
         .route(
-            "/admin/paid-comment-reports",
+            "/odmen/paid-comment-reports",
             get(paid_comment_reviews::queue),
         )
         .route(
-            "/admin/paid-comment-reports/{report_id}/decision",
+            "/odmen/paid-comment-reports/{report_id}/decision",
             post(paid_comment_reviews::decide),
         )
-        .route("/admin/book-comment-appeals", get(comment_appeals::queue))
+        .route("/odmen/book-comment-appeals", get(comment_appeals::queue))
         .route(
-            "/admin/book-comment-appeals/{appeal_id}/decision",
+            "/odmen/book-comment-appeals/{appeal_id}/decision",
             post(comment_appeals::decide),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))

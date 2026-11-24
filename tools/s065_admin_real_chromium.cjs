@@ -50,11 +50,11 @@ function assertNoMoney() {
     admin_id), 0, "administrator must not create a wallet journal entry");
 }
 
-const readerPath = "/read/admin/" + chapter_id;
+const readerPath = "/read/odmen/" + chapter_id;
 const chapterGrant = "/api/v1/reader/chapters/" + chapter_id + "/delivery-grants";
 const assetGrant = "/api/v1/reader/chapters/" + chapter_id +
   "/assets/" + asset_object_id + "/delivery-grants";
-const historyList = "/api/v1/reader/chapters/" + chapter_id + "/admin-sealed-history";
+const historyList = "/api/v1/reader/chapters/" + chapter_id + "/odmen-sealed-history";
 const historyChapter = historyList + "/" + historical_version_id + "/delivery-grants";
 const historyImage = historyList + "/" + historical_version_id +
   "/assets/" + asset_object_id + "/delivery-grants";

@@ -16,6 +16,8 @@ jobs:
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      foundation_evidence: ${{ steps.foundation.outputs.foundation_evidence }}
     services:
       postgres:
         image: postgres:18
@@ -116,6 +118,7 @@ jobs:
           # Fail closed if the real browser cannot launch on this runner.
           node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
+        id: foundation
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
@@ -124,7 +127,8 @@ jobs:
         run: |
           set -euo pipefail
           export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
-          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH"' EXIT
+          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
+          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH" "$foundation_log"' EXIT
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-web -- --check
           node --check tools/paid_grant_webcrypto_e2e.mjs
@@ -160,9 +164,10 @@ jobs:
           # These checks cannot authorize orphan classification or S3 DELETE.
           cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-books --test free_inventory_cycles_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output
+          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output | tee "$foundation_log"
           cargo test -p tor-storage --features s3 --test free_expected_inventory_s3 -- --ignored --test-threads=1 --show-output
-          bash tools/drop_04d_worker_ci.sh
+          bash tools/drop_04d_worker_ci.sh | tee -a "$foundation_log"
+          python3 tools/verify_ci_gate.py record-foundation paid-private-e2e "$foundation_log"
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4

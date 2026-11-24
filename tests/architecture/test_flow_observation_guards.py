@@ -99,7 +99,7 @@ class ObservationGuardTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         original = path.read_text()
         for route, policy in (("/api/v1/flow/observations", "public"),
-                              ("/admin/audience/exposure", "session")):
+                              ("/odmen/audience/exposure", "session")):
             with self.subTest(route=route):
                 data = json.loads(original)
                 next(row for row in data["routes"] if row["template"] == route)["policy"] = policy

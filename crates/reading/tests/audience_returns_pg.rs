@@ -5,8 +5,7 @@ mod legacy;
 use sqlx::PgPool;
 use tor_reading::{
     repositories::{
-        returns::PgReadingReturns, sync::PurchasedFinish, PgLibrary, PgReadingProgress,
-        PgReadingSync,
+        returns::PgReadingReturns, sync::PurchasedFinish, PgReadingProgress, PgReadingSync,
     },
     services::{
         progress::{ProgressError, ReadingPlace},
@@ -399,10 +398,25 @@ async fn paid_and_archived_cases(pool: &PgPool, sync: &PgReadingSync, actors: &m
     let archive_reader = actor(pool, "archive").await;
     actors.push(archive_reader);
     consent(pool, archive_reader, true).await;
-    PgLibrary::new(pool.clone())
-        .add_book(archive_reader, archived.id)
+    // Frozen 191 schema predates the modern exact-open register. Seed an
+    // explicit historical FREE pin here; an unread Book bookmark must not
+    // manufacture one, and this test exercises the legacy FLOW collector.
+    sqlx::query("INSERT INTO reader_library_items(user_id,book_id) VALUES($1,$2)")
+        .bind(archive_reader)
+        .bind(archived.id)
+        .execute(pool)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         VALUES($1,$2,$3)",
+    )
+    .bind(archive_reader)
+    .bind(archived.chapter)
+    .bind(archived.version)
+    .execute(pool)
+    .await
+    .unwrap();
     let mut digest = [0_u8; 32];
     digest[..8].copy_from_slice(&archive_reader.to_le_bytes());
     digest[31] = 19;

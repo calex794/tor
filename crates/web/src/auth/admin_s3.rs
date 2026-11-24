@@ -37,7 +37,7 @@ fn local_http_origin(origin: &str) -> bool {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/admin/storage/s3", get(page).post(save))
+    Router::new().route("/odmen/storage/s3", get(page).post(save))
 }
 
 async fn operator(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
@@ -93,7 +93,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          <p>Яндекс S3. Адрес сервиса и регион настроены автоматически.</p>\
          {status}\
          <p>{key_message}</p>\
-         <form method=\"post\" action=\"/admin/storage/s3\" autocomplete=\"off\">\
+         <form method=\"post\" action=\"/odmen/storage/s3\" autocomplete=\"off\">\
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <label>Имя бакета <input name=\"bucket\" value=\"tore\" \
          maxlength=\"63\" required autocomplete=\"off\"></label>\
@@ -179,7 +179,7 @@ async fn save(
         .save_verified(&digest, &bucket, &access, &secret)
         .await
     {
-        Ok(()) => private_response(Redirect::to("/admin/storage/s3"), &[]),
+        Ok(()) => private_response(Redirect::to("/odmen/storage/s3"), &[]),
         Err(AdminS3Error::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AdminS3Error::MasterKeyMissing | AdminS3Error::Unavailable) => {
             deny(StatusCode::SERVICE_UNAVAILABLE)

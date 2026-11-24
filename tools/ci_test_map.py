@@ -145,6 +145,7 @@ TEST_SUITES = {
     "crates/web/tests/drop_04d_worker_pg_minio/support.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_concurrency.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_import.rs": {"rust", "paid_e2e"},
+    "crates/web/tests/drop_04d_worker_pg_minio/catalog_formats.rs": {"rust", "paid_e2e"},
     "crates/web/tests/drop_04d_worker_pg_minio/catalog_provider.rs": {"rust", "paid_e2e"},
     "crates/books/tests/free_import_transport_pg.rs": {"rust", "paid_e2e"},
     "tools/drop_04d_worker_ci.sh": {"paid_e2e"},
@@ -156,6 +157,7 @@ TEST_SUITES = {
     "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/drop07_pack_restore_ci.sh": {"backup_recovery"},
+    "crates/web/tests/fnd05_restored_free_rights_pg_s3.rs": {"rust", "backup_recovery"},
     "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
 }
 

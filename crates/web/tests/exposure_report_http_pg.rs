@@ -21,7 +21,7 @@ use tor_contracts::exposure::{CardObservation, EditorialObservationGuard, Observ
 use tor_web::flow_exposure::Runtime;
 use tower::ServiceExt;
 
-const REPORT: &str = "/admin/audience/exposure";
+const REPORT: &str = "/odmen/audience/exposure";
 const ORIGIN: &str = "http://127.0.0.1:3113";
 struct Guard {
     book: i64,

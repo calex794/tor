@@ -23,7 +23,7 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
-const PAGE: &str = "/admin/recommendations";
+const PAGE: &str = "/odmen/recommendations";
 
 fn pg(url: &str, query: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.contains("@127.0.0.1:5432/tor_ci"));

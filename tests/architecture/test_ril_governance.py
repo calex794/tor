@@ -75,8 +75,8 @@ class RilGovernanceTests(unittest.TestCase):
     def test_audience_cannot_downgrade_to_a_normal_session(self):
         path = self.root / INVENTORY
         original = path.read_text(encoding="utf-8")
-        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
-                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
+        for route in ("/odmen/audience", "/odmen/audience/books", "/odmen/audience/groups",
+                      "/odmen/audience/returns", "/odmen/audience/visits", "/odmen/audience/funnel"):
             with self.subTest(route=route):
                 inventory = json.loads(original)
                 row = next(row for row in inventory["routes"] if row["template"] == route)
@@ -200,7 +200,7 @@ class RilGovernanceTests(unittest.TestCase):
         self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
         findings = check(self.root)
         self.assertTrue(any(
-            "/admin/audience/books" in finding
+            "/odmen/audience/books" in finding
             and "missing independent administrator role guard" in finding
             for finding in findings
         ), findings)
@@ -223,7 +223,7 @@ class RilGovernanceTests(unittest.TestCase):
         self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
         findings = check(self.root)
         self.assertTrue(any(
-            "/admin/audience/groups" in finding
+            "/odmen/audience/groups" in finding
             and "missing independent administrator role guard" in finding
             for finding in findings
         ), findings)
@@ -253,7 +253,7 @@ class RilGovernanceTests(unittest.TestCase):
         self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
         findings = check(self.root)
         self.assertTrue(any(
-            "/admin/audience/returns" in finding
+            "/odmen/audience/returns" in finding
             and "missing independent administrator role guard" in finding
             for finding in findings
         ), findings)
@@ -486,7 +486,7 @@ class RilGovernanceTests(unittest.TestCase):
         self.mutate(
             "crates/web/src/auth/library_page.rs",
             'Redirect::to("/login?next=/me/library")',
-            'Redirect::to("/login?next=/admin")',
+            'Redirect::to("/login?next=/odmen")',
             start="pub(super) async fn my_library(",
         )
         self.assert_detected("session failure does not explicitly deny/redirect")

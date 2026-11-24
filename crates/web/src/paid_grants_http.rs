@@ -369,20 +369,20 @@ fn administrator_routes(
         reader_s3_origin,
     };
     Router::new()
-        .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route("/read/odmen/{chapter_id}", get(admin_reader::admin_reader))
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-history",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-history",
             post(admin_history::list),
         )
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}",
             post(admin_history::read),
         )
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-unsealed",
             post(admin_unsealed::read),
         )
-        .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
+        .route("/assets/newboo-odmen-reader.mjs", get(admin_reader::script))
         .layer(DefaultBodyLimit::max(512))
         .with_state(state)
 }
@@ -462,15 +462,15 @@ fn router_inner(
             post(asset_grants::grant_asset),
         )
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history",
             post(admin_sealed_history::list),
         )
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants",
             post(admin_sealed_history::grant),
         )
         .route(
-            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
+            "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
             post(admin_sealed_history::asset),
         );
     if state.layer_reader_enabled {

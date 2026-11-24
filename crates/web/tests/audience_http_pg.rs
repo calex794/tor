@@ -204,15 +204,15 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         (cookies[1].as_str(), StatusCode::FORBIDDEN),
         (cookies[2].as_str(), StatusCode::FORBIDDEN),
     ] {
-        let denied = call(&app, "GET", "/admin/audience", cookie, "", "").await;
+        let denied = call(&app, "GET", "/odmen/audience", cookie, "", "").await;
         assert_eq!(denied.status(), status);
         private(&denied);
         assert!(!page(denied).await.contains("data-metric="));
     }
-    let denied = call(&app, "GET", "/admin/audience?days=bad", "", "", "").await;
+    let denied = call(&app, "GET", "/odmen/audience?days=bad", "", "", "").await;
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     private(&denied);
-    let before = call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await;
+    let before = call(&app, "GET", "/odmen/audience?days=7", &cookies[0], "", "").await;
     assert_eq!(before.status(), StatusCode::OK);
     private(&before);
     let before = page(before).await;
@@ -260,7 +260,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         .status(),
         StatusCode::OK
     );
-    let opened = page(call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await).await;
+    let opened = page(call(&app, "GET", "/odmen/audience?days=7", &cookies[0], "", "").await).await;
     assert_eq!(
         metric(&opened, "current", "starts"),
         metric(&before, "current", "starts")
@@ -309,7 +309,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
-    let after = call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await;
+    let after = call(&app, "GET", "/odmen/audience?days=7", &cookies[0], "", "").await;
     assert_eq!(after.status(), StatusCode::OK);
     private(&after);
     let after = page(after).await;
@@ -331,7 +331,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         let response = call(
             &app,
             "GET",
-            &format!("/admin/audience?days={days}"),
+            &format!("/odmen/audience?days={days}"),
             &cookies[0],
             "",
             "",
@@ -345,7 +345,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         let response = call(
             &app,
             "GET",
-            &format!("/admin/audience?{query}"),
+            &format!("/odmen/audience?{query}"),
             &cookies[0],
             "",
             "",
@@ -355,13 +355,13 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         private(&response);
     }
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let revoked = call(&app, "GET", "/admin/audience", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
     private(&revoked);
-    let revoked = call(&app, "GET", "/admin/audience/reading", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience/reading", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
     private(&revoked);
-    let revoked = call(&app, "GET", "/admin/audience/seo", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
     private(&revoked);
     pg(&url, &format!("UPDATE account_roles SET is_active=true WHERE user_id={admin} AND role='administrator'"));
@@ -369,20 +369,20 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         .revoke_session(&session_token_digest(&tokens[0]))
         .await
         .unwrap();
-    let revoked = call(&app, "GET", "/admin/audience", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     private(&revoked);
 
-    let revoked = call(&app, "GET", "/admin/audience/reading", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience/reading", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     private(&revoked);
-    let revoked = call(&app, "GET", "/admin/audience/seo", &cookies[0], "", "").await;
+    let revoked = call(&app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     private(&revoked);
 
     // A failed database is unavailable, never an empty successful report.
     pool.close().await;
-    let failed = call(&app, "GET", "/admin/audience", &cookies[0], "", "").await;
+    let failed = call(&app, "GET", "/odmen/audience", &cookies[0], "", "").await;
     assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&failed);
     assert!(!page(failed).await.contains("data-metric="));

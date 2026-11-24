@@ -174,7 +174,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let stranger = http(
         &app,
         "GET",
-        "/admin/surprises",
+        "/odmen/surprises",
         &cookie,
         (ORIGIN, &csrf),
         "",
@@ -210,7 +210,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let wrong = http(
         &app,
         "POST",
-        "/admin/surprises/create",
+        "/odmen/surprises/create",
         &cookie,
         ("https://other.example", &csrf),
         &create,
@@ -221,7 +221,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let created = http(
         &app,
         "POST",
-        "/admin/surprises/create",
+        "/odmen/surprises/create",
         &cookie,
         (ORIGIN, &csrf),
         &create,
@@ -240,7 +240,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let approved = http(
         &app,
         "POST",
-        &format!("/admin/surprises/{item_id}/state"),
+        &format!("/odmen/surprises/{item_id}/state"),
         &cookie,
         (ORIGIN, &csrf),
         &approval,
@@ -253,7 +253,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let enabled = http(
         &app,
         "POST",
-        "/admin/surprises/policy",
+        "/odmen/surprises/policy",
         &cookie,
         (ORIGIN, &csrf),
         &control,
@@ -366,7 +366,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let activated = http(
         &app,
         "POST",
-        "/admin/surprises/policy",
+        "/odmen/surprises/policy",
         &cookie,
         (ORIGIN, &csrf),
         &pilot_config,
@@ -512,7 +512,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let revoked = http(
         &app,
         "GET",
-        "/admin/surprises",
+        "/odmen/surprises",
         &cookie,
         (ORIGIN, &csrf),
         "",

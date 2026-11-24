@@ -165,7 +165,7 @@ let stage = 'launch';
         networkErrors.push('S3 GET failed: ' + event.errorText);
         signalFirstS3();
       });
-      const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
+      const html = await page.goto(config.admin ? `${config.origin}/read/odmen/${config.chapter}` : config.saved
         ? `${config.origin}/me/library/saved/${config.chapter}` : config.private
           ? `${config.origin}/read/${config.chapter}` : `${config.origin}/reader/${config.chapter}`);
       assert.equal(html.status(), 200);
@@ -183,24 +183,36 @@ let stage = 'launch';
         }
         const root = page.locator('[data-admin-chapter-reader]');
         const csrf = await root.getAttribute('data-csrf-token');
-        const denied = await context.request.post(`${config.origin}/api/v1/reader/chapters/${config.chapter}/admin-unsealed`, {
+        const denied = await context.request.post(`${config.origin}/api/v1/reader/chapters/${config.chapter}/odmen-unsealed`, {
           headers: { Origin: config.origin, 'X-CSRF-Token': 'x'.repeat(43) }, maxRedirects: 0,
         });
         assert.equal(denied.status(), 403);
         assert.match(csrf, /^[A-Za-z0-9_-]{43}$/);
       } else if (config.mode === 'no-js') {
-        stage = 'no-JavaScript direct source';
+        stage = 'no-JavaScript same-origin source';
         await Promise.all([
-          page.waitForURL(url => url.origin === config.storage_origin),
+          page.waitForURL(url => url.origin === config.origin &&
+            url.pathname === '/api/v1/chapters/' + config.chapter + '/free-grant' &&
+            url.searchParams.get('format') === 'source'),
           page.getByRole('link', { name: 'Открыть текст без JavaScript', exact: true }).click(),
         ]);
         assert((await page.locator('body').innerText()).includes(config.marker));
+        assert.equal(directGets, 0);
+        await cdp.detach();
+        process.stdout.write(JSON.stringify({ read: true, direct_s3_gets: directGets, storage_bytes: storageBytes }));
+        await context.close();
+        return;
       } else if (config.mode === 'read') {
         await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
         const text = await page.locator('#chapter-text').innerText();
         assert(text.includes(config.markdown.split('\n\n')[0]));
         if (config.absent_marker) assert(!text.includes(config.absent_marker));
         if (config.version) assert.equal(await page.locator('#chapter-text').getAttribute('data-free-s3-version'), String(config.version));
+        if (config.verify_open) {
+          await page.waitForFunction(() =>
+            document.querySelector('#chapter-text')?.dataset.freeOpenConfirmed === '1',
+            undefined, { timeout: 10000 });
+        }
         if (config.archived) {
           const csrf = await page.locator('#chapter-text').getAttribute('data-free-s3-csrf');
           const endpoint = config.origin + '/api/v1/me/progress/archived-free';

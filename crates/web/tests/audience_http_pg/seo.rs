@@ -44,7 +44,7 @@ async fn refresh(app: &Router, cookie: &str, origin: &str, body: &str) -> Respon
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/admin/audience/seo/refresh")
+                .uri("/odmen/audience/seo/refresh")
                 .header(header::COOKIE, cookie)
                 .header(header::ORIGIN, origin)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -76,8 +76,8 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
         (cookies[2].as_str(), StatusCode::FORBIDDEN),
     ] {
         for route in [
-            "/admin/audience/seo?days=bad",
-            "/admin/audience/seo/refresh",
+            "/odmen/audience/seo?days=bad",
+            "/odmen/audience/seo/refresh",
         ] {
             let response = if route.ends_with("refresh") {
                 refresh(app, cookie, ORIGIN, "broken").await
@@ -94,7 +94,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
         "0",
         "preceding SEO fixtures must clean up their own sources"
     );
-    let empty = page(call(app, "GET", "/admin/audience/seo", &cookies[0], "", "").await).await;
+    let empty = page(call(app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await).await;
     assert!(empty.contains("seo-unconfigured"));
     assert_ne!(value(&empty, "current", "clicks"), "0");
     let source:i64=pg(url,&format!("INSERT INTO flow_seo_sources(provider,property,origin) VALUES('google','https://seo-http-{stamp}.test/','https://seo-http-{stamp}.test') RETURNING id")).parse().unwrap();
@@ -104,7 +104,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
         let response = call(
             app,
             "GET",
-            &format!("/admin/audience/seo?days={days}&provider=google"),
+            &format!("/odmen/audience/seo?days={days}&provider=google"),
             &cookies[0],
             "",
             "",
@@ -122,7 +122,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
     for query in [
         "days=2",
         "provider=other",
-        "after=/admin",
+        "after=/odmen",
         "after=/books/01",
         "days=7&days=7",
         "unknown=true",
@@ -130,7 +130,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
         let r = call(
             app,
             "GET",
-            &format!("/admin/audience/seo?{query}"),
+            &format!("/odmen/audience/seo?{query}"),
             &cookies[0],
             "",
             "",
@@ -143,7 +143,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
         call(
             app,
             "GET",
-            "/admin/audience/seo?provider=yandex",
+            "/odmen/audience/seo?provider=yandex",
             &cookies[0],
             "",
             "",
@@ -198,7 +198,7 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
     let owner = std::env::var("MIGRATOR_URL").unwrap();
     let lock = LockedSeo::acquire(&owner);
     let t = std::time::Instant::now();
-    let r = call(app, "GET", "/admin/audience/seo", &cookies[0], "", "").await;
+    let r = call(app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await;
     assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&r);
     assert!(t.elapsed() < std::time::Duration::from_secs(3));
@@ -206,13 +206,13 @@ pub(super) async fn check(app: &Router, url: &str, cookies: &[String], book: i64
     assert!(html.contains("seo-unavailable"));
     assert!(!html.contains("data-metric="));
     drop(lock);
-    let recovered = page(call(app, "GET", "/admin/audience/seo", &cookies[0], "", "").await).await;
+    let recovered = page(call(app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await).await;
     assert_eq!(value(&recovered, "current", "clicks"), "20");
     pg(
         url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
-    let hidden = page(call(app, "GET", "/admin/audience/seo", &cookies[0], "", "").await).await;
+    let hidden = page(call(app, "GET", "/odmen/audience/seo", &cookies[0], "", "").await).await;
     assert!(!hidden.contains(&format!("href=\"/books/{book}\"")));
     assert_eq!(value(&hidden, "current", "clicks"), "20");
     pg(

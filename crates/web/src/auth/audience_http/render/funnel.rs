@@ -15,13 +15,13 @@ pub(in crate::auth::audience_http) fn page(
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
          <p class=\"eyebrow\">Администратору сайта</p><h1>Путь от визита к чтению</h1>\
-         <p><a href=\"/admin/audience?days={days}\">Аудитория</a> · \
-         <a href=\"/admin/audience/visits?days={days}\">Визиты и входы</a> · \
-         <a href=\"/admin/audience/books?days={days}\">Книги</a></p>\
+         <p><a href=\"/odmen/audience?days={days}\">Аудитория</a> · \
+         <a href=\"/odmen/audience/visits?days={days}\">Визиты и входы</a> · \
+         <a href=\"/odmen/audience/books?days={days}\">Книги</a></p>\
          <p>Как прежние наблюдения посещений книг были связаны с подтверждённым чтением, \
          сохранениями, подписками и возвратами. Только зарегистрированные аккаунты \
          с отдельным согласием на измерение визитов.</p>\
-         <form class=\"author-form\" method=\"get\" action=\"/admin/audience/funnel\">\
+         <form class=\"author-form\" method=\"get\" action=\"/odmen/audience/funnel\">\
          <label for=\"flow-funnel-days\">Длительность периода</label>\
          <select id=\"flow-funnel-days\" name=\"days\">"
     );
@@ -84,7 +84,7 @@ pub(in crate::auth::audience_http) fn page(
          <p>Счётчики с запуска процесса: связь начала и завершения чтения — {}; сохранения и подписки — {}; \
          активность чтения — {}; очистка по сроку хранения — {}. \
          Они не описывают другие процессы и не доказывают полноту выбранного периода.</p>\
-         <p><a href=\"/admin/audience/visits?days={days}\">Состояние очереди визитов</a></p></section>",
+         <p><a href=\"/odmen/audience/visits?days={days}\">Состояние очереди визитов</a></p></section>",
         capture.read_failures, capture.action_failures, capture.activity_failures, capture.maintenance_failures
     ).expect("String");
     if capture.read_failures > 0

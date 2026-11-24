@@ -141,7 +141,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
         <h1>Апелляции по комментариям платных глав</h1>
         <p>Только администратор, не принимавший исходного решения.
         Восстановление влияет лишь на видимость комментария, не на платную редакцию и права чтения.</p>
-        <p><a href="/admin/paid-comment-reports">К очереди жалоб</a></p>"#,
+        <p><a href="/odmen/paid-comment-reports">К очереди жалоб</a></p>"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Ожидающих апелляций нет.</p>");
@@ -153,7 +153,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             <p>Глава #{} · редакция #{} · комментарий #{} · санкция #{}
             · автор #{} · исходный администратор #{}</p>
             <p>Обоснование: {}</p>
-            <form method="post" action="/admin/paid-comment-appeals/{}/decision">
+            <form method="post" action="/odmen/paid-comment-appeals/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Мотивировка решения <input name="note" maxlength="500" required></label>
             <button name="decision" value="denied" type="submit">Оставить скрытым</button>
@@ -193,7 +193,7 @@ pub(super) async fn decide(
         .decide(&digest, appeal_id, &form.decision, &form.note)
         .await
     {
-        Ok(()) => super::private_response(Redirect::to("/admin/paid-comment-appeals"), &[]),
+        Ok(()) => super::private_response(Redirect::to("/odmen/paid-comment-appeals"), &[]),
         Err(error) => deny(status(error)),
     }
 }

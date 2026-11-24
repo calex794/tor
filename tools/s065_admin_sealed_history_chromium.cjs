@@ -30,7 +30,7 @@ module.exports = async function sealedHistoryAcceptance({
     await page.setViewportSize({ width: 390, height: 844 });
     const seen = { chapter: 0, image: 0, s3Chapter: 0, s3Image: 0 };
     const base = "/api/v1/reader/chapters/" + chapter_id +
-      "/admin-sealed-history";
+      "/odmen-sealed-history";
     const edition = base + "/" + version_id + "/delivery-grants";
     const asset = base + "/" + version_id + "/assets/" +
       asset_object_id + "/delivery-grants";
@@ -47,7 +47,7 @@ module.exports = async function sealedHistoryAcceptance({
           asset_object_id + ".enc")) seen.s3Image++;
       }
     });
-    const pageResponse = await page.goto(SITE + "/read/admin/" + chapter_id, {
+    const pageResponse = await page.goto(SITE + "/read/odmen/" + chapter_id, {
       waitUntil: "domcontentloaded",
     });
     assert.equal(pageResponse.status(), 200);
@@ -109,7 +109,7 @@ module.exports = async function sealedHistoryAcceptance({
     await unsealedSelect.waitFor();
     assert.equal(await unsealedSelect.locator(
       "option[value='" + draft + "']").count(), 1);
-    const delayedPattern = "**/admin-sealed-history/" + version_id +
+    const delayedPattern = "**/odmen-sealed-history/" + version_id +
       "/delivery-grants";
     let releaseDelayed = () => {};
     const delay = new Promise(resolve => { releaseDelayed = resolve; });

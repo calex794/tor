@@ -1,7 +1,7 @@
 # FLOW-05: explicit library and book-follow snapshots, v1
 
 Status: implementation candidate; full FLOW-05 is not accepted by this slice.
-Scenario: site administrator -> `/admin/audience` -> libraries and book follows
+Scenario: site administrator -> `/odmen/audience` -> libraries and book follows
 -> 1/7/30/90-day selection. Normal readers never receive this report.
 
 ## Sources and meaning

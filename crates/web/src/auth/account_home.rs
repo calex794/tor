@@ -91,12 +91,12 @@ pub(super) async fn page(
         false,
     );
     let audience_link = if administrator {
-        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/promotion/editorial\">Редакционное продвижение</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
+        "<a class=\"dashboard-nav__item\" href=\"/odmen/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/odmen/promotion/editorial\">Редакционное продвижение</a><a class=\"dashboard-nav__item\" href=\"/odmen/finance/refunds\">Возвраты</a><a class=\"dashboard-nav__item\" href=\"/odmen\">Администрирование</a>"
     } else {
         ""
     };
     let storage_link = if administrator && cfg!(feature = "s3-free") {
-        "<a class=\"dashboard-nav__item\" href=\"/admin/storage/s3\">Хранилище S3</a>"
+        "<a class=\"dashboard-nav__item\" href=\"/odmen/storage/s3\">Хранилище S3</a>"
     } else {
         ""
     };

@@ -60,29 +60,32 @@ pub(crate) fn routes(state: Runtime) -> Router {
             get(api::feedback_list).post(api::feedback),
         )
         .route(
-            "/admin/recommendations",
+            "/odmen/recommendations",
             get(admin::shares_page).post(admin::shares_submit),
         )
         .route("/me/recommendations", get(pages::page))
-        .route("/me/recommendations/shelf-preview", get(admin::shelf::page))
+        .route(
+            "/odmen/recommendations/shelf-preview",
+            get(admin::shelf::page),
+        )
         .route("/me/recommendations/consent", post(pages::consent))
         .route("/me/recommendations/flow-consent", post(pages::consent))
         .route("/me/recommendations/feedback", post(pages::feedback))
         .route(
-            "/api/v1/admin/recommendations/contextual",
+            "/api/v1/odmen/recommendations/contextual",
             get(admin::contextual::status).post(admin::contextual::control),
         )
         .route(
-            "/me/recommendations/contextual",
+            "/odmen/recommendations/contextual",
             get(admin::contextual::page).post(admin::contextual::form),
         )
-        .route("/api/v1/admin/recommendations/quality", get(admin::quality))
+        .route("/api/v1/odmen/recommendations/quality", get(admin::quality))
         .route(
-            "/api/v1/admin/recommendations/control",
+            "/api/v1/odmen/recommendations/control",
             post(admin::control),
         )
         .route(
-            "/me/recommendations/manage",
+            "/odmen/recommendations/manage",
             get(admin::page).post(admin::form_control),
         )
         .route(
