@@ -88,7 +88,7 @@ pub(super) async fn admin_reader(
                <article class="chapter-content reader-markdown reader-paid__content"
                         data-admin-content aria-label="Административное чтение главы"></article>
              </div>
-             <script type="module" src="/assets/newboo-admin-reader.mjs"></script>
+             <script type="module" src="/assets/newboo-odmen-reader.mjs"></script>
            </section>"#,
         chapter = chapter_id.get(),
         unsealed = unsealed,

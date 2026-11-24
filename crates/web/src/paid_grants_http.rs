@@ -382,7 +382,7 @@ fn administrator_routes(
             "/api/v1/reader/chapters/{chapter_id}/odmen-unsealed",
             post(admin_unsealed::read),
         )
-        .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
+        .route("/assets/newboo-odmen-reader.mjs", get(admin_reader::script))
         .layer(DefaultBodyLimit::max(512))
         .with_state(state)
 }

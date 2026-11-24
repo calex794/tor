@@ -1621,7 +1621,7 @@
     },
     {
       "method": "GET",
-      "template": "/assets/newboo-admin-support.js",
+      "template": "/assets/newboo-odmen-support.js",
       "source": "crates/web/src/auth/support.rs",
       "handler": "admin_script",
       "policy": "public"
@@ -1803,7 +1803,7 @@
     },
     {
       "method": "GET",
-      "template": "/assets/newboo-admin-reader.mjs",
+      "template": "/assets/newboo-odmen-reader.mjs",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_reader::script",
       "policy": "public"

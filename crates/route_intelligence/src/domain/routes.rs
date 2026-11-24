@@ -224,7 +224,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/api/v1/support/tickets", "POST", "/support/", Exact, Api, Dashboard, Write), // 211
     RouteRegistration::new("/odmen/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 212
     RouteRegistration::new("/assets/newboo-support-widget.js", "GET", "/assets/", Exact, Static, System, Free), // 213
-    RouteRegistration::new("/assets/newboo-admin-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
+    RouteRegistration::new("/assets/newboo-odmen-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/text-issues", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 215
     RouteRegistration::new("/odmen/support/{id}/close", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 216
     RouteRegistration::new("/odmen/support/{id}/reopen", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 217
@@ -248,7 +248,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/books/{id}/settings/sources", "GET", "/me/", Prefix, Page, Dashboard, Read), // 235
     RouteRegistration::new("/me/books/{id}/settings/sources", "POST", "/me/", Prefix, Page, Dashboard, Write), // 236
     RouteRegistration::new("/read/odmen/{chapter_id}", "GET", "/read/", Prefix, TrafficSurface::Admin, Reading, Read), // 237
-    RouteRegistration::new("/assets/newboo-admin-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 238
+    RouteRegistration::new("/assets/newboo-odmen-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 238
     RouteRegistration::new("/odmen/finance/refunds/user/{id}", "GET", "/odmen/finance/", Prefix, TrafficSurface::Admin, ProductArea::Billing, Read), // 239
     RouteRegistration::new("/odmen/finance/refunds/prepare", "POST", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 240
     RouteRegistration::new("/odmen/finance/refunds", "GET", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Read), // 241

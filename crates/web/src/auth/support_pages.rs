@@ -86,7 +86,7 @@ pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> 
         .expect("closed support admin page");
     }
     if admin {
-        body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-admin-support.js\" defer></script>");
+        body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-odmen-support.js\" defer></script>");
     }
     layout("Поддержка", "Переписка со службой поддержки.", &body)
 }
