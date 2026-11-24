@@ -51,8 +51,8 @@ pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
         let file = archive
             .by_index(index)
             .map_err(|_| ImportError::InvalidArchive)?;
-        let name = file.name();
-        if !safe_path(name) || file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
+        let name = file.name().map_err(|_| ImportError::InvalidArchive)?;
+        if !safe_path(name.as_ref()) || file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
             return Err(ImportError::InvalidArchive);
         }
         let packed = file.compressed_size();
@@ -191,6 +191,15 @@ mod tests {
             extract_docx_text(&vec![0; MAX_DOCX_BYTES + 1]),
             Err(ImportError::TooLarge)
         );
+    }
+
+    #[test]
+    fn inconsistent_local_filename_is_rejected() {
+        let mut archive = docx(XML, None);
+        assert_eq!(&archive[0..4], b"PK\x03\x04");
+        assert_eq!(&archive[30..49], b"[Content_Types].xml");
+        archive[30] = b'X';
+        assert_eq!(extract_docx_text(&archive), Err(ImportError::InvalidArchive));
     }
 
     #[test]

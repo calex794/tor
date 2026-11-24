@@ -141,7 +141,10 @@ pub fn extract_zip_text(source: &[u8], encoding: &str) -> Result<String, ImportE
         let entry = archive
             .by_index(index)
             .map_err(|_| ImportError::InvalidArchive)?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|_| ImportError::InvalidArchive)?
+            .into_owned();
         if !safe_member_path(&name)
             || entry
                 .unix_mode()
@@ -295,6 +298,18 @@ mod tests {
             .unwrap()[0]
                 .number,
             1
+        );
+    }
+
+    #[test]
+    fn inconsistent_local_filename_is_rejected() {
+        let mut archive = build_zip(&[("chapter1.txt", "Глава 1: Начало\nТекст".as_bytes())]);
+        assert_eq!(&archive[0..4], b"PK\x03\x04");
+        assert_eq!(&archive[30..42], b"chapter1.txt");
+        archive[37] = b'2';
+        assert_eq!(
+            extract_zip_text(&archive, "utf-8"),
+            Err(ImportError::InvalidArchive)
         );
     }
 

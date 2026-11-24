@@ -75,7 +75,8 @@ impl PgLibrary {
              WHERE free_version.id IS NOT NULL OR paid.id IS NOT NULL \
              ORDER BY c.chapter_no {order}, c.id {order} LIMIT $5",
         );
-        let rows = sqlx::query(&statement)
+        // Only enum-selected comparison/order fragments are interpolated; all values are bound.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(statement))
             .bind(user_id)
             .bind(book_id)
             .bind(cursor.chapter_no)
