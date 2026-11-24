@@ -4,10 +4,11 @@
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
     free_pack_gateway::{read_authorized_active, FreePackReadMode},
+    free_reader_http::{free_source_response, record_served_open},
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -18,7 +19,10 @@ use tokio::sync::Semaphore;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
 use tor_commerce::repositories::layer_entitlements::PgLayerChapterEntitlements;
-use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
+use tor_reading::repositories::{
+    free_open_capture::PgFreeOpenCapture,
+    free_s3_ref::{FreeS3Ref, PgFreeS3Ref},
+};
 use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
     repositories::free_pack_range_s3::S3PackFrameStore,
@@ -31,6 +35,7 @@ struct PackHttpState {
     accounts: PgAccounts,
     layer: PgLayerChapterEntitlements,
     reference: PgFreeS3Ref,
+    opened: PgFreeOpenCapture,
     placement: PgFreePackCatalog,
     frame_store: S3PackFrameStore,
     cookies: CookiePolicy,
@@ -78,6 +83,7 @@ pub fn router(
     Ok(routes.with_state(PackHttpState {
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         reference: PgFreeS3Ref::new(pool.clone()),
+        opened: PgFreeOpenCapture::new(pool.clone()),
         placement: PgFreePackCatalog::new(pool),
         accounts,
         frame_store: S3PackFrameStore::new(s3),
@@ -170,18 +176,20 @@ async fn selected_source(
 }
 
 /// Non-script fallback: one secure same-origin link for both transport types.
-/// PACK returns exactly one reauthorized frame. SINGLE redirects to the old
-/// independently reauthorized grant, which issues a short-lived signed GET.
+/// PACK returns exactly one reauthorized frame. SINGLE redirects to the
+/// independently reauthorized same-origin document response.
 async fn no_js_source(
     State(state): State<PackHttpState>,
     Path(chapter): Path<i64>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
+    method: Method,
 ) -> Response {
     if chapter <= 0 || headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
     }
-    if headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
+    if crate::public_reader_http::is_speculative_navigation(&headers)
+        || headers.get("sec-fetch-site").and_then(|s| s.to_str().ok()) == Some("cross-site")
         || headers
             .get(header::ORIGIN)
             .is_some_and(|s| s.to_str().ok() != Some(state.cookies.origin.as_str()))
@@ -204,8 +212,7 @@ async fn no_js_source(
         Err(status) => return deny(status),
     };
     if transport == "gateway" {
-        // source() rechecks C/B before and after private S3 Range I/O.
-        return source(State(state), Path(chapter), Query(query), headers).await;
+        return pack_response(state, chapter, query, headers, method == Method::GET).await;
     }
     // Redirects always target a same-origin literal route, not arbitrary S3.
     // The S349 grant independently checks publication, pin and age again.
@@ -250,10 +257,32 @@ async fn plan(
         .cookies
         .session_token(&headers)
         .map(|token| session_token_digest(&token));
+    let published = matches!(mode, FreePackReadMode::Published);
     let (edition, transport) = match selected_source(&state, chapter, mode, digest.as_ref()).await {
         Ok(selection) => selection,
         Err(status) => return deny(status),
     };
+    // The server advertises the verified exact PACK edition before download.
+    // Keep a short-lived actor-specific permit so a concurrent author edit
+    // cannot erase a later, valid V1 browser acknowledgement.
+    if published {
+        if let Some(digest) = digest.as_ref() {
+            let actor = match state.accounts.active_session_user(digest).await {
+                Ok(value) => value,
+                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+            };
+            if let Some(actor) = actor {
+                if state
+                    .opened
+                    .issue_intent(actor, chapter, edition.version_id, edition.sha256)
+                    .await
+                    .is_err()
+                {
+                    return deny(StatusCode::SERVICE_UNAVAILABLE);
+                }
+            }
+        }
+    }
     let sha = edition
         .sha256
         .iter()
@@ -286,6 +315,16 @@ async fn source(
     Path(chapter): Path<i64>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
+) -> Response {
+    pack_response(state, chapter, query, headers, false).await
+}
+
+async fn pack_response(
+    state: PackHttpState,
+    chapter: i64,
+    query: Lookup,
+    headers: HeaderMap,
+    record_open: bool,
 ) -> Response {
     if chapter <= 0 || headers.contains_key(header::RANGE) || headers.contains_key("if-range") {
         return deny(StatusCode::BAD_REQUEST);
@@ -335,10 +374,7 @@ async fn source(
     if edition.bucket != state.bucket {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     }
-    let mut response = private_response(
-        ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes),
-        &[],
-    );
+    let mut response = free_source_response(bytes);
     let sha = edition
         .sha256
         .iter()
@@ -354,14 +390,11 @@ async fn source(
         };
         response.headers_mut().insert(key, header);
     }
-    response.headers_mut().insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    response.headers_mut().insert(
-        "x-robots-tag",
-        HeaderValue::from_static("noindex, nofollow"),
-    );
+    // The no-script document response already contains the verified PACK
+    // frame. Scripted requests are recorded by the browser after rendering.
+    if record_open && matches!(mode, FreePackReadMode::Published) {
+        record_served_open(&state.accounts, &state.opened, digest.as_ref(), &edition).await;
+    }
     response
 }
 

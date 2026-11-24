@@ -16,7 +16,7 @@ class AdminAliasTests(unittest.TestCase):
         self.assertIn("StatusCode::NOT_FOUND", module)
         self.assertIn("noindex, nofollow", module)
         self.assertIn('href=\\"/odmen\\"', account)
-        self.assertNotIn('href=\\"/admin/audience\\"', account)
+        self.assertIn('href=\\"/admin/audience\\"', account)
 
     def test_does_not_advertise_alias_as_role_security(self):
         doc = (ROOT / "docs/security/admin-odmen-alias.md").read_text()

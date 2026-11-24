@@ -296,6 +296,7 @@ async fn direct_paid_archived_and_verified_s3_paths_keep_their_existing_acl() {
     );
 
     let archived = book(&pool, false).await;
+    opened(&pool, reader, archived.chapter, archived.version).await;
     PgLibrary::new(pool.clone())
         .add_book(reader, archived.id)
         .await

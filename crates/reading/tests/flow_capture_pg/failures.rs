@@ -8,6 +8,7 @@ async fn capture_lock_failures_preserve_business_and_report_process_failures() {
     let reader = actor(&pool, "lock-outage").await;
     consent(&pool, reader, true).await;
     let one = book(&pool, false).await;
+    opened(&pool, reader, one.chapter, one.version).await;
     let library = PgLibrary::new(pool.clone()).with_flow_collection(true);
     let follows = PgBookFollows::new(pool.clone()).with_flow_collection(true);
     let health = PgFlowCapture::new(pool.clone());
@@ -137,6 +138,7 @@ async fn retention_erases_raw_after_thirty_days_even_without_collection() {
     let library = PgLibrary::new(pool.clone()).with_flow_collection(true);
     let sync = PgReadingSync::new(pool.clone()).with_flow_collection(true);
     for reader in [old, fresh] {
+        opened(&pool, reader, one.chapter, one.version).await;
         library.add_book(reader, one.id).await.unwrap();
         sync.save_free(reader, one.chapter, one.version, place(1), 0)
             .await

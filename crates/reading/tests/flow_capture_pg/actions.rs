@@ -9,6 +9,8 @@ async fn exact_book_actions_replay_concurrency_free_pins_and_readd() {
     consent(&pool, reader, true).await;
     consent(&pool, no_flow, false).await;
     let one = book(&pool, false).await;
+    // A real previous FREE open is required before the Book can pin V1.
+    opened(&pool, reader, one.chapter, one.version).await;
     let library = PgLibrary::new(pool.clone()).with_flow_collection(true);
     let follows = PgBookFollows::new(pool.clone()).with_flow_collection(true);
 
@@ -78,6 +80,13 @@ async fn exact_book_actions_replay_concurrency_free_pins_and_readd() {
     .execute(&pool)
     .await
     .unwrap();
+    let new_version: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(new_chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    opened(&pool, reader, new_chapter, new_version).await;
     library.add_book(reader, one.id).await.unwrap();
     follows.follow(reader, one.id).await.unwrap();
     let pins: Vec<(i64, i64)> = sqlx::query_as(

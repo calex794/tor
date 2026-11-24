@@ -3139,6 +3139,13 @@
       "policy": "session"
     },
     {
+      "method": "POST",
+      "template": "/api/v1/chapters/{id}/free-open",
+      "source": "crates/web/src/free_reader_http.rs",
+      "handler": "confirm_open",
+      "policy": "session"
+    },
+    {
       "method": "GET",
       "template": "/admin/audience/continuations",
       "source": "crates/web/src/auth.rs",

@@ -6,8 +6,9 @@ https://pandaolate.ru/odmen
 The route is ASCII and does not require URL encoding. Only authenticated
 administrators may see this page; anonymous visitors and non-admins
 receive the same 404.
-The existing account page shows a single private administrative entry link
-instead of three deep links.
+The account page adds a private /odmen entry while retaining the three
+existing deep links required by browser tests and workflows. This is NOT a
+full masking of /admin/*; do not claim that it hides the namespace.
 
 **This alias is NOT a security boundary.** Other administrator-only pages
 such as /admin/audience, /admin/support and /admin/finance/refunds

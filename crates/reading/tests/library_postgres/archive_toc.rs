@@ -82,6 +82,18 @@ async fn saved_archive_toc_2050_chapters_uses_real_order_and_live_session() {
     .execute(&pool)
     .await
     .unwrap();
+    // This archive regression intentionally models 2050 already-opened FREE
+    // chapters. An unread 2050-chapter Book would yield 0 exact FREE pins.
+    sqlx::query(
+        "INSERT INTO reader_free_opened_editions(user_id,chapter_id,version_id)
+         SELECT $1,c.id,p.version_id FROM chapters c
+         JOIN chapter_publications p ON p.chapter_id=c.id WHERE c.book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
     bookmarks.add_book(actor, book).await.unwrap();
     sqlx::query(
         "UPDATE books SET lifecycle_status='ordinary_deleted',

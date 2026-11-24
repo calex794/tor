@@ -1,6 +1,8 @@
-//! C-08/BR-060: saving a Book pins its released free chapter editions.
+//! C-08/BR-060: save only exact previously opened FREE chapter editions.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
+#[path = "library_saved_free_pg/open_fixtures.rs"]
+mod open_fixtures;
 use tor_reading::{
     repositories::{PgLibrary, PgReadingProgress, PgReadingSync},
     services::{progress::ReadingPlace, sync::SyncError},
@@ -138,6 +140,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     let library = PgLibrary::new(pool.clone());
+    open_fixtures::mark_opened(&pool, &[user_a, user_b], &[free1, free2]).await;
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await, vec![(free2, v2), (free1, v1)]);
     let saved_first = library
@@ -235,6 +238,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     assert_eq!(pins(&pool, user_a).await.len(), 2);
+    open_fixtures::mark_opened(&pool, &[user_a, user_b], &[draft]).await;
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await.len(), 3);
     assert!(!pins(&pool, user_a)
@@ -570,6 +574,7 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
     let (another_free_id, _) = chapter(&pool, book, 4, "public", "free", true).await;
 
     let library = PgLibrary::new(pool.clone());
+    open_fixtures::mark_opened(&pool, &[actor], &[free_id, another_free_id]).await;
     library.add_book(actor, book).await.unwrap();
     let paid_purchase: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_purchase_facts
