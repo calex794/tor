@@ -156,7 +156,11 @@ async fn half_open_boundaries_and_each_locked_source_recover_without_writes() {
     ] {
         f.completion(user, 1, user, at, "free").await;
     }
-    let sql = include_str!("../../src/repositories/audience/canonical/report.sql").replace(
+    let sql = concat!(
+        include_str!("../../src/repositories/audience/canonical/common.sql"),
+        include_str!("../../src/repositories/audience/canonical/report_tail.sql")
+    )
+    .replace(
         "transaction_timestamp()",
         "TIMESTAMPTZ '2026-11-11T12:00:00Z'",
     );
