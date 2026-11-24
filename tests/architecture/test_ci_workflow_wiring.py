@@ -882,28 +882,33 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("matrix.lane == 'tests'", demo)
         self.assertIn("matrix.lane == 'release'", demo)
 
-    def test_reuse_experiment_is_isolated_and_advisory(self):
-        text = (WORKFLOWS / "reuse-experiment.yml").read_text()
+    def test_doppelscan_audit_is_isolated_and_advisory(self):
+        text = (WORKFLOWS / "reuse-audit.yml").read_text()
         self.assertEqual(set(job_sections(text)), {"scan"})
         for required in (
-            "  pull_request:", "contents: read", "continue-on-error: true",
+            "  workflow_dispatch:", "  pull_request:", "contents: read",
+            "continue-on-error: true",
             "github.event.pull_request.head.repo.full_name == github.repository",
             "persist-credentials: false", '--network none --read-only',
             "--cap-drop ALL --security-opt no-new-privileges",
             "--cpus 2 --memory 4g", ":/src:ro", ":/tools:ro",
-            "sha256sum -c -", "--locked --root /out",
+            "sha256sum -c -", "doppelscan-v0.9.0-x86_64-unknown-linux-gnu.tar.gz",
+            "e5d5abd63abfb74dddfc52d60d58144f402218aa49b3b6b6e610d1e3171f355f",
+            "git archive", "github.sha", "--only rust --min-tokens 50",
+            "--similarity 0.8", "summary.json",
         ):
             self.assertIn(required, text)
         for forbidden in ("contents: write", "pull_request_target:",
-                          "secrets.", "secrets:", "  push:", "ssh "):
+                          "secrets.", "secrets:", "  push:", "ssh ",
+                          "cargo install", "jscpd", "cargo-dupes"):
             self.assertNotIn(forbidden, text)
-        self.assertNotIn("reuse-experiment.yml",
+        self.assertNotIn("reuse-audit.yml",
                          (WORKFLOWS / CI_WORKFLOW).read_text())
 
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml", "tor-nightly.yml",
-                    "reuse-experiment.yml"}
+                    "reuse-audit.yml"}
                  | MANUAL_WORKFLOWS | BUILD_ONLY_WORKFLOWS | PERFORMANCE_WORKFLOWS | ISOLATED_GATEWAY_WORKFLOWS | ACCEPTANCE_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))

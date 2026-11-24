@@ -1,35 +1,33 @@
-name: REUSE experiment (advisory)
+name: Doppelscan audit (advisory)
 on:
+  workflow_dispatch:
   pull_request:
     paths:
-      - '.github/workflows/reuse-experiment.yml'
+      - '.github/workflows/reuse-audit.yml'
       - 'docs/architecture/reuse-experiment.md'
 permissions:
   contents: read
 jobs:
   scan:
-    name: reuse / ${{ matrix.tool }}
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    name: reuse / doppelscan
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        tool: [cargo-dupes, doppelscan, jscpd]
     env:
-      SCAN_SHA: a527bf2e3c05ce577e7a4363296d3c0a5978c69b
-      TOOL: ${{ matrix.tool }}
+      SCAN_SHA: ${{ github.sha }}
+      TOOL: doppelscan
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - name: Prepare immutable Rust-only snapshot
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reuse-source" "$RUNNER_TEMP/reuse-bin" "$RUNNER_TEMP/reuse-report"
+          test "$(git rev-parse HEAD)" = "$SCAN_SHA"
           git archive "$SCAN_SHA" crates | tar -x -C "$RUNNER_TEMP/reuse-source"
           find "$RUNNER_TEMP/reuse-source" -type f ! -name '*.rs' -delete
           find "$RUNNER_TEMP/reuse-source" -type l -delete
@@ -41,28 +39,15 @@ jobs:
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/reuse-bin"
-          case "$TOOL" in
-            cargo-dupes)
-              docker run --rm -v "$bin:/out" rust:1.93.0-bookworm cargo install cargo-dupes --version 0.2.1 --locked --root /out
-              ;;
-            doppelscan)
-              url=https://github.com/CMaintz/doppelscan/releases/download/v0.9.0/doppelscan-v0.9.0-x86_64-unknown-linux-gnu.tar.gz
-              sha=e5d5abd63abfb74dddfc52d60d58144f402218aa49b3b6b6e610d1e3171f355f
-              ;;
-            jscpd)
-              url=https://github.com/kucherenko/jscpd/releases/download/v5.4.3/jscpd-linux-x64-gnu.tar.gz
-              sha=a19d719331b21a047a7537f982566dabcf6d6e5f51581c3b80d9c420979cc92c
-              ;;
-          esac
-          if [[ "$TOOL" != cargo-dupes ]]; then
-            mkdir -p "$bin/bin" "$RUNNER_TEMP/reuse-unpack"
-            curl --fail --silent --show-error --location --retry 3 "$url" -o "$RUNNER_TEMP/reuse-tool.tar.gz"
-            printf '%s  %s\n' "$sha" "$RUNNER_TEMP/reuse-tool.tar.gz" | sha256sum -c -
-            tar -xzf "$RUNNER_TEMP/reuse-tool.tar.gz" -C "$RUNNER_TEMP/reuse-unpack"
-            executable="$(find "$RUNNER_TEMP/reuse-unpack" -type f -name "$TOOL" -print -quit)"
-            test -n "$executable"
-            install -m 0755 "$executable" "$bin/bin/$TOOL"
-          fi
+          url=https://github.com/CMaintz/doppelscan/releases/download/v0.9.0/doppelscan-v0.9.0-x86_64-unknown-linux-gnu.tar.gz
+          sha=e5d5abd63abfb74dddfc52d60d58144f402218aa49b3b6b6e610d1e3171f355f
+          mkdir -p "$bin/bin" "$RUNNER_TEMP/reuse-unpack"
+          curl --fail --silent --show-error --location --retry 3 "$url" -o "$RUNNER_TEMP/reuse-tool.tar.gz"
+          printf '%s  %s\n' "$sha" "$RUNNER_TEMP/reuse-tool.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/reuse-tool.tar.gz" -C "$RUNNER_TEMP/reuse-unpack"
+          executable="$(find "$RUNNER_TEMP/reuse-unpack" -type f -name "$TOOL" -print -quit)"
+          test -n "$executable"
+          install -m 0755 "$executable" "$bin/bin/$TOOL"
           docker pull ubuntu:24.04
       - name: Run offline, bounded, read-only scan
         shell: bash
@@ -96,26 +81,43 @@ jobs:
           }
           failed=0
           run_scan version "/tools/$TOOL" --version || failed=1
-          case "$TOOL" in
-            cargo-dupes)
-              run_scan ast /tools/cargo-dupes dupes --path /src --min-lines 8 --min-nodes 20 --threshold 0.8 --format json report || failed=1
-              ;;
-            doppelscan)
-              run_scan exact /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 --strict || failed=1
-              run_scan renamed /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 || failed=1
-              run_scan near /tools/doppelscan near --format json --limit 0 --only rust --min-tokens 50 --similarity 0.8 || failed=1
-              ;;
-            jscpd)
-              run_scan exact /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --reporters json --output /reports --report-name exact . || failed=1
-              run_scan structural /tools/jscpd --format rust --min-lines 8 --min-tokens 50 --workers 2 --ignore-identifiers=consistent --ignore-literals --similarity=0.8 --min-nodes 20 --reporters json --output /reports --report-name structural . || failed=1
-              ;;
-          esac
+          run_scan exact /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 --strict || failed=1
+          run_scan renamed /tools/doppelscan --format json --limit 0 --only rust --min-tokens 50 || failed=1
+          run_scan near /tools/doppelscan near --format json --limit 0 --only rust --min-tokens 50 --similarity 0.8 || failed=1
           exit "$failed"
-      - name: Retain experiment evidence
+      - name: Verify report and print summary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "reuse-report"
+          if (root / "version.stdout").read_text().strip() != "doppelscan 0.9.0":
+              raise SystemExit("Unexpected analyzer version")
+          expected = len((root / "input.sha256").read_text().splitlines())
+          if expected == 0:
+              raise SystemExit("No input files")
+          summary = {}
+          for mode in ("exact", "renamed", "near"):
+              report = json.loads((root / (mode + ".stdout")).read_text())
+              stats = report["summary"]
+              if stats["groups"] != len(report["groups"]) or not 0 < stats["files"] <= expected:
+                  raise SystemExit("Invalid scanner report: " + mode)
+              if stats["files"] != expected:
+                  print("::warning::Scanner excluded input files in " + mode)
+              summary[mode] = stats
+          result = {"commit": os.environ["SCAN_SHA"], "input_files": expected,
+                    "version": "0.9.0", "modes": summary}
+          (root / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+      - name: Retain audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reuse-${{ matrix.tool }}
+          name: reuse-doppelscan
           path: ${{ runner.temp }}/reuse-report/
           retention-days: 7
           if-no-files-found: warn
