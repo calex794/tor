@@ -936,7 +936,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_continuation_admin):
+            or audited_ratio_admin or audited_continuation_admin or admin_entry_proof):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
