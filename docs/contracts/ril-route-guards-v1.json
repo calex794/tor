@@ -1845,21 +1845,21 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-unsealed",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_unsealed::read",
       "policy": "admin_reader"
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-history",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-history",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_history::list",
       "policy": "admin_reader"
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_history::read",
       "policy": "admin_reader"
@@ -1985,21 +1985,21 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_sealed_history::list",
       "policy": "admin_reader"
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_sealed_history::grant",
       "policy": "admin_reader"
     },
     {
       "method": "POST",
-      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
+      "template": "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_sealed_history::asset",
       "policy": "admin_reader"

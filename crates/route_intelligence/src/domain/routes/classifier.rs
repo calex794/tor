@@ -254,7 +254,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/odmen/finance/refunds"), "GET") => Some(241),
         (Some("/assets/book-title-suggestions.js"), "GET") => Some(242),
         (Some("/me/books/title-suggestions"), "GET") => Some(243),
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-unsealed"), "POST") => Some(244),
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-unsealed"), "POST") => Some(244),
         (Some("/me/books/{id}/settings/project-status"), "GET") => Some(245),
         (Some("/me/books/{id}/settings/project-status"), "POST") => Some(246),
         (Some("/me/books/{id}/settings/titles"), "GET") => Some(247),
@@ -273,13 +273,13 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/settings"), "GET") => Some(260),
         (Some("/__bp_honeypot/{*trap_name}"), "GET") => Some(261),
         (Some("/moderation/books/{id}/visibility"), "POST") => Some(262),
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history"), "POST") => Some(263),
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}"), "POST") => {
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-history"), "POST") => Some(263),
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}"), "POST") => {
             Some(264)
         }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history"), "POST") => { Some(265) }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants"), "POST") => { Some(266) }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants"), "POST") => { Some(267) }
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history"), "POST") => { Some(265) }
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants"), "POST") => { Some(266) }
+        (Some("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants"), "POST") => { Some(267) }
         (Some("/api/v1/covers/{id}/{variant}/direct-grant"), "GET") => Some(268),
         (Some("/users/{target_user_id}/subscribe"), "POST") => Some(269),
         (Some("/users/{target_user_id}/unsubscribe"), "POST") => Some(270),

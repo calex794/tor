@@ -254,7 +254,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/odmen/finance/refunds", "GET", "/odmen/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Read), // 241
     RouteRegistration::new("/assets/book-title-suggestions.js", "GET", "/assets/", Exact, Static, System, Free), // 242
     RouteRegistration::new("/me/books/title-suggestions", "GET", "/me/", Prefix, Api, Dashboard, Read), // 243
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-unsealed", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 244
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-unsealed", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 244
     RouteRegistration::new("/me/books/{id}/settings/project-status", "GET", "/me/", Prefix, Page, Dashboard, Read), // 245
     RouteRegistration::new("/me/books/{id}/settings/project-status", "POST", "/me/", Prefix, Page, Dashboard, Write), // 246
     RouteRegistration::new("/me/books/{id}/settings/titles", "GET", "/me/", Prefix, Page, Dashboard, Read), // 247
@@ -273,11 +273,11 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/books/{id}/settings", "GET", "/me/", Prefix, Page, Dashboard, Read), // 260
     RouteRegistration::new("/__bp_honeypot/{*trap_name}", "GET", "/auth/honeypot/", Prefix, Service, Auth, Free), // 261
     RouteRegistration::new("/moderation/books/{id}/visibility", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 262
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 265
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 266
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 267
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 265
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 266
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 267
     RouteRegistration::new("/api/v1/covers/{id}/{variant}/direct-grant", "GET", "/api/v1/covers/", Prefix, Api, ProductArea::Storage, Read), // 268
     RouteRegistration::new("/users/{target_user_id}/subscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 269
     RouteRegistration::new("/users/{target_user_id}/unsubscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 270
