@@ -17,7 +17,7 @@ module.exports = async function historyAcceptance({
       "body_markdown) VALUES(" + chapter + ",2,'HISTORY-SECOND-PRIVATE') RETURNING id");
     pg("INSERT INTO chapter_working_drafts(chapter_id,version_id) VALUES(" +
       chapter + "," + second + ")");
-    const endpoint = SITE + "/api/v1/reader/chapters/" + chapter + "/admin-history";
+    const endpoint = SITE + "/api/v1/reader/chapters/" + chapter + "/odmen-history";
     const ctx = await contextFor(browser, admin_session);
     try {
       const page = await ctx.newPage();
