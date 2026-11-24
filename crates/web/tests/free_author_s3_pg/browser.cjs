@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { createHash } = require('node:crypto');
 const path = require('node:path');
 const { createRequire } = require('node:module');
 const requireRepo = createRequire(path.join(process.cwd(), 'package.json'));
@@ -47,6 +48,39 @@ let stage = 'launch';
       await context.addCookies([{ name: 'tor-dev-session', value: config.session, url: config.origin }]);
       const page = await context.newPage();
       const url = `${config.origin}/me/books/${config.book}/chapters/${config.chapter}/edit`;
+      let lateReader, acknowledgement;
+      if (config.late_reader) {
+        stage = 'D-001 verify and render FREE V1 before author publishes V2';
+        const reader = await browser.newContext();
+        await reader.addCookies([{ name: 'tor-dev-session', value: config.late_reader, url: config.origin }]);
+        lateReader = await reader.newPage();
+        const endpoint = `${config.origin}/api/v1/chapters/${config.chapter}/free-open`;
+        // Hold the real request without altering its actor, version, SHA, or headers.
+        let capture;
+        const held = new Promise(resolve => { capture = resolve; });
+        await lateReader.route(endpoint, route => { capture(route); }, { times: 1 });
+        const html = await lateReader.goto(`${config.origin}/read/${config.chapter}`);
+        assert.equal(html.status(), 200);
+        assert(!(await html.text()).includes(config.marker), 'V1 must not be inline');
+        const article = lateReader.locator('#chapter-text');
+        await article.filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
+        assert.equal(await article.getAttribute('data-free-s3-version'), String(config.version));
+        let timer;
+        try {
+          acknowledgement = await Promise.race([held, new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('FREE V1 acknowledgement was not intercepted')), 10000);
+          })]);
+        } finally {
+          clearTimeout(timer);
+        }
+        assert.equal(acknowledgement.request().method(), 'POST');
+        assert.deepEqual(acknowledgement.request().postDataJSON(), {
+          version_id: String(config.version),
+          sha256: createHash('sha256').update(config.previous, 'utf8').digest('hex'),
+        });
+        assert.equal(await article.getAttribute('data-free-open-confirmed'), null);
+        stage = 'D-001 author publishes V2 with V1 acknowledgement held';
+      }
       await page.goto(url);
       const form = page.locator(`form[action="/me/books/${config.book}/chapters/${config.chapter}/edit"]`);
       assert.equal(await form.locator('[name="body"]').inputValue(), config.previous);
@@ -57,9 +91,24 @@ let stage = 'launch';
         form.evaluate(form => form.requestSubmit()),
       ]);
       assert.equal(response.status(), 303);
+      let currentVersion = null;
+      if (lateReader) {
+        stage = 'D-001 record the original V1 acknowledgement after V2 commit';
+        await acknowledgement.continue();
+        await lateReader.waitForFunction(() =>
+          document.querySelector('#chapter-text')?.dataset.freeOpenConfirmed === '1',
+          undefined, { timeout: 10000 });
+        stage = 'D-001 read current V2 in a fresh document';
+        await lateReader.reload();
+        const article = lateReader.locator('#chapter-text');
+        await article.filter({ hasText: 'V2_ONLY_MARKER' }).waitFor({ timeout: 20000 });
+        currentVersion = await article.getAttribute('data-free-s3-version');
+        assert.match(currentVersion, /^[0-9]+$/);
+        assert.notEqual(currentVersion, String(config.version));
+      }
       const replay = await context.request.post(url, { form: fields, headers: { Origin: config.origin }, maxRedirects: 0 });
       assert.equal(replay.status(), 303);
-      process.stdout.write(JSON.stringify({ edited: true, replay: true }));
+      process.stdout.write(JSON.stringify({ edited: true, replay: true, current_version: currentVersion }));
       await context.close();
     } else {
       const context = await browser.newContext({ viewport: { width: config.width || 390, height: 844 }, javaScriptEnabled: config.mode !== 'no-js' });
