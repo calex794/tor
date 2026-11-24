@@ -49,7 +49,10 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
         old = inventory(RUNTIME)
         other = [(path, count) for path, count in inventory(OTHER)
                  if not path.endswith(".md")
-                 and path != "tools/a09_honeypot_browser.cjs"]
+                 and path not in (
+                     "tools/a09_honeypot_browser.cjs",
+                     "tools/audience_pg_browser.cjs",  # exact negative HTTP test
+                 )]
         summary = [f"ADMIN_NAMESPACE_{scope} {path} {n}"
                    for scope, items in (("LIVE", old), ("OTHER", other))
                    for path, n in items]
@@ -68,6 +71,22 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
             "internal/admin route", "moderator/admin",
         ):
             self.assertIsNone(OLD_PUBLIC_PREFIX.search(not_route), not_route)
+
+
+    def test_negative_http_fixture_lists_only_four_explicit_legacy_routes(self):
+        browser = (ROOT / "tools/audience_pg_browser.cjs").read_text(
+            encoding="utf-8")
+        legacy = OLD_PUBLIC_PREFIX.findall(browser)
+        self.assertEqual(len(legacy), 4)
+        for expected in (
+            "/admin/audience",
+            "/admin/finance/refunds",
+            "/api/v1/admin/recommendations/quality",
+            "/admin/finance/refunds/prepare",
+        ):
+            self.assertEqual(browser.count("'" + expected + "'"), 1)
+        self.assertIn("obsoleteWrite.status(), 404", browser)
+        self.assertIn("denied.status(), 404", browser)
 
     def test_unrelated_honeypot_name_is_intentionally_preserved(self):
         decoy = (ROOT / "tools/a09_honeypot_browser.cjs").read_text(encoding="utf-8")

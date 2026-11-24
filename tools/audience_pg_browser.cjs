@@ -98,6 +98,20 @@ async function periodBoundaries(page, days) {
     assert.ok(await audienceLink.isVisible(), 'administrator must discover the report in their account');
     await audienceLink.click();
     await adminPage.waitForURL(base+'/odmen/audience');
+    // A verified administrator must also fail to reach the retired namespace.
+    // Test GET pages, a formerly privileged API, and a money-mutating POST.
+    for (const obsolete of [
+      '/admin/audience',
+      '/admin/finance/refunds',
+      '/api/v1/admin/recommendations/quality',
+    ]) {
+      const denied = await adminContext.request.get(base+obsolete);
+      assert.equal(denied.status(), 404, 'obsolete admin GET must be absent: '+obsolete);
+    }
+    const obsoleteWrite = await adminContext.request.post(
+      base+'/admin/finance/refunds/prepare', {data:{}});
+    assert.equal(obsoleteWrite.status(), 404,
+      'obsolete admin refund POST must be absent even for an administrator');
     assert.equal((await readerPage.goto(base+'/me')).status(), 200);
     assert.equal(await readerPage.locator('a[href="/odmen/audience"]').count(), 0,
       'reader account must not advertise the administrator report');
