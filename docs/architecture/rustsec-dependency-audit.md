@@ -60,3 +60,18 @@ authorized by this scan alone.
   45478315026. The remaining 21 license diagnostics block policy acceptance;
   no new license grants or advisory exemptions have been made.
 - Full integration tests and final combined-head audit remain mandatory.
+
+## Owner-approved source ownership policy
+
+- TOR's original code is not granted a general open-source license. Remove the
+  misleading unused workspace MIT declaration; inherit the root ownership notice
+  and `publish = false` in every workspace package. This does not revoke existing
+  valid grants or change repository visibility.
+- Cargo-deny's private-license setting applies only to unpublished workspace
+  packages, never external registries. Advisory, source and ban checks retain
+  their original fail-closed policy. No advisory exceptions.
+- Permit CDLA-Permissive-2.0 only for the exact reviewed `webpki-roots 1.0.12`.
+  Preserve the agreement text and review upstream notices before distribution.
+- Acceptance: unchanged lockfile, no publishable workspace packages, clean real
+  cargo-audit and cargo-deny, passing architecture and required integration CI
+  on the final head. Public/private GitHub visibility is a separate decision.
