@@ -70,7 +70,11 @@ mod tests {
     #[test]
     fn all_targets_preserve_their_exact_author_and_admin_form_markup() {
         for (target, author, admin) in [
-            (AppealTarget::Book, "comment-appeals", "book-comment-appeals"),
+            (
+                AppealTarget::Book,
+                "comment-appeals",
+                "book-comment-appeals",
+            ),
             (
                 AppealTarget::Free,
                 "free-comment-appeals",
