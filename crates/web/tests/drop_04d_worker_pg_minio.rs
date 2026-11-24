@@ -1,5 +1,8 @@
 //! Real S023 queue -> private S3 source -> PACK-only publication, bounded batches.
 #![cfg(all(feature = "s3-free", feature = "s3-chapter-import"))]
+#[cfg(all(feature = "s3-covers", not(feature = "s3-paid")))]
+#[path = "drop_04d_worker_pg_minio/candidate_profile.rs"]
+mod candidate_profile;
 #[path = "drop_04d_worker_pg_minio/catalog_concurrency.rs"]
 mod catalog_concurrency;
 #[path = "drop_04d_worker_pg_minio/catalog_import.rs"]
