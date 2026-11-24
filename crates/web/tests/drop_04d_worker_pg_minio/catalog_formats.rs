@@ -176,6 +176,7 @@ async fn fnd03_supported_uploads_publish_exact_s3_editions() {
         assert!(keys.insert(verify_edition(&store, BUCKET, &editions[0], &expected).await));
     }
     assert_eq!(list_all_keys(&fixture.client, BUCKET).await, keys);
+    println!("FND03_SUPPORTED_UPLOADS_OK formats={}", keys.len());
 }
 
 fn archive(entries: &[(&str, &str)]) -> String {
