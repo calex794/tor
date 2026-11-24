@@ -69,6 +69,8 @@ jobs:
         run: node --test tools/tor_private_theme_cookie.test.cjs
       - name: S013 paid-comment spoiler and safe DOM policy
         run: node --test tools/s013_paid_comment_spoilers.test.mjs
+      - name: REUSE-04A shared TOC dialog keyboard behavior
+        run: node --test tools/reuse_toc_dialog.test.cjs
       - name: Syntax-check S020 real Chromium journey
         run: node --check tools/s020_age_editor_chromium.cjs
       - name: Syntax-check read-only TOR RIL-09 VPS audit
