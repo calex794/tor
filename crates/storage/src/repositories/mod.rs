@@ -1,3 +1,5 @@
+#[cfg(feature = "pg")]
+pub mod admin_s3_profiles;
 #[cfg(feature = "s3")]
 pub mod free_chapter_s3;
 #[cfg(feature = "s3")]

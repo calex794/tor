@@ -460,6 +460,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/tor-home-order.js"), "GET") => Some(445),
         (Some("/api/v1/chapters/{id}/free-open"), "POST") => Some(446),
         (Some("/odmen"), "GET") => Some(447),
+        (Some("/odmen/storage/s3"), "GET") => Some(448),
+        (Some("/odmen/storage/s3"), "POST") => Some(449),
         _ => None,
     };
     index

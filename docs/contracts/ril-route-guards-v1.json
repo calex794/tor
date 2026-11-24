@@ -3158,6 +3158,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "admin_entry::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/odmen/storage/s3",
+      "source": "crates/web/src/auth/admin_s3.rs",
+      "handler": "page",
+      "policy": "admin_s3_connection"
+    },
+    {
+      "method": "POST",
+      "template": "/odmen/storage/s3",
+      "source": "crates/web/src/auth/admin_s3.rs",
+      "handler": "save",
+      "policy": "admin_s3_connection"
     }
   ]
 }
