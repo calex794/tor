@@ -6,9 +6,11 @@ use aws_sdk_s3::{
     error::ProvideErrorMetadata,
     operation::get_object::GetObjectError,
 };
+use aws_smithy_runtime_api::client::connection::CaptureSmithyConnection;
 use std::{
     cell::Cell,
     error::Error,
+    net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_contracts::paid_delivery::ObjectRef;
@@ -29,8 +31,43 @@ enum GetOutcome {
     },
 }
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct SocketOutcome {
+    ports: Option<(u16, u16)>,
+    status: Option<u16>,
+    response_close: Option<bool>,
+    finished_ms: u128,
+}
+
+#[derive(Clone, Copy, Default)]
+struct OperationObservation {
+    strict_get: bool,
+    get: Option<GetOutcome>,
+    socket: Option<SocketOutcome>,
+}
+
 tokio::task_local! {
-    static FIRST_GET_OUTCOME: Cell<Option<GetOutcome>>;
+    static OBSERVATION: Cell<OperationObservation>;
+}
+
+fn loopback_ports(local: SocketAddr, peer: SocketAddr) -> Option<(u16, u16)> {
+    (local.ip().is_loopback() && peer.ip().is_loopback()).then_some((local.port(), peer.port()))
+}
+
+fn capture_ports(cfg: &ConfigBag) -> Option<(u16, u16)> {
+    let connection = cfg.load::<CaptureSmithyConnection>()?.get()?;
+    loopback_ports(connection.local_addr()?, connection.remote_addr()?)
+}
+
+fn socket_line(phase: &str, outcome: Option<SocketOutcome>) -> String {
+    let observation = outcome.unwrap_or_default();
+    let (local, peer) = observation.ports.unzip();
+    let status = observation.status;
+    let close = observation.response_close;
+    let finished = outcome.map(|value| value.finished_ms);
+    format!(
+        "G09_SOCKET phase={phase} local_port={local:?} peer_port={peer:?} http_status={status:?} response_close={close:?} unix_ms_end={finished:?}"
+    )
 }
 
 #[derive(Debug)]
@@ -45,15 +82,32 @@ impl Intercept for ObserveFirstGet {
         &self,
         context: &FinalizerInterceptorContextRef<'_>,
         _: &RuntimeComponents,
-        _: &mut ConfigBag,
+        cfg: &mut ConfigBag,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Only the strict GET runs in this scope. Background load uses the same
-        // client from other tasks and cannot replace its evidence.
-        let _ = FIRST_GET_OUTCOME.try_with(|slot| {
-            let status = context
-                .response()
-                .map(|response| response.status().as_u16());
-            slot.set(context.output_or_error().map(|outcome| match outcome {
+        // Read the SDK's existing capture; never mutate or poison a connection.
+        // Background load cannot replace the serial operation's task-local evidence.
+        let _ = OBSERVATION.try_with(|slot| {
+            let mut observation = slot.get();
+            let response = context.response();
+            let response_close = response.map(|value| {
+                value.headers().get("connection").is_some_and(|header| {
+                    header
+                        .split(',')
+                        .any(|token| token.trim().eq_ignore_ascii_case("close"))
+                })
+            });
+            let status = response.map(|value| value.status().as_u16());
+            observation.socket = Some(SocketOutcome {
+                ports: capture_ports(cfg),
+                status,
+                response_close,
+                finished_ms: unix_millis(),
+            });
+            if !observation.strict_get {
+                slot.set(observation);
+                return;
+            }
+            observation.get = context.output_or_error().map(|outcome| match outcome {
                 Ok(_) => GetOutcome::Headers(status),
                 Err(error) => {
                     let sdk_error = error
@@ -91,7 +145,8 @@ impl Intercept for ObserveFirstGet {
                         io_kind: io_error_kind(error),
                     }
                 }
-            }));
+            });
+            slot.set(observation);
         });
         Ok(())
     }
@@ -150,18 +205,40 @@ fn unix_millis() -> u128 {
         .map_or(0, |elapsed| elapsed.as_millis())
 }
 
+pub(super) async fn observe_put(
+    store: &S3PrivateStore,
+    object: &ObjectRef,
+    bytes: &[u8],
+) -> (Result<(), StorageError>, Option<SocketOutcome>) {
+    OBSERVATION
+        .scope(Cell::new(OperationObservation::default()), async {
+            let result = store.put_immutable(object, bytes).await;
+            (result, OBSERVATION.with(Cell::get).socket)
+        })
+        .await
+}
+
 pub(super) async fn first_get(
     store: &S3PrivateStore,
     object: &ObjectRef,
+    writes: [Option<SocketOutcome>; 2],
 ) -> Result<Vec<u8>, StorageError> {
-    FIRST_GET_OUTCOME
-        .scope(Cell::new(None), async {
+    let observation = OperationObservation {
+        strict_get: true,
+        ..OperationObservation::default()
+    };
+    OBSERVATION
+        .scope(Cell::new(observation), async {
             let started_ms = unix_millis();
             let result = store.get_verified(object).await;
-            let outcome = FIRST_GET_OUTCOME.with(Cell::get);
+            let observation = OBSERVATION.with(Cell::get);
+            let outcome = observation.get;
             if let Err(error) = &result {
                 let ended_ms = unix_millis();
                 eprintln!("G09_FIRST_GET_WINDOW unix_ms_start={started_ms} unix_ms_end={ended_ms}");
+                eprintln!("{}", socket_line("initial-put", writes[0]));
+                eprintln!("{}", socket_line("conflicting-put", writes[1]));
+                eprintln!("{}", socket_line("first-get", observation.socket));
                 match outcome {
                     Some(GetOutcome::Headers(status)) => {
                         let stage = if *error == StorageError::Unavailable {
@@ -191,4 +268,50 @@ pub(super) async fn first_get(
             result
         })
         .await
+}
+
+#[test]
+#[ignore = "exercised by s3-provider with the existing --ignored suite"]
+fn g09_reports_only_loopback_socket_metadata_and_distinguishes_absence() {
+    use aws_smithy_runtime_api::client::connection::ConnectionMetadata;
+
+    let local = "127.0.0.1:55664".parse().unwrap();
+    let peer = "127.0.0.1:9000".parse().unwrap();
+    let external = "192.0.2.1:9000".parse().unwrap();
+    assert_eq!(loopback_ports(local, peer), Some((55664, 9000)));
+    assert_eq!(loopback_ports(local, external), None);
+    assert_eq!(loopback_ports(external, peer), None);
+    let mut cfg = ConfigBag::base();
+    assert_eq!(capture_ports(&cfg), None);
+    let capture = CaptureSmithyConnection::new();
+    capture.set_connection_retriever(move || {
+        Some(
+            ConnectionMetadata::builder()
+                .proxied(false)
+                .local_addr(local)
+                .remote_addr(peer)
+                .poison_fn(|| panic!("observation must not poison a socket"))
+                .build(),
+        )
+    });
+    cfg.interceptor_state().store_put(capture);
+    assert_eq!(capture_ports(&cfg), Some((55664, 9000)));
+    let captured = SocketOutcome {
+        ports: capture_ports(&cfg),
+        status: Some(412),
+        response_close: Some(false),
+        finished_ms: 42,
+    };
+    let observed = socket_line("conflicting-put", Some(captured));
+    assert!(observed.contains("local_port=Some(55664) peer_port=Some(9000)"));
+    assert!(observed.contains("http_status=Some(412) response_close=Some(false)"));
+    assert!(observed.ends_with("unix_ms_end=Some(42)"));
+    assert!(!observed.contains("127.0.0.1"));
+    assert_eq!(
+        socket_line("first-get", None),
+        concat!(
+            "G09_SOCKET phase=first-get local_port=None peer_port=None ",
+            "http_status=None response_close=None unix_ms_end=None"
+        )
+    );
 }

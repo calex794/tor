@@ -10,7 +10,7 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
 };
-use get_diagnostics::{first_get, CloseConnection, ObserveFirstGet};
+use get_diagnostics::{first_get, observe_put, CloseConnection, ObserveFirstGet};
 use std::{process::Command, time::Duration};
 use tokio::io::AsyncReadExt;
 use tor_contracts::paid_delivery::{
@@ -101,10 +101,8 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     )
     .unwrap();
     let record = object(&encrypted.ciphertext, chapter_id());
-    assert_eq!(
-        store.put_immutable(&record, &encrypted.ciphertext).await,
-        Ok(())
-    );
+    let (initial_put, initial_socket) = observe_put(&store, &record, &encrypted.ciphertext).await;
+    assert_eq!(initial_put, Ok(()));
     assert_eq!(store.head_verified(&record).await, Ok(true));
     assert_eq!(
         store.get_verified(&record).await.unwrap(),
@@ -128,11 +126,10 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     )
     .unwrap();
     let forged = object(&other.ciphertext, chapter_id());
-    assert_eq!(
-        store.put_immutable(&forged, &other.ciphertext).await,
-        Err(StorageError::Conflict)
-    );
-    let after_rejected_overwrite = first_get(&store, &record).await;
+    let (conflicting_put, conflict_socket) = observe_put(&store, &forged, &other.ciphertext).await;
+    assert_eq!(conflicting_put, Err(StorageError::Conflict));
+    let after_rejected_overwrite =
+        first_get(&store, &record, [initial_socket, conflict_socket]).await;
     if let Err(error) = &after_rejected_overwrite {
         // Only on failure: do not insert extra reads between the conflicting
         // conditional PUT and the original asserted GET (which could hide a race).
@@ -764,8 +761,9 @@ async fn g09_conflict_first_get_round(
     )
     .unwrap();
     let expected = object(&original.ciphertext, id.clone());
+    let (initial_put, initial_socket) = observe_put(store, &expected, &original.ciphertext).await;
     assert_eq!(
-        store.put_immutable(&expected, &original.ciphertext).await,
+        initial_put,
         Ok(()),
         "first immutable PUT must succeed in {mode} round {round}"
     );
@@ -778,15 +776,17 @@ async fn g09_conflict_first_get_round(
     .unwrap();
     let forged = object(&competing.ciphertext, id);
     assert_ne!(forged.sha256_ciphertext, expected.sha256_ciphertext);
+    let (conflicting_put, conflict_socket) =
+        observe_put(store, &forged, &competing.ciphertext).await;
     assert_eq!(
-        store.put_immutable(&forged, &competing.ciphertext).await,
+        conflicting_put,
         Err(StorageError::Conflict),
         "conditional competing PUT must fail in {mode} round {round}"
     );
 
     // CRITICAL: the very next request touching this target is the first
     // exact GET. No HEAD, wait or retry between the 412 and this GET.
-    let observed_get = first_get(store, &expected).await;
+    let observed_get = first_get(store, &expected, [initial_socket, conflict_socket]).await;
     if let Err(error) = &observed_get {
         eprintln!("G09_REPRO mode={mode} round={round} first_get={error:?}");
         g09_conflict_repro_failure_evidence(client, bucket, &expected).await;
