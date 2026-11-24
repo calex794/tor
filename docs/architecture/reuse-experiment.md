@@ -31,3 +31,15 @@ Owner approved Doppelscan as the primary duplication analyzer. The comparative w
 - Before adding a helper, use `doppelscan similar --lang rust < snippet.rs` or `doppelscan at path/to/file.rs:10-30` to locate existing candidates. A clone is not proof of identical permissions or business semantics.
 
 No automatic blocking on clone counts, no baseline acceptance, no source rewrite. REUSE-10 will review the baseline and introduce new-code checks separately. The main required integration workflow and all existing mandatory checks are unchanged. The independent REUSE-01 text inventory remains useful for SQL, JS, infrastructure, and a reproducible reference metric.
+
+## REUSE-10 — advisory new-code comparison
+
+Use the native Doppelscan 0.9.0 baseline/check algorithm, not subtraction of aggregate group counts or comparison of unstable line numbers. A temporary baseline is generated from an explicit ancestor commit; it is evidence for that comparison, not blanket acceptance of historical debt. Never silently regenerate a reviewed baseline from the candidate.
+
+- For a same-repository audit PR, compare the actual synthetic merge checkout to its verified first parent (event base SHA). For manual dispatch, supply a full ancestor SHA in base_sha; omit it for a regular inventory. Full Git history is fetched on the runner to verify ancestry, but only two Rust snapshots are mounted inside offline read-only scanner containers.
+- Both snapshots use identical paths and flags, Doppelscan 0.9.0, only Rust, minimum 50 tokens, normalized clone mode; strict and near inventories remain available separately. Native check does not cover near-miss groups. Renames and some shrunk clones are accounted for by the upstream algorithm, which has documented limitations.
+- Retain both SHA manifests, baseline, delta JSON, exit code and summary in the existing private seven-day artifact. Exit 0 = no new qualifying candidates, 1 = candidates requiring review, 2/other = incomplete comparison, not a zero result. Validate the actual report even for exit 0. Do not put source-bearing clone reports in public summaries.
+- Keep the existing single advisory job, not a new required gate. Initially run via manual dispatch and the existing narrowly scoped same-repository audit PR triggers. Before broader automatic PR coverage, measure cost and review actual results. No clone percentage threshold or automatic refactor.
+- Review each new candidate as actionable, intentional or unclear. Keep independent authorization, financial policies, immutable migrations, negative tests, and workflow wiring where their contracts differ. The owning line must demonstrate semantic equivalence before extraction.
+
+Acceptance still pending: exact-head scanner smoke test (same snapshot, new third copy, bad baseline), real base/head comparison and candidate review; capture final inventory after REUSE-05–09 land. No production changes.
