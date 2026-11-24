@@ -14,7 +14,7 @@ pub(crate) fn links(days: i32) -> String {
 <a href="/odmen/audience/signals?days={days}">Сигналы</a>
 <a href="/odmen/audience/pages">Публичные страницы</a>
 <a href="/odmen/promotion/editorial">Редакционное продвижение</a>
-<a href="/me/recommendations/contextual">Контекстные рекомендации</a>
+<a href="/odmen/recommendations/contextual">Контекстные рекомендации</a>
 </nav>"#
     )
 }

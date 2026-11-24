@@ -236,7 +236,7 @@ pub(super) async fn administrator(
     let managed = call(
         app,
         "GET",
-        "/me/recommendations/manage",
+        "/odmen/recommendations/manage",
         cookie,
         (ORIGIN, csrf),
         "",
@@ -323,7 +323,7 @@ pub(super) async fn administrator(
         call(
             app,
             "POST",
-            "/me/recommendations/manage",
+            "/odmen/recommendations/manage",
             cookie,
             (ORIGIN, csrf),
             &format!("action=hold&expected_revision=0&csrf_token={csrf}"),
@@ -361,7 +361,7 @@ pub(super) async fn administrator(
     for path in [
         "/api/v1/odmen/recommendations/quality?channel=invalid",
         "/api/v1/odmen/recommendations/quality?channel=organic",
-        "/me/recommendations/manage",
+        "/odmen/recommendations/manage",
     ] {
         let rejected = call(app, "GET", path, cookie, (ORIGIN, csrf), "", false).await;
         assert_eq!(rejected.status(), StatusCode::FORBIDDEN);
