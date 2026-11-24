@@ -170,22 +170,22 @@ async function openKeyboard(page,trigger,expectedTitle,book) {
     const admin=await adminContext.newPage();
     ids.users.push(await register(admin,adminEmail));
     sql(`INSERT INTO account_roles(user_id,role,is_active) VALUES(${ids.users[0]},'administrator',true)`);
-    assert.equal((await admin.goto(base+'/admin/surprises')).status(),200);
-    const create=admin.locator('form[action="/admin/surprises/create"]');
+    assert.equal((await admin.goto(base+'/odmen/surprises')).status(),200);
+    const create=admin.locator('form[action="/odmen/surprises/create"]');
     await create.locator('[name=kind]').selectOption('quote');
     await create.locator('[name=title]').fill(title);
     await create.locator('[name=body]').fill('Тестовая цитата, безопасная для публичного читателя.');
     await create.locator('[name=book_id]').fill(String(ids.book));
     await create.locator('[name=editorial]').check();
-    await submit(admin,create,'/admin/surprises/create','Создать черновик');
+    await submit(admin,create,'/odmen/surprises/create','Создать черновик');
     ids.item=scalar(`SELECT id FROM surprise_content WHERE title=${literal(title)} AND state='draft'`);
-    const state=admin.locator(`form[action="/admin/surprises/${ids.item}/state"]`)
+    const state=admin.locator(`form[action="/odmen/surprises/${ids.item}/state"]`)
       .filter({has:admin.locator('input[value="approved"]')});
-    await submit(admin,state,`/admin/surprises/${ids.item}/state`,'approved');
-    const policy=admin.locator('form[action="/admin/surprises/policy"]');
+    await submit(admin,state,`/odmen/surprises/${ids.item}/state`,'approved');
+    const policy=admin.locator('form[action="/odmen/surprises/policy"]');
     await policy.locator('input[name=enabled]').check();
     await policy.locator('input[name=probability_per_mille]').fill('1000');
-    await submit(admin,policy,'/admin/surprises/policy','Сохранить настройки');
+    await submit(admin,policy,'/odmen/surprises/policy','Сохранить настройки');
     assert.equal(sql('SELECT enabled::text FROM surprise_runtime_policy WHERE singleton'),'true');
     assert.equal(scalar(`SELECT count(*) FROM surprise_admin_events WHERE actor_user_id=${ids.users[0]}`),3);
 
@@ -271,7 +271,7 @@ async function openKeyboard(page,trigger,expectedTitle,book) {
     assert.ok(!secret.text.includes(title));
     sql(`UPDATE books SET access_level='basic' WHERE id=${ids.book}`);
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${ids.users[0]} AND role='administrator'`);
-    assert.equal((await admin.goto(base+'/admin/surprises')).status(),403,'revoked admin role must take effect');
+    assert.equal((await admin.goto(base+'/odmen/surprises')).status(),403,'revoked admin role must take effect');
     console.log('F-SURPRISE Chromium desktop/mobile/multi-tab/no-JS/ACL/admin: PASS');
   } finally {
     if (browser) await browser.close();

@@ -55,12 +55,12 @@ module.exports = async (browser, base, out) => {
       await register(stranger,base,`support.${name}.other@example.test`,'Другой читатель ' + name);
       await stranger.goto(base + '/support');
       assert(!(await stranger.locator('main').innerText()).includes(marker));
-      assert.equal((await other.request.get(base + '/admin/support')).status(),403);
+      assert.equal((await other.request.get(base + '/odmen/support')).status(),403);
       const operator = await admin.newPage();
       const email = `support.${name}.admin@example.test`;
       await register(operator,base,email,'Поддержка оператор ' + name);
       administrator(email);
-      await operator.goto(base + '/admin/support');
+      await operator.goto(base + '/odmen/support');
       await operator.getByRole('link',{name:'Поддержка читатель ' + name,exact:true}).click();
       assert((await operator.locator('#support-messages').innerText()).includes(marker));
       await operator.getByRole('button',{name:'Закрыть обращение',exact:true}).click();
