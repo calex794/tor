@@ -1,11 +1,16 @@
 """Canonical reading is a bounded read-only projection, not reactivated tracking."""
+import hashlib
 import pathlib
 import unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 def read(p):return (ROOT/p).read_text()
+SQL_DIR=ROOT/'crates/reading/src/repositories/audience/canonical'
+def assembled_sql(kind):
+    return (SQL_DIR/'common.sql').read_bytes()+(SQL_DIR/f'{kind}_tail.sql').read_bytes()
+
 class FlowCanonicalReading(unittest.TestCase):
     def test_existing_sources_only_and_no_new_profile(self):
-        sql=read('crates/reading/src/repositories/audience/canonical/report.sql')
+        sql=assembled_sql('report').decode('utf-8')
         for required in ['reader_return_public_books','reader_chapter_completions','outbox_events','reader_library_items','reader_book_follows','min(c.completed_at)','source_event_id','C-verified-free-position','C-verified-purchased-position','e.payload']:
             self.assertIn(required,sql)
         for forbidden in ['INSERT ','UPDATE ','DELETE ','rec_subjects','rec_feedback','flow_visits','cookie','session_id','email']:
@@ -14,6 +19,24 @@ class FlowCanonicalReading(unittest.TestCase):
         self.assertNotIn('sqlx',dto)
         for forbidden in ['user_id:','source_event_id:','purchase_id:','chapter_id:']:
             self.assertNotIn(forbidden,dto)
+    def test_reuse09_queries_match_reviewed_original_git_blobs(self):
+        # Git blob IDs are a byte-equivalence witness, not a security hash.
+        # Future intentional SQL changes must update these reviewed expectations.
+        for kind,expected in [
+            ('rank','a3527812f7491389196b1be3ec1c9d279ff1a3e1'),
+            ('report','29f1f0ee44727dff1a4558ba8599fd0b17ce7e18'),
+        ]:
+            with self.subTest(kind=kind):
+                data=assembled_sql(kind)
+                header=f'blob {len(data)}\0'.encode('ascii')
+                self.assertEqual(hashlib.sha1(header+data, usedforsecurity=False).hexdigest(),expected)
+        repo=(SQL_DIR/'mod.rs').read_text()
+        rank=(SQL_DIR/'rank.rs').read_text()
+        self.assertIn('concat!(include_str!("common.sql"), include_str!("report_tail.sql"))',repo)
+        self.assertIn('concat!(include_str!("common.sql"), include_str!("rank_tail.sql"))',repo)
+        self.assertIn('sqlx::query(REPORT_SQL)',repo)
+        self.assertIn('sqlx::query(super::RANK_SQL)',rank)
+
     def test_limits_authority_and_unknown(self):
         repo=read('crates/reading/src/repositories/audience/canonical/mod.rs')
         for required in ['validated()?','REPEATABLE READ READ ONLY','750ms','CANONICAL_PAGE_SIZE + 1']:
