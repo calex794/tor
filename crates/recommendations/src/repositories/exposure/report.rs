@@ -37,7 +37,7 @@ const BASE: &str = r#"WITH bounds AS (
 "#;
 
 fn bind<'q>(
-    sql: &'q str,
+    sql: sqlx::AssertSqlSafe<String>,
     f: &'q ExposureFilter,
     closed: bool,
     book: Option<i64>,
@@ -172,12 +172,14 @@ async fn report_in(
     closed: bool,
     book: Option<i64>,
 ) -> Result<ExposureReport, ExposureError> {
+    // All five report SQL strings below use fixed SQL, fixed column lists,
+    // and literal aggregate prefixes/operators. Filter values are bound by bind().
     let totals=format!("{BASE} SELECT extract(epoch FROM now())::bigint AS checked_at_epoch,(SELECT extract(epoch FROM until)::bigint FROM bounds) AS until_epoch,count(*) AS books,{}, {},count(*) FILTER(WHERE class='low') AS low_books,count(*) FILTER(WHERE class='unknown') AS unknown_books FROM classified",sum_columns(""),sum_columns("previous_"));
-    let total = bind(&totals, filter, closed, book)
+    let total = bind(sqlx::AssertSqlSafe(totals), filter, closed, book)
         .fetch_one(&mut **tx)
         .await?;
     let detail=format!("{BASE} SELECT * FROM classified WHERE id>$9 AND ($10::text IS NULL OR class=$10) ORDER BY id LIMIT 51");
-    let rows = bind(&detail, filter, closed, book)
+    let rows = bind(sqlx::AssertSqlSafe(detail), filter, closed, book)
         .bind(filter.after)
         .bind(filter.class.map(|c| c.as_str()))
         .fetch_all(&mut **tx)
@@ -206,7 +208,7 @@ async fn report_in(
           ) g GROUP BY g.kind,g.label ORDER BY g.kind COLLATE "C",g.label COLLATE "C" LIMIT 100"#,
         sum_columns("")
     );
-    let groups = bind(&grouped, filter, closed, book)
+    let groups = bind(sqlx::AssertSqlSafe(grouped), filter, closed, book)
         .fetch_all(&mut **tx)
         .await?
         .into_iter()
@@ -236,7 +238,7 @@ async fn report_in(
         period_columns("", false),
         period_columns("previous_", true)
     );
-    let placement_rows = bind(&placement_sql, filter, closed, book)
+    let placement_rows = bind(sqlx::AssertSqlSafe(placement_sql), filter, closed, book)
         .fetch_all(&mut **tx)
         .await?;
     // Five fixed surfaces x two sources; fail instead of silently truncating
@@ -272,7 +274,7 @@ async fn report_in(
           ARRAY(SELECT label FROM genre_classes WHERE class='low' ORDER BY label COLLATE "C" LIMIT 20) AS low_labels
           FROM genre_classes"#
     );
-    let genre = bind(&genre_sql, filter, closed, book)
+    let genre = bind(sqlx::AssertSqlSafe(genre_sql), filter, closed, book)
         .fetch_one(&mut **tx)
         .await?;
     Ok(ExposureReport {
