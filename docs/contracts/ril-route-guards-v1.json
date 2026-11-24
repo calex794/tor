@@ -508,7 +508,7 @@
     },
     {
       "method": "GET",
-      "template": "/me/recommendations/manage",
+      "template": "/odmen/recommendations/manage",
       "handler": "admin::page",
       "policy": "administrator",
       "source": "crates/web/src/recommendation_http/mod.rs"
@@ -998,7 +998,7 @@
     },
     {
       "method": "POST",
-      "template": "/me/recommendations/manage",
+      "template": "/odmen/recommendations/manage",
       "handler": "admin::form_control",
       "policy": "administrator",
       "source": "crates/web/src/recommendation_http/mod.rs"
@@ -2846,14 +2846,14 @@
     },
     {
       "method": "GET",
-      "template": "/me/recommendations/contextual",
+      "template": "/odmen/recommendations/contextual",
       "source": "crates/web/src/recommendation_http/mod.rs",
       "handler": "admin::contextual::page",
       "policy": "administrator"
     },
     {
       "method": "POST",
-      "template": "/me/recommendations/contextual",
+      "template": "/odmen/recommendations/contextual",
       "source": "crates/web/src/recommendation_http/mod.rs",
       "handler": "admin::contextual::form",
       "policy": "administrator"
@@ -2965,7 +2965,7 @@
     },
     {
       "method": "GET",
-      "template": "/me/recommendations/shelf-preview",
+      "template": "/odmen/recommendations/shelf-preview",
       "source": "crates/web/src/recommendation_http/mod.rs",
       "handler": "admin::shelf::page",
       "policy": "administrator"

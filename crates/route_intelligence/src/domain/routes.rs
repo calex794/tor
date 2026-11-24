@@ -146,8 +146,8 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 133
     RouteRegistration::new("/api/v1/odmen/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
     RouteRegistration::new("/api/v1/odmen/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
-    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
-    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
+    RouteRegistration::new("/odmen/recommendations/manage", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
+    RouteRegistration::new("/odmen/recommendations/manage", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
     RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 138
     RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 139
     RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 140
@@ -408,8 +408,8 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/odmen/surprises/{id}/state", "POST", "/odmen/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 395
     RouteRegistration::new("/api/v1/odmen/recommendations/contextual", "GET", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 396
     RouteRegistration::new("/api/v1/odmen/recommendations/contextual", "POST", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 397
-    RouteRegistration::new("/me/recommendations/contextual", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 398
-    RouteRegistration::new("/me/recommendations/contextual", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
+    RouteRegistration::new("/odmen/recommendations/contextual", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 398
+    RouteRegistration::new("/odmen/recommendations/contextual", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
     RouteRegistration::new("/odmen/audience/seo", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 400
     RouteRegistration::new("/odmen/audience/seo/refresh", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 401
     RouteRegistration::new("/api/v1/flow/observations", "POST", "/api/v1/", Exact, Api, ProductArea::Recommendations, Write), // 402
@@ -425,7 +425,7 @@ static ROUTES: [RouteRegistration; 448] = [
     RouteRegistration::new("/apple-touch-icon.png", "GET", "/assets/", Exact, Static, System, Free), // 412
     RouteRegistration::new("/icon-192.png", "GET", "/assets/", Exact, Static, System, Free), // 413
     RouteRegistration::new("/site.webmanifest", "GET", "/assets/", Exact, Static, System, Free), // 414
-    RouteRegistration::new("/me/recommendations/shelf-preview", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
+    RouteRegistration::new("/odmen/recommendations/shelf-preview", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
     RouteRegistration::new("/robots.txt", "GET", "/assets/", Exact, Static, System, Free), // 416
     RouteRegistration::new("/sitemap.xml", "GET", "/catalog/", Exact, Page, Catalog, CostClass::ExpensiveRead), // 417
     RouteRegistration::new("/sitemaps/books/{bucket}", "GET", "/catalog/", Prefix, Page, Catalog, CostClass::ExpensiveRead), // 418

@@ -546,7 +546,7 @@ fn canonical_reading_admin_route_has_no_public_or_write_alias() {
 fn contextual_model_controls_are_exact_admin_routes_not_reader_events() {
     for path in [
         "/api/v1/odmen/recommendations/contextual",
-        "/me/recommendations/contextual",
+        "/odmen/recommendations/contextual",
     ] {
         for (method, cost) in [("GET", CostClass::CheapRead), ("POST", CostClass::Write)] {
             let route = classify(Some(path), method);

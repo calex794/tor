@@ -64,7 +64,7 @@ async fn execute(
             return deny(status);
         }
         match state.store.control_contextual(&body).await {
-            Ok(_) if is_form => Redirect::to("/me/recommendations/contextual").into_response(),
+            Ok(_) if is_form => Redirect::to("/odmen/recommendations/contextual").into_response(),
             Ok(receipt) => Json(receipt).into_response(),
             Err(error) => api::error(error),
         }
