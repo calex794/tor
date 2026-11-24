@@ -60,27 +60,15 @@ pub(super) async fn author_page(State(s): State<ShareState>, headers: HeaderMap)
         )
         .expect("bounded author free-appeal history");
         if let Some(state) = item.appeal_state {
-            let label = match state.as_str() {
-                "pending" => "Ожидает рассмотрения",
-                "denied" => "Скрытие оставлено в силе",
-                "restored" => "Комментарий восстановлен",
-                _ => "Неизвестное состояние",
-            };
+            let label = super::appeal_markup::state_label(&state);
             write!(body, "<p>{label}</p>").expect("static appeal state");
         } else if item.visibility == "hidden" {
-            write!(
-                body,
-                r#"<form method="post" action="/me/free-comment-appeals/{}">
-                <label>Обоснование апелляции (20–1000 символов)
-                <textarea name="reason" minlength="20" maxlength="1000" required></textarea></label>
-                <input type="hidden" name="csrf_token" value="{}">
-                <input type="hidden" name="command_key" value="{}">
-                <button type="submit">Подать апелляцию</button></form>"#,
+            body.push_str(&super::appeal_markup::submit_form(
+                super::appeal_markup::AppealTarget::Free,
                 item.hide_event_id,
-                super::escape_html(&csrf),
-                generate_session_token(),
-            )
-            .expect("bounded author free-appeal form");
+                &csrf,
+                &generate_session_token(),
+            ));
         } else {
             body.push_str("<p>Комментарий уже не скрыт.</p>");
         }
@@ -139,12 +127,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             <p>Глава #{} · редакция #{} · комментарий #{} · санкция #{}
             · автор #{} · исходный администратор #{}</p>
             <p>Обоснование: {}</p>
-            <form method="post" action="/odmen/free-comment-appeals/{}/decision">
-            <input type="hidden" name="csrf_token" value="{}">
-            <label>Мотивировка решения <input name="note" maxlength="500" required></label>
-            <button name="decision" value="denied" type="submit">Оставить скрытым</button>
-            <button name="decision" value="restored" type="submit">Восстановить комментарий</button>
-            </form></article>"#,
+            {}</article>"#,
             item.id,
             item.chapter_id,
             item.version_id,
@@ -153,8 +136,11 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             item.author_id,
             item.original_reviewer_id,
             super::escape_html(&item.reason),
-            item.id,
-            super::escape_html(&csrf),
+            super::appeal_markup::decision_form(
+                super::appeal_markup::AppealTarget::Free,
+                item.id,
+                &csrf,
+            ),
         )
         .expect("bounded administrator free-appeal queue");
     }
