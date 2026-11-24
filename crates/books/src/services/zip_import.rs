@@ -130,6 +130,10 @@ pub fn extract_zip_text(source: &[u8], encoding: &str) -> Result<String, ImportE
         return Err(ImportError::InvalidArchive);
     }
 
+    archive
+        .validate_header_consistency()
+        .map_err(|_| ImportError::InvalidArchive)?;
+
     let mut total_uncompressed = 0_u64;
     let mut filenames = HashSet::new();
     let mut members: Vec<(String, Vec<u8>)> = Vec::new();

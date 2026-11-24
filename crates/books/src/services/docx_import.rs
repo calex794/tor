@@ -42,6 +42,10 @@ pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
     if archive.is_empty() || archive.len() > MAX_ENTRIES {
         return Err(ImportError::InvalidArchive);
     }
+    archive
+        .validate_header_consistency()
+        .map_err(|_| ImportError::InvalidArchive)?;
+
     let (mut total, mut content_types, mut document) = (0_u64, false, None);
     for index in 0..archive.len() {
         let file = archive
