@@ -11,6 +11,7 @@ mod layer_reader;
 mod layer_toc;
 mod paid_comment_reports;
 mod paid_comments;
+mod request_auth;
 mod text_issues;
 mod toc_window;
 

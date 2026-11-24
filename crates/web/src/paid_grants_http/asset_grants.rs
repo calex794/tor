@@ -10,28 +10,10 @@ pub(super) async fn grant_asset(
     headers: HeaderMap,
     Json(body): Json<GrantBody>,
 ) -> Response {
-    let Some(session) = state.cookies.session_token(&headers) else {
-        return deny(StatusCode::UNAUTHORIZED);
+    let (session, actor) = match super::request_auth::authenticate_grant(&state, &headers).await {
+        Ok(authenticated) => authenticated,
+        Err(status) => return deny(status),
     };
-    let actor = match state
-        .accounts
-        .active_session_user(&session_token_digest(&session))
-        .await
-    {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-        != Some(state.cookies.origin.as_str())
-        || !state.cookies.same_origin(&headers)
-        || !headers
-            .get("x-csrf-token")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
     let (Some(chapter_id), Ok(object_id), Ok(actor_id)) = (
         positive(&raw_chapter),
         ObjectId::parse(&raw_object),
