@@ -1,0 +1,55 @@
+name: One-time RustSec lockfile transfer (PR 1216)
+on:
+  push:
+    branches: ['tools/rustsec-lock-bootstrap-1216']
+    paths: ['.github/workflows/rustsec-lock-bootstrap-1216.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: rustsec-lock-bootstrap-1216
+  cancel-in-progress: false
+jobs:
+  transfer:
+    if: github.repository == 'calex794/tor' && github.ref == 'refs/heads/tools/rustsec-lock-bootstrap-1216'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      TARGET: feat/i-integration/rustsec-dependency-audit
+      EXPECTED_HEAD: 8b39ce96faac1175bf1f3316da920aede7188365
+      EXPECTED_BASE: 570f569b0cc16674c75602947bc867fe55686412
+      SNAPSHOT_COMMIT: ce18fb3b03894c05be0a27eed4cfbd8c0399a03b
+      LOCK_SHA256: 29b556429ae0496b167b9fbafd3e241b6a028d8915939de0c8a1f79a892fb8d5
+      ARTIFACT: '14948347859'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8b39ce96faac1175bf1f3316da920aede7188365
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify and transfer the exact read-only CI snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test ! -e Cargo.lock
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT" |
+            jq -e '.id == 14948347859 and .name == "rustsec-lockfile" and .expired == false and .workflow_run.id == 45450459803 and .workflow_run.head_sha == "8b39ce96faac1175bf1f3316da920aede7188365"'
+          curl --fail --silent --show-error --location --retry 2 --proto '=https' --proto-redir '=https' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT/zip" -o "$RUNNER_TEMP/lock.zip"
+          unzip -p "$RUNNER_TEMP/lock.zip" snapshot.txt > "$RUNNER_TEMP/snapshot.txt"
+          grep -Fx "commit=$SNAPSHOT_COMMIT" "$RUNNER_TEMP/snapshot.txt"
+          grep -Fx "lock_state=generated" "$RUNNER_TEMP/snapshot.txt"
+          unzip -p "$RUNNER_TEMP/lock.zip" Cargo.lock > Cargo.lock
+          printf '%s  Cargo.lock\n' "$LOCK_SHA256" | sha256sum -c -
+          gh auth setup-git --hostname github.com
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_BASE"
+          test "$(git ls-remote origin "refs/heads/$TARGET" | cut -f1)" = "$EXPECTED_HEAD"
+          git -c core.hooksPath=/dev/null add -- Cargo.lock
+          test "$(git diff --cached --name-only)" = Cargo.lock
+          git -c core.hooksPath=/dev/null -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'I-07: lock exact CI-resolved dependency snapshot'
+          git -c core.hooksPath=/dev/null push origin "HEAD:refs/heads/$TARGET"
+          printf 'TOR_LOCK_TRANSFERRED %s %s\n' "$(git rev-parse HEAD)" "$LOCK_SHA256"
