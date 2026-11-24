@@ -150,7 +150,7 @@ pub(super) async fn assert_unsealed_admin_read(
             ),
         );
         let shell_path = format!("/read/odmen/{chapter}");
-        let content_path = format!("/api/v1/reader/chapters/{chapter}/admin-unsealed");
+        let content_path = format!("/api/v1/reader/chapters/{chapter}/odmen-unsealed");
         let guest = read_page(app, &shell_path, None).await;
         assert_eq!(guest.status(), StatusCode::UNAUTHORIZED);
         let stranger = read_page(app, &shell_path, Some(&outsider)).await;
@@ -421,7 +421,7 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(current["body_markdown"], "NEW PRIVATE REVISION");
         // Historical text is reachable only through the separate audited
         // admin POST, not via the current reader or forged query parameters.
-        let history_path = format!("/api/v1/reader/chapters/{chapter}/admin-history");
+        let history_path = format!("/api/v1/reader/chapters/{chapter}/odmen-history");
         let old_path = format!("{history_path}/{version}");
         let history = send(
             app,
@@ -580,7 +580,7 @@ pub(super) async fn assert_unsealed_admin_read(
     );
     let revoked = send(
         app,
-        &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
+        &format!("/api/v1/reader/chapters/{chapter}/odmen-unsealed"),
         Some(&admin_session),
         Some(&csrf),
         Some(ORIGIN),
@@ -614,7 +614,7 @@ pub(super) async fn assert_unsealed_admin_read(
     );
     let revoked_pg = send(
         no_storage,
-        &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
+        &format!("/api/v1/reader/chapters/{chapter}/odmen-unsealed"),
         Some(&admin_session),
         Some(&csrf),
         Some(ORIGIN),
@@ -628,7 +628,7 @@ pub(super) async fn assert_unsealed_admin_read(
         .is_empty());
     let revoked_no_s3 = send(
         api_only,
-        &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
+        &format!("/api/v1/reader/chapters/{chapter}/odmen-unsealed"),
         Some(&admin_session),
         Some(&csrf),
         Some(ORIGIN),
@@ -638,7 +638,7 @@ pub(super) async fn assert_unsealed_admin_read(
     assert_eq!(revoked_no_s3.status(), StatusCode::FORBIDDEN);
     let revoked_history = send(
         app,
-        &format!("/api/v1/reader/chapters/{chapter}/admin-history"),
+        &format!("/api/v1/reader/chapters/{chapter}/odmen-history"),
         Some(&admin_session),
         Some(&csrf),
         Some(ORIGIN),

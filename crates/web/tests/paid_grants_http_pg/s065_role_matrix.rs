@@ -541,7 +541,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     );
     // Historical sealed inspection is an independent, explicit A/D/B/G/D
     // flow. The exact version and each PNG must stay bound to this chapter.
-    let sealed_list = format!("/api/v1/reader/chapters/{chapter}/admin-sealed-history");
+    let sealed_list = format!("/api/v1/reader/chapters/{chapter}/odmen-sealed-history");
     let sealed_grant = format!("{sealed_list}/{version}/delivery-grants");
     let sealed_asset = format!("{sealed_list}/{version}/assets/{ASSET_UUID}/delivery-grants");
     let listed = send(

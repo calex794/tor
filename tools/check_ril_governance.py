@@ -526,14 +526,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     # narrowly named helper in the same Rust file. Only exact reviewed
     # admin-history bindings can use its evidence.
     history_handlers = {
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history", "admin_history::list"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "admin_history::read"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-history", "admin_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-history/{version_id}", "admin_history::read"),
     }
     history_binding = (entry["method"], entry["template"], entry["handler"]) in history_handlers
     sealed_handlers = {
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "admin_sealed_history::list"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "admin_sealed_history::grant"),
-        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "admin_sealed_history::asset"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history", "admin_sealed_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/delivery-grants", "admin_sealed_history::grant"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/odmen-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "admin_sealed_history::asset"),
     }
     sealed_binding = (entry["method"], entry["template"], entry["handler"]) in sealed_handlers
 
@@ -1940,7 +1940,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         )
         allowed_unsealed = (
             entry["method"] == "POST"
-            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/admin-unsealed"
+            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/odmen-unsealed"
             and entry["source"] == "crates/web/src/paid_grants_http.rs"
             and entry["handler"] == "admin_unsealed::read"
         )
