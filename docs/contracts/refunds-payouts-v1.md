@@ -147,7 +147,7 @@ CREATE TABLE finance_earning_holds (
 
 Решение владельца заменяет пользовательскую вкладку заявок. GET/POST `/me/refunds`
 удалены из маршрутизатора. Читатель использует `/support`, а администратор
-`/admin/finance/refunds` для поиска по имени/handle/ID, изучения покупок и
+`/odmen/finance/refunds` для поиска по имени/handle/ID, изучения покупок и
 выбора точного `chapter_purchase_facts.id`. Каждая позиция пакетной покупки
 имеет самостоятельный purchase ID и историческую стоимость.
 

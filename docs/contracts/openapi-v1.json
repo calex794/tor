@@ -2032,7 +2032,7 @@
         "x-tor-json-max-bytes": 65536
       }
     },
-    "/api/v1/admin/refunds/{id}/decide": {
+    "/api/v1/odmen/refunds/{id}/decide": {
       "post": {
         "operationId": "post_api_v1_admin_refunds_id_decide",
         "tags": [
@@ -4477,7 +4477,7 @@
         }
       }
     },
-    "/api/v1/admin/recommendations/quality": {
+    "/api/v1/odmen/recommendations/quality": {
       "get": {
         "operationId": "rec13_admin_quality",
         "summary": "REC-13 admin::quality",
@@ -4539,7 +4539,7 @@
         "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
-    "/api/v1/admin/recommendations/control": {
+    "/api/v1/odmen/recommendations/control": {
       "post": {
         "operationId": "rec13_admin_control",
         "summary": "REC-13 admin::control",
@@ -4716,7 +4716,7 @@
         "x-tor-json-max-bytes": 65536
       }
     },
-    "/api/v1/admin/recommendations/contextual": {
+    "/api/v1/odmen/recommendations/contextual": {
       "get": {
         "operationId": "rec_contextual_status",
         "tags": [
