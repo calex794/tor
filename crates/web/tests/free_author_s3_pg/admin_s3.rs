@@ -6,6 +6,8 @@ use reqwest::{Client, StatusCode};
 const ROUTE: &str = "/odmen/storage/s3";
 const VALID_SHAPE: &str =
     "bucket=ci-disposable&access_key_id=CI_TEST_ACCESS_0000&secret_access_key=CI_TEST_SECRET_000000000000";
+const PROFILE_COUNT_SQL: &str =
+    "SELECT (SELECT count(*) FROM admin_s3_profiles) + (SELECT count(*) FROM admin_s3_profile_audit)";
 
 fn endpoint() -> String {
     format!("{ORIGIN}{ROUTE}")
@@ -41,10 +43,7 @@ pub(super) async fn check_connection_form(
 ) {
     let admin = format!("tor-dev-session={admin_session}");
     let reader = format!("tor-dev-session={reader_session}");
-    let before = pg(
-        db,
-        "SELECT (SELECT count(*) FROM admin_s3_profiles) +          (SELECT count(*) FROM admin_s3_profile_audit)",
-    );
+    let before = pg(db, PROFILE_COUNT_SQL);
     let denied_form = format!("{VALID_SHAPE}&csrf_token=invalid");
     assert_eq!(get(client, "").await.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(get(client, &reader).await.status(), StatusCode::FORBIDDEN);
@@ -111,10 +110,7 @@ pub(super) async fn check_connection_form(
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        pg(
-            db,
-            "SELECT (SELECT count(*) FROM admin_s3_profiles) +              (SELECT count(*) FROM admin_s3_profile_audit)",
-        ),
+        pg(db, PROFILE_COUNT_SQL),
         before,
         "rejected connection forms must not create a profile or audit write"
     );

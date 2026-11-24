@@ -20,6 +20,17 @@ const ADMIN_MENU: &str = r#"<section class="section"><div class="container">
 <p><a href="/me">Личный кабинет</a></p>
 </div></section>"#;
 
+/// Keep the feature-specific storage registration out of the shared auth router.
+#[cfg(feature = "s3-free")]
+pub(super) fn storage_routes() -> Router<AuthState> {
+    super::admin_s3::router()
+}
+
+#[cfg(not(feature = "s3-free"))]
+pub(super) fn storage_routes() -> Router<AuthState> {
+    Router::new()
+}
+
 fn body() -> Html<String> {
     let storage_link = if cfg!(feature = "s3-free") {
         r#"<li><a href="/odmen/storage/s3">Хранилище S3</a></li>"#

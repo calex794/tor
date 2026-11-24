@@ -236,12 +236,8 @@ fn router_inner(
     } else {
         Router::new()
     };
-    #[cfg(feature = "s3-free")]
-    let s3_routes = admin_s3::router();
-    #[cfg(not(feature = "s3-free"))]
-    let s3_routes = Router::new();
     let app = Router::new()
-        .merge(s3_routes)
+        .merge(admin_entry::storage_routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())
