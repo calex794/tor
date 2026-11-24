@@ -1,5 +1,5 @@
 //! Signed-in reading library and book/creator-follow release feed.
-use super::{escape_html, private_account_layout as layout};
+use super::{book_card_parts::library_cover_image, escape_html, private_account_layout as layout};
 use axum::response::Html;
 use std::fmt::Write;
 
@@ -75,11 +75,22 @@ fn book_art(
     let confirmed =
         confirmed_covers.is_none_or(|ids| u64::try_from(book_id).is_ok_and(|id| ids.contains(&id)));
     let image = if public_visible && book_id > 0 && confirmed {
-        format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
+        library_cover_image(book_id)
     } else {
         String::new()
     };
     format!("<div class=\"library-book-art\" aria-hidden=\"true\"><span class=\"library-book-art__spine\"></span><span class=\"library-book-art__glyph\">✦</span>{image}</div>")
+}
+
+/// Shared saved/purchased label; ordinary deletion has priority.
+fn deletion_notice(ordinary_deleted: bool, pending_deletion: bool) -> &'static str {
+    if ordinary_deleted {
+        "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
+    } else if pending_deletion {
+        "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
+    } else {
+        ""
+    }
 }
 
 fn purchase_only_book_cards(
@@ -93,13 +104,7 @@ fn purchase_only_book_cards(
     let mut cards = String::new();
     for book in &page.items {
         let title = escape_html(&book.title);
-        let status = if book.ordinary_deleted {
-            "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
-        } else if book.pending_deletion {
-            "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
-        } else {
-            ""
-        };
+        let status = deletion_notice(book.ordinary_deleted, book.pending_deletion);
         let navigation = if paid_reader_available {
             format!(
                 "<p><a href=\"/me/library/{}/saved\">Купленные главы</a></p>",
@@ -178,13 +183,7 @@ fn my_library_inner(
             let title = escape_html(&book.title);
             // A saved Book is still present after ordinary deletion.
             // Its public detail URL is gone; use only the private pinned reader.
-            let state = if book.ordinary_deleted {
-                "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
-            } else if book.pending_deletion {
-                "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
-            } else {
-                ""
-            };
+            let state = deletion_notice(book.ordinary_deleted, book.pending_deletion);
             let title_view = if book.ordinary_deleted {
                 format!("<h3>{title}</h3>")
             } else {
@@ -535,6 +534,31 @@ mod purchase_only_book_tests {
     };
 
     #[test]
+    fn shared_book_art_never_requests_unconfirmed_or_nonpublic_cover() {
+        let known = std::collections::HashSet::from([42_u64]);
+        assert!(book_art(42, true, Some(&known)).contains("/covers/42/card.webp"));
+        assert!(book_art(42, true, None).contains("/covers/42/card.webp"));
+        for art in [
+            book_art(42, false, Some(&known)),
+            book_art(42, false, None),
+            book_art(43, true, Some(&known)),
+            book_art(0, true, None),
+            book_art(-1, true, None),
+        ] {
+            assert!(!art.contains("<img"));
+            assert!(art.contains("library-book-art__glyph"));
+        }
+    }
+
+    #[test]
+    fn shared_deletion_notice_retains_precedence() {
+        assert_eq!(deletion_notice(false, false), "");
+        assert!(deletion_notice(false, true).contains("Ожидает удаления"));
+        assert!(deletion_notice(true, false).contains(">Удалена<"));
+        assert_eq!(deletion_notice(true, true), deletion_notice(true, false));
+    }
+
+    #[test]
     fn bought_only_deleted_book_stays_in_library_without_remove_bookmark_action() {
         let bookmarked = SavedBookPage {
             items: vec![],
@@ -581,6 +605,8 @@ mod purchase_only_book_tests {
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(!html.contains("action=\"/me/library/88/remove\""));
         assert!(!html.contains("action=\"/me/library/77/remove\""));
+        assert!(!html.contains("/covers/88/card.webp"));
+        assert!(!html.contains("/covers/77/card.webp"));
 
         let unavailable = my_library_with_updates_and_layers_and_purchased_only_selected(
             &[],

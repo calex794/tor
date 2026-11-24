@@ -1,4 +1,5 @@
 use super::{escape_html, PublicBookCard};
+use crate::pages::book_card_parts::mini_cover;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::domain::seo_urls::BookUrl;
 
@@ -47,14 +48,7 @@ pub(super) fn book_cards(
         } else {
             "book-mini-card--compact"
         };
-        let cover = if covers.contains(&book.id) {
-            format!(
-                r#"<img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async" draggable="false">"#,
-                book.id
-            )
-        } else {
-            "<span>Нет обложки</span>".to_owned()
-        };
+        let cover = mini_cover(book.id, covers.contains(&book.id));
         let observation = observer
             .map(|(issuer, surface)| {
                 crate::flow_exposure::attributes(
@@ -69,7 +63,7 @@ pub(super) fn book_cards(
             .unwrap_or_default();
         write!(
             html,
-            "<article class=\"book-mini-card {variant}\"{observation}><a data-flow-link class=\"book-mini-card__link\" href=\"{href}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
+            "<article class=\"book-mini-card {variant}\"{observation}><a data-flow-link class=\"book-mini-card__link\" href=\"{href}\" aria-label=\"{title}\">{cover}<div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
         )
         .expect("format String");
     }
