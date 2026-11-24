@@ -40,13 +40,13 @@ class SignalGuardTests(unittest.TestCase):
                     self.assertIn(marker, original)
                     path.write_text(original.replace(marker, "UNGUARDED", 1))
                     errors = check(self.root)
-                    self.assertTrue(any("/admin/audience/" in item for item in errors), errors)
+                    self.assertTrue(any("/odmen/audience/" in item for item in errors), errors)
             path.write_text(original)
 
     def test_report_policy_cannot_be_downgraded(self):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         original = path.read_text()
-        for route in ("/admin/audience/signals", "/admin/audience/pages"):
+        for route in ("/odmen/audience/signals", "/odmen/audience/pages"):
             with self.subTest(route=route):
                 data = json.loads(original)
                 next(row for row in data["routes"] if row["template"] == route)["policy"] = "session"

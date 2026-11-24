@@ -28,7 +28,7 @@ class ContextualModelTests(unittest.TestCase):
         text=p.read_text().replace('actor(state, headers).await?;', '')
         p.write_text(text)
         errors=guard.check(root)
-        self.assertTrue(any('GET /api/v1/admin/recommendations/contextual' in e and 'administrator' in e for e in errors),errors)
+        self.assertTrue(any('GET /api/v1/odmen/recommendations/contextual' in e and 'administrator' in e for e in errors),errors)
     def test_mutating_delegate_cannot_drop_csrf(self):
         root=self.copy();p=root/'crates/web/src/recommendation_http/admin/contextual.rs'
         p.write_text(p.read_text().replace('csrf(&state, &headers, &token)','always_ok(&state, &headers, &token)'))
