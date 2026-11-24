@@ -16,7 +16,7 @@ OLD_PUBLIC_PREFIX = re.compile(
     r"|/admin-(?:history|unsealed|sealed-history)"
     r"|/me/recommendations/(?:manage|contextual|shelf-preview)"
     r"|https?://[^/\s\x22\x27\x60]+/admin"
-    r")(?=/|-|[\x22\x27\x60\s?#)]|$)", re.I
+    r")(?=/|-|[\x22\x27\x60\s?#)$|(]|$)", re.I
 )
 TEXT = {".rs", ".py", ".cjs", ".js", ".mjs", ".html", ".json", ".css",
         ".sh", ".ts", ".tsx", ".md", ".sql", ".toml", ".tsv"}
@@ -28,7 +28,9 @@ OTHER = ("tools", "crates/web/tests", "tests/architecture",
 
 def legacy_public_matches(content):
     # JavaScript regex literals escape slashes; they are still URL paths.
-    return OLD_PUBLIC_PREFIX.findall(content.replace(r"\/", "/"))
+    # Remove the regex delimiter immediately before an escaped leading slash.
+    normalized = content.replace(r"/\/", "/").replace(r"\/", "/")
+    return OLD_PUBLIC_PREFIX.findall(normalized)
 
 
 def inventory(paths):
@@ -75,6 +77,11 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
             '"/me/recommendations/contextual"',
             '"/me/recommendations/shelf-preview"',
             r"/\/admin\/support\/\d+$/",
+            r"/^\/admin$/",
+            r"/\/admin(?:\/|$)/",
+            r"/\/api\/v1\/admin\/jobs/",
+            r"/\/read\/admin\/12/",
+            r"/\/api\/v1\/reader\/chapters\/123\/admin-history$/",
             'import("/assets/newboo-admin-reader.mjs")',
             'src="/assets/newboo-admin-support.js"',
             '"/api/v1/reader/chapters/123/admin-history"',
@@ -89,7 +96,6 @@ class AdminNamespaceCutoverTests(unittest.TestCase):
             r"/\/odmen\/support\/\d+$/",
         ):
             self.assertFalse(legacy_public_matches(not_route), not_route)
-
 
     def test_negative_http_fixture_lists_only_four_explicit_legacy_routes(self):
         browser = (ROOT / "tools/audience_pg_browser.cjs").read_text(
