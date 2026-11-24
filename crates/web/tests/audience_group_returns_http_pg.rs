@@ -294,7 +294,7 @@ fn group_path(kind: &str, label: Option<&str>, days: i32) -> String {
         || "without_label=true".into(),
         |label| format!("label={}", encoded(label)),
     );
-    format!("/admin/audience/returns?kind={kind}&{filter}&days={days}")
+    format!("/odmen/audience/returns?kind={kind}&{filter}&days={days}")
 }
 
 async fn report(app: &Router, cookie: &str, kind: &str, label: Option<&str>, days: i32) -> String {
@@ -470,7 +470,7 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
     ] {
         let denied = call(
             &app,
-            "/admin/audience/returns?kind=bad&label=&days=bad&subject_id=forged",
+            "/odmen/audience/returns?kind=bad&label=&days=bad&subject_id=forged",
             cookie,
         )
         .await;
@@ -517,7 +517,7 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
     for query in invalid {
         let response = call(
             &app,
-            &format!("/admin/audience/returns?{query}"),
+            &format!("/odmen/audience/returns?{query}"),
             &cookies[0],
         )
         .await;
@@ -736,7 +736,7 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
     let groups = get(
         &app,
         &format!(
-            "/admin/audience/groups?kind=genres&days=30&after={}",
+            "/odmen/audience/groups?kind=genres&days=30&after={}",
             encoded(&prefix)
         ),
         &cookies[0],
@@ -884,13 +884,13 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
     // Existing global and book selections are unchanged by the new branch.
     let book = get(
         &app,
-        &format!("/admin/audience/returns?book_id={first}&days=90"),
+        &format!("/odmen/audience/returns?book_id={first}&days=90"),
         &cookies[0],
     )
     .await;
     let adapted = book.replace("audience-book-returns-", "audience-group-returns-");
     exact(&adapted, &facts, &[first], 90);
-    let global = get(&app, "/admin/audience/returns?days=90", &cookies[0]).await;
+    let global = get(&app, "/odmen/audience/returns?days=90", &cookies[0]).await;
     assert!(global.contains("data-testid=\"audience-returns\""));
     assert!(!global.contains("audience-group-returns-title"));
     let post = app
@@ -912,7 +912,7 @@ async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_pri
     assert!(!body(post).await.contains("data-metric="));
     let export = call(
         &app,
-        "/admin/audience/returns/export?kind=genres&label=x",
+        "/odmen/audience/returns/export?kind=genres&label=x",
         &cookies[0],
     )
     .await;

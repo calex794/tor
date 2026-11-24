@@ -314,7 +314,7 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         (cookies[1].as_str(), StatusCode::FORBIDDEN),
         (cookies[2].as_str(), StatusCode::FORBIDDEN),
     ] {
-        let response = call(&app, "/admin/audience?days=7", cookie).await;
+        let response = call(&app, "/odmen/audience?days=7", cookie).await;
         private(&response, status);
         assert!(!body(response).await.contains("audience-hours-current"));
     }
@@ -322,7 +322,7 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
     let fixtures = HourFixtures::install(&url, anchor);
     for days in [1, 7] {
         let report = repo.report(days).await.unwrap();
-        let response = call(&app, &format!("/admin/audience?days={days}"), &cookies[0]).await;
+        let response = call(&app, &format!("/odmen/audience?days={days}"), &cookies[0]).await;
         private(&response, StatusCode::OK);
         let html = body(response).await;
         report_matches(&html, &report);
@@ -346,7 +346,7 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         assert_eq!(fixture.views, [Some(5), Some(0), None, Some(7)]);
     }
     for days in [30, 90] {
-        let response = call(&app, &format!("/admin/audience?days={days}"), &cookies[0]).await;
+        let response = call(&app, &format!("/odmen/audience?days={days}"), &cookies[0]).await;
         private(&response, StatusCode::OK);
         let html = body(response).await;
         assert!(html.contains("audience-hours-unsupported"));
@@ -357,12 +357,12 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         assert_eq!(html.matches("data-observed-hour=").count(), 168);
         assert!(html.contains("audience-sources-current"));
     }
-    let malformed = call(&app, "/admin/audience?days=invalid", "").await;
+    let malformed = call(&app, "/odmen/audience?days=invalid", "").await;
     private(&malformed, StatusCode::UNAUTHORIZED);
 
     // Only the hourly relation is blocked. Authentication and C/F still work.
     let lock = LockedHours::acquire(&url);
-    let failed = call(&app, "/admin/audience?days=7", &cookies[0]).await;
+    let failed = call(&app, "/odmen/audience?days=7", &cookies[0]).await;
     private(&failed, StatusCode::SERVICE_UNAVAILABLE);
     let html = body(failed).await;
     assert!(html.contains("audience-hours-unavailable"));
@@ -370,7 +370,7 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
     assert!(!html.contains("audience-hours-current"));
     assert!(html.contains("audience-sources-current"));
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
-    let revoked = call(&app, "/admin/audience?days=7", &cookies[0]).await;
+    let revoked = call(&app, "/odmen/audience?days=7", &cookies[0]).await;
     private(&revoked, StatusCode::FORBIDDEN);
     assert!(!body(revoked).await.contains("audience-hours"));
     drop(lock);
@@ -380,13 +380,13 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         .await
         .unwrap();
     private(
-        &call(&app, "/admin/audience", &cookies[0]).await,
+        &call(&app, "/odmen/audience", &cookies[0]).await,
         StatusCode::UNAUTHORIZED,
     );
     drop(fixtures);
     pool.close().await;
     private(
-        &call(&app, "/admin/audience", &cookies[0]).await,
+        &call(&app, "/odmen/audience", &cookies[0]).await,
         StatusCode::SERVICE_UNAVAILABLE,
     );
     pg(&url, &format!("BEGIN; DELETE FROM account_roles WHERE user_id IN({admin},{reader},{moderator}); DELETE FROM users WHERE id IN({admin},{reader},{moderator}); COMMIT"));

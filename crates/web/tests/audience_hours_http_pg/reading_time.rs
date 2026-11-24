@@ -5,13 +5,13 @@ use fixture::*;
 use std::time::{Duration, Instant};
 use tor_accounts::services::security::session_token_digest;
 
-const PATH: &str = "/admin/audience?view=reading_hours&days=1&time_zone=Europe%2FAmsterdam";
+const PATH: &str = "/odmen/audience?view=reading_hours&days=1&time_zone=Europe%2FAmsterdam";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn reading_clock_native_periods_zones_dst_unknown_and_current_authority() {
     let f = Fixture::new().await;
-    f.get("/admin/audience?view=invalid", "", StatusCode::UNAUTHORIZED)
+    f.get("/odmen/audience?view=invalid", "", StatusCode::UNAUTHORIZED)
         .await;
     f.get(PATH, &f.cookie, StatusCode::FORBIDDEN).await;
     f.role(true);
@@ -20,7 +20,7 @@ async fn reading_clock_native_periods_zones_dst_unknown_and_current_authority() 
     for days in [1, 7, 30, 90] {
         let html = f
             .get(
-                &format!("/admin/audience?view=reading_hours&days={days}&time_zone=UTC"),
+                &format!("/odmen/audience?view=reading_hours&days={days}&time_zone=UTC"),
                 &f.cookie,
                 StatusCode::OK,
             )
@@ -80,7 +80,7 @@ async fn reading_clock_native_periods_zones_dst_unknown_and_current_authority() 
     for zone in ["Europe%2FMoscow", "Asia%2FYekaterinburg"] {
         let html = f
             .get(
-                &format!("/admin/audience?view=reading_hours&days=1&time_zone={zone}"),
+                &format!("/odmen/audience?view=reading_hours&days=1&time_zone={zone}"),
                 &f.cookie,
                 StatusCode::OK,
             )
@@ -103,7 +103,7 @@ async fn reading_clock_native_periods_zones_dst_unknown_and_current_authority() 
         "view=reading_hours&time_zone=%3Cscript%3E",
     ] {
         f.get(
-            &format!("/admin/audience?{query}"),
+            &format!("/odmen/audience?{query}"),
             &f.cookie,
             StatusCode::BAD_REQUEST,
         )
@@ -148,7 +148,7 @@ async fn reading_clock_native_periods_zones_dst_unknown_and_current_authority() 
     f.get(PATH, &f.cookie, StatusCode::OK).await;
     let overview = f
         .get(
-            "/admin/audience?view=overview&days=1",
+            "/odmen/audience?view=overview&days=1",
             &f.cookie,
             StatusCode::SERVICE_UNAVAILABLE,
         )
