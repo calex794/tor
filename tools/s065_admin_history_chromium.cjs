@@ -23,7 +23,7 @@ module.exports = async function historyAcceptance({
       const page = await ctx.newPage();
       await page.setViewportSize(index === 0 ? { width: 1440, height: 900 }
         : { width: 390, height: 844 });
-      const response = await page.goto(SITE + "/read/admin/" + chapter);
+      const response = await page.goto(SITE + "/read/odmen/" + chapter);
       assert.equal(response.status(), 200);
       const shell = await response.text();
       assert(!shell.includes("HISTORY-FIRST-PRIVATE"));
