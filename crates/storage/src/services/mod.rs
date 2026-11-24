@@ -1,3 +1,5 @@
+#[cfg(any(feature = "s3", test))]
+pub(crate) mod bounded_body;
 pub mod crypto;
 pub mod free_chapter;
 pub mod free_pack_compaction;
