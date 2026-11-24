@@ -151,7 +151,7 @@ pub(super) async fn retired_choice(browser: &Browser, app: &Router, action: &str
     let response = browser.request(app, "POST", action, &body, &[]).await;
     assert_eq!(response.status(), StatusCode::GONE);
     private(&response);
-    let body: Value = serde_json::from_str(&text(response).await).unwrap();
+    let body: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
     assert_eq!(body["error"]["code"], "COLLECTION_RETIRED");
 }
 
