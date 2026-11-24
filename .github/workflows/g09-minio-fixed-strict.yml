@@ -1,0 +1,83 @@
+name: G09 MinIO fixed upstream strict regression (temporary)
+on:
+  push:
+    branches: [experiment/g09-minio-fixed-strict-20261124]
+permissions:
+  contents: read
+jobs:
+  strict:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GOTOOLCHAIN: local
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.8'
+          cache: false
+      - name: Boundary and formatting
+        run: |
+          python3 tools/check_feature_layout.py
+          cargo fmt -p tor-storage -- --check
+      - name: Build exact upstream response fix
+        run: |
+          sha=52eee5a2f19ea8ef06bf2dd5ab64ab41424cb591
+          git init "$RUNNER_TEMP/minio-source"
+          cd "$RUNNER_TEMP/minio-source"
+          git remote add origin https://github.com/minio/minio.git
+          git fetch --depth=1 origin "$sha"
+          git checkout --detach "$sha"
+          test "$(git rev-parse HEAD)" = "$sha"
+          flags=$(go run buildscripts/gen-ldflags.go)
+          CGO_ENABLED=0 go build -mod=readonly -tags kqueue -trimpath -ldflags "$flags" -o "$RUNNER_TEMP/minio-fixed" .
+          git diff --exit-code -- go.mod go.sum
+          "$RUNNER_TEMP/minio-fixed" --version
+          sha256sum "$RUNNER_TEMP/minio-fixed"
+      - name: Start fixed MinIO on loopback
+        run: |
+          mkdir -p "$RUNNER_TEMP/tor-chapter-minio"
+          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
+            nohup "$RUNNER_TEMP/minio-fixed" server "$RUNNER_TEMP/tor-chapter-minio" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-chapter-minio.log" 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 60); do
+            kill -0 "$pid" || exit 1
+            if curl --fail --silent --max-time 2 http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              echo "$pid" > "$RUNNER_TEMP/g09-fixed.pid"
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Test private storage and S023 staging against disposable loopback MinIO
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+        run: |
+          bash tools/g09_minio_tcp_metadata_ci.sh
+          cargo test -p tor-storage --features s3 --test free_chapter_s3 -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --test free_pack_range_s3 -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --test drop_yandex_unversioned fnd02_yandex_scope_rejects_ci_and_unsafe_targets
+          cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
+          cargo test -p tor-imports --features s3 repositories::s3::tests::s023_private_source_put_get_conflict_and_delete -- --ignored --test-threads=1
+          cargo fmt -p tor-imports -- --check
+          cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
+          cargo clippy -p tor-imports --features s3 --all-targets -- -D warnings
+      - name: Stop disposable server
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/g09-fixed.pid"; then
+            kill "$(cat "$RUNNER_TEMP/g09-fixed.pid")" 2>/dev/null || true
+          fi
