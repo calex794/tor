@@ -752,13 +752,14 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     let session_digest = tor_accounts::services::security::session_token_digest(&session);
     let digest_hex = hex::encode(session_digest);
     let first = &receipt.frames[0];
-    pg(
+    v1_v2_transport::assert_no_script_open(
         &url,
-        &format!(
-            "INSERT INTO sessions(user_id,token_hash,expires_at)
-             VALUES({actor},decode('{digest_hex}','hex'),now()+interval '1 hour')"
-        ),
-    );
+        &app,
+        actor,
+        (first.chapter_id, first.version_id),
+        (&session, &digest_hex),
+    )
+    .await;
     pg(
         &url,
         &format!(

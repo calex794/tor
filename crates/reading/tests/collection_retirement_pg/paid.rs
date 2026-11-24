@@ -61,6 +61,7 @@ async fn paid_archived_and_verified_s3_commands_keep_entitlements_and_immutable_
     );
 
     let archived = book(&pool, false).await;
+    opened(&pool, reader, archived).await;
     PgLibrary::new(pool.clone())
         .with_flow_collection(true)
         .add_book(reader, archived.id)

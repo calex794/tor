@@ -7,6 +7,7 @@ use axum::{
     response::{Redirect, Response},
 };
 use tor_reading::domain::renderer::valid_reader_length;
+use tor_reading::repositories::free_open_capture::PgFreeOpenCapture;
 
 #[derive(serde::Deserialize)]
 pub(super) struct IssueFeedbackQuery {
@@ -22,6 +23,9 @@ pub(super) async fn page(
     method: Method,
     observation: crate::editorial_http::display::Issuer,
 ) -> Response {
+    if crate::public_reader_http::is_speculative_navigation(&headers) {
+        return deny(StatusCode::FORBIDDEN);
+    }
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
         Ok(None) => {
@@ -124,5 +128,16 @@ pub(super) async fn page(
     response
         .headers_mut()
         .insert("content-security-policy", csp);
+    // C-08: the authenticated private reader also opens the exact displayed
+    // FREE edition. A bodyless S3 shell is NOT a verified open and must wait
+    // for the browser SHA-checked confirmation endpoint.
+    if method == Method::GET && !chapter.body_markdown.is_empty() {
+        if let Err(error) = PgFreeOpenCapture::new(state.accounts.pool().clone())
+            .record(actor, chapter_id, version_id)
+            .await
+        {
+            tracing::warn!(?error, "private exact FREE open not recorded");
+        }
+    }
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }

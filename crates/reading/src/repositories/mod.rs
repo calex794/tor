@@ -5,6 +5,7 @@ pub use postgres::PgReader;
 pub mod progress;
 pub use progress::PgReadingProgress;
 
+pub mod free_open_capture;
 pub mod library;
 pub use library::PgLibrary;
 

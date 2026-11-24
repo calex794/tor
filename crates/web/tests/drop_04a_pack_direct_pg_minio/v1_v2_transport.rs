@@ -16,6 +16,59 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+pub(super) async fn assert_no_script_open(
+    url: &str,
+    app: &Router,
+    actor: i64,
+    (chapter, version): (i64, i64),
+    (session, digest_hex): (&str, &str),
+) {
+    pg(
+        url,
+        &format!(
+            "INSERT INTO sessions(user_id,token_hash,expires_at)
+             VALUES({actor},decode('{digest_hex}','hex'),now()+interval '1 hour')"
+        ),
+    );
+    let opened_version = || {
+        pg(
+            url,
+            &format!(
+                "SELECT version_id FROM reader_free_opened_editions
+                 WHERE user_id={actor} AND chapter_id={chapter}"
+            ),
+        )
+    };
+    for (method, endpoint, prefetch, expected) in [
+        ("GET", "free-pack-source", false, StatusCode::OK),
+        ("GET", "free-source", true, StatusCode::FORBIDDEN),
+        ("HEAD", "free-source", false, StatusCode::OK),
+        ("GET", "free-source", false, StatusCode::OK),
+    ] {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(format!("/api/v1/chapters/{chapter}/{endpoint}"))
+            .header("cookie", format!("tor-dev-session={session}"));
+        if prefetch {
+            request = request.header("sec-purpose", "prefetch");
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{method} {endpoint}");
+        if (method, endpoint, prefetch) == ("GET", "free-source", false) {
+            assert_eq!(opened_version(), version.to_string());
+        } else {
+            assert!(
+                opened_version().is_empty(),
+                "{method} {endpoint} recorded a premature open"
+            );
+        }
+    }
+}
+
 pub(super) async fn assert_cross_transport_v1_v2(
     url: &str,
     client: &Client,

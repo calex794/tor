@@ -152,7 +152,12 @@ pub fn private_reader_with_options(
     }
     let s3 = cfg!(feature = "s3-free") && chapter.body_markdown.is_empty();
     let s3_attributes = if s3 {
-        sections=format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{chapter_id}/free-grant?format=source\">Открыть текст без JavaScript</a></noscript><script defer src=\"/assets/newboo-free-s3-reader.js\"></script>");
+        let source = if std::env::var("TOR_FREE_PACK_READER_ENABLED").as_deref() == Ok("1") {
+            "free-source"
+        } else {
+            "free-grant?format=source"
+        };
+        sections=format!("<p role=\"status\">Загружаем текст главы…</p><noscript><a href=\"/api/v1/chapters/{chapter_id}/{source}\">Открыть текст без JavaScript</a></noscript><script defer src=\"/assets/newboo-free-s3-reader.js\"></script>");
         format!("id=\"chapter-text\" data-free-s3-chapter=\"{chapter_id}\" data-free-s3-version=\"{}\" data-free-s3-csrf=\"{}\" data-free-private-revision=\"{expected_revision}\" data-free-private-completed=\"{completed}\"",chapter.version_id,escape_html(csrf))
     } else {
         String::new()

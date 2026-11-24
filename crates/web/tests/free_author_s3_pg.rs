@@ -262,7 +262,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     let read = browser(json!({
         "mode": "read", "origin": ORIGIN, "storage_origin": ENDPOINT,
         "chapter": chapter, "markdown": MARKDOWN, "marker": MARKER,
-        "session":session,"progress":true, "width":390,
+        "session":session,"progress":true, "width":390, "verify_open":true,
     }));
     assert_eq!(read["read"], true);
     println!("S349_NETWORK mobile={read}");
@@ -273,14 +273,48 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     );
     assert_eq!(desktop["read"], true);
     println!("S349_NETWORK desktop={desktop}");
+    let no_js_session = generate_session_token();
+    let no_js_actor = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            "s349-no-js-reader@tor-ci.example",
+            "S349 no-script reader",
+            &hash_password("isolated-free-s3-reader").unwrap(),
+            &session_token_digest(&no_js_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let source_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant?format=source");
+    let cookie = format!("tor-dev-session={no_js_session}");
+    let prefetch = http
+        .get(&source_url)
+        .header("cookie", &cookie)
+        .header("sec-purpose", "prefetch")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(prefetch.status().as_u16(), 403);
+    let head = http
+        .head(&source_url)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(head.status().as_u16(), 200);
+    assert!(head.bytes().await.unwrap().is_empty());
+    let open_query = format!(
+        "SELECT version_id FROM reader_free_opened_editions WHERE user_id={no_js_actor} AND chapter_id={chapter}"
+    );
+    assert!(pg(&url, &open_query).is_empty());
     let no_js = browser(json!({"mode":"no-js","private":true,"origin":ORIGIN,
-        "storage_origin":ENDPOINT,"chapter":chapter,"session":session,"marker":MARKER}));
+        "storage_origin":ENDPOINT,"chapter":chapter,"session":no_js_session,"marker":MARKER}));
     assert_eq!(no_js["read"], true);
+    assert_eq!(no_js["direct_s3_gets"], 0);
+    assert_eq!(pg(&url, &open_query), version.to_string());
     println!("S349_NETWORK no_javascript={no_js}");
-
     assert!(read["direct_s3_gets"].as_u64().unwrap() >= 1);
-    // DROP-06b no-JS transport-neutral URL: an active SINGLE must remain
-    // an explicitly reauthorized signed SINGLE, never an invented PACK.
+
+    // The transport-neutral link still selects SINGLE when no PACK is active.
     let no_js_single = http
         .get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-source"))
         .send()
@@ -288,38 +322,15 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .unwrap();
     assert_eq!(no_js_single.status().as_u16(), 303);
     assert_eq!(
-        no_js_single
-            .headers()
-            .get("location")
-            .unwrap()
-            .to_str()
-            .unwrap(),
+        no_js_single.headers()["location"].to_str().unwrap(),
         format!("/api/v1/chapters/{chapter}/free-grant?format=source")
     );
-    let signed_single = http
-        .get(format!(
-            "{ORIGIN}/api/v1/chapters/{chapter}/free-grant?format=source"
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(signed_single.status().as_u16(), 303);
-    let signed_location = signed_single
-        .headers()
-        .get("location")
-        .unwrap()
-        .to_str()
-        .unwrap();
-    assert!(
-        signed_location.starts_with(ENDPOINT),
-        "signed SINGLE uses the verified S3 origin"
-    );
-    let signed_bytes = http.get(signed_location).send().await.unwrap();
-    assert_eq!(signed_bytes.status().as_u16(), 200);
-    assert_eq!(
-        signed_bytes.bytes().await.unwrap().as_ref(),
-        MARKDOWN.as_bytes()
-    );
+    let plain = http.get(&source_url).send().await.unwrap();
+    assert_eq!(plain.status().as_u16(), 200);
+    assert_eq!(plain.headers()["content-type"], "text/plain; charset=utf-8");
+    assert_eq!(plain.headers()["cache-control"], "no-store");
+    assert!(!plain.headers().contains_key("location"));
+    assert_eq!(plain.bytes().await.unwrap().as_ref(), MARKDOWN.as_bytes());
     let grant_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant");
     pg(
         &url,
@@ -337,7 +348,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
             .status()
             .as_u16(),
         404,
-        "a held SINGLE must not retain its no-JS redirect"
+        "a held SINGLE must not retain its no-JS source"
     );
     pg(&url,&format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({owner},'administrator',true)"));
     let admin = browser(json!({"mode":"read","admin":true,"origin":ORIGIN,
@@ -370,6 +381,17 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "chapter": chapter, "marker": MARKER,
     }));
     assert_eq!(damaged["corrupt_rejected"], true);
+    assert_eq!(
+        http.get(&source_url)
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        503,
+        "no-script SINGLE must reject corrupted bytes"
+    );
 
     client
         .put_object()
@@ -398,6 +420,14 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         )
         .await
         .unwrap();
+    // The second reader really opens and verifies FREE V1 before Book save.
+    // An unread Book bookmark must never pin this chapter.
+    let verified_archive = browser(json!({
+        "mode":"read", "origin":ORIGIN, "storage_origin":ENDPOINT,
+        "chapter":chapter, "session":archive_session,
+        "markdown":MARKDOWN, "marker":MARKER, "verify_open":true
+    }));
+    assert_eq!(verified_archive["read"], true);
     tor_reading::repositories::PgLibrary::new(pool.clone())
         .add_book(archive_actor, book)
         .await
@@ -462,19 +492,9 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         .send()
         .await
         .unwrap();
-    assert_eq!(source.status().as_u16(), 303);
-    let source_url = source.headers()["location"].to_str().unwrap();
-    assert!(source_url.starts_with(ENDPOINT));
-    assert_eq!(
-        http.get(source_url)
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap(),
-        MARKDOWN
-    );
+    assert_eq!(source.status().as_u16(), 200);
+    assert_eq!(source.headers()["cache-control"], "no-store");
+    assert_eq!(source.text().await.unwrap(), MARKDOWN);
     assert_eq!(
         http.get(format!("{grant_url}?mode=saved&version_id={version}"))
             .send()
