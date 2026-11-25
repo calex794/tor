@@ -1,10 +1,16 @@
 name: Doppelscan audit (advisory)
 on:
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'Optional full ancestor SHA for advisory new-clone comparison'
+        required: false
+        type: string
   pull_request:
     paths:
       - '.github/workflows/reuse-audit.yml'
       - 'docs/architecture/reuse-experiment.md'
+      - 'tools/reuse_doppelscan_delta.sh'
 permissions:
   contents: read
 jobs:
@@ -20,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
       - name: Prepare immutable Rust-only snapshot
         shell: bash
@@ -113,6 +119,12 @@ jobs:
           (root / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
           print(json.dumps(result, sort_keys=True))
           PY
+      - name: Compare new clone candidates against an explicit base
+        if: github.event_name == 'pull_request' || inputs.base_sha != ''
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.base_sha }}
+          AUDIT_EVENT: ${{ github.event_name }}
+        run: bash tools/reuse_doppelscan_delta.sh
       - name: Retain audit evidence
         if: always()
         uses: actions/upload-artifact@v4
