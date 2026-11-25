@@ -8,73 +8,9 @@ const RUN: Duration = Duration::from_secs(8);
 const GRACE: Duration = Duration::from_secs(2);
 const SAMPLE_STEP: Duration = Duration::from_millis(100);
 const FRESH: Duration = Duration::from_secs(1);
-const MIN_MS: u64 = 250;
-const MAX_MS: u64 = 5000;
-
-#[derive(Clone, Copy, Debug)]
-enum Policy {
-    Baseline,
-    AgeAware,
-    ProgressBudget,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Pressure {
-    Missing,
-    High,
-    Low,
-    Neutral,
-}
-
-struct Pacer {
-    policy: Policy,
-    delay: u64,
-    healthy: u8,
-}
-
-impl Pacer {
-    fn new(policy: Policy) -> Self {
-        Self {
-            policy,
-            delay: MIN_MS,
-            healthy: 0,
-        }
-    }
-
-    fn after_progress(&mut self, pressure: Pressure, pending: i64, age: Duration) -> u64 {
-        if matches!(self.policy, Policy::Baseline) {
-            return MIN_MS;
-        }
-        match pressure {
-            Pressure::Missing => {
-                self.delay = MAX_MS;
-                self.healthy = 0;
-            }
-            Pressure::High => {
-                let ceiling = if matches!(self.policy, Policy::ProgressBudget) {
-                    self.delay.max(1000)
-                } else {
-                    MAX_MS
-                };
-                self.delay = (2 * self.delay).min(ceiling);
-                self.healthy = 0;
-            }
-            Pressure::Low => {
-                self.healthy += 1;
-                if pending >= 8 || age >= Duration::from_secs(8) {
-                    self.delay = MIN_MS;
-                    self.healthy = 0;
-                } else if self.healthy >= 2 {
-                    self.delay = (self.delay / 2).max(MIN_MS);
-                    self.healthy = 0;
-                }
-            }
-            Pressure::Neutral => self.healthy = 0,
-        }
-        assert!((MIN_MS..=MAX_MS).contains(&self.delay));
-        self.delay
-    }
-}
+#[path = "../../../../../tests/support/adapt_pacer.rs"]
+mod adapt_pacer;
+use adapt_pacer::{classify, percentile, Pacer, Policy, Pressure, MAX_MS, MIN_MS};
 
 #[derive(Clone, Copy)]
 struct Observation {
@@ -99,12 +35,6 @@ fn micros(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_micros()).expect("bounded trial duration")
 }
 
-fn percentile(mut values: Vec<u64>, p: usize) -> Option<u64> {
-    values.sort_unstable();
-    let rank = (values.len() * p).div_ceil(100);
-    rank.checked_sub(1).and_then(|i| values.get(i).copied())
-}
-
 fn recent(samples: &[Observation], now: Instant) -> Vec<Option<u64>> {
     samples
         .iter()
@@ -116,21 +46,7 @@ fn recent(samples: &[Observation], now: Instant) -> Vec<Option<u64>> {
 fn pressure(evidence: &Evidence, now: Instant) -> Pressure {
     let reader = recent(&evidence.reader, now);
     let probe = recent(&evidence.probe, now);
-    if reader.is_empty() || probe.is_empty() {
-        return Pressure::Missing;
-    }
-    if reader.iter().chain(&probe).any(Option::is_none) {
-        return Pressure::High;
-    }
-    let reader_p95 = percentile(reader.into_iter().flatten().collect(), 95).unwrap();
-    let probe_p95 = percentile(probe.into_iter().flatten().collect(), 95).unwrap();
-    if reader_p95 >= 100_000 || probe_p95 >= 50_000 {
-        Pressure::High
-    } else if reader_p95 <= 50_000 && probe_p95 <= 10_000 {
-        Pressure::Low
-    } else {
-        Pressure::Neutral
-    }
+    classify(reader, probe)
 }
 
 /// The base lane offers 80 reads at 100 ms intervals. Three additional lanes
