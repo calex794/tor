@@ -138,3 +138,11 @@ This connects the physical WAL witness to the original actual checkout rather
 than accepting an internally consistent but substituted fixture. The digest is
 not a signature and the host/CI trust boundary is unchanged. No production
 archive, credentials or raw financial rows may be printed or uploaded.
+
+First combined real replay attempt exposed SQL_ASCII inherited from LC_ALL=C
+when initdb did not receive an explicit encoding. Initialize the disposable
+cluster with --locale=C --encoding=UTF8; require actual Unicode normalization
+of decomposed e + combining accent to composed e before the base backup and
+after paused WAL replay. The locale controls deterministic fixture ordering;
+the change does not alter production database collation or runtime migrations.
+Retain every existing financial witness and recovery gate.

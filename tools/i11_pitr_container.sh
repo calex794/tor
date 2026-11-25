@@ -152,7 +152,9 @@ assert 5 <= p.stat().st_size <= 64 * 1024 * 1024
 with p.open('rb') as archive:
     assert archive.read(5) == b'PGDMP'
 PY
-initdb -D "$source_dir" -U postgres --auth=trust >"$work/log/initdb.log"
+# LC_ALL=C controls test output, not the database encoding. Real TOR
+# migrations require Unicode normalization, so never inherit SQL_ASCII.
+initdb -D "$source_dir" -U postgres --auth=trust --locale=C --encoding=UTF8 >"$work/log/initdb.log"
 cat >> "$source_dir/postgresql.conf" <<CONFIG
 listen_addresses = ''
 port = 55432
@@ -181,6 +183,7 @@ CREATE TABLE public.i11_recovery_markers (id text PRIMARY KEY);
 REVOKE ALL ON TABLE public.i11_recovery_markers FROM PUBLIC;
 INSERT INTO public.i11_recovery_markers VALUES ('base_snapshot');
 SQL
+[[ $(sql -d tor_ci -c "SELECT current_setting('server_encoding')='UTF8' AND normalize(U&'e\\0301', NFC)=U&'\\00E9'") == t ]]
 [[ $(sql -d tor_ci -c "SELECT to_regclass('public.reader_wallet_accounts') IS NULL") == t ]]
 backrest --type=full backup >"$work/log/backup.log" 2>&1
 backrest --output=json info >"$work/info.json"
@@ -349,6 +352,7 @@ done
 [[ $(time_sql -c "SELECT current_setting('listen_addresses')='' AND current_setting('archive_mode')='off' AND current_setting('primary_conninfo')=''") == t ]]
 [[ $(time_sql -c "SELECT current_setting('config_file')='$time_root/config/pg-startup/postgresql.conf' AND current_setting('data_directory')='$time_dir' AND current_setting('port')='15435'") == t ]]
 [[ $(time_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
+[[ $(time_sql -d tor_ci -c "SELECT current_setting('server_encoding')='UTF8' AND normalize(U&'e\\0301', NFC)=U&'\\00E9'") == t ]]
 # The same read-only witness runs as the real app role on the recovered
 # TOR database. It requires all original purchase/finance rows and 750,
 # not the later 850 balance; compare exact stable row snapshots as well.

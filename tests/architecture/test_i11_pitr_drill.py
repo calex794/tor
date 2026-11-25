@@ -326,6 +326,15 @@ class Isolation(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('I11_PITR_OPERATOR_HELPERS_REFUSED', result.stderr)
 
+    def test_real_schema_requires_utf8_before_base_and_after_replay(self):
+        shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        self.assertIn('--locale=C --encoding=UTF8', shell)
+        check = "current_setting('server_encoding')='UTF8' AND normalize("
+        self.assertEqual(shell.count(check), 2)
+        self.assertLess(shell.index(check), shell.index('--type=full backup'))
+        self.assertLess(shell.rindex(check), shell.index('restored_finance=$(time_sql'))
+        self.assertGreater(shell.rindex(check), shell.index('# RECOVERY-03b:'))
+
     def test_real_tor_finance_import_after_base_and_exclusive_cutoff(self):
         shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
         helper = (ROOT / 'tools/tor_dr_s3_backup_smoke.sh').read_text()
