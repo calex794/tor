@@ -1,7 +1,10 @@
 //! D-001: prove checkout fences the final verified paid publication transaction,
 //! not merely the earlier author preparation transaction.
 use super::*;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::{
+    io::{BufRead, BufReader, Write},
+    process::{Child, Stdio},
+};
 use tor_books::repositories::paid_storage::PaidPublication;
 use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
@@ -15,27 +18,83 @@ use tor_storage::{
     },
 };
 
-async fn blocked_statement(pool: &PgPool, blocker: i32, statement: &str) -> i32 {
+// Keep one disposable psql session alive to hold the wallet row. The web
+// crate deliberately does not depend on the PostgreSQL client library.
+struct WalletGate(Child);
+
+impl WalletGate {
+    fn hold(url: &str, buyer: i64) -> (Self, i32) {
+        let mut gate = Self(
+            Command::new("stdbuf")
+                .args([
+                    "-oL",
+                    "psql",
+                    "-XqAt",
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    "--dbname",
+                    url,
+                ])
+                .env("PGCONNECT_TIMEOUT", "4")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("isolated Linux CI psql wallet session"),
+        );
+        write!(
+            gate.0.stdin.as_mut().unwrap(),
+            "BEGIN;\nSET LOCAL statement_timeout='5s';\nSELECT pg_backend_pid();\n\
+             SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer} FOR UPDATE;\n"
+        )
+        .unwrap();
+        let mut out = BufReader::new(gate.0.stdout.take().unwrap());
+        let mut line = String::new();
+        out.read_line(&mut line).unwrap();
+        let pid = line.trim().parse().expect("wallet session PID");
+        line.clear();
+        out.read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "600");
+        gate.0.stdout = Some(out.into_inner());
+        (gate, pid)
+    }
+
+    fn release(mut self) {
+        let mut input = self.0.stdin.take().unwrap();
+        input.write_all(b"COMMIT;\n\\q\n").unwrap();
+        drop(input);
+        assert!(self.0.wait().unwrap().success());
+    }
+}
+
+impl Drop for WalletGate {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+async fn blocked_statement(url: &str, blocker: i32, prefix: &str) -> i32 {
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
-            let pid: Option<i32> = sqlx::query_scalar(
-                "SELECT pid FROM pg_stat_activity
-                 WHERE pid<>$1 AND $1=ANY(pg_blocking_pids(pid))
-                 AND state='active' AND query LIKE $2",
-            )
-            .bind(blocker)
-            .bind(statement)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            if let Some(pid) = pid {
-                return pid;
+            let result = pg(
+                url,
+                &format!(
+                    "SELECT pid FROM pg_stat_activity
+                     WHERE pid<>{blocker} AND {blocker}=ANY(pg_blocking_pids(pid))
+                     AND state='active' AND query LIKE '{prefix}%'
+                     ORDER BY pid LIMIT 1"
+                ),
+            );
+            if !result.is_empty() {
+                return result.parse().unwrap();
             }
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("no PostgreSQL blocker {blocker} for {statement}"))
+    .unwrap_or_else(|_| panic!("no PostgreSQL blocker {blocker} for {prefix}"))
 }
 
 #[tokio::test]
@@ -74,23 +133,18 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
     let store = S3PrivateStore::new(client, BUCKET_RACE.to_owned()).unwrap();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
-    // Catalog connections are occupied by wallet, checkout and attachment.
-    let observer = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .unwrap();
     let accounts = PgAccounts::from_pool(pool.clone());
     let (owner, _) = user(&accounts, "d001-attach-owner@example.invalid").await;
     let (buyer, _) = user(&accounts, "d001-attach-buyer@example.invalid").await;
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
-         VALUES('ci:d001-attach-race','ru','D001 attachment race','public',$1,'basic')
-         RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:d001-attach-race','ru','D001 attachment race','public',{owner},'basic')
+             RETURNING id"
+        ),
     )
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     let ring = Arc::new(
         ContentKeyring::with_v2(
@@ -121,14 +175,17 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
     })
     .unwrap();
     writer.publish_bodyless(owner, &initial).await.unwrap();
-    let (chapter, version, revision): (i64, i64, i64) = sqlx::query_as(
-        "SELECT c.id,p.version_id,c.edit_revision
-         FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id WHERE c.book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let initial_ids = pg(
+        &url,
+        &format!(
+            "SELECT c.id,p.version_id,c.edit_revision
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id WHERE c.book_id={book}"
+        ),
+    );
+    let ids: Vec<i64> = initial_ids.split('|').map(|id| id.parse().unwrap()).collect();
+    let [chapter, version, revision] = ids[..] else {
+        panic!("expected one published chapter with revision");
+    };
     let v1 = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(version).unwrap(),
@@ -173,26 +230,14 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
         .unwrap();
     registry.mark_ready(&verified).await.unwrap();
 
-    sqlx::query(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES($1,600,'RUB')",
-    )
-    .bind(buyer)
-    .execute(&pool)
-    .await
-    .unwrap();
-    let mut wallet = pool.begin().await.unwrap();
-    let wallet_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *wallet)
-        .await
-        .unwrap();
-    let locked_balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1 FOR UPDATE",
-    )
-    .bind(buyer)
-    .fetch_one(&mut *wallet)
-    .await
-    .unwrap();
-    assert_eq!(locked_balance, 600);
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({buyer},600,'RUB')"
+        ),
+    );
+    let (wallet, wallet_pid) = WalletGate::hold(&url, buyer);
 
     let cmd = PurchaseCommand::new(
         PositiveId::new(buyer).unwrap(),
@@ -206,9 +251,9 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
     let (purchase, ()) = tokio::time::timeout(Duration::from_secs(35), async {
         tokio::join!(checkout.checkout_once(&cmd), async {
             let buyer_pid = blocked_statement(
-                &observer,
+                &url,
                 wallet_pid,
-                "SELECT balance_minor FROM reader_wallet_accounts%",
+                "SELECT balance_minor FROM reader_wallet_accounts",
             )
             .await;
             let (published, ()) = tokio::join!(
@@ -225,18 +270,19 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
                 ),
                 async {
                     let editor_pid =
-                        blocked_statement(&observer, buyer_pid, "SELECT visibility FROM books%")
+                        blocked_statement(&url, buyer_pid, "SELECT visibility FROM books")
                             .await;
                     assert_ne!(editor_pid, wallet_pid);
-                    let current: i64 = sqlx::query_scalar(
-                        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-                    )
-                    .bind(chapter)
-                    .fetch_one(&observer)
-                    .await
-                    .unwrap();
-                    assert_eq!(current, version);
-                    wallet.commit().await.unwrap();
+                    assert_eq!(
+                        pg(
+                            &url,
+                            &format!(
+                                "SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"
+                            ),
+                        ),
+                        version.to_string(),
+                    );
+                    wallet.release();
                 },
             );
             published.expect("buyer COMMIT must unblock final author attachment");
@@ -246,21 +292,21 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
     .expect("checkout and final author attachment must both terminate");
     assert_eq!(purchase.expect("checkout of still-current V1").pinned, v1);
 
-    let (balance, count, purchased_version, current_version): (i64, i64, i64, i64) =
-        sqlx::query_as(
+    let persisted = pg(
+        &url,
+        &format!(
             "SELECT w.balance_minor,count(f.id),min(f.version_id),p.version_id
              FROM reader_wallet_accounts w
              JOIN chapter_purchase_facts f ON f.user_id=w.user_id
              JOIN chapter_publications p ON p.chapter_id=f.chapter_id
-             WHERE w.user_id=$1 AND f.chapter_id=$2 GROUP BY w.balance_minor,p.version_id",
-        )
-        .bind(buyer)
-        .bind(chapter)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!((balance, count, purchased_version), (375, 1, version));
-    assert_eq!(current_version, v2.version_id.get());
+             WHERE w.user_id={buyer} AND f.chapter_id={chapter}
+             GROUP BY w.balance_minor,p.version_id"
+        ),
+    );
+    assert_eq!(
+        persisted,
+        format!("375|1|{version}|{}", v2.version_id.get())
+    );
     assert_eq!(
         store.get_verified(&old_object.object).await.unwrap(),
         old_ciphertext

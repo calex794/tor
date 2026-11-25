@@ -49,7 +49,6 @@ sha2 = "0.10"
 zeroize = "1"
 
 [dev-dependencies]
-sqlx.workspace = true
 hex = "0.4"
 zstd = "0.13"
 tower = { version = "0.5", features = ["util"] }
