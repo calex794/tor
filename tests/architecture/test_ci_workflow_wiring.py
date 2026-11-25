@@ -638,6 +638,54 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Refusing non-isolated PostgreSQL CI bootstrap", result.stderr)
 
+    def test_shared_legacy_analytics_bootstrap_keeps_all_seven_callers(self):
+        script = ROOT / "tools/ci_prepare_legacy_analytics.sh"
+        code = script.read_text()
+        step_name = "      - name: Prepare explicit legacy and installed-upgrade analytics databases\n"
+        command = "          bash tools/ci_prepare_legacy_analytics.sh\n"
+        baseline_tests = (
+            "          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1\n"
+            "          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1\n"
+        )
+        historical = "        if: ${{ matrix.lane == 'historical' }}\n"
+        for filename, job, condition in (
+            (CI_WORKFLOW, "postgres-runtime", ""),
+            (CI_WORKFLOW, "pg-rec-browser", historical),
+            (CI_WORKFLOW, "pg-reading-analytics", ""),
+            ("tor-pg-runtime.yml", "postgres-runtime", ""),
+            ("rec-feedback-acceptance.yml", "acceptance", ""),
+            ("tor-pg-reading-analytics.yml", "pg-reading-analytics", ""),
+            ("tor-pg-rec-browser.yml", "pg-rec-browser", historical),
+        ):
+            with self.subTest(workflow=filename, job=job):
+                body = job_sections((WORKFLOWS / filename).read_text())[job]
+                self.assertEqual(body.count(step_name + condition + "        run: |\n" + command + baseline_tests), 1)
+                self.assertEqual(body.count(command), 1)
+                self.assertNotIn("CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;", body)
+                self.assertIn("collection_retirement_installed_upgrade_pg", body)
+        for sql in (
+            "CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;",
+            "CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;",
+            "CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;",
+            'REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;',
+            'GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;',
+            "REVOKE CREATE ON SCHEMA public FROM PUBLIC;",
+            "GRANT USAGE ON SCHEMA public TO tor_app;",
+            "GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;",
+            "GRANT USAGE,SELECT ON SEQUENCES TO tor_app;",
+        ):
+            self.assertEqual(code.count(sql), 1)
+        self.assertEqual(code.count("psql -X -v ON_ERROR_STOP=1"), 2)
+        self.assertNotIn("cargo test", code)
+        subprocess.run(["bash", "-n", str(script)], check=True)
+        result = subprocess.run(
+            ["/bin/bash", str(script)],
+            env={"PATH": "/nonexistent", "GITHUB_ACTIONS": "false"},
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Refusing non-isolated legacy analytics CI bootstrap", result.stderr)
+
     def test_s3_clippy_runs_once_on_selected_parallel_lane(self):
         # Keep required and manual work identical except selector/preflight.
         # On full CI with cover_s3, the shorter S3 job owns the lint;
@@ -840,6 +888,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "crates/web/tests/recommendation_feedback_http_pg.rs",
             "tools/rec13_*",
             "tools/ci_prepare_isolated_pg.sh",
+            "tools/ci_prepare_legacy_analytics.sh",
         ):
             self.assertIn(owned, text)
         self.assertIn("bash tools/rec13_browser_acceptance.sh", text)
