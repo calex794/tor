@@ -2,13 +2,25 @@
 //! This fixture builds on the genuine DROP-04b MinIO pack finalizer and
 //! STOPs before touching any production source or migration.
 use super::{pg, BUCKET};
-use aws_sdk_s3::Client;
+use aws_sdk_s3::{
+    config::{
+        interceptors::FinalizerInterceptorContextRef, ConfigBag, Intercept, RuntimeComponents,
+    },
+    Client,
+};
 use axum::{
     body::{to_bytes, Body},
     http::{header, Method, Request, StatusCode},
 };
 use sha2::{Digest, Sha256};
-use std::num::NonZeroU32;
+use std::{
+    error::Error,
+    num::NonZeroU32,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -26,6 +38,60 @@ use tower::ServiceExt;
 
 #[path = "layer_archive/live_pack_chromium.rs"]
 mod live_pack_chromium;
+
+const RANGE_IDLE: u8 = 0;
+const RANGE_ARMED: u8 = 1;
+const RANGE_OBSERVED: u8 = 2;
+
+/// Revoke only when this fixture's genuine MinIO Range has returned headers
+/// successfully, before the streaming SDK result reaches the gateway.
+#[derive(Debug)]
+struct RevokeArchivedTermOnRange {
+    state: Arc<AtomicU8>,
+    term_id: String,
+}
+
+impl Intercept for RevokeArchivedTermOnRange {
+    fn name(&self) -> &'static str {
+        "D001RevokeArchivedTermOnRange"
+    }
+
+    fn read_after_execution(
+        &self,
+        context: &FinalizerInterceptorContextRef<'_>,
+        _: &RuntimeComponents,
+        _: &mut ConfigBag,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if context
+            .response()
+            .is_some_and(|r| r.status().as_u16() == 206)
+            && matches!(context.output_or_error(), Some(Ok(_)))
+            && self
+                .state
+                .compare_exchange(
+                    RANGE_ARMED,
+                    RANGE_OBSERVED,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
+        {
+            let url = std::env::var("TEST_DATABASE_URL").expect("disposable fixture database");
+            assert_eq!(
+                pg(
+                    &url,
+                    &format!(
+                        "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
+                         VALUES({0},'legal_block','ci:d05-pack-revoke:{0}') RETURNING term_id",
+                        self.term_id
+                    ),
+                ),
+                self.term_id
+            );
+        }
+        Ok(())
+    }
+}
 
 fn id(raw: i64) -> PositiveId {
     PositiveId::new(raw).unwrap()
@@ -277,12 +343,23 @@ pub(super) async fn verify(
 
     // Actor-scoped HTTP route, exact FRAME only; all transport keys and
     // Range offsets stay inside the service.
+    let range_state = Arc::new(AtomicU8::new(RANGE_IDLE));
+    let pack_client = Client::from_conf(
+        client
+            .config()
+            .to_builder()
+            .interceptor(RevokeArchivedTermOnRange {
+                state: Arc::clone(&range_state),
+                term_id: term.term_id.to_string(),
+            })
+            .build(),
+    );
     std::env::set_var("TOR_LAYER_FREE_ARCHIVE_ENABLED", "1");
     let pack_app = tor_web::free_pack_http::router(
         accounts.clone(),
         false,
         "http://127.0.0.1:3098".into(),
-        client.clone(),
+        pack_client,
         BUCKET.into(),
     )
     .unwrap();
@@ -413,14 +490,28 @@ pub(super) async fn verify(
     )
     .await;
 
-    pg(
-        url,
-        &format!(
-            "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
-             VALUES({},'legal_block','ci:d05-pack-revoke:{}')",
-            term.term_id, term.term_id
-        ),
+    // Start with a live purchase. Only the successful MinIO response for this
+    // request triggers the PG revocation, not any preceding request or timer.
+    range_state.store(RANGE_ARMED, Ordering::SeqCst);
+    let interrupted = post(
+        &app,
+        &path,
+        Some(&buyer_session),
+        Some(&csrf),
+        Some("http://127.0.0.1:3098"),
+        false,
+    )
+    .await;
+    assert_eq!(range_state.load(Ordering::SeqCst), RANGE_OBSERVED);
+    assert_eq!(interrupted.status(), StatusCode::NOT_FOUND);
+    assert!(!interrupted.headers().contains_key("x-tor-free-version-id"));
+    let denied = to_bytes(interrupted.into_body(), 200_001).await.unwrap();
+    assert!(
+        denied.is_empty(),
+        "an in-flight revoked Layer request must not release plaintext"
     );
+    println!("D001_ARCHIVED_PACK_RANGE_REVOKED_NO_PLAINTEXT_OK");
+
     assert_eq!(
         post(
             &app,
