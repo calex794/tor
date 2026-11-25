@@ -95,11 +95,10 @@ jobs:
       - name: Install Chromium
         run: |
           ci_chromium_setup_started=$SECONDS
-          npm install --no-save playwright@1.56.1
           # Prefer the same lean headless-shell installation as REC13.
           # Validate a real Chromium launch; missing OS libraries trigger the
           # existing dependency-install path rather than a skipped browser test.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
           chromium_probe() {
             node -e 'const p=require("playwright"); if(require("playwright/package.json").version !== "1.56.1") process.exit(1); p.chromium.launch({headless:true}).then(browser=>browser.close()).catch(error=>{console.error(error);process.exit(1)})'
           }

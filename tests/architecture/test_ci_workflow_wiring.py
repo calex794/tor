@@ -250,9 +250,8 @@ class WorkflowWiringTests(unittest.TestCase):
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             with self.subTest(workflow=filename):
                 pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-                self.assertIn("npx playwright install --only-shell chromium", pg)
+                self.assertIn("          bash tools/ci_prepare_chromium.sh install\n", pg)
                 self.assertNotIn("npx playwright install --with-deps", pg)
-                self.assertIn("npm install --no-save playwright@1.56.1", pg)
 
     def test_pg_restart_and_backup_reuse_d04_built_server(self):
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
@@ -268,7 +267,7 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
 
     def test_reader_and_visual_use_headless_chromium_shell(self):
-        # Manual and required jobs retain full dependencies with a verified mirror fallback.
+        # Manual and required jobs retain their independent install contracts.
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         for job, manual_file in (
             ("reader-browser", "tor-reader-visual.yml"),
@@ -280,12 +279,11 @@ class WorkflowWiringTests(unittest.TestCase):
                     job_sections((WORKFLOWS / manual_file).read_text())[job],
                 ):
                     if job == "visual":
-                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertEqual(body.count("          bash tools/ci_prepare_chromium.sh install-and-probe\n"), 1)
                         self.assertNotIn("npx playwright install --with-deps", body)
-                        self.assertIn("chromium.launch({headless:true})", body)
                     else:
+                        self.assertEqual(body.count("          bash tools/ci_prepare_chromium.sh install\n"), 1)
                         self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                    self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
@@ -298,15 +296,56 @@ class WorkflowWiringTests(unittest.TestCase):
                     integration[job],
                     job_sections((WORKFLOWS / manual_filename).read_text())[job],
                 ):
-                    if job == "paid-private-e2e":
-                        self.assertIn("npx playwright install --only-shell chromium", body)
-                        self.assertNotIn("npx playwright install --with-deps", body)
-                        self.assertIn("chromium.launch({headless:true})", body)
-                    else:
-                        self.assertIn("npx playwright install --only-shell chromium", body)
-                        self.assertNotIn("npx playwright install --with-deps", body)
-                        self.assertIn("chromium.launch({headless:true})", body)
-                    self.assertIn("npm install --no-save playwright@1.56.1", body)
+                    self.assertEqual(body.count("          bash tools/ci_prepare_chromium.sh install-and-probe\n"), 1)
+                    self.assertNotIn("npx playwright install --with-deps", body)
+        paid = integration["paid-private-e2e"]
+        self.assertIn("      - name: Install real Chromium before issuing short-lived S3 URLs\n", paid)
+
+    def test_shared_chromium_setup_offline_modes_and_failures(self):
+        import tempfile
+
+        script = ROOT / "tools/ci_prepare_chromium.sh"
+        code = script.read_text()
+        self.assertEqual(code.count("npm install --no-save playwright@1.56.1"), 1)
+        self.assertEqual(code.count("npx playwright install --only-shell chromium"), 1)
+        self.assertEqual(code.count("chromium.launch({headless:true})"), 1)
+        self.assertNotIn("--with-deps", code)
+        subprocess.run(["bash", "-n", str(script)], check=True)
+        for args, fail, expected, exit_code in (
+            (["install"], "", ["npm", "npx"], 0),
+            (["install-and-probe"], "", ["npm", "npx", "node"], 0),
+            ([], "", [], 2),
+            (["invalid"], "", [], 2),
+            (["install-and-probe"], "npm", ["npm"], 9),
+            (["install-and-probe"], "npx", ["npm", "npx"], 9),
+            (["install-and-probe"], "node", ["npm", "npx", "node"], 9),
+        ):
+            with self.subTest(args=args, fail=fail):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    trace = root / "trace"
+                    for name in ("npm", "npx", "node"):
+                        exe = root / name
+                        exe.write_text(
+                            '#!/bin/bash\n'
+                            'printf "%s %s\\n" "${0##*/}" "$*" >> "$TRACE"\n'
+                            'if [[ "${0##*/}" == "$FAIL" ]]; then exit 9; fi\n'
+                        )
+                        exe.chmod(0o700)
+                    result = subprocess.run(
+                        ["/bin/bash", str(script), *args],
+                        env={"PATH": tmp, "TRACE": str(trace), "FAIL": fail},
+                        capture_output=True, text=True, check=False,
+                    )
+                    commands = trace.read_text().splitlines() if trace.exists() else []
+                    self.assertEqual([c.split()[0] for c in commands], expected)
+                    self.assertEqual(result.returncode, exit_code)
+                    if "npm" in expected:
+                        self.assertEqual(commands[0], "npm install --no-save playwright@1.56.1")
+                    if "npx" in expected:
+                        self.assertEqual(commands[1], "npx playwright install --only-shell chromium")
+                    if "node" in expected:
+                        self.assertIn("chromium.launch({headless:true})", commands[2])
 
     def test_browser_mirror_preparation_precedes_any_package_install(self):
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
@@ -322,7 +361,9 @@ class WorkflowWiringTests(unittest.TestCase):
                 ):
                     prepare = body.index("bash tools/ci_prepare_ubuntu_mirror.sh")
                     self.assertLess(body.index("uses: actions/checkout@v4"), prepare)
-                    self.assertLess(prepare, body.index("npx playwright install"))
+                    self.assertLess(prepare, body.index("bash tools/ci_prepare_chromium.sh "))
+                    if "bash tools/ci_prepare_pg_client.sh" in body:
+                        self.assertLess(prepare, body.index("bash tools/ci_prepare_pg_client.sh"))
                     if "sudo apt-get update" in body:
                         self.assertLess(prepare, body.index("sudo apt-get update"))
 
@@ -348,7 +389,7 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn('NODE_PATH="$node_path"', script)
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             core = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-            self.assertIn("npx playwright install --only-shell chromium", core)
+            self.assertIn("          bash tools/ci_prepare_chromium.sh install\n", core)
             self.assertNotIn("bash tools/rec13_browser_acceptance.sh", core)
         for filename in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
             browser = job_sections((WORKFLOWS / filename).read_text())["pg-rec-browser"]
@@ -373,14 +414,13 @@ class WorkflowWiringTests(unittest.TestCase):
         )[1].split(
             "      - name: Native HTML quality on the fresh schema\n", 1
         )[0]
-        self.assertIn("npm install --no-save playwright@1.56.1", install)
-        self.assertIn("npx playwright install --only-shell chromium", install)
+        self.assertIn("          bash tools/ci_prepare_chromium.sh install\n", install)
         self.assertIn("npx playwright install --with-deps --only-shell chromium", install)
         self.assertIn("p.chromium.launch({headless:true})", install)
         self.assertIn("if ! rec_chromium_probe; then", install)
         self.assertIn("CI_REC_CHROMIUM_SETUP_SECONDS", install)
         self.assertLess(
-            install.index("npx playwright install --only-shell chromium"),
+            install.index("bash tools/ci_prepare_chromium.sh install"),
             install.index("npx playwright install --with-deps --only-shell chromium"),
         )
         self.assertLess(
@@ -399,15 +439,14 @@ class WorkflowWiringTests(unittest.TestCase):
                 step = body.split("      - name: Install Chromium\n", 1)[1].split(
                     "      - name: Browse chapter, TOC, mobile layout and locked URLs\n", 1
                 )[0]
-                self.assertIn("npm install --no-save playwright@1.56.1", step)
-                self.assertIn("npx playwright install --only-shell chromium", step)
+                self.assertIn("          bash tools/ci_prepare_chromium.sh install\n", step)
                 self.assertIn("npx playwright install --with-deps --only-shell chromium", step)
                 self.assertIn('p.chromium.launch({headless:true})', step)
                 self.assertIn('version !== "1.56.1"', step)
                 self.assertIn("if ! chromium_probe; then", step)
                 self.assertEqual(step.count("          chromium_probe\n"), 1)
                 self.assertLess(
-                    step.index("npx playwright install --only-shell chromium"),
+                    step.index("bash tools/ci_prepare_chromium.sh install"),
                     step.index("npx playwright install --with-deps --only-shell chromium"),
                 )
                 self.assertIn("CI_BROWSER_CHROMIUM_SETUP_SECONDS", step)
@@ -938,6 +977,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "tools/rec13_*",
             "tools/ci_prepare_isolated_pg.sh",
             "tools/ci_prepare_pg_client.sh",
+            "tools/ci_prepare_chromium.sh",
             "tools/ci_prepare_legacy_analytics.sh",
         ):
             self.assertIn(owned, text)
