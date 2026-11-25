@@ -1,0 +1,50 @@
+name: TOR standalone fallback edge
+on:
+  pull_request:
+    paths:
+      - 'ops/fallback/**'
+      - 'tests/edge/**'
+      - 'docs/infra/fallback-edge.md'
+      - '.github/workflows/tor-fallback-edge.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/fallback/**'
+      - 'tests/edge/**'
+      - 'docs/infra/fallback-edge.md'
+      - '.github/workflows/tor-fallback-edge.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  edge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirrors
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
+      - name: Install isolated edge and browser dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx
+          npm install --no-save playwright@1.56.1
+          npx playwright install --only-shell chromium
+      - name: Real Nginx failures and Chromium acceptance
+        run: |
+          mkdir -p "$RUNNER_TEMP/fallback-shots"
+          node --check ops/fallback/site/game.js
+          node --check tests/edge/fallback_browser.cjs
+          TOR_FALLBACK_SHOTS="$RUNNER_TEMP/fallback-shots" python3 tests/edge/fallback_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fallback-edge-screenshots
+          path: ${{ runner.temp }}/fallback-shots/*.png
+          if-no-files-found: warn
+          retention-days: 10
