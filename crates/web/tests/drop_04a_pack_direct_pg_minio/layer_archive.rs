@@ -62,7 +62,9 @@ impl Intercept for RevokeArchivedTermOnRange {
         _: &RuntimeComponents,
         _: &mut ConfigBag,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if context.response().is_some_and(|r| r.status().as_u16() == 206)
+        if context
+            .response()
+            .is_some_and(|r| r.status().as_u16() == 206)
             && matches!(context.output_or_error(), Some(Ok(_)))
             && self
                 .state
