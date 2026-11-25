@@ -97,3 +97,28 @@ pub(crate) fn classify(reader: Vec<Option<u64>>, probe: Vec<Option<u64>>) -> Pre
         Pressure::Neutral
     }
 }
+
+#[test]
+fn pacing_policies_distinguish_high_pressure_and_recover_safely() {
+    let mut baseline = Pacer::new(Policy::Baseline);
+    let mut age_aware = Pacer::new(Policy::AgeAware);
+    let mut budget = Pacer::new(Policy::ProgressBudget);
+    let age = Duration::from_secs(8);
+    for _ in 0..20 {
+        let delay = baseline.after_progress(Pressure::High, 100_000, age);
+        assert_eq!(delay, MIN_MS);
+        age_aware.after_progress(Pressure::High, 100_000, age);
+        budget.after_progress(Pressure::High, 100_000, age);
+    }
+    let delay = age_aware.after_progress(Pressure::High, 100_000, age);
+    assert_eq!(delay, MAX_MS);
+    assert_eq!(budget.after_progress(Pressure::High, 100_000, age), 1000);
+    for mut pacer in [age_aware, budget] {
+        let delay = pacer.after_progress(Pressure::Missing, 100_000, age);
+        assert_eq!(delay, MAX_MS);
+        assert_eq!(pacer.after_progress(Pressure::High, 100_000, age), MAX_MS);
+        let delay = pacer.after_progress(Pressure::Neutral, 100_000, age);
+        assert_eq!(delay, MAX_MS);
+        assert_eq!(pacer.after_progress(Pressure::Low, 100_000, age), MIN_MS);
+    }
+}
