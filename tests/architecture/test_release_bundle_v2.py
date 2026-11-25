@@ -26,7 +26,7 @@ class ReleaseBundleTests(unittest.TestCase):
         self.bin.mkdir()
         for name in bundle.BINARIES:
             (self.bin / name).write_bytes(("test executable " + name).encode())
-        for name, rel in bundle.EDGE.items():
+        for name, rel in bundle.CONFIGS.items():
             path = self.repo / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(("test asset " + name).encode())
@@ -73,7 +73,7 @@ class ReleaseBundleTests(unittest.TestCase):
                          bundle.manifest_bytes(SHA, hashes))
         for name in bundle.BINARIES:
             self.assertEqual((target / name).stat().st_mode & 0o777, 0o755)
-        for name in bundle.EDGE:
+        for name in bundle.CONFIGS:
             self.assertEqual((target / name).stat().st_mode & 0o777, 0o644)
         shutil.rmtree(self.inbox)
         bundle.verify(target, SHA, self.signers)

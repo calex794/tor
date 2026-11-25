@@ -31,7 +31,9 @@ EDGE = {
     "nginx-server.conf": "ops/fallback/nginx-server.conf",
     "nginx-proxy.conf": "ops/fallback/nginx-proxy.conf",
 }
-PAYLOAD = (*BINARIES, *EDGE)
+SYSTEMD = {"systemd-web-release.conf": "ops/systemd/40-tor-release.conf"}
+CONFIGS = {**EDGE, **SYSTEMD}
+PAYLOAD = (*BINARIES, *CONFIGS)
 FILES = frozenset((*PAYLOAD, MANIFEST, SIGNATURE))
 LIMITS = {name: 512 * 1024 * 1024 if name in BINARIES else 1024 * 1024
           for name in PAYLOAD}
@@ -140,7 +142,7 @@ def build(repo: Path, binaries: Path, destination: Path, sha: str) -> None:
     validate_sha(sha)
     with candidate(destination) as temporary:
         for name in PAYLOAD:
-            source = binaries / name if name in BINARIES else repo / EDGE[name]
+            source = binaries / name if name in BINARIES else repo / CONFIGS[name]
             with open_directory(source.parent) as fd:
                 copy_entry(fd, source.name, temporary / name, LIMITS[name],
                            0o755 if name in BINARIES else 0o644)

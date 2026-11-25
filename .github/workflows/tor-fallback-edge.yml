@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'ops/fallback/**'
+      - 'ops/systemd/**'
       - 'tests/edge/**'
       - 'tools/release_bundle_v2.py'
       - 'tools/managed_edge_release.py'

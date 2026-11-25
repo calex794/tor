@@ -100,7 +100,7 @@ class AdoptionTests(unittest.TestCase):
         self.bin.mkdir()
         for name in bundle.BINARIES:
             (self.bin / name).write_bytes(b"fixture binary")
-        for name, rel in bundle.EDGE.items():
+        for name, rel in bundle.CONFIGS.items():
             path = self.repo / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(("fixture " + name).encode())

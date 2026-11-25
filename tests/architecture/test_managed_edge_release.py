@@ -59,7 +59,7 @@ class ManagedEdgeTests(unittest.TestCase):
         self.signers.write_text("tor-release " + self.key.with_suffix(".pub").read_text())
         for name in bundle.BINARIES:
             (self.bin / name).write_bytes(b"binary fixture")
-        for name, rel in bundle.EDGE.items():
+        for name, rel in bundle.CONFIGS.items():
             path = self.repo / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(("fixture " + name).encode())
