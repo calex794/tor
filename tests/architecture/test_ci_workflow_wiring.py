@@ -896,12 +896,19 @@ class WorkflowWiringTests(unittest.TestCase):
             "e5d5abd63abfb74dddfc52d60d58144f402218aa49b3b6b6e610d1e3171f355f",
             "git archive", "github.sha", "--only rust --min-tokens 50",
             "--similarity 0.8", "summary.json",
+            "run: bash tools/reuse_doppelscan_delta.sh", "BASE_SHA:",
         ):
             self.assertIn(required, text)
         for forbidden in ("contents: write", "pull_request_target:",
                           "secrets.", "secrets:", "  push:", "ssh ",
                           "cargo install", "jscpd", "cargo-dupes"):
             self.assertNotIn(forbidden, text)
+        delta = (ROOT / "tools/reuse_doppelscan_delta.sh").read_text()
+        for required in ("git merge-base --is-ancestor", "git archive",
+                         "baseline /work/src", "check /work/src",
+                         "--network none --read-only", ":/work/src:ro",
+                         "delta-summary.json", "0|1)"):
+            self.assertIn(required, delta)
         self.assertNotIn("reuse-audit.yml",
                          (WORKFLOWS / CI_WORKFLOW).read_text())
 
