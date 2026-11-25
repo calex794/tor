@@ -8,7 +8,9 @@ const EXPLAIN: &str = "EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS, FORMAT TEXT) ";
 fn content_insert() -> String {
     // Fail loudly if the production statement changes shape, rather than silently
     // measuring a stale copy. Neither the runtime SQL nor its deadline is changed.
-    let (_, function) = SOURCES.split_once("pub(super) async fn book_sources(").unwrap();
+    let (_, function) = SOURCES
+        .split_once("pub(super) async fn book_sources(")
+        .unwrap();
     let (_, body) = function.split_once("\"WITH candidates AS (").unwrap();
     let (body, _) = body.split_once("\")").unwrap();
     format!("WITH candidates AS ({body}")
@@ -44,20 +46,21 @@ async fn explain(
 
 pub(super) async fn run(f: &Fixture, language: &str) {
     let insert = content_insert();
-    let (cte, _) = insert.split_once(" INSERT INTO rec_candidate_edges").unwrap();
+    let (cte, _) = insert
+        .split_once(" INSERT INTO rec_candidate_edges")
+        .unwrap();
     let select = format!(
         "{} SELECT id,access_level,score FROM ranked WHERE position<=20",
         cte.replace("$2", "$1")
     );
     let generation = command(f, Action::Refresh, None).await;
     let seed = f.books[0];
-    let before: i64 = sqlx::query_scalar(
-        "SELECT cursor_book_id FROM rec_generations WHERE id=$1::uuid",
-    )
-    .bind(&generation)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let before: i64 =
+        sqlx::query_scalar("SELECT cursor_book_id FROM rec_generations WHERE id=$1::uuid")
+            .bind(&generation)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     for (cohort, sparse, expected) in [("dense", false, 100_004), ("sparse", true, 12)] {
         let mut tx = f.pool.begin().await.unwrap();
         // EXPLAIN ANALYZE executes the INSERT. Only this rolled-back diagnostic
