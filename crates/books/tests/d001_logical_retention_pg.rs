@@ -499,7 +499,16 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
     use std::io::Write;
 
     let pool = pool().await;
-    type ForeignKeyRow = (String, String, String, Vec<String>, Vec<String>, bool, String, String);
+    type ForeignKeyRow = (
+        String,
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        bool,
+        String,
+        String,
+    );
     let rows: Vec<ForeignKeyRow> = sqlx::query_as(include_str!("d001_reference_inventory.sql"))
         .fetch_all(&pool)
         .await
