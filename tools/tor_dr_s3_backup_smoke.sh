@@ -84,6 +84,18 @@ VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 drop07_seed_pack "$work/pack-fixture"
+# RECOVERY-10a: real D-08 checkout including idempotent replay, buyer
+# wallet debit and immutable platform/creator postings. No mock ledger.
+cargo test -p tor-commerce --test d08_finance_pg d_08_single_purchase_posts_exact_credit_and_hold_once \
+  -- --ignored --exact --test-threads=1
+finance_snapshot() {
+  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_finance_restore_facts.sql
+}
+source_finance="$(finance_snapshot "$TEST_DATABASE_URL")"
+[[ -n "$source_finance" ]] || {
+  echo 'FAIL: source finance witness empty' >&2
+  exit 1
+}
 history="$(psql "$MIGRATOR_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
@@ -186,6 +198,12 @@ pub_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
 hidden_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
   -c "SELECT id FROM books WHERE source_identity='ci:dr:hidden' AND visibility='draft'")"
 [[ "$pub_id" =~ ^[0-9]+$ && "$hidden_id" =~ ^[0-9]+$ ]]
+restored_finance="$(finance_snapshot "$restored_url")"
+[[ -n "$restored_finance" && "$restored_finance" == "$source_finance" ]] || {
+  echo 'FAIL: restored buyer wallet or immutable financial evidence differs' >&2
+  exit 1
+}
+echo 'I11_RESTORED_CHECKOUT_FINANCE_OK'
 drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
@@ -218,8 +236,14 @@ private_code="$(curl --silent --max-time 5 --output /dev/null \
   echo 'FAIL: restored private book became public' >&2
   exit 1
 }
+[[ "$(finance_snapshot "$TEST_DATABASE_URL")" == "$source_finance" ]] || {
+  echo 'FAIL: independent restore mutated source finance evidence' >&2
+  exit 1
+}
 echo 'I11_S3_PG18_RESTORED_AXUM_ACL_OK'
 
 # The existing sealed-remote-copy job also proves WAL replay, not only pg_dump.
 # This independent sandbox has no ports, host bind mounts or runtime network.
-python3 tools/i11_pitr_drill.py
+finance_sha256="$(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1)"
+python3 tools/i11_pitr_drill.py --fixture-dump "$work/restored.dump" \
+  --finance-sha256 "$finance_sha256"

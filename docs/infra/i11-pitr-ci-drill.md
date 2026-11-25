@@ -75,3 +75,66 @@ the additional Boolean generated_startup_config_verified_and_used;
 old reports are not silently accepted as proof of this new behavior.
 The real test and its marker must pass on the exact accepted CI head.
 No operational recovery, SLO or release claim is added.
+
+## RECOVERY-09c: real paused-replay helper execution
+
+After the existing UTC transaction-boundary witness and clean shutdown,
+retain the completed fixture and restore the same full backup into a
+fresh time-target workspace. The separate CI adapter uses the real
+RECOVERY-08/09a preparation and verification helpers and runs
+`tor_recovery_pg_run.run_paused` under the existing stage lock.
+The container is already the unprivileged postgres OS account: the
+adapter removes only the exact runuser prefix from the three allowlisted
+generated commands. It does not mock PostgreSQL processes, SQL results,
+wait/timeout logic, shutdown or receipt generation, nor invoke or relax
+the operator entrypoint or its independent host checks.
+
+The real test requires the private paused-replay receipt with matching
+stage/config receipt digests, two stable SQL witnesses, confirmed
+shutdown and preserved recovery signal. The receipt must still deny
+promotion, exact transaction-boundary proof and operational acceptance.
+The independent first UTC case retains its actual before/after witness.
+Report schema 3 additionally requires
+`operator_paused_replay_helpers_verified=true`; schema 2 is not proof of
+this new lifecycle test. The external host, S3, package authenticity,
+network isolation and disaster-recovery SLO remain separate gates.
+
+## RECOVERY-10b: real TOR checkout rows through physical WAL/PITR
+
+The sealed logical recovery test has already executed the real D-08
+checkout and verified the exact restored encrypted archive. Stream only
+that disposable custom-format dump into the existing network-free,
+mount-free container at runtime, never into its image or artifact
+storage. The launcher requires an exact private CI-owned fixture path,
+regular single-link file and a 64 MiB bound; the container independently
+bounds and checks the input. No live or operator backup is accepted.
+
+The source physical cluster has an empty tor_ci database and the
+two expected disposable roles at base-backup time. After the earlier
+named target, import the actual migrated TOR schema and synthetic
+checkout rows in a single committed pg_restore transaction. Run the
+existing read-only financial witness as tor_app. After the exclusive UTC
+target, commit a separate synthetic +100 minor-unit wallet/journal
+adjustment and prove that the source balance is now 850. Destroy source
+PGDATA. The earlier named recovery must still lack the wallet table;
+the paused UTC recovery must yield the exact earlier snapshot (750
+remaining, 250 purchase, 50 platform, 200 creator) and no later credit.
+Retain the prior operator-helper lifecycle and negative controls.
+Schema 4 requires both tor_checkout_finance_replayed_from_wal and
+post_target_wallet_change_excluded.
+
+This demonstrates WAL replay of actual TOR financial rows and schema,
+not that a second real Rust checkout or funding-provider operation ran
+inside the physical source. The import and later adjustment are
+synthetic fixture operations. HTTP delivery from that physically
+restored database, refunds, Layer and other finance paths, real offsite
+custody and RPO/RTO remain separate acceptance gates.
+
+The host also computes SHA-256 over the exact original pre-backup synthetic
+finance snapshot, passes only that digest (not the row contents) to the
+container, and requires it to match both the post-import and paused-replay
+snapshots. Schema 4 additionally requires original_finance_snapshot_digest_matched.
+This connects the physical WAL witness to the original actual checkout rather
+than accepting an internally consistent but substituted fixture. The digest is
+not a signature and the host/CI trust boundary is unchanged. No production
+archive, credentials or raw financial rows may be printed or uploaded.
