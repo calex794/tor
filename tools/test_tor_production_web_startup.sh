@@ -49,5 +49,6 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 curl -fsS --max-time 10 "http://127.0.0.1:$port/catalog" >/dev/null
-curl -fsS --max-time 10 "http://127.0.0.1:$port/login" | grep -Fq 'name="csrf_token"'
+login_html=$(curl -fsS --max-time 10 "http://127.0.0.1:$port/login")
+[[ "$login_html" == *'name="csrf_token"'* ]]
 echo 'TOR_PRODUCTION_WEB_STARTUP_OK: PostgreSQL and configured S3 adapters'
