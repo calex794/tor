@@ -591,14 +591,52 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(len(jobs), 7)
 
     def test_pg_client_uses_existing_runner_binaries_with_safe_fallback(self):
-        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
-            with self.subTest(workflow=filename):
-                code = (WORKFLOWS / filename).read_text()
+        for path in (WORKFLOWS / CI_WORKFLOW, WORKFLOWS / "tor-pg-runtime.yml",
+                     ROOT / "tools/ci_prepare_isolated_pg.sh"):
+            with self.subTest(path=path):
+                code = path.read_text()
                 self.assertIn("command -v psql", code)
                 self.assertIn("command -v pg_isready", code)
                 self.assertIn("sudo apt-get update -qq", code)
                 self.assertIn("sudo apt-get install -y postgresql-client", code)
                 self.assertIn("Using preinstalled PostgreSQL client", code)
+
+    def test_shared_isolated_pg_bootstrap_keeps_all_five_callers(self):
+        script = ROOT / "tools/ci_prepare_isolated_pg.sh"
+        code = script.read_text()
+        step = ("      - name: Prepare isolated database\n"
+                "        run: bash tools/ci_prepare_isolated_pg.sh\n"
+                "      - name: Apply real SQLx migrations twice\n")
+        for filename, count in (
+            (CI_WORKFLOW, 2), ("tor-pg-reading-analytics.yml", 1),
+            ("tor-pg-rec-browser.yml", 1), ("rec-feedback-acceptance.yml", 1),
+        ):
+            with self.subTest(workflow=filename):
+                text = (WORKFLOWS / filename).read_text()
+                self.assertEqual(text.count(step), count)
+                self.assertEqual(text.count("run: bash tools/ci_prepare_isolated_pg.sh"), count)
+                self.assertNotIn("      - name: Prepare isolated database\n        run: |", text)
+                self.assertGreaterEqual(text.count("PGPASSWORD: isolated-ci-only"), count)
+        for sql in (
+            "CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';",
+            "CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';",
+            "CREATE DATABASE tor_ci OWNER tor_migrator;",
+            "REVOKE CREATE ON SCHEMA public FROM PUBLIC;",
+            "GRANT USAGE ON SCHEMA public TO tor_app;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;",
+        ):
+            self.assertEqual(code.count(sql), 1)
+        self.assertEqual(code.count("psql -X -v ON_ERROR_STOP=1"), 2)
+        subprocess.run(["bash", "-n", str(script)], check=True)
+        # No external executable can run in this negative control.
+        result = subprocess.run(
+            ["/bin/bash", str(script)],
+            env={"PATH": "/nonexistent", "GITHUB_ACTIONS": "false"},
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Refusing non-isolated PostgreSQL CI bootstrap", result.stderr)
 
     def test_s3_clippy_runs_once_on_selected_parallel_lane(self):
         # Keep required and manual work identical except selector/preflight.
@@ -801,6 +839,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "crates/web/src/recommendation_worker.rs",
             "crates/web/tests/recommendation_feedback_http_pg.rs",
             "tools/rec13_*",
+            "tools/ci_prepare_isolated_pg.sh",
         ):
             self.assertIn(owned, text)
         self.assertIn("bash tools/rec13_browser_acceptance.sh", text)
