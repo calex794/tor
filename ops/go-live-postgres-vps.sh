@@ -44,7 +44,8 @@ validate_runtime_configuration() {
       return 1
     fi
   fi
-  # A deliberately small, unquoted, ASCII subset of systemd EnvironmentFile.
+  # A deliberately small subset of systemd EnvironmentFile: unquoted ASCII
+  # assignments and UTF-8 comments. Never relax credential/value validation.
   # Refuse unknown/duplicate names, continuation, expansion and raw diagnostics.
   if ! python3 -I - "$app_file" "$runtime_file" "$mode" <<'PY'
 import base64
@@ -111,9 +112,9 @@ def read_env(path, *, app):
     # Preserve the old DB-only file's acceptance with or without final LF.
     check(app or raw.endswith(b"\n"), "missing-final-lf", file)
     try:
-        lines = raw.decode("ascii").split("\n")
+        lines = raw.decode("utf-8").split("\n")
     except UnicodeDecodeError as exc:
-        check(False, "non-ascii-file", file, raw.count(b"\n", 0, exc.start) + 1)
+        check(False, "invalid-utf8-file", file, raw.count(b"\n", 0, exc.start) + 1)
         return values, locations
     for number, line in enumerate(lines, 1):
         if not line.strip(" ") or line.lstrip(" ").startswith("#"):

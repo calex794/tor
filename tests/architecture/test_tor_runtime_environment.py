@@ -49,7 +49,7 @@ stat() {
         self.harness += GUARD
 
     def install(self, text):
-        self.runtime.write_text(text, encoding="ascii")
+        self.runtime.write_text(text, encoding="utf-8")
         self.runtime.chmod(0o600)
         self.dropin.write_bytes(TEMPLATE)
         self.dropin.chmod(0o644)
@@ -233,6 +233,42 @@ stat() {
             self.assertIn(expected, result.stderr)
         for secret in (unknown, "private-unknown-value", "UPPERCASE", "private-malformed-key"):
             self.assertNotIn(secret, result.stderr)
+        self.assertNotEqual(self.guard().returncode, 0)
+
+    def test_utf8_operator_comments_pass_same_release_guard(self):
+        # Production refusal reproduced: the first non-ASCII byte occurs
+        # on line 15, but belongs to an ignored operator comment.
+        app = DB_LINE + "\n" + "\n" * 13 + "# Настройки хранилища\n"
+        self.db.write_text(app, encoding="utf-8")
+        self.install(" # Комментарий оператора\nAWS_REGION=ru-central1\n")
+        original_app = self.db.read_bytes()
+        original_runtime = self.runtime.read_bytes()
+        result = self.guard(diagnostic=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "TOR_RUNTIME_ENV_OK\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertEqual(self.db.read_bytes(), original_app)
+        self.assertEqual(self.runtime.read_bytes(), original_runtime)
+
+    def test_utf8_support_does_not_relax_assignment_validation(self):
+        cases = (
+            ("AWS_REGION=регион\n", "parameter=AWS_REGION reason=invalid-value-syntax"),
+            ("ПАРАМЕТР=value\n", "parameter=unknown reason=invalid-assignment"),
+            ("# комментарий\x00\n", "parameter=unknown reason=control-character"),
+        )
+        for suffix, expected in cases:
+            with self.subTest(expected=expected):
+                self.db.write_text(DB_LINE + "\n" + suffix, encoding="utf-8")
+                result = self.guard(diagnostic=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+                self.assertNotEqual(self.guard().returncode, 0)
+        self.db.write_bytes(DB_LINE.encode("ascii") + b"\n# \xff\n")
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("file=tor-app.env line=2 parameter=unknown reason=invalid-utf8-file",
+                      result.stderr)
         self.assertNotEqual(self.guard().returncode, 0)
 
     def test_diagnostics_report_invalid_database_without_echoing_url(self):

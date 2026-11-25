@@ -127,7 +127,9 @@ authorized operator may install **both** a root:root 0600
 The release validates the optional pair before migrations and before restart;
 it does not create, change, or remove the pair. Install no other conflicting
 EnvironmentFile/drop-in. Keep the runtime file in the strict unquoted
-ASCII KEY=value subset (no shell, quotes, escapes or duplicate names).
+ASCII KEY=value subset (no shell, quotes, escapes or duplicate names), with
+UTF-8 permitted in comments. This preserves operator comments, including
+Russian text, without permitting non-ASCII assignment names or values.
 Only currently supported S3 settings and content-key settings are accepted.
 The browser must never see `AWS_SECRET_ACCESS_KEY`. The AWS Rust SDK can
 read standard variables:
