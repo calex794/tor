@@ -15,7 +15,7 @@ from i11_dr_evidence_gate import (
 
 def complete_fixture():
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "REVIEW_READY",
         "source_sha": "a" * 40,
         "postgres_version": "18.2",
@@ -69,6 +69,54 @@ class I11DrEvidenceGateTests(unittest.TestCase):
             edit(report)
             with self.subTest(report=report.get("status")), self.assertRaises(Refused):
                 review_report(report)
+
+    def test_v2_requires_explicit_recovery_startup_and_both_key_epochs(self):
+        fields = (
+            "restored_pg_startup_isolation_verified",
+            "exclusive_pitr_pause_before_promotion_verified",
+            "historical_key_inventory_verified",
+            "purchased_editions_kek_v1_v2_decryption_verified",
+            "historical_kek_v2_missing_or_replaced_denial_verified",
+        )
+        for field in fields:
+            self.assertIn(field, REQUIRED_TRUE)
+            for bad in (False, None, 1, "true"):
+                report = complete_fixture()
+                report[field] = bad
+                with self.subTest(field=field, bad=bad), self.assertRaises(Refused):
+                    review_report(report)
+            report = complete_fixture()
+            del report[field]
+            with self.subTest(missing=field), self.assertRaises(Refused):
+                review_report(report)
+        legacy = complete_fixture()
+        legacy["schema_version"] = 1
+        for field in fields:
+            del legacy[field]
+        with self.assertRaises(Refused):
+            review_report(legacy)
+        old_version = complete_fixture()
+        old_version["schema_version"] = 1
+        with self.assertRaisesRegex(Refused, "unsupported DR evidence schema"):
+            review_report(old_version)
+
+    def test_runbook_template_matches_gate_and_is_not_accepted(self):
+        runbook = (ROOT / "docs/infra/i11-independent-dr-acceptance.md").read_text(
+            encoding="utf-8"
+        )
+        template = json.loads(runbook.split("~~~json\n", 1)[1].split("\n~~~", 1)[0])
+        self.assertEqual(set(template), set(complete_fixture()))
+        self.assertEqual(template["schema_version"], 2)
+        self.assertEqual(template["status"], "NOT_ACCEPTED")
+        self.assertTrue(all(template[field] is None for field in (
+            "restored_pg_startup_isolation_verified",
+            "exclusive_pitr_pause_before_promotion_verified",
+            "historical_key_inventory_verified",
+            "purchased_editions_kek_v1_v2_decryption_verified",
+            "historical_kek_v2_missing_or_replaced_denial_verified",
+        )))
+        with self.assertRaises(Refused):
+            review_report(template)
 
     def test_evidence_refs_and_source_provenance_required(self):
         for field in REQUIRED_REFS:
