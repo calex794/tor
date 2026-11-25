@@ -114,6 +114,76 @@ pub(super) async fn check_connection_form(
         before,
         "rejected connection forms must not create a profile or audit write"
     );
+    check_candidate_roundtrip(db, admin_session, client, &admin).await;
+}
+
+/// A synthetic PG fixture invokes the repository directly, never pretending
+/// that an external HeadBucket succeeded. The fixed Yandex host is not contacted.
+async fn check_candidate_roundtrip(
+    db: &str,
+    admin_session: &str,
+    client: &Client,
+    cookie: &str,
+) {
+    use tor_accounts::services::security::session_token_digest;
+    use tor_books::repositories::PgCatalog;
+    use tor_storage::repositories::admin_s3_profiles::{AdminS3Error, PgAdminS3Profiles};
+
+    let catalog = PgCatalog::connect(db).await.unwrap();
+    let profiles = PgAdminS3Profiles::new(catalog.pool().clone());
+    let digest = session_token_digest(admin_session);
+    let bucket = "ci-s3-candidate";
+    let access = "CI_TEST_ACCESS_0000";
+    let secret = "CI_TEST_SECRET_000000000000";
+    profiles
+        .save_verified(&digest, bucket, access, secret)
+        .await
+        .unwrap();
+    let prepared = profiles.load_verified_candidate(bucket).await.unwrap();
+    assert_eq!(prepared.bucket(), bucket);
+    assert!(prepared.access_key_id() == access);
+    assert!(prepared.secret_access_key() == secret);
+    assert!(profiles
+        .load_verified_candidate("other-bucket")
+        .await
+        .is_err());
+    assert_eq!(
+        pg(db, "SELECT count(*) FROM admin_s3_profiles WHERE encryption_version=2 AND NOT active"),
+        "1"
+    );
+    let page = get(client, cookie).await.text().await.unwrap();
+    assert!(page.contains(bucket));
+    assert!(!page.contains(access));
+    assert!(!page.contains(secret));
+
+    pg(db, "UPDATE admin_s3_profiles SET bucket='ci-substituted-bucket'");
+    assert!(profiles
+        .load_verified_candidate("ci-substituted-bucket")
+        .await
+        .is_err());
+    pg(
+        db,
+        "UPDATE admin_s3_profiles SET bucket='ci-s3-candidate',encryption_version=1",
+    );
+    assert!(profiles.load_verified_candidate(bucket).await.is_err());
+    profiles
+        .save_verified(&digest, bucket, access, secret)
+        .await
+        .unwrap();
+    let rotated = profiles.load_verified_candidate(bucket).await.unwrap();
+    assert_ne!(prepared.revision(), rotated.revision());
+    assert_eq!(
+        pg(db, "SELECT count(*) FROM admin_s3_profiles WHERE active"),
+        "0"
+    );
+    let unknown = [0_u8; 32];
+    assert_eq!(
+        profiles
+            .save_verified(&unknown, bucket, access, secret)
+            .await,
+        Err(AdminS3Error::Forbidden)
+    );
+    println!("S3_ADMIN_CANDIDATE_ROUNDTRIP_OK");
 }
 
 pub(super) async fn check_revoked(client: &Client, session: &str) {
