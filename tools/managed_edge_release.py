@@ -49,15 +49,26 @@ def trusted(path: Path, directory: bool = False):
 
 
 def trusted_dir(path: Path):
-    path.mkdir(mode=0o755, exist_ok=True)
-    trusted(path, directory=True)
+    try:
+        path.mkdir(mode=0o755)
+    except FileExistsError:
+        pass
+    else:
+        path.chmod(0o755)  # root release executor uses umask 077
+    if not trusted(path, directory=True).st_mode & stat.S_IXOTH:
+        raise EdgeError("managed directory not traversable by Nginx: " + path.name)
 
 
 def settings_valid(data: bytes) -> bool:
     if len(data) > 4096:
         return False
+    def unique_pairs(pairs):
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError("duplicate public setting")
+        return result
     try:
-        config = json.loads(data)
+        config = json.loads(data, object_pairs_hook=unique_pairs)
     except (ValueError, UnicodeError):
         return False
     if type(config) is not dict or set(config) != {"telegram_url"}:
@@ -155,21 +166,32 @@ class EdgeStore:
         files["nginx-server.conf"] = text.encode("utf-8")
         # Record the source manifest for deterministic reuse and local auditing.
         files["source-manifest"] = read_small(source / bundle.MANIFEST, 4096)
+        files["edge-checksums.json"] = self.checksums(files)
         return files
+
+    @staticmethod
+    def checksums(files: dict[str, bytes]) -> bytes:
+        hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+        return (json.dumps(hashes, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
 
     def inspect(self, sha: str) -> Path:
         bundle.validate_sha(sha)
         directory = self.releases / sha
         trusted(directory, directory=True)
         trusted(directory / "site", directory=True)
-        expected = {*SNIPPETS, "site", "source-manifest"}
+        expected = {*SNIPPETS, "site", "source-manifest", "edge-checksums.json"}
         if {p.name for p in directory.iterdir()} != expected:
             raise EdgeError("managed release layout mismatch")
         if {p.name for p in (directory / "site").iterdir()} != set(ASSETS):
             raise EdgeError("managed site layout mismatch")
-        for rel in (*SNIPPETS, "source-manifest", *("site/" + x for x in ASSETS)):
-            trusted(directory / rel)
-        manifest = read_small(directory / "source-manifest", 4096)
+        for path in (directory, directory / "site"):
+            if not trusted(path, directory=True).st_mode & stat.S_IXOTH:
+                raise EdgeError("managed release not traversable by Nginx")
+        files = {rel: read_small(directory / rel, 2 * 1024 * 1024)
+                 for rel in (*SNIPPETS, "source-manifest", *("site/" + x for x in ASSETS))}
+        if read_small(directory / "edge-checksums.json", 4096) != self.checksums(files):
+            raise EdgeError("managed release checksum mismatch")
+        manifest = files["source-manifest"]
         if not manifest.startswith(f"TOR_RELEASE_MANIFEST 2\nTOR_RELEASE_SHA {sha}\n".encode()):
             raise EdgeError("managed release identity mismatch")
         return directory
@@ -192,7 +214,7 @@ class EdgeStore:
                     raise EdgeError("existing managed release differs from signed candidate")
         else:
             with bundle.candidate(target) as tmp:
-                (tmp / "site").mkdir(mode=0o755)
+                trusted_dir(tmp / "site")
                 for name, data in files.items():
                     write_new(tmp / name, data)
                 os.chmod(tmp, 0o755)
@@ -269,7 +291,7 @@ class ProductionNginx:
         expected = hashlib.sha256(read_small(directory / "site/game.js", 1024 * 1024)).digest()
         for _ in range(8):
             result = subprocess.run([
-                "curl", "--fail", "--silent", "--show-error", "--include",
+                "curl", "--disable", "--fail", "--silent", "--show-error", "--include",
                 "--max-time", "4", "--max-filesize", "1048576",
                 "--noproxy", "*", "--resolve", "pandaolate.ru:443:127.0.0.1",
                 "https://pandaolate.ru/_tor-fallback/game.js",
