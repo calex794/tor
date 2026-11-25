@@ -34,7 +34,12 @@ impl Pacer {
         }
     }
 
-    pub(crate) fn after_progress(&mut self, pressure: Pressure, pending: i64, age: Duration) -> u64 {
+    pub(crate) fn after_progress(
+        &mut self,
+        pressure: Pressure,
+        pending: i64,
+        age: Duration,
+    ) -> u64 {
         if matches!(self.policy, Policy::Baseline) {
             return MIN_MS;
         }
