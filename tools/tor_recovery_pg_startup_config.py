@@ -172,6 +172,21 @@ def reject_prior_attempt(root):
             raise Refused("prior config preparation exists; inspect separately")
 
 
+def config_receipt_bytes(args, stage, original, files):
+    receipt = {
+        "schema_version": 1,
+        "scope": "trusted_startup_config_staged_only",
+        "stage_receipt_sha256": sha(stage),
+        "original_auto_conf_sha256": sha(original),
+        "empty_auto_conf_sha256": sha(b""),
+        "config_sha256": {name: sha(content) for name, content in files.items()},
+        "resource_settings": resource_settings(args),
+        "startup_authorized": False,
+    }
+    encoded = (json.dumps(receipt, sort_keys=True) + "\n").encode("ascii")
+    return encoded
+
+
 def prepare_files(root, args, pg_uid, pg_gid, operator_uid=0, operator_gid=0):
     # Caller MUST have verified the host and full preflight under stage_lock.
     files = render_startup(root, args)
@@ -204,17 +219,7 @@ def prepare_files(root, args, pg_uid, pg_gid, operator_uid=0, operator_gid=0):
     write_exclusive(temporary, b"", pg_uid, pg_gid, 0o600)
     os.replace(temporary, pgdata / "postgresql.auto.conf")
     sync_directory(pgdata)
-    receipt = {
-        "schema_version": 1,
-        "scope": "trusted_startup_config_staged_only",
-        "stage_receipt_sha256": sha(stage),
-        "original_auto_conf_sha256": sha(original),
-        "empty_auto_conf_sha256": sha(b""),
-        "config_sha256": {name: sha(content) for name, content in files.items()},
-        "resource_settings": resource_settings(args),
-        "startup_authorized": False,
-    }
-    encoded = (json.dumps(receipt, sort_keys=True) + "\n").encode("ascii")
+    encoded = config_receipt_bytes(args, stage, original, files)
     write_exclusive(evidence / CONFIG_RECEIPT, encoded,
                     operator_uid, operator_gid, 0o600)
     sync_directory(evidence)
@@ -230,11 +235,15 @@ def execute(args):
             prepare_files(ROOT, args, uid, gid)
 
 
+def add_resource_arguments(parser):
+    for name in RESOURCE_LIMITS:
+        parser.add_argument("--" + name.replace("_", "-"), required=True, type=int)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     add_preflight_arguments(parser)
-    for name in RESOURCE_LIMITS:
-        parser.add_argument("--" + name.replace("_", "-"), required=True, type=int)
+    add_resource_arguments(parser)
     parser.add_argument("--prepare-config", action="store_true")
     args = parser.parse_args()
     try:
