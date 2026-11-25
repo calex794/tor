@@ -21,6 +21,7 @@ on:
       - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
       - 'tools/ci_prepare_isolated_pg.sh'
+      - 'tools/ci_prepare_pg_client.sh'
       - 'tools/ci_prepare_legacy_analytics.sh'
       - 'crates/web/assets/surprise.js'
       - 'crates/web/assets/surprise.css'

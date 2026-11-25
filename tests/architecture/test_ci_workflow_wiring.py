@@ -574,32 +574,81 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_other_postgres_jobs_use_runner_client_with_apt_fallback(self):
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
-        jobs = (
-            "migrations", "reader-browser", "author-cover",
-            "s3-cover-build", "paid-private-e2e",
-            "sealed-remote-copy", "purchased-v1-recovery",
+        command = "bash tools/ci_prepare_pg_client.sh"
+        pairs = (
+            ("postgres-runtime", "tor-pg-runtime.yml"),
+            ("reader-browser", "tor-reader-visual.yml"),
+            ("author-cover", "tor-cover-browser.yml"),
+            ("s3-cover-build", "tor-cover-s3.yml"),
+            ("paid-private-e2e", "tor-paid-grant-e2e.yml"),
+            ("sealed-remote-copy", "tor-disaster-recovery.yml"),
+            ("purchased-v1-recovery", "tor-s334-restore.yml"),
         )
-        for name in jobs:
+        for name, filename in pairs:
             with self.subTest(job=name):
-                body = integration[name]
-                self.assertIn("command -v psql", body)
-                self.assertIn("command -v pg_isready", body)
-                self.assertIn("psql --version", body)
-                self.assertIn('Using preinstalled PostgreSQL client', body)
-                self.assertIn("sudo apt-get update", body)
-                self.assertIn("sudo apt-get install -y postgresql-client", body)
-        self.assertEqual(len(jobs), 7)
+                manual = job_sections((WORKFLOWS / filename).read_text())[name]
+                for body in (integration[name], manual):
+                    self.assertEqual(body.count(command), 1)
+                    self.assertNotIn("command -v psql", body)
+        self.assertEqual(len(pairs), 7)
+        isolated = (ROOT / "tools/ci_prepare_isolated_pg.sh").read_text()
+        self.assertEqual(isolated.count(command), 1)
+        # The migrations job intentionally retains its different apt verbosity.
+        for body in (integration["migrations"],
+                     job_sections((WORKFLOWS / "postgres-migrations.yml").read_text())["migrations"]):
+            self.assertIn("command -v psql", body)
+            self.assertIn("command -v pg_isready", body)
+            self.assertIn("psql --version", body)
+            self.assertIn("Using preinstalled PostgreSQL client", body)
+            self.assertIn("sudo apt-get update\n", body)
+            self.assertIn("sudo apt-get install -y postgresql-client", body)
 
     def test_pg_client_uses_existing_runner_binaries_with_safe_fallback(self):
-        for path in (WORKFLOWS / CI_WORKFLOW, WORKFLOWS / "tor-pg-runtime.yml",
-                     ROOT / "tools/ci_prepare_isolated_pg.sh"):
-            with self.subTest(path=path):
-                code = path.read_text()
-                self.assertIn("command -v psql", code)
-                self.assertIn("command -v pg_isready", code)
-                self.assertIn("sudo apt-get update -qq", code)
-                self.assertIn("sudo apt-get install -y postgresql-client", code)
-                self.assertIn("Using preinstalled PostgreSQL client", code)
+        import tempfile
+
+        script = ROOT / "tools/ci_prepare_pg_client.sh"
+        code = script.read_text()
+        for command in (
+            "command -v psql", "command -v pg_isready", "psql --version",
+            "sudo apt-get update -qq", "sudo apt-get install -y postgresql-client",
+            "Using preinstalled PostgreSQL client",
+        ):
+            self.assertIn(command, code)
+        subprocess.run(["bash", "-n", str(script)], check=True)
+        # Exercise both branches and failure propagation with a fake PATH.
+        # No apt, sudo or network commands can reach the actual runner.
+        for has_psql, has_ready, fail_update in (
+            (True, True, False), (True, False, False),
+            (False, True, False), (False, False, False),
+            (False, False, True),
+        ):
+            with self.subTest(psql=has_psql, pg_isready=has_ready, fail=fail_update):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    trace = root / "trace"
+                    for name in ("sudo", "psql", "pg_isready"):
+                        if (name == "psql" and not has_psql) or (name == "pg_isready" and not has_ready):
+                            continue
+                        exe = root / name
+                        exe.write_text(
+                            '#!/bin/bash\n'
+                            'printf "%s %s\\n" "${0##*/}" "$*" >> "$TRACE"\n'
+                            'if [[ "${0##*/}" == sudo && "${2:-}" == update ]]; then\n'
+                            '  exit "${UPDATE_EXIT:-0}"\n'
+                            'fi\n'
+                        )
+                        exe.chmod(0o700)
+                    result = subprocess.run(
+                        ["/bin/bash", str(script)],
+                        env={"PATH": tmp, "TRACE": str(trace),
+                             "UPDATE_EXIT": "9" if fail_update else "0"},
+                        capture_output=True, text=True, check=False,
+                    )
+                    expected = (["psql --version"] if has_psql and has_ready else
+                                ["sudo apt-get update -qq"] if fail_update else
+                                ["sudo apt-get update -qq", "sudo apt-get install -y postgresql-client"])
+                    self.assertEqual(trace.read_text().splitlines(), expected)
+                    self.assertEqual(result.returncode, 9 if fail_update else 0)
 
     def test_shared_isolated_pg_bootstrap_keeps_all_five_callers(self):
         script = ROOT / "tools/ci_prepare_isolated_pg.sh"
@@ -888,6 +937,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "crates/web/tests/recommendation_feedback_http_pg.rs",
             "tools/rec13_*",
             "tools/ci_prepare_isolated_pg.sh",
+            "tools/ci_prepare_pg_client.sh",
             "tools/ci_prepare_legacy_analytics.sh",
         ):
             self.assertIn(owned, text)
