@@ -97,8 +97,14 @@ with exact-main CI and checked schema compatibility.
 
 ## 4. Server runtime configuration — future activation, not now
 
-Keep `/etc/tor/tor-app.env` as the existing single DATABASE_URL line. Adding
-S3 settings there breaks the ordinary release's exact credential check.
+For new installations, prefer a single DATABASE_URL line in
+`/etc/tor/tor-app.env`. Existing installations following earlier guidance
+may already contain supported S3 and KEK settings in the same file.
+The release validates the exact local tor_app DATABASE_URL separately from
+these allowlisted settings, proves the actual TCP login and preserves both
+files byte-for-byte. It does not relocate, regenerate or enable keys or flags.
+Unknown settings, duplicate names (including across the two files), unsafe
+file permissions, malformed values and shell syntax still block the release.
 After the separate external/provider, signed S3 release and DR gates, the
 authorized operator may install **both** a root:root 0600
 `/etc/tor/tor-runtime.env` and the root:root 0644
