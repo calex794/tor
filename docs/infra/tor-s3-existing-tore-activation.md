@@ -97,6 +97,20 @@ with exact-main CI and checked schema compatibility.
 
 ## 4. Server runtime configuration — future activation, not now
 
+### Read-only release diagnosis
+
+If a manual release refuses the existing runtime environment, the operator
+can run the reviewed SHA-pinned `ops/go-live-postgres-vps.sh --check-runtime`
+as root on the TOR VPS. It checks the same guard as deployment without
+requiring a staged binary or contacting PostgreSQL, network services, or
+systemd. It never edits configuration, rotates keys, migrates or restarts.
+`TOR_RUNTIME_ENV_OK` proves only configuration validation, not live database
+login or deployment readiness. Each refusal reports a fixed filename, line,
+reviewed parameter name (or `unknown`), and reason code. Never paste raw
+configuration or exception/secret values into GitHub or chat. A line number
+locates an unrecognized name locally without logging it.
+
+
 For new installations, prefer a single DATABASE_URL line in
 `/etc/tor/tor-app.env`. Existing installations following earlier guidance
 may already contain supported S3 and KEK settings in the same file.
