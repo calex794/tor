@@ -50,3 +50,28 @@ verifies both transaction boundaries and shuts down without promoting.
 Three additional mandatory Boolean checks cover replay, transaction boundary
 and no promotion. These are new acceptance requirements, not yet evidence
 of a passed run or external restore.
+
+## RECOVERY-09b: generated config replay in the existing disposable fixture
+
+The UTC replay case now uses the actual RECOVERY-07 file-tree/receipt
+checks, RECOVERY-08 configuration generator and RECOVERY-09a verification
+helpers instead of maintaining a handwritten startup configuration.
+The container build receives only the fixed allowlisted source modules.
+It retains its original network-free, unprivileged, bounded runtime and
+the original named-target, wrong-key and unreachable-target controls.
+The adapter accepts only the random fixture workspace after source
+removal. It creates a synthetic local POSIX repository receipt; it is
+not an operator entrypoint and cannot establish independent S3 custody,
+root-owned operational layout or real host isolation. The actual
+operator host gate remains unchanged.
+
+After staging the selected physical PG18 backup, prepare and verify the
+configuration under the same local lock, preserve the original auto.conf,
+require an empty active auto.conf, and start with explicit config_file.
+SQL must confirm the actual config_file, data_directory and port as well
+as the existing exclusive UTC/timeline pause and before/after marker
+witnesses. The process shuts down without promotion. Schema 2 requires
+the additional Boolean generated_startup_config_verified_and_used;
+old reports are not silently accepted as proof of this new behavior.
+The real test and its marker must pass on the exact accepted CI head.
+No operational recovery, SLO or release claim is added.
