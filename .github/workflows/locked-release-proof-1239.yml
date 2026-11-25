@@ -1,0 +1,57 @@
+name: Exact locked release build proof 1239 (NO DEPLOY)
+on:
+  push:
+    branches: ['tools/locked-release-proof-1239']
+    paths: ['.github/workflows/locked-release-proof-1239.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'calex794/tor' && github.ref == 'refs/heads/tools/locked-release-proof-1239'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [production, s3-free]
+    env:
+      BUILD_PROFILE: ${{ matrix.profile }}
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 54a8a9c3c917761405ce420d8cc66e174b668f1c
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify exact candidate and execute negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '54a8a9c3c917761405ce420d8cc66e174b668f1c'
+          python3 -m unittest discover -s tests/architecture -p test_locked_release_build.py -v
+      - name: Real compilation using only the exact candidate build step
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("locked_release_test", "tests/architecture/test_locked_release_build.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          workflow, name, _ = module.PROFILES[os.environ["BUILD_PROFILE"]]
+          Path(os.environ["RUNNER_TEMP"], "exact-build.sh").write_text(module.build_block(workflow, name))
+          PY
+          bash "$RUNNER_TEMP/exact-build.sh"
+          sha256sum -c "$RUNNER_TEMP/tor-release-lock.sha256"
+          printf 'TOR_LOCKED_RELEASE_BUILD_OK %s %s\n' "$BUILD_PROFILE" "$(git rev-parse HEAD)"
+      - name: Upload checksum evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: locked-release-${{ matrix.profile }}
+          path: |
+            ${{ runner.temp }}/*.sha256
+          if-no-files-found: error
+          retention-days: 14
