@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 REGION = re.compile(r"[a-z0-9-]{2,64}\Z")
 REPO_PATH = re.compile(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*\Z")
 SECRET = re.compile(r"[A-Za-z0-9+/=_!@.%:-]{8,512}\Z")
+STAGE_RECEIPT = "pg-stage-receipt.json"
 FIELDS = {
     "endpoint", "bucket", "region", "repo_path", "access_key",
     "secret_key", "cipher_pass",
@@ -146,6 +148,36 @@ pg1-socket-path={root}/pgsocket
 """
 
 
+def stage_receipt(args, data, root):
+    # Private operator evidence, not a signature or a DR acceptance report.
+    return {
+        "schema_version": 1,
+        "scope": "physical_files_staged_only",
+        "source_machine_id": args.source_machine_id,
+        "target_machine_id": args.target_machine_id,
+        "pg_port": args.pg_port,
+        "backup_label": args.backup_label,
+        "target_utc": args.target_utc,
+        "incident_utc": args.incident_utc,
+        "timeline": args.timeline,
+        "repository_config_sha256": hashlib.sha256(
+            render_config(data, root, args.pg_port).encode("ascii")
+        ).hexdigest(),
+    }
+
+
+def write_stage_receipt(root, receipt):
+    path = root / "evidence" / STAGE_RECEIPT
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="ascii") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        json.dump(receipt, handle, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    # A failure leaves a partial attempt; the operator must inspect it.
+
+
 def restore_command(root, label, target, timeline):
     # No --force, --delta, --link-all, --db-include, or automatic set fallback.
     # All original tablespaces must remain inside the isolated restore workspace.
@@ -193,7 +225,8 @@ def check_workspace(root, postgres):
     checked_directory(root / "pgsocket", uid, gid, 0o700, empty=True)
     checked_directory(root / "pglog", uid, gid, 0o700)
     for name in ("tablespaces", "pgbackrest-lock", "pgbackrest-spool",
-                 "config/pgbackrest-empty", "config/pgbackrest-recovery.conf"):
+                 "config/pgbackrest-empty", "config/pgbackrest-recovery.conf",
+                 "evidence/" + STAGE_RECEIPT):
         if os.path.lexists(root / name):
             raise Refused("previous restore attempt exists; inspect separately")
 
@@ -238,6 +271,7 @@ def stage_backup(args, target):
                     or not (pgdata / "global" / "pg_control").is_file()
                     or not (pgdata / "recovery.signal").is_file()):
                 raise Refused("restored PG18 files or recovery signal missing")
+            write_stage_receipt(ROOT, stage_receipt(args, data, ROOT))
         # Never run postgres or pg_ctl here; restored settings require review.
     finally:
         os.close(lock)

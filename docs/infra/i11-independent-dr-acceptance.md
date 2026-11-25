@@ -43,7 +43,8 @@ Required offsite assets:
 ### B. PostgreSQL 18 physical restore and PITR
 
 - On the isolated target only, use the operator-reviewed `pgBackRest` configuration and verified empty PGDATA to restore the selected full/diff + WAL to a chosen UTC point **T1**; ensure a witness record committed before T1 exists and a second witness record **T2**, committed after T1, does **not** exist.
-- Verify PostgreSQL is accepting SQL, `pg_is_in_recovery() = false`, permissions/role denial still hold, SQLx migration history and key TOR tables are consistent, and startup did not merely return before replay finished.
+- Before starting recovered PostgreSQL, independently review the staged cluster for unsafe links, inherited configuration, extensions, preload settings and executable hooks. Use trusted fresh binaries, a reviewed local-only configuration and read-only archive access, with no upstream connection or production writes. [RECOVERY-03](tor-recovery-pg-checkpoint.md) stages the files; its synthetic paused replay does **not** implement or certify a safe external startup. Do not proceed until the operator startup gate is separately implemented/reviewed and evidenced.
+- Before any separately authorized promotion, record SQL evidence of the exclusive UTC target, actual paused recovery, earlier witness present and later witness absent; verify the replay timestamp precedes the target and no automatic promotion occurred. Then, on the isolated host only, explicitly approve the promotion step and verify `pg_is_in_recovery() = false`, permissions/role denial, SQLx history and key TOR tables. A startup return code alone proves neither replay nor readiness.
 - Include a marker committed **after the base physical backup** and before T1, so success proves actual WAL replay, not only the original base image.
 - Test negative controls on a **separate disposable copy**: removed/missing WAL, wrong repository encryption key and unreachable recovery target must fail rather than silently recover to an earlier/incorrect point. Do not tamper with retained external archives for these tests.
 - Keep the source DB entirely untouched. Never import production transactions into an internet-exposed test TOR.
@@ -52,6 +53,7 @@ Required offsite assets:
 
 - Fetch from the independent offsite object archive to the approved isolated destination. Verify the complete path/size inventory against the separate pre-incident manifest and database registry. Record missing/mismatched/extraneous objects explicitly; do not count an object as restored solely because its S3 key exists.
 - Run the read-only operator script `ops/verify-s3-offsite-restore.sh` on the trusted independent machine with its documented root-only config and `/run` tmpfs. It verifies one encrypted private V1 object SHA-256 against the recovered database record, and the age-decrypted bundle SHA-256 against the independently retained operator digest.
+- Verify the complete historical KEK inventory against the independent pre-incident pin and recovered database usage across all storage states; include the S3 admin master when encrypted profiles require it. See [RECOVERY-04a](tor-recovery-key-bundle.md) and [RECOVERY-04b](tor-recovery-object-restore.md). A valid age digest alone does not prove the necessary keys are present.
 - Test a known wrong age identity or missing sealed bundle **against a disposable copy**: they must reject access. No plaintext KEK should be left on persistent storage.
 - This script is a **sample integrity check only**. It does not prove the full inventory, that the TOR application can decrypt and deliver the V1 or that refund/ACL state is intact.
 
@@ -62,6 +64,7 @@ Start an isolated TOR using the recovered database, restored encrypted objects a
 Verify at least:
 
 - A buyer can read the **purchased immutable V1** even after a V2 publication, using the matching historical key generation.
+- Prove actual HTTP grants and WebCrypto decryption for two restored purchased editions encrypted under independent historical **KEK V1 and KEK V2**, retaining exact pinned versions even if the active key selector has changed. On a disposable isolated copy, missing and replaced V2 must deny the V2 edition without breaking V1; after refund, fresh grants for both purchases must be denied. A CI fixture is not independent offsite evidence. If a selected archive cannot demonstrate both epochs, do not assert this control or treat that report as the full two-epoch recovery acceptance; record the missing scope and arrange a separately approved drill. Never modify production merely to manufacture evidence.
 - An eligible purchased/privileged image remains private and is served only through authorized access.
 - A refunded purchase and a blocked/unauthorized account **cannot** get a new paid-content grant; a public reader cannot access private ciphertext or a KEK.
 - A reader-saved FREE V1 remains readable as its exact historical edition after V2, through an independently restored SINGLE or activated PACK, with no reliance on the current/public version.
@@ -93,13 +96,15 @@ Store the completed report and any raw/private supporting material in the approv
 
 ~~~json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "NOT_ACCEPTED",
   "source_sha": null,
   "postgres_version": null,
   "pgbackrest_version": null,
   "restore_host_separate": false,
   "production_untouched": null,
+  "restored_pg_startup_isolation_verified": null,
+  "exclusive_pitr_pause_before_promotion_verified": null,
   "backup_set_ref_redacted": null,
   "pg_wal_evidence_ref": null,
   "object_inventory_evidence_ref": null,
@@ -118,6 +123,9 @@ Store the completed report and any raw/private supporting material in the approv
   "historical_free_receipts_verified": null,
   "private_v1_hash_and_offline_kek_verified": null,
   "purchased_v1_after_v2_verified": null,
+  "historical_key_inventory_verified": null,
+  "purchased_editions_kek_v1_v2_decryption_verified": null,
+  "historical_kek_v2_missing_or_replaced_denial_verified": null,
   "saved_free_v1_after_v2_verified": null,
   "layer_free_v1_after_deletion_verified": null,
   "refund_and_unauthorized_acl_denials_verified": null,
@@ -142,7 +150,7 @@ Store the completed report and any raw/private supporting material in the approv
 On the **approved offline operator workstation**, after completing the independent
 offsite DR drill and retaining the supporting evidence in the encrypted operator
 vault, prepare a **separate redacted JSON file** matching the exact fields above.
-Use `schema_version: 1`, `status: "REVIEW_READY"`, all applicable independent
+Use `schema_version: 2`, `status: "REVIEW_READY"`, all required independent
 control flags as JSON `true`, and nonsecret redacted identifiers for every
 `*_evidence_ref`. The command runs offline and never retrieves those references:
 
@@ -150,7 +158,9 @@ control flags as JSON `true`, and nonsecret redacted identifiers for every
 python3 tools/i11_dr_evidence_gate.py --report /secure/operator/redacted-dr-review.json
 ```
 
-The gate **refuses** missing/extra/duplicate fields; any absent saved FREE V1,
+Schema 2 is intentionally incompatible with the old V1-only report. Existing schema 1 records remain historical evidence; never migrate them by filling new flags with invented `true` values. The operator must collect independent evidence for each new control. The gate does not implement startup or authenticate that evidence.
+
+The gate **refuses** missing/extra/duplicate fields; missing isolated PostgreSQL startup review, exclusive paused PITR before promotion, historical key inventory, actual V1/V2 decryption or V2 missing/replaced denial; any absent saved FREE V1,
 historical Layer V1, Layer revocation, independent KEK/S3/WAL or offsite
 isolation evidence; false/unknown controls; malformed references; and non-UTC
 or inconsistent timestamps. It recomputes RPO and RTO from the four recorded
