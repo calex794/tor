@@ -149,7 +149,7 @@ def client_diagnostics(stderr: str) -> list[str]:
 def time_start_diagnostics(stderr: str) -> list[str]:
     """Bound synthetic fixture startup diagnostics; no raw PostgreSQL log."""
     rows = re.findall(
-        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness) '
+        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness|operator-replay) '
         r'[\x20-\x7e]{1,360}$', stderr[-32768:], re.M,
     )
     result = []

@@ -66,8 +66,9 @@ for name in ('wrong-key', 'restore', 'bad-restore', 'time-restore'):
             print(f'I11_PITR_DIAGNOSTIC {name} {match[1]} {text}')
             break
 # Synthetic fixture only. Publish bounded startup diagnostics, never raw logs.
-for name in ('time-start', 'time-pgctl', 'time-readiness'):
-    path = root / 'log' / (name + '.log')
+for name in ('time-start', 'time-pgctl', 'time-readiness', 'operator-replay'):
+    path = (Path(root) / 'time-recovery/pglog/pg-paused-replay.log'
+            if name == 'operator-replay' else Path(root) / 'log' / (name + '.log'))
     if not path.is_file():
         continue
     emitted = 0

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import subprocess
 import sys
 from unittest.mock import patch
 
@@ -77,8 +78,9 @@ def main():
         return 2
     try:
         fixture_run(Path(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]))
-    except (Refused, OSError, ValueError, KeyError):
-        print("I11_PITR_OPERATOR_HELPERS_REFUSED", file=sys.stderr)
+    except (Refused, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        reason = str(error) if isinstance(error, Refused) else "fixture execution failed"
+        print("I11_PITR_OPERATOR_HELPERS_REFUSED: " + reason, file=sys.stderr)
         return 2
     return 0
 
