@@ -6,13 +6,8 @@ on:
       - 'tests/edge/**'
       - 'docs/infra/fallback-edge.md'
       - '.github/workflows/tor-fallback-edge.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'ops/fallback/**'
-      - 'tests/edge/**'
-      - 'docs/infra/fallback-edge.md'
-      - '.github/workflows/tor-fallback-edge.yml'
+      - 'tools/ci_test_map.py'
+      - 'tests/architecture/test_fallback_workflow.py'
   workflow_dispatch:
 permissions:
   contents: read
