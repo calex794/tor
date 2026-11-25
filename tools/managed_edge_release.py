@@ -33,6 +33,16 @@ CHANNEL = re.compile(r"https://t\.me/[A-Za-z][A-Za-z0-9_]{4,31}")
 LINK = re.compile(r"releases/([0-9a-f]{40})")
 PATH = re.compile(r"/[A-Za-z0-9_./-]+")
 MARKER = "X-Tor-Edge-Release"
+HSTS = re.compile(r"max-age=[0-9]{1,12}(?:;[ \t]*(?:includeSubDomains|preload)){0,2}", re.IGNORECASE)
+
+
+def validate_hsts(value: str) -> str:
+    if not HSTS.fullmatch(value):
+        raise EdgeError("unsupported HSTS policy; operator review required")
+    directives = [part.strip().lower() for part in value.split(";")[1:]]
+    if len(set(directives)) != len(directives):
+        raise EdgeError("duplicate HSTS directive")
+    return value
 
 
 class EdgeError(ValueError):
@@ -141,6 +151,23 @@ class EdgeStore:
         if not trusted(path).st_mode & stat.S_IROTH:
             raise EdgeError("operator settings must be readable by Nginx")
 
+    def hsts_policy(self) -> str | None:
+        path = self.settings / "hsts.txt"
+        if not os.path.lexists(path):
+            return None
+        return validate_hsts(read_small(path, 256).decode("ascii"))
+
+    def preserve_hsts(self, observed: str | None):
+        """First adoption only; never silently replace an existing policy."""
+        if observed is not None:
+            validate_hsts(observed)
+        if self.hsts_policy() is not None:
+            if self.hsts_policy() != observed:
+                raise EdgeError("stored HSTS differs from live policy")
+        elif observed is not None:
+            write_new(self.settings / "hsts.txt", observed.encode("ascii"))
+            sync_dir(self.settings)
+
     def payload(self, source: Path, sha: str) -> dict[str, bytes]:
         site = self.releases / sha / "site"
         files = {"site/" + dest: read_small(source / src, bundle.LIMITS[src])
@@ -159,6 +186,18 @@ class EdgeStore:
             text = text.replace(old, "alias " + str(target) + ";")
         if "/var/lib/tor-fallback/" in text:
             raise EdgeError("unexpected legacy alias")
+        # Nginx 1.24 drops inherited add_header directives when a location
+        # defines any of its own. Preserve the reviewed live HSTS policy.
+        hsts = self.hsts_policy()
+        if hsts is not None:
+            if "strict-transport-security" in text.lower():
+                raise EdgeError("signed template has a conflicting HSTS policy")
+            for name in (*ASSETS, "config.json"):
+                location = f"location = /_tor-fallback/{name} {{"
+                if text.count(location) != 1:
+                    raise EdgeError("unsupported HSTS location template")
+                text = text.replace(location, location +
+                                    f'\n    add_header Strict-Transport-Security "{hsts}" always;')
         marker = "location = /_tor-fallback/game.js {"
         if text.count(marker) != 1 or MARKER.lower() in text.lower():
             raise EdgeError("signed marker template does not match contract")
