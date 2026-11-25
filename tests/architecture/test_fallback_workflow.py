@@ -16,6 +16,7 @@ class FallbackWorkflowTests(unittest.TestCase):
         for required in (
             "  pull_request:", "  workflow_dispatch:", "contents: read",
             "persist-credentials: false", "python3 tests/edge/fallback_smoke.py",
+            "unshare --net", "python3 tests/edge/managed_edge_smoke.py",
         ):
             self.assertIn(required, text)
         for forbidden in (
@@ -24,5 +25,6 @@ class FallbackWorkflowTests(unittest.TestCase):
             "ssh ", "scp ", "sudo systemctl",
         ):
             self.assertNotIn(forbidden, text)
-        for path in ("tests/edge/fallback_smoke.py", "tests/edge/fallback_browser.cjs"):
+        for path in ("tests/edge/fallback_smoke.py", "tests/edge/fallback_browser.cjs",
+                     "tests/edge/managed_edge_smoke.py"):
             self.assertTrue((ROOT / path).is_file())

@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 import managed_edge_release as edge
 import release_bundle_v2 as bundle
@@ -247,10 +248,18 @@ def adopt(store, source, sha, signers, vhost, approved_hash, nginx):
                 raise edge.EdgeError("vhost changed externally; refusing overwrite")
             nginx.test()
             nginx.reload()
-            compare_catalog(before, nginx.snapshot("/catalog"))
-            restored = nginx.snapshot("/_tor-fallback/game.js")
-            if restored.status != old_asset.status or restored.headers.get(edge.MARKER.lower()):
-                raise edge.EdgeError("previous HTTPS response not restored")
+            # Reload is asynchronous: old workers may still answer briefly.
+            for attempt in range(8):
+                try:
+                    compare_catalog(before, nginx.snapshot("/catalog"))
+                    restored = nginx.snapshot("/_tor-fallback/game.js")
+                    if restored.status != old_asset.status or restored.headers.get(edge.MARKER.lower()):
+                        raise edge.EdgeError("previous HTTPS response not restored")
+                    break
+                except (edge.EdgeError, OSError, subprocess.SubprocessError):
+                    if attempt == 7:
+                        raise
+                    time.sleep(0.5)
             if os.path.lexists(store.current):
                 if not store.current.is_symlink() or os.readlink(store.current) != "releases/" + sha:
                     raise edge.EdgeError("managed link changed externally")
@@ -264,7 +273,7 @@ def adopt(store, source, sha, signers, vhost, approved_hash, nginx):
 
 class ProductionAdoption(edge.ProductionNginx):
     def loaded(self, path):
-        result = subprocess.run(["nginx", "-T"], capture_output=True, check=True, timeout=20)
+        result = subprocess.run(self.nginx_command("-T"), capture_output=True, check=True, timeout=20)
         # Never print nginx -T; it can contain credentials and private paths.
         config = result.stdout.decode("utf-8")
         markers = re.findall(r"^# configuration file (/.+):$", config, re.M)

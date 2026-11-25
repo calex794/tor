@@ -4,6 +4,10 @@ on:
     paths:
       - 'ops/fallback/**'
       - 'tests/edge/**'
+      - 'tools/release_bundle_v2.py'
+      - 'tools/managed_edge_release.py'
+      - 'tools/adopt_edge_vhost.py'
+      - 'docs/infra/deploy-edge-real-nginx.md'
       - 'docs/infra/fallback-edge.md'
       - '.github/workflows/tor-fallback-edge.yml'
       - 'tools/ci_test_map.py'
@@ -27,7 +31,7 @@ jobs:
       - name: Install isolated edge and browser dependencies
         run: |
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx iproute2 util-linux openssl openssh-client
           npm install --no-save playwright@1.56.1
           npx playwright install --only-shell chromium
       - name: Real Nginx failures and Chromium acceptance
@@ -36,6 +40,17 @@ jobs:
           node --check ops/fallback/site/game.js
           node --check tests/edge/fallback_browser.cjs
           TOR_FALLBACK_SHOTS="$RUNNER_TEMP/fallback-shots" python3 tests/edge/fallback_smoke.py
+      - name: Signed adoption, HTTPS switch and real rollback
+        run: |
+          set -o pipefail
+          sudo unshare --net -- bash -ec 'ip link set lo up; exec python3 tests/edge/managed_edge_smoke.py' | tee "$RUNNER_TEMP/managed-edge.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: managed-edge-evidence
+          path: ${{ runner.temp }}/managed-edge.log
+          if-no-files-found: warn
+          retention-days: 10
       - uses: actions/upload-artifact@v4
         if: always()
         with:

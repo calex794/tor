@@ -320,8 +320,12 @@ class ProductionNginx:
         subprocess.run(args, check=True, timeout=20,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    @staticmethod
+    def nginx_command(*args):
+        return ["nginx", *args]
+
     def test(self):
-        self.command(["nginx", "-t"])
+        self.command(self.nginx_command("-t"))
 
     def reload(self):
         self.command(["systemctl", "reload", "nginx"])
