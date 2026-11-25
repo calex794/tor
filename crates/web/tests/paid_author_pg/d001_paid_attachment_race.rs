@@ -450,7 +450,11 @@ async fn run_paid_attachment_race(author_first: bool) {
     };
     let pinned_second = current();
     assert_ne!(pinned_second, v2);
-    let second_object = paid.encrypted_chapter(pinned_second).await.unwrap().unwrap();
+    let second_object = paid
+        .encrypted_chapter(pinned_second)
+        .await
+        .unwrap()
+        .unwrap();
     let second_ciphertext = store.get_verified(&second_object.object).await.unwrap();
     let (second_buyer, _) = user(&accounts, "d001-attach-buyer-second@example.invalid").await;
     pg(
@@ -491,7 +495,12 @@ async fn run_paid_attachment_race(author_first: bool) {
     assert_eq!(counts(), "3|3|4");
     for (reader, own_version, entity, expected_ciphertext) in [
         (buyer, v1, old_object, old_ciphertext),
-        (second_buyer, pinned_second, second_object, second_ciphertext),
+        (
+            second_buyer,
+            pinned_second,
+            second_object,
+            second_ciphertext,
+        ),
     ] {
         assert_eq!(
             pg(
