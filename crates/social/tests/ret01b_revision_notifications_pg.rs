@@ -85,23 +85,7 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
         .execute(&pool)
         .await
         .unwrap();
-    let root: String = sqlx::query_scalar(
-        "INSERT INTO outbox_events
-           (event_type,schema_version,aggregate_kind,aggregate_id,
-            dedupe_key,payload,required_consumers)
-         VALUES('ChapterPublished',1,'chapter',$1,$2,
-                jsonb_build_object('chapter_id',$1,'book_id',$3,'version_id',$4,
-                                   'first_release',false,'published_at',clock_timestamp()),
-                ARRAY['chapter_revision_fanout_v1']::text[])
-         RETURNING id::text",
-    )
-    .bind(chapter)
-    .bind(format!("ci:ret01b:v2:{nonce}"))
-    .bind(book)
-    .bind(v2)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let root = queue_revision_root(&pool, book, chapter, v2).await;
     sqlx::query("INSERT INTO reader_book_follows(user_id,book_id) VALUES($1,$2)")
         .bind(late)
         .bind(book)
@@ -212,5 +196,103 @@ async fn ret01b_free_revision_fanout_is_version_aware_and_not_retroactive() {
             .is_empty(),
         "an unfollow hides the private V2 notice immediately"
     );
+    // Only the late follower is now subscribed. Fan out V3 while it is
+    // current, then move the publication to V4 before the delivery worker.
+    let v3 = publish_revision_fixture(&pool, chapter, 3, "RET changed again").await;
+    let v3_root = queue_revision_root(&pool, book, chapter, v3).await;
+    assert_eq!(notifications.fanout_chapter_releases(1).await.unwrap(), 1);
+    let stale: String = sqlx::query_scalar(
+        "SELECT id::text FROM outbox_events WHERE aggregate_id=$1
+         AND event_type='reader.chapter.updated' AND delivered_at IS NULL
+         AND payload->>'source_event_id'=$2 AND (payload->>'recipient_user_id')::bigint=$3
+         AND (payload->>'version_id')::bigint=$4",
+    )
+    .bind(chapter)
+    .bind(&v3_root)
+    .bind(late)
+    .bind(v3)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let v4 = publish_revision_fixture(&pool, chapter, 4, "RET newest chapter").await;
+    assert_eq!(notifications.deliver_pending(1).await.unwrap(), 1);
+    assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
+    let stale_state: (bool, bool, bool) = sqlx::query_as(
+        "SELECT e.delivered_at IS NOT NULL,
+                EXISTS(SELECT 1 FROM event_deliveries d
+                       WHERE d.event_id=e.id AND d.consumer='user_notifications'),
+                EXISTS(SELECT 1 FROM user_notifications n WHERE n.source_event_id=e.id)
+         FROM outbox_events e WHERE e.id=$1::uuid",
+    )
+    .bind(&stale)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stale_state, (true, true, false));
+
+    // The same still-eligible reader does receive an event for current V4.
+    let v4_root = queue_revision_root(&pool, book, chapter, v4).await;
+    assert_eq!(notifications.fanout_chapter_releases(1).await.unwrap(), 1);
+    assert_eq!(notifications.deliver_pending(1).await.unwrap(), 1);
+    assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
+    let visible: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT (e.payload->>'version_id')::bigint,n.url
+         FROM user_notifications n JOIN outbox_events e ON e.id=n.source_event_id
+         WHERE n.recipient_user_id=$1 AND n.kind='chapter_updated' AND e.aggregate_id=$2
+           AND e.payload->>'source_event_id'=$3",
+    )
+    .bind(late)
+    .bind(chapter)
+    .bind(&v4_root)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(visible, vec![(v4, format!("/read/{chapter}"))]);
+    std::io::Write::write_all(
+        &mut std::io::stdout().lock(),
+        b"D001_SUPERSEDED_FREE_REVISION_BELL_SUPPRESSED_OK\n",
+    )
+    .unwrap();
     pool.close().await;
+}
+
+async fn publish_revision_fixture(pool: &PgPool, chapter: i64, number: i32, body: &str) -> i64 {
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,$2,$3) RETURNING id",
+    )
+    .bind(chapter)
+    .bind(number)
+    .bind(body)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter)
+        .bind(version)
+        .execute(pool)
+        .await
+        .unwrap();
+    version
+}
+
+async fn queue_revision_root(pool: &PgPool, book: i64, chapter: i64, version: i64) -> String {
+    sqlx::query_scalar(
+        "INSERT INTO outbox_events
+           (event_type,schema_version,aggregate_kind,aggregate_id,
+            dedupe_key,payload,required_consumers)
+         VALUES('ChapterPublished',1,'chapter',$1,$2,
+                jsonb_build_object('chapter_id',$1,'book_id',$3,'version_id',$4,
+                                   'first_release',false,'published_at',clock_timestamp()),
+                ARRAY['chapter_revision_fanout_v1']::text[])
+         RETURNING id::text",
+    )
+    .bind(chapter)
+    .bind(format!("ci:ret01b:{chapter}:{version}"))
+    .bind(book)
+    .bind(version)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
