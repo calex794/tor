@@ -173,7 +173,7 @@ class OneClickReleaseTests(unittest.TestCase):
     def test_signed_trace_writer_reaches_root_owned_release_without_auto_start(self):
         # The exact same three hashes must be signed on Actions, checked in
         # the inbox, and checked again after root-owned installation.
-        self.assertIn("cargo build --release -p tor-observability --bin tor-trace-store", WORKFLOW)
+        self.assertIn("cargo build --release --locked -p tor-observability --bin tor-trace-store", WORKFLOW)
         self.assertIn("sha256sum target/release/tor-trace-store", WORKFLOW)
         self.assertIn('cat "$RUNNER_TEMP/tor-trace-store.sha256"', WORKFLOW)
         self.assertIn('target/release/tor-trace-store "$destination:$inbox/tor-trace-store"', WORKFLOW)

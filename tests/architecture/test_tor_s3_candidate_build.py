@@ -33,7 +33,7 @@ class S3CandidateBuildTests(unittest.TestCase):
 
     def test_exact_free_s3_build_profile_and_evidence_not_binary(self):
         self.assertIn(
-            'cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers"',
+            'cargo build --release --locked -p tor-web --features "s3-free,s3-chapter-import,s3-covers"',
             WORKFLOW,
         )
         self.assertNotIn('"s3-free,s3-chapter-import,s3-covers,s3-paid"', WORKFLOW)
@@ -49,8 +49,8 @@ class S3CandidateBuildTests(unittest.TestCase):
     def test_existing_production_release_stays_non_s3_and_manual(self):
         self.assertIn("environment: tor-staging", PRODUCTION)
         self.assertIn("  workflow_dispatch:", PRODUCTION)
-        web_builds = re.findall(r"^\s*cargo build --release -p tor-web.*$", PRODUCTION, re.M)
-        self.assertEqual([row.strip() for row in web_builds], ["cargo build --release -p tor-web"])
+        web_builds = re.findall(r"^\s*cargo build --release --locked -p tor-web.*$", PRODUCTION, re.M)
+        self.assertEqual([row.strip() for row in web_builds], ["cargo build --release --locked -p tor-web"])
 
     def test_existing_tore_is_not_modified_and_publisher_is_separate(self):
         for item in ("existing `tore` bucket", "`tor-s3-publisher`",

@@ -25,7 +25,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers"
+          git ls-files --error-unmatch Cargo.lock
+          test -s Cargo.lock
+          git diff --exit-code HEAD -- Cargo.lock
+          cp Cargo.lock "$RUNNER_TEMP/tor-release-input.lock"
+          cargo build --release --locked -p tor-web --features "s3-free,s3-chapter-import,s3-covers"
+          cmp Cargo.lock "$RUNNER_TEMP/tor-release-input.lock"
+          git ls-files --error-unmatch Cargo.lock
+          git diff --exit-code HEAD -- Cargo.lock
+          sha256sum Cargo.lock > "$RUNNER_TEMP/tor-release-lock.sha256"
           test -x target/release/tor-web
           sha256sum target/release/tor-web | sed 's#target/release/##' > "$RUNNER_TEMP/tor-s3-build.sha256"
           {
@@ -44,5 +52,6 @@ jobs:
           path: |
             ${{ runner.temp }}/tor-s3-build.sha256
             ${{ runner.temp }}/tor-s3-build-evidence.txt
+            ${{ runner.temp }}/tor-release-lock.sha256
           if-no-files-found: error
           retention-days: 7

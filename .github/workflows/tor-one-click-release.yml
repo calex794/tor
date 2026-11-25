@@ -60,9 +60,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/check_feature_layout.py
-          cargo build --release -p tor-web
-          cargo build --release -p tor-migrations --bin tor-migrate
-          cargo build --release -p tor-observability --bin tor-trace-store
+          git ls-files --error-unmatch Cargo.lock
+          test -s Cargo.lock
+          git diff --exit-code HEAD -- Cargo.lock
+          cp Cargo.lock "$RUNNER_TEMP/tor-release-input.lock"
+          cargo build --release --locked -p tor-web
+          cargo build --release --locked -p tor-migrations --bin tor-migrate
+          cargo build --release --locked -p tor-observability --bin tor-trace-store
+          cmp Cargo.lock "$RUNNER_TEMP/tor-release-input.lock"
+          git ls-files --error-unmatch Cargo.lock
+          git diff --exit-code HEAD -- Cargo.lock
+          sha256sum Cargo.lock > "$RUNNER_TEMP/tor-release-lock.sha256"
           sha256sum target/release/tor-web | sed 's#target/release/##' \
             > "$RUNNER_TEMP/tor-web.sha256"
           sha256sum target/release/tor-migrate | sed 's#target/release/##' \
@@ -158,5 +166,6 @@ jobs:
             ${{ runner.temp }}/tor-web.sha256
             ${{ runner.temp }}/tor-migrate.sha256
             ${{ runner.temp }}/tor-trace-store.sha256
+            ${{ runner.temp }}/tor-release-lock.sha256
           if-no-files-found: warn
           retention-days: 14
