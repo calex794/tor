@@ -203,3 +203,56 @@ same lock immediately before any startup and independently enforce the
 isolated environment. Next: real replay using generated config in a
 disposable fixture, then the separately guarded operational launch and
 paused-state/transaction-boundary witness. No automatic promotion.
+
+## RECOVERY-09c: separately authorized paused replay, then shutdown
+
+After the generated-config real fixture succeeds and RECOVERY-09a is
+accepted, use `tools/tor_recovery_pg_run.py` with the same independently
+selected host/checkpoint and six resource arguments. The default checks
+only the prepared files and launch-artifact absence. No process starts.
+
+Actual execution requires both `--run-paused-replay` and
+`--operator-confirm-reviewed-isolated-execution`, in addition to the
+existing independent/quiescent host confirmation. **Do not confirm**
+until a separately reviewed disposable VM/host has trusted OS/packages
+and loader/libraries; exclusive postgres identity and no other workloads;
+restricted egress only to the independently pinned read-only pgBackRest
+repository; no production credentials, writable external mounts, or
+network access to the source/primary; and an independent review of
+untrusted restored catalogs, extensions and WAL. The CLI checks root
+ownership, non-writable ancestry and exact executable paths, not
+cryptographic package authenticity or firewall policy. These operator
+and infrastructure requirements are not satisfied by a flag alone.
+
+Choose an explicit bounded `--replay-timeout-seconds` (60–14400,
+default 300) appropriate to the selected backup and WAL volume.
+Under the existing stage lock, rerun host/preflight and exact config
+verification before creating a durable, non-overwriting launch attempt.
+Invoke only fixed installed PG18 tools as the unprivileged postgres
+account with cleared environment, explicit config_file, private log
+and socket. A successful pg_ctl start is not replay success. Query only
+built-in catalog state, require the intended effective recovery settings,
+two equal actual paused WAL LSN/time witnesses and a last replayed
+transaction strictly before the chosen UTC target. No SQL input from
+the operator or business tables is executed in this step.
+
+Always attempt a bounded fast shutdown, including after failed startup,
+failed witness or handled interruption; require disappearance of the
+postmaster PID and empty socket directory plus preserved recovery.signal.
+On uncertain shutdown, keep the independent host isolated and inspect
+it manually. A process or VM killed outside the tool may still require
+manual containment. Never clear the launch attempt or retry automatically.
+
+The private `evidence/pg-paused-replay-receipt.json` is written only
+after successful paused-state witness and confirmed shutdown.
+It deliberately retains exact_target_transaction_boundary_verified=false,
+promotion_authorized=false and recovery_accepted=false. Pausing may
+also occur for other reasons; a stable LSN/time before the target does
+not establish the exact transaction/business boundary. Independently
+review recovery logs and actual before/after transaction and TOR
+purchase/ACL/key/object witnesses in later steps. Never resume replay,
+promote, start TOR or deploy automatically. Only a disposable real PG18
+test and separately approved external exercise can establish the
+remaining evidence. See PostgreSQL 18 documentation:
+https://www.postgresql.org/docs/18/runtime-config-wal.html
+and https://www.postgresql.org/docs/18/functions-admin.html.

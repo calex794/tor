@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -16,6 +17,7 @@ import uuid
 
 DOCKER = ('docker', '--host=unix:///var/run/docker.sock')
 ROOT = Path(__file__).resolve().parents[1]
+MAX_FIXTURE_DUMP = 64 * 1024 * 1024
 CHECKS = (
     'source_removed', 'base_marker_restored', 'post_backup_wal_marker_restored',
     'post_target_marker_absent', 'wrong_key_rejected', 'unreachable_target_rejected',
@@ -23,6 +25,11 @@ CHECKS = (
     'utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
     'utc_target_no_promotion_verified',
     'generated_startup_config_verified_and_used',
+    'operator_paused_replay_helpers_verified',
+    'tor_checkout_finance_replayed_from_wal',
+    'original_finance_snapshot_digest_matched',
+    'tor_refund_finance_and_revocation_replayed_from_wal',
+    'post_target_wallet_change_excluded',
 )
 LIMITATIONS = (
     'production_tested', 'offsite_tested', 'application_acl_tested',
@@ -35,6 +42,9 @@ FIXTURE_MODULES = (
     'tor_recovery_pg_startup_config.py',
     'tor_recovery_pg_config_verify.py',
     'i11_pitr_prepare_config.py',
+    'tor_recovery_pg_run.py',
+    'i11_pitr_run_paused.py',
+    'i11_finance_restore_facts.sql',
 )
 DOCKERFILE = b'''FROM postgres:18
 USER root
@@ -63,6 +73,34 @@ def validate_environment(env: dict[str, str]) -> tuple[str, Path]:
     return sha, path.resolve()
 
 
+def open_fixture_dump(raw: str, destination: Path):
+    """Only the current disposable sealed-restore fixture, never a user archive."""
+    path = Path(raw)
+    if (not path.is_absolute() or path.name != 'restored.dump'
+            or path.parent.parent != destination
+            or not re.fullmatch(r'tor-dr-vault\.[A-Za-z0-9]{8}', path.parent.name)):
+        raise ValueError('expected disposable sealed restore archive')
+    parent = path.parent.lstat()
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
+            or stat.S_IMODE(parent.st_mode) != 0o700):
+        raise ValueError('expected private disposable archive directory')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600
+                or not 5 <= info.st_size <= MAX_FIXTURE_DUMP):
+            raise ValueError('expected bounded private custom PostgreSQL archive')
+        if os.read(fd, 5) != b'PGDMP':
+            raise ValueError('expected PostgreSQL custom archive header')
+        os.lseek(fd, 0, os.SEEK_SET)
+        stream = os.fdopen(fd, 'rb')
+    except BaseException:
+        os.close(fd)
+        raise
+    return stream
+
+
 def build_context(script: bytes, modules: dict[str, bytes]) -> bytes:
     if set(modules) != set(FIXTURE_MODULES):
         raise ValueError('exact allowlisted recovery fixture modules required')
@@ -77,12 +115,15 @@ def build_context(script: bytes, modules: dict[str, bytes]) -> bytes:
     return archive.getvalue()
 
 
-def run_command(image: str, name: str) -> list[str]:
-    return [*DOCKER, 'run', '--rm', '--name', name, '--network', 'none',
+def run_command(image: str, name: str, finance_sha256: str) -> list[str]:
+    if not re.fullmatch(r'[0-9a-f]{64}', finance_sha256) or finance_sha256 == '0' * 64:
+        raise ValueError('independently retained fixture finance digest required')
+    return [*DOCKER, 'run', '--rm', '--interactive', '--name', name, '--network', 'none',
             '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
             '--read-only', '--tmpfs', '/tmp:rw,size=1073741824,mode=1777',
             '--memory', '1g', '--cpus', '2', '--pids-limit', '256',
-            '--env', 'TOR_I11_DISPOSABLE_CONTAINER=yes', image]
+            '--env', 'TOR_I11_DISPOSABLE_CONTAINER=yes',
+            '--env', 'TOR_I11_FINANCE_SHA256=' + finance_sha256, image]
 
 
 def validate_report(raw: str) -> dict:
@@ -95,7 +136,7 @@ def validate_report(raw: str) -> dict:
                 'backup_label', 'drill_elapsed_seconds', *CHECKS, *LIMITATIONS}
     if set(report) != expected:
         raise ValueError('incomplete or unexpected report fields')
-    if type(report['schema_version']) is not int or report['schema_version'] != 2:
+    if type(report['schema_version']) is not int or report['schema_version'] != 5:
         raise ValueError('unsupported report schema')
     if report['scope'] != 'isolated_container_fixture':
         raise ValueError('invalid evidence scope')
@@ -146,7 +187,7 @@ def client_diagnostics(stderr: str) -> list[str]:
 def time_start_diagnostics(stderr: str) -> list[str]:
     """Bound synthetic fixture startup diagnostics; no raw PostgreSQL log."""
     rows = re.findall(
-        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness) '
+        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness|operator-replay) '
         r'[\x20-\x7e]{1,360}$', stderr[-32768:], re.M,
     )
     result = []
@@ -163,13 +204,18 @@ def time_start_diagnostics(stderr: str) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 1:
-        print('REFUSE: no arguments accepted', file=sys.stderr)
+    if (len(sys.argv) != 5 or sys.argv[1] != '--fixture-dump'
+            or sys.argv[3] != '--finance-sha256'):
+        print('REFUSE: exact disposable CI dump and finance digest required', file=sys.stderr)
         return 2
     try:
         sha, destination = validate_environment(dict(os.environ))
-    except ValueError as error:
-        print('REFUSE: ' + str(error), file=sys.stderr)
+        finance_sha256 = sys.argv[4]
+        if not re.fullmatch(r'[0-9a-f]{64}', finance_sha256) or finance_sha256 == '0' * 64:
+            raise ValueError('invalid fixture finance digest')
+        archive = open_fixture_dump(sys.argv[2], destination)
+    except (OSError, ValueError):
+        print('REFUSE: invalid disposable CI environment or archive', file=sys.stderr)
         return 2
     name = 'tor-i11-pitr-' + uuid.uuid4().hex
     image = name + ':ci'
@@ -183,8 +229,10 @@ def main() -> int:
         )
         subprocess.run([*DOCKER, 'build', '--tag', image, '-'], input=context,
                        env=env, check=True, timeout=600, stdout=subprocess.DEVNULL)
-        result = subprocess.run(run_command(image, name), env=env, check=True,
-                                timeout=300, capture_output=True, text=True)
+        # Stream the synthetic archive at runtime. Never put archive bytes
+        # into the Docker image, build context, logs or a host bind mount.
+        result = subprocess.run(run_command(image, name, finance_sha256), env=env, check=True,
+                                stdin=archive, timeout=300, capture_output=True, text=True)
         report = validate_report(result.stdout)
         report['source_sha'] = sha
         report['container_image_id'] = subprocess.check_output(
@@ -218,6 +266,7 @@ def main() -> int:
         print('FAIL: isolated I-11 PITR drill; no release or SLO approval', file=sys.stderr)
         return 1
     finally:
+        archive.close()
         for command in ([*DOCKER, 'rm', '--force', '--volumes', name],
                         [*DOCKER, 'image', 'rm', image]):
             try:
