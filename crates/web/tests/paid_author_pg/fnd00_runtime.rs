@@ -36,7 +36,10 @@ fn runtime_command(url: &str, bucket: &str) -> (Command, String) {
         .env("AWS_ENDPOINT_URL_S3", ENDPOINT)
         .env("AWS_REGION", "us-east-1")
         .env("AWS_EC2_METADATA_DISABLED", "true")
-        .env("AWS_ACCESS_KEY_ID", env::var("TOR_TEST_S3_ACCESS_KEY").unwrap())
+        .env(
+            "AWS_ACCESS_KEY_ID",
+            env::var("TOR_TEST_S3_ACCESS_KEY").unwrap(),
+        )
         .env(
             "AWS_SECRET_ACCESS_KEY",
             env::var("TOR_TEST_S3_SECRET_KEY").unwrap(),
@@ -72,7 +75,12 @@ async fn start_paid_runtime(
 
 async fn assert_rejected_boot(mut command: Command, expected: &str) {
     use std::io::Read;
-    let mut server = PaidRuntime(command.stderr(std::process::Stdio::piped()).spawn().unwrap());
+    let mut server = PaidRuntime(
+        command
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
     let status = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             if let Some(status) = server.0.try_wait().unwrap() {
@@ -91,7 +99,10 @@ async fn assert_rejected_boot(mut command: Command, expected: &str) {
         .unwrap()
         .read_to_string(&mut reason)
         .unwrap();
-    assert!(!status.success(), "invalid configuration unexpectedly succeeded");
+    assert!(
+        !status.success(),
+        "invalid configuration unexpectedly succeeded"
+    );
     assert!(
         reason.contains(expected),
         "startup failed for an unexpected reason"
@@ -102,7 +113,10 @@ async fn assert_rejected_boot(mut command: Command, expected: &str) {
 #[ignore = "requires disposable PG18 and isolated MinIO"]
 async fn fnd00_paid_runtime_explicit_opt_in_and_restart_preserve_bodyless_source() {
     let url = env::var("TEST_DATABASE_URL").expect("disposable CI database");
-    assert_eq!(url, "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci");
+    assert!(
+        url == "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
+        "requires disposable CI database"
+    );
     assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").as_deref(), Ok(ENDPOINT));
     let bucket = "tor-fnd00-paid-runtime-ci";
@@ -207,6 +221,18 @@ async fn fnd00_paid_runtime_explicit_opt_in_and_restart_preserve_bodyless_source
     };
     let exact = format!("{version}|1|1|0|1");
     assert_eq!(snapshot(), exact);
+    let stored_identity = || {
+        pg(
+            &url,
+            &format!(
+                "SELECT storage_object_id::text||'|'||encode(content_sha256,'hex')
+                 FROM chapter_versions WHERE chapter_id={chapter} AND id={version}"
+            ),
+        )
+    };
+    let identity = stored_identity();
+    let sha = hex::encode(tor_storage::services::crypto::sha256_bytes(body.as_bytes()));
+    assert!(identity.ends_with(&format!("|{sha}")));
     let edit = format!("{route}/{chapter}/edit");
     let page = http
         .get(format!("{origin}{edit}"))
@@ -244,6 +270,7 @@ async fn fnd00_paid_runtime_explicit_opt_in_and_restart_preserve_bodyless_source
         .unwrap();
     assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(snapshot(), exact);
+    assert_eq!(stored_identity(), identity);
     drop(runtime);
 
     let (mut enabled, origin) = runtime_command(&url, bucket);
@@ -258,6 +285,7 @@ async fn fnd00_paid_runtime_explicit_opt_in_and_restart_preserve_bodyless_source
     assert_eq!(restored.status(), StatusCode::OK);
     assert!(restored.text().await.unwrap().contains(body));
     assert_eq!(snapshot(), exact);
+    assert_eq!(stored_identity(), identity);
     drop(runtime);
     std::io::Write::write_all(
         &mut std::io::stdout().lock(),
