@@ -312,6 +312,55 @@ class EdgeStore:
         return previous
 
 
+def worker_generation(master: int) -> frozenset[int]:
+    """Active workers only; a draining worker no longer accepts new requests."""
+    result = subprocess.run(
+        ["ps", "-ww", "--ppid", str(master), "-o", "pid=,args="],
+        capture_output=True, text=True, check=False, timeout=5,
+    )
+    if result.returncode not in (0, 1):
+        raise EdgeError("cannot inspect Nginx worker generation")
+    workers = set()
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None, 1)
+        if len(fields) == 2 and fields[1] == "nginx: worker process":
+            workers.add(int(fields[0]))
+    return frozenset(workers)
+
+
+def master_identity(pid: int) -> tuple[int, str]:
+    if pid <= 1:
+        raise EdgeError("invalid Nginx master PID")
+    path = Path("/proc") / str(pid)
+    try:
+        title = (path / "cmdline").read_bytes().split(b"\x00", 1)[0]
+        # Field 22 (start time) follows the parenthesized process name.
+        fields = (path / "stat").read_text().rsplit(")", 1)[1].split()
+        if not title.startswith(b"nginx: master process ") or len(fields) < 20:
+            raise EdgeError("unexpected Nginx master process")
+        return pid, fields[19]
+    except (OSError, IndexError):
+        raise EdgeError("cannot inspect Nginx master process") from None
+
+
+def await_worker_generation(master, previous, read_master, read_workers,
+                            *, attempts=40, wait=time.sleep):
+    """Do not confuse old workers answering HTTPS with a completed reload."""
+    consecutive = 0
+    for _ in range(attempts):
+        if read_master() != master:
+            raise EdgeError("Nginx master changed during reload")
+        current = read_workers(master[0])
+        if current and current.isdisjoint(previous):
+            consecutive += 1
+            if consecutive >= 3:
+                return
+        else:
+            consecutive = 0
+        wait(0.25)
+    raise EdgeError("Nginx worker generation did not converge")
+
+
 class ProductionNginx:
     """Fixed production commands; no caller-provided command or hostname."""
 
@@ -327,8 +376,28 @@ class ProductionNginx:
     def test(self):
         self.command(self.nginx_command("-t"))
 
-    def reload(self):
+    def master_pid(self):
+        result = subprocess.run(
+            ["systemctl", "show", "nginx.service", "--property=MainPID", "--value"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        if not re.fullmatch(r"[1-9][0-9]*\n?", result.stdout):
+            raise EdgeError("invalid Nginx master PID")
+        return int(result.stdout)
+
+    def master_identity(self):
+        return master_identity(self.master_pid())
+
+    def reload_command(self):
         self.command(["systemctl", "reload", "nginx"])
+
+    def reload(self):
+        master = self.master_identity()
+        previous = worker_generation(master[0])
+        if not previous:
+            raise EdgeError("no active Nginx worker before reload")
+        self.reload_command()
+        await_worker_generation(master, previous, self.master_identity, worker_generation)
 
     def probe(self, sha: str, directory: Path):
         expected = hashlib.sha256(read_small(directory / "site/game.js", 1024 * 1024)).digest()

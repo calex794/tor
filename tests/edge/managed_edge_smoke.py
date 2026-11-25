@@ -46,7 +46,10 @@ class LabNginx(adoption.ProductionAdoption):
         return ["nginx", "-p", str(self.root) + "/", "-c",
                 str(self.root / "nginx.conf"), *args]
 
-    def reload(self):
+    def master_pid(self):
+        return int((self.root / "nginx.pid").read_text())
+
+    def reload_command(self):
         self.command(self.nginx_command("-s", "reload"))
 
 

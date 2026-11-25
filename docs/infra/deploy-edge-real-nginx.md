@@ -30,3 +30,9 @@ HTTP/Chromium испытаний. Только pull_request / workflow_dispatch,
 проверяется отказ вне namespace. Журнал managed-edge-evidence.
 Не доказательство готовности реального VPS или комплексного Rust rollback:
 следующие задачи — trusted bootstrap, systemd, журнал и совместный release.
+
+Regression: reload now waits for the same Linux Nginx master (PID and
+process start time), a distinct active worker generation and three
+consecutive observations without old active workers. Draining workers may
+finish established connections. The actual TLS marker/hash and rollback
+snapshot checks run after this fence, not immediately after signal delivery.
