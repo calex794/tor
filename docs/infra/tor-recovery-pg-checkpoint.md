@@ -179,3 +179,27 @@ WAL/data bytes remain untrusted. Independent network/OS isolation,
 trusted executable review, actual paused WAL replay with SQL witnesses,
 and separately authorized promotion remain separate gates. Never run
 this operator path in GitHub Actions or on the working server.
+
+## RECOVERY-09a: verify completed configuration before startup
+
+After successful RECOVERY-08 preparation, run
+`tools/tor_recovery_pg_config_verify.py` with the same independently
+selected host/checkpoint and six resource settings (without
+`--prepare-config`). It repeats the host and RECOVERY-07 preflight under
+the existing nonblocking stage lock. It then independently renders the
+expected PostgreSQL config, HBA and ident bytes and requires the exact
+three-file inventory, safe ownership, modes and contents. It checks the
+attempt marker, private preserved original auto.conf, empty active
+auto.conf and absence of a partial replacement. Recompute the complete
+canonical config receipt from the verified selection and files; do not
+accept an edited config merely because its digest in a receipt matches.
+
+`TOR_RECOVERY_PG_CONFIG_VERIFIED` is read-only evidence, not authorization
+to start. The receipt is not an independent signature. A concurrently
+modified PGDATA, same-device bind mount, compromised operating system,
+catalog, extension or executable remains outside this verifier's trust
+boundary. The future launcher must repeat this verification under the
+same lock immediately before any startup and independently enforce the
+isolated environment. Next: real replay using generated config in a
+disposable fixture, then the separately guarded operational launch and
+paused-state/transaction-boundary witness. No automatic promotion.
