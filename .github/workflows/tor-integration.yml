@@ -284,23 +284,7 @@ jobs:
             cargo test -p tor-migrations --test rec_preferences_installed_upgrade_pg -- --ignored --test-threads=1
       - name: Prepare explicit legacy and installed-upgrade analytics databases
         run: |
-          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
-          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
-          SQL
-          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
-            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
-          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
-          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          done
+          bash tools/ci_prepare_legacy_analytics.sh
           cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
           cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
@@ -790,23 +774,7 @@ jobs:
       - name: Prepare explicit legacy and installed-upgrade analytics databases
         if: ${{ matrix.lane == 'historical' }}
         run: |
-          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
-          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
-          SQL
-          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
-            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
-          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
-          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          done
+          bash tools/ci_prepare_legacy_analytics.sh
           cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
           cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
@@ -882,23 +850,7 @@ jobs:
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
       - name: Prepare explicit legacy and installed-upgrade analytics databases
         run: |
-          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
-          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
-          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
-          SQL
-          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
-            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
-          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
-          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          done
+          bash tools/ci_prepare_legacy_analytics.sh
           cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
           cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
