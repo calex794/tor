@@ -499,11 +499,19 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
     use std::io::Write;
 
     let pool = pool().await;
-    let rows: Vec<(String, String, String, Vec<String>, Vec<String>, bool, String, String)> =
-        sqlx::query_as(include_str!("d001_reference_inventory.sql"))
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        bool,
+        String,
+        String,
+    )> = sqlx::query_as(include_str!("d001_reference_inventory.sql"))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
     let mut log = std::io::stdout().lock();
     for (schema, table, name, source, target, valid, on_delete, class) in &rows {
         writeln!(
