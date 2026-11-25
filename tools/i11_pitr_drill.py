@@ -23,6 +23,7 @@ CHECKS = (
     'utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
     'utc_target_no_promotion_verified',
     'generated_startup_config_verified_and_used',
+    'operator_paused_replay_helpers_verified',
 )
 LIMITATIONS = (
     'production_tested', 'offsite_tested', 'application_acl_tested',
@@ -35,6 +36,8 @@ FIXTURE_MODULES = (
     'tor_recovery_pg_startup_config.py',
     'tor_recovery_pg_config_verify.py',
     'i11_pitr_prepare_config.py',
+    'tor_recovery_pg_run.py',
+    'i11_pitr_run_paused.py',
 )
 DOCKERFILE = b'''FROM postgres:18
 USER root
@@ -95,7 +98,7 @@ def validate_report(raw: str) -> dict:
                 'backup_label', 'drill_elapsed_seconds', *CHECKS, *LIMITATIONS}
     if set(report) != expected:
         raise ValueError('incomplete or unexpected report fields')
-    if type(report['schema_version']) is not int or report['schema_version'] != 2:
+    if type(report['schema_version']) is not int or report['schema_version'] != 3:
         raise ValueError('unsupported report schema')
     if report['scope'] != 'isolated_container_fixture':
         raise ValueError('invalid evidence scope')
