@@ -326,29 +326,33 @@ async fn content_scores_and_textual_cutoff_are_exact_in_each_tier() {
     .unwrap();
 
     // Each score is pinned independently of the production SQL expression.
-    type Case<'a> = (&'a [&'a str], &'a [&'a str], Option<i16>, bool, bool);
+    type Case<'a> = (&'a [&'a str], &'a [&'a str], Option<i16>, &'a str);
     let cases: &[Case<'_>] = &[
         (
             &["g1", "g2", "g3", "g4"],
             &["t1", "t2", "t3", "t4", "t5", "t6"],
             Some(1000),
-            true,
-            false,
+            "general",
         ),
-        (&["g1", "g2", "g3", "g4"], &[], Some(550), true, false),
+        (&["g1", "g2", "g3", "g4"], &[], Some(550), "default"),
         (
             &[],
             &["t1", "t2", "t3", "t4", "t5", "t6"],
             Some(610),
-            true,
-            false,
+            "default",
         ),
-        (&["g1", "g1"], &["t1", "t1"], Some(310), true, false),
-        (&["g1", "g1"], &[], Some(190), true, false),
-        (&["g9"], &["t9"], None, true, false),
-        (&[], &[], None, true, false),
-        (&["g1"], &["t1"], None, false, false),
-        (&["g1"], &["t1"], None, true, true),
+        (&["g1", "g1"], &["t1", "t1"], Some(310), "general"),
+        (&["g1", "g1"], &[], Some(190), "default"),
+        (&["g9"], &["t9"], None, "default"),
+        (&[], &[], None, "default"),
+        (&["g1"], &["t1"], None, "other-language"),
+        (&["g1"], &["t1"], None, "held"),
+        (&["g1"], &["t1"], None, "hidden"),
+        (&["g1"], &["t1"], None, "pending"),
+        (&["g1"], &["t1"], None, "draft"),
+        (&["g1"], &["t1"], None, "unreviewed"),
+        // An adult audience is eligible only for explicitly restricted tiers.
+        (&["g1"], &["t1"], Some(310), "adult"),
     ];
     let mut extra = Vec::new();
     let mut expected = Vec::new();
@@ -361,7 +365,7 @@ async fn content_scores_and_textual_cutoff_are_exact_in_each_tier() {
             } else {
                 boundary + offset + n - 12
             };
-            let tied: Case<'_> = (&[], &["t1", "t1"], Some(130), true, false);
+            let tied: Case<'_> = (&[], &["t1", "t1"], Some(130), "default");
             rows.push((id, tied));
         }
         for (n, case) in cases.iter().copied().enumerate() {
@@ -369,30 +373,53 @@ async fn content_scores_and_textual_cutoff_are_exact_in_each_tier() {
         }
 
         let mut eligible = Vec::new();
-        for (id, (genres, tags, score, same_language, held)) in rows {
+        for (id, (genres, tags, score, state)) in rows {
             let genres: Vec<String> = genres.iter().map(|s| (*s).to_owned()).collect();
             let tags: Vec<String> = tags.iter().map(|s| (*s).to_owned()).collect();
             sqlx::query(
                 "INSERT INTO books(id,source_identity,target_language,title,visibility,
-                                   access_level,genres,tags,admin_hold)
-                 VALUES($1,$2,$3,'Score contract','public',$4,$5,$6,$7)",
+                                   access_level,genres,tags,admin_hold,
+                                   visibility_status,lifecycle_status)
+                 VALUES($1,$2,$3,'Score contract',$4,$5,$6,$7,$8,$9,$10)",
             )
             .bind(id)
             .bind(format!("ci:contextual-score:{seed}:{id}"))
-            .bind(if same_language { language.as_str() } else { "ru" })
+            .bind(if state == "other-language" {
+                "ru"
+            } else {
+                language.as_str()
+            })
+            .bind(if state == "draft" { "draft" } else { "public" })
             .bind(tier)
             .bind(genres)
             .bind(tags)
-            .bind(held)
+            .bind(state == "held")
+            .bind(if state == "hidden" { "hidden" } else { "active" })
+            .bind(if state == "pending" {
+                "pending_deletion"
+            } else {
+                "in_progress"
+            })
             .execute(&mut *setup)
             .await
             .unwrap();
+            if matches!(state, "general" | "adult" | "unreviewed") {
+                sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,$2)")
+                    .bind(id)
+                    .bind(state)
+                    .execute(&mut *setup)
+                    .await
+                    .unwrap();
+            }
             extra.push(id);
+            if state == "adult" && tier == "basic" {
+                continue;
+            }
             if let Some(score) = score {
                 eligible.push((id, score));
             }
         }
-        assert_eq!(eligible.len(), 29);
+        assert_eq!(eligible.len(), if tier == "basic" { 29 } else { 30 });
         eligible.sort_by_key(|(id, score)| (std::cmp::Reverse(*score), id.to_string()));
         for (id, score) in eligible.into_iter().take(20) {
             expected.push((
