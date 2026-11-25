@@ -42,6 +42,26 @@ SUITE_JOB_IDS = {
     "purchased_recovery": "purchased-v1-recovery",
 }
 
+# GitHub's Jobs API expands matrix children into distinct display names.
+# Keep logical job IDs above for workflow needs/selection; release evidence
+# must independently verify EVERY child. Architecture tests bind these
+# reviewed axes to the actual integration workflow.
+SUITE_JOB_MATRICES = {
+    "rust": ("lane", ("tests", "release")),
+    "postgres": ("shard", ("foundation", "reading", "commerce")),
+    "rec_browser": ("lane", ("current", "historical")),
+}
+
+
+def suite_api_job_names():
+    """Exact GitHub Jobs API names for each logical mandatory suite."""
+    return {
+        suite: tuple(f"{job_id} ({value})" for value in SUITE_JOB_MATRICES[suite][1])
+        if suite in SUITE_JOB_MATRICES else (job_id,)
+        for suite, job_id in SUITE_JOB_IDS.items()
+    }
+
+
 # Deployment workflows contact the VPS: operator dispatch only, never automatic CI.
 MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml", "chapter-import-s3.yml"}
 # Isolated manual build proof only: no release/signing, environment, SSH or S3 access.

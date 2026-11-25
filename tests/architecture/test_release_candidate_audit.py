@@ -1,17 +1,33 @@
 """I-12: reject stale, partial, skipped or cross-SHA suite evidence."""
 from pathlib import Path
+import re
 import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITE_JOB_IDS
+from ci_test_map import (
+    CI_REQUIRED_JOB, CI_WORKFLOW, SUITE_JOB_IDS, SUITE_JOB_MATRICES,
+    suite_api_job_names,
+)
 from audit_release_candidate import (
     EvidenceError, collect, evaluate_ci, latest_push_runs, workflow_names,
 )
 
 SHA = "a" * 40
 OTHER = "b" * 40
+
+# Independent fixture: the actual Jobs API shape of successful main run
+# 45645215690, NOT generated from the production registry under test.
+INTEGRATION_JOBS = (
+    "preflight", "select / select", "visual", "pg-reading-analytics",
+    "pg-rec-browser (current)", "migrations", "postgres-runtime (reading)",
+    "postgres-runtime (foundation)", "crypto", "demo (tests)", "reader-browser",
+    "sealed-remote-copy", "pg-rec-browser (historical)", "paid-private-e2e",
+    "purchased-v1-recovery", "author-cover", "demo (release)",
+    "postgres-runtime (commerce)", "image", "s3-cover-build", "s3-provider",
+    "f02-100k", "ci-required",
+)
 
 
 def fixtures():
@@ -24,8 +40,10 @@ def fixtures():
             "status": "completed", "conclusion": "success",
             "created_at": "2026-10-29T00:00:00Z", "run_attempt": 1,
         })
-        names = (["select / select", "preflight", *SUITE_JOB_IDS.values(), CI_REQUIRED_JOB]
-                 if filename == CI_WORKFLOW else ["rules"])
+        names = (["select / select", "preflight", *(
+            name for name in INTEGRATION_JOBS
+            if name not in {"select / select", "preflight", CI_REQUIRED_JOB}
+        ), CI_REQUIRED_JOB] if filename == CI_WORKFLOW else ["rules"])
         jobs[number] = [
             {"name": name, "status": "completed", "conclusion": "success"}
             for name in names
@@ -62,7 +80,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         expected, _, jobs = fixtures()
         self.assertEqual(set(expected.values()), {"rules.yml", CI_WORKFLOW})
         self.assertEqual(len(expected), 2)
-        self.assertEqual(len(jobs[2]), len(SUITE_JOB_IDS) + 3)
+        self.assertEqual(len(jobs[2]), len(INTEGRATION_JOBS))
 
     def test_every_real_suite_and_rules_is_required(self):
         expected, runs, jobs = fixtures()
@@ -73,6 +91,68 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         self.assertEqual(receipt["required_suites"], len(SUITE_JOB_IDS))
         self.assertFalse(receipt["release_approved"])
         self.assertEqual(receipt["scope"], "CI-only, not a production or product-parity approval")
+
+    def test_release_registry_matches_actual_workflow_matrix(self):
+        workflow = (ROOT / ".github" / "workflows" / CI_WORKFLOW).read_text()
+        body = workflow.split("\njobs:\n", 1)[1]
+        entries = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\n", body)
+        sections = dict(zip(entries[1::2], entries[2::2]))
+        self.assertEqual(set(sections),
+                         {"select", "preflight", CI_REQUIRED_JOB} | set(SUITE_JOB_IDS.values()))
+        for suite, job_id in SUITE_JOB_IDS.items():
+            with self.subTest(suite=suite):
+                section = sections[job_id]
+                self.assertNotRegex(section, r"(?m)^    name:")
+                strategy = re.search(r"(?m)^    strategy:\n(?:^ {6,}[^\n]*\n)+", section)
+                if suite in SUITE_JOB_MATRICES:
+                    axis, values = SUITE_JOB_MATRICES[suite]
+                    self.assertIsNotNone(strategy)
+                    self.assertEqual(strategy.group(0),
+                                     "    strategy:\n      fail-fast: false\n"
+                                     f"      matrix:\n        {axis}: [{', '.join(values)}]\n")
+                else:
+                    self.assertIsNone(strategy)
+        api_names = {name for names in suite_api_job_names().values() for name in names}
+        self.assertEqual(api_names | {"select / select", "preflight", CI_REQUIRED_JOB},
+                         set(INTEGRATION_JOBS))
+
+    def test_each_matrix_child_is_independently_mandatory(self):
+        children = {
+            "rust": ("demo (tests)", "demo (release)"),
+            "postgres": ("postgres-runtime (foundation)", "postgres-runtime (reading)",
+                         "postgres-runtime (commerce)"),
+            "rec_browser": ("pg-rec-browser (current)", "pg-rec-browser (historical)"),
+        }
+        for suite, names in children.items():
+            for name in names:
+                for action in ("missing", "failed", "skipped", "pending", "old-name"):
+                    with self.subTest(suite=suite, name=name, action=action):
+                        expected, runs, jobs = fixtures()
+                        job = next(row for row in jobs[2] if row["name"] == name)
+                        if action == "missing":
+                            jobs[2].remove(job)
+                        elif action == "old-name":
+                            job["name"] = SUITE_JOB_IDS[suite]
+                        elif action == "pending":
+                            job.update(status="in_progress", conclusion=None)
+                        else:
+                            job["conclusion"] = {"failed": "failure", "skipped": "skipped"}[action]
+                        report = evaluate_ci(runs, jobs, SHA, expected)
+                        self.assertFalse(report["ci_complete"])
+                        self.assertEqual(report["verified_suites"], len(SUITE_JOB_IDS) - 1)
+                        self.assertNotEqual(report["suite_checks"][suite]["state"], "verified")
+
+    def test_matrix_suite_receipt_preserves_all_children(self):
+        expected, runs, jobs = fixtures()
+        report = collect(MockAPI(runs, jobs), SHA, ROOT)
+        self.assertTrue(report["ci_complete"])
+        self.assertEqual(report["suite_checks"]["postgres"]["jobs"], {
+            "postgres-runtime (foundation)": "verified",
+            "postgres-runtime (reading)": "verified",
+            "postgres-runtime (commerce)": "verified",
+        })
+        self.assertEqual(report["verified_suites"], 16)
+        self.assertEqual(len(jobs[2]), 23)
 
     def test_missing_workflow_or_stale_sha_fails(self):
         expected, runs, jobs = fixtures()
@@ -236,7 +316,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         report = collect(MockAPI(runs, jobs), SHA, ROOT)
         integration_title = next(title for title, path in expected.items() if path == CI_WORKFLOW)
         self.assertTrue(report["ci_complete"])
-        self.assertEqual(report["checks"][integration_title]["jobs"], len(SUITE_JOB_IDS) + 3)
+        self.assertEqual(report["checks"][integration_title]["jobs"], len(INTEGRATION_JOBS))
         self.assertEqual(report["required_suites"], len(SUITE_JOB_IDS))
         self.assertFalse(report["release_approved"])
 
