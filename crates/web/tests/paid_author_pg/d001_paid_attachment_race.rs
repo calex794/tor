@@ -101,9 +101,7 @@ async fn blocked_statement(url: &str, blocker: i32, prefix: &str) -> i32 {
 #[ignore = "requires disposable PG18 and isolated MinIO"]
 async fn d001_paid_checkout_fences_final_verified_author_attachment() {
     let url = env::var("TEST_DATABASE_URL").expect("CI isolated database");
-    assert!(
-        url.starts_with("postgresql://tor_app:") && url.ends_with("@127.0.0.1:5432/tor_ci")
-    );
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("@127.0.0.1:5432/tor_ci"));
     assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").as_deref(), Ok(ENDPOINT));
     const BUCKET_RACE: &str = "tor-private-d001-attach-race-ci";
@@ -155,13 +153,9 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
         .with_active_id("content-kek-v2")
         .unwrap(),
     );
-    let writer = PgPaidAuthorPublisher::new(
-        catalog,
-        store.clone(),
-        ring.clone(),
-        BUCKET_RACE.to_owned(),
-    )
-    .unwrap();
+    let writer =
+        PgPaidAuthorPublisher::new(catalog, store.clone(), ring.clone(), BUCKET_RACE.to_owned())
+            .unwrap();
     let initial = save_chapter(SaveChapterRequest {
         book_id: book as u64,
         chapter_id: None,
@@ -182,7 +176,10 @@ async fn d001_paid_checkout_fences_final_verified_author_attachment() {
              FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id WHERE c.book_id={book}"
         ),
     );
-    let ids: Vec<i64> = initial_ids.split('|').map(|id| id.parse().unwrap()).collect();
+    let ids: Vec<i64> = initial_ids
+        .split('|')
+        .map(|id| id.parse().unwrap())
+        .collect();
     let [chapter, version, revision] = ids[..] else {
         panic!("expected one published chapter with revision");
     };
