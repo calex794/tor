@@ -44,6 +44,21 @@ class FixtureHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    def do_POST(self):
+        # Synthetic endpoint for AB-EDGE dry-run acceptance only.
+        if self.path != "/login":
+            self.send_error(404)
+            return
+        # Drain the synthetic body before the next keepalive request.
+        size = int(self.headers.get("Content-Length", "0"))
+        if size < 0 or size > 1024:
+            self.send_error(413)
+            return
+        self.rfile.read(size)
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def log_message(self, _format, *_args):
         pass
 

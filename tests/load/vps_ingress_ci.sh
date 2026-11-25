@@ -86,9 +86,16 @@ cat > "$REPORT_DIR/nginx.conf" <<EOF
 worker_processes 1;
 pid $REPORT_DIR/nginx.pid;
 error_log $REPORT_DIR/nginx.error.log warn;
-events { worker_connections 2048; }
+events { worker_connections 512; }
 http {
   access_log off;
+  # Identical upstream keepalive contract to the public-edge example.
+  upstream tor_home_backend {
+    server 10.88.0.2:18081;
+    keepalive 16;
+    keepalive_timeout 10s;
+    keepalive_requests 1000;
+  }
   sendfile on;
   keepalive_timeout 20;
   server {
@@ -98,7 +105,7 @@ http {
     ssl_certificate_key $KEYS/edge-tls.key;
     server_name _;
     location / {
-      proxy_pass http://10.88.0.2:18081;
+      proxy_pass http://tor_home_backend;
       proxy_http_version 1.1;
       proxy_set_header Connection "";
       proxy_set_header Host \$host;
@@ -199,10 +206,18 @@ for stage in '20 64k http' '50 64k http' '100 64k http' \
     >> "$REPORT_DIR/metrics.tsv"
 done
 
+# Any local TCP source-port exhaustion is a failed test, not a flaky 502 to ignore.
+if grep -q 'Cannot assign requested address' "$REPORT_DIR/nginx.error.log"; then
+  echo 'UNSAFE: public-edge upstream source-port exhaustion under load' >&2
+  exit 1
+fi
+
+# Existing pooled TCP sockets may fail at proxy_read_timeout (15s).
+# Require HTTP 502/504, never count a client timeout (000) as success.
 # Lost tunnel fails closed; restoring home-side WireGuard returns to HTTP 200.
 ip -n "$HOME" link set wg-home down
 down_status="$(ip netns exec "$CLIENT" curl --noproxy '*' -sS \
-  -o /dev/null -w '%{http_code}' --max-time 8 \
+  -o /dev/null -w '%{http_code}' --max-time 23 \
   http://10.77.0.1:18080/4k || true)"
 case "$down_status" in
   502|504) printf 'Tunnel down => HTTP %s: PASS\n' "$down_status" >> "$REPORT_DIR/security.txt" ;;
