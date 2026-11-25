@@ -24,15 +24,17 @@ async fn explain(
     cohort: &str,
     operation: &str,
 ) {
-    let sql = format!("{EXPLAIN}{statement}");
+    // Only the compile-time production source and fixed diagnostic SQL reach
+    // this private helper. Generation and seed values remain bound parameters.
+    let sql = sqlx::AssertSqlSafe(format!("{EXPLAIN}{statement}"));
     let rows: Vec<String> = match generation {
-        Some(id) => sqlx::query_scalar(&sql)
+        Some(id) => sqlx::query_scalar(sql)
             .bind(id)
             .bind(seed)
             .fetch_all(&mut **tx)
             .await
             .unwrap(),
-        None => sqlx::query_scalar(&sql)
+        None => sqlx::query_scalar(sql)
             .bind(seed)
             .fetch_all(&mut **tx)
             .await
