@@ -97,8 +97,28 @@ with exact-main CI and checked schema compatibility.
 
 ## 4. Server runtime configuration — future activation, not now
 
-Keep `/etc/tor/tor-app.env` as the existing single DATABASE_URL line. Adding
-S3 settings there breaks the ordinary release's exact credential check.
+### Read-only release diagnosis
+
+If a manual release refuses the existing runtime environment, the operator
+can run the reviewed SHA-pinned `ops/go-live-postgres-vps.sh --check-runtime`
+as root on the TOR VPS. It checks the same guard as deployment without
+requiring a staged binary or contacting PostgreSQL, network services, or
+systemd. It never edits configuration, rotates keys, migrates or restarts.
+`TOR_RUNTIME_ENV_OK` proves only configuration validation, not live database
+login or deployment readiness. Each refusal reports a fixed filename, line,
+reviewed parameter name (or `unknown`), and reason code. Never paste raw
+configuration or exception/secret values into GitHub or chat. A line number
+locates an unrecognized name locally without logging it.
+
+
+For new installations, prefer a single DATABASE_URL line in
+`/etc/tor/tor-app.env`. Existing installations following earlier guidance
+may already contain supported S3 and KEK settings in the same file.
+The release validates the exact local tor_app DATABASE_URL separately from
+these allowlisted settings, proves the actual TCP login and preserves both
+files byte-for-byte. It does not relocate, regenerate or enable keys or flags.
+Unknown settings, duplicate names (including across the two files), unsafe
+file permissions, malformed values and shell syntax still block the release.
 After the separate external/provider, signed S3 release and DR gates, the
 authorized operator may install **both** a root:root 0600
 `/etc/tor/tor-runtime.env` and the root:root 0644
@@ -107,7 +127,9 @@ authorized operator may install **both** a root:root 0600
 The release validates the optional pair before migrations and before restart;
 it does not create, change, or remove the pair. Install no other conflicting
 EnvironmentFile/drop-in. Keep the runtime file in the strict unquoted
-ASCII KEY=value subset (no shell, quotes, escapes or duplicate names).
+ASCII KEY=value subset (no shell, quotes, escapes or duplicate names), with
+UTF-8 permitted in comments. This preserves operator comments, including
+Russian text, without permitting non-ASCII assignment names or values.
 Only currently supported S3 settings and content-key settings are accepted.
 The browser must never see `AWS_SECRET_ACCESS_KEY`. The AWS Rust SDK can
 read standard variables:
