@@ -49,3 +49,20 @@ Each trial starts a new held generation at the same seed cursor. 170 scheduled r
 Compare real committed progress from the generation cursor and the successful page acknowledgements (a response timeout may race an already committed transaction). Record remaining materializable seeds, edge count, largest interval without acknowledged progress, pressure classifications and sleep choices. No per-seed enqueue timestamp exists, so generation age and remaining seed count are proxies, not a measured durable queue-age distribution. A fixed generation of 100k seeds means the age-aware controller can normally use the depth condition whenever a fresh low-pressure signal exists. Percentiles exclude errors/timeouts, which are reported separately. The existing read-only held-generation state, identical catalog responses, hidden sentinel denial and bounded edges remain checked. Reversed ordering helps expose, not eliminate, cache and timing confounding.
 
 Thresholds (fresh samples within 1s, read p95 >=100ms or pool-probe p95 >=50ms high, <=50ms and <=10ms low, missing -> 5s) are illustrative, not owner-approved SLOs. No winner or runtime rollout until actual results, repetitions under an agreed reader/worker SLO, and HTTP/CPU/RAM evidence are available. No VPS/deploy. Run the existing contextual_scale ignored exact test on disposable tor_ci only.
+
+## First measured PostgreSQL run — 2026-11-25
+
+Evidence: PR #1248, head f1fc0d9cc1aa4c2cacd8ba46c913b22e58ab275a, merge checkout 48f9d3cb3e4564920396e937f663b50f579c0140, [integration job](https://github.com/calex794/tor/actions/runs/45636674393/job/139284032552). Existing page bound: one seed, 21 edges, 530 ms. All six trial arms passed invariant checks.
+
+| Round | Policy | Completed / 170 | Timeout / unstarted | Scheduled p95 / p99 (us) | Service p95 (us) | Probe p95 (us) | Committed pages | Max no-progress gap (us) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | baseline | 162 | 1 / 7 | 3269649 / 3388176 | 276525 | 106410 | 9 | 1099583 |
+| 1 | age-aware | 170 | 0 / 0 | 2635719 / 2727357 | 270016 | 113182 | 6 | 2803015 |
+| 1 | progress-budget | 170 | 0 / 0 | 2660421 / 2844150 | 267242 | 115536 | 6 | 1846478 |
+| 2 | progress-budget | 170 | 0 / 0 | 2616501 / 2690319 | 268907 | 121685 | 6 | 1977848 |
+| 2 | age-aware | 170 | 0 / 0 | 2449412 / 2708742 | 262822 | 92865 | 6 | 2603540 |
+| 2 | baseline | 134 | 1 / 35 | 5444355 / 5721756 | 815733 | 257174 | 9 | 1189396 |
+
+No reader repository errors; all 240 pool probes succeeded. Adaptive policies completed 340/340 offered reads vs baseline 296/340; 12 vs 18 committed pages in two arms each. Both arms observed high and neutral pressure, no low-pressure or missing-signal decision; thus this run does not verify recovery or stale-signal behavior. The budget cap yields shorter acknowledged-progress gaps than age-aware in both rounds; age-aware has slightly lower scheduled p95 in both. Prefer budget as the first candidate for a more demanding HTTP/PG trial, not a runtime selection. Large baseline round-to-round variance, only two repetitions, sequential per-lane arrivals, and incomplete baseline reads make a production latency claim invalid. No agreed reader or worker SLO, HTTP or CPU/RAM evidence yet.
+
+Integration and REC acceptance passed; Repository rules failed because the manual REC workflow lacked the same --nocapture flag. Preserve the exact job-parity guard, synchronize both wrappers on current main (including REUSE-11B), and run fresh CI. No tests removed or acceptance thresholds relaxed.
