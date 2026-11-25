@@ -101,7 +101,7 @@ def verify_data_tree(pgdata, uid, gid):
     private_read(pgdata / "postgresql.auto.conf", uid, gid, (0o400, 0o600), MAX_CONFIG)
 
 
-def preflight(args):
+def validate_preflight_host(args):
     checkpoint(args.backup_label, args.target_utc, args.incident_utc, args.timeline)
     if os.geteuid() != 0 or "GITHUB_ACTIONS" in os.environ:
         raise Refused("operator-only independent restore host required; CI prohibited")
@@ -117,6 +117,11 @@ def preflight(args):
     checked_directory(ROOT, 0, gid, 0o710)
     checked_directory(ROOT / "config", 0, gid, 0o750)
     checked_directory(ROOT / "evidence", 0, 0, 0o700)
+    return uid, gid
+
+
+def preflight(args):
+    uid, gid = validate_preflight_host(args)
     checked_directory(ROOT / "pgsocket", uid, gid, 0o700, empty=True)
     checked_directory(ROOT / "pglog", uid, gid, 0o700)
     checked_directory(ROOT / "tablespaces", uid, gid, 0o700, empty=True)
@@ -127,8 +132,7 @@ def preflight(args):
     verify_data_tree(ROOT / "pgdata", uid, gid)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def add_preflight_arguments(parser):
     parser.add_argument("--source-machine-id", required=True)
     parser.add_argument("--target-machine-id", required=True)
     parser.add_argument("--pg-port", type=int, default=15432)
@@ -140,6 +144,11 @@ def main():
     parser.add_argument("--bucket", required=True)
     parser.add_argument("--repo-path", required=True)
     parser.add_argument("--operator-confirm-quiescent-isolated-host", action="store_true")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_preflight_arguments(parser)
     args = parser.parse_args()
     try:
         preflight(args)
