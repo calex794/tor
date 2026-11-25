@@ -140,18 +140,21 @@ async fn run_paid_attachment_race(author_first: bool) {
             .retry_config(RetryConfig::standard().with_max_attempts(1))
             .build(),
     );
-    client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .unwrap();
+    client.create_bucket().bucket(&bucket).send().await.unwrap();
     let store = S3PrivateStore::new(client, bucket.clone()).unwrap();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let (owner, _) = user(&accounts, &format!("d001-attach-{case}-owner@example.invalid")).await;
-    let (buyer, _) = user(&accounts, &format!("d001-attach-{case}-buyer@example.invalid")).await;
+    let (owner, _) = user(
+        &accounts,
+        &format!("d001-attach-{case}-owner@example.invalid"),
+    )
+    .await;
+    let (buyer, _) = user(
+        &accounts,
+        &format!("d001-attach-{case}-buyer@example.invalid"),
+    )
+    .await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -171,8 +174,8 @@ async fn run_paid_attachment_race(author_first: bool) {
         .with_active_id("content-kek-v2")
         .unwrap(),
     );
-    let writer = PgPaidAuthorPublisher::new(catalog, store.clone(), ring.clone(), bucket.clone())
-        .unwrap();
+    let writer =
+        PgPaidAuthorPublisher::new(catalog, store.clone(), ring.clone(), bucket.clone()).unwrap();
     let initial = save_chapter(SaveChapterRequest {
         book_id: book as u64,
         chapter_id: None,
@@ -320,7 +323,10 @@ async fn run_paid_attachment_race(author_first: bool) {
                  FROM reader_wallet_accounts w WHERE w.user_id={buyer}"
             ),
         );
-        assert_eq!(persisted, "600|0|0|0|0", "stale V1 must leave no charge or rights");
+        assert_eq!(
+            persisted, "600|0|0|0|0",
+            "stale V1 must leave no charge or rights"
+        );
     } else {
         let (wallet, wallet_pid) = RowGate::hold(
             &url,
