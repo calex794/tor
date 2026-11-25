@@ -290,3 +290,163 @@ async fn contextual_admin_cas_cancellation_and_edge_fences_are_atomic() {
     stop(&f, &[id, second]).await;
     f.cleanup().await;
 }
+
+// ADAPT: independent expected scores and exact top-20 membership. In
+// particular, PostgreSQL INTERSECT is distinct and the ID tiebreak is textual.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci current model schema"]
+async fn content_scores_and_textual_cutoff_are_exact_in_each_tier() {
+    let mut f = fixture("contextual-score-contract").await;
+    let seed = f.books[0];
+    let manual = f.books[1];
+    let language = format!("ctx-score-{seed}");
+    let mut setup = f.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *setup)
+        .await
+        .unwrap();
+    let maximum: i64 = sqlx::query_scalar("SELECT coalesce(max(id),0) FROM books")
+        .fetch_one(&mut *setup)
+        .await
+        .unwrap();
+    // Reserve IDs straddling a power of ten so numeric ordering would fail.
+    let mut boundary = 1000_i64;
+    while boundary <= maximum.checked_add(200).unwrap() {
+        boundary = boundary.checked_mul(10).unwrap();
+    }
+    sqlx::query(
+        "UPDATE books SET target_language=$2,
+         genres=ARRAY['g1','g2','g3','g4','g1'],
+         tags=ARRAY['t1','t2','t3','t4','t5','t6','t1'] WHERE id=$1",
+    )
+    .bind(seed)
+    .bind(&language)
+    .execute(&mut *setup)
+    .await
+    .unwrap();
+
+    // Each score is pinned independently of the production SQL expression.
+    type Case<'a> = (&'a [&'a str], &'a [&'a str], Option<i16>, bool, bool);
+    let cases: &[Case<'_>] = &[
+        (
+            &["g1", "g2", "g3", "g4"],
+            &["t1", "t2", "t3", "t4", "t5", "t6"],
+            Some(1000),
+            true,
+            false,
+        ),
+        (&["g1", "g2", "g3", "g4"], &[], Some(550), true, false),
+        (
+            &[],
+            &["t1", "t2", "t3", "t4", "t5", "t6"],
+            Some(610),
+            true,
+            false,
+        ),
+        (&["g1", "g1"], &["t1", "t1"], Some(310), true, false),
+        (&["g1", "g1"], &[], Some(190), true, false),
+        (&["g9"], &["t9"], None, true, false),
+        (&[], &[], None, true, false),
+        (&["g1"], &["t1"], None, false, false),
+        (&["g1"], &["t1"], None, true, true),
+    ];
+    let mut extra = Vec::new();
+    let mut expected = Vec::new();
+    for (index, tier) in ["basic", "adult", "pro_adult"].into_iter().enumerate() {
+        let offset = i64::try_from(index).unwrap() * 30;
+        let mut rows = Vec::new();
+        for n in 0..24_i64 {
+            let id = if n < 12 {
+                boundary - 100 + offset + n
+            } else {
+                boundary + offset + n - 12
+            };
+            let tied: Case<'_> = (&[], &["t1", "t1"], Some(130), true, false);
+            rows.push((id, tied));
+        }
+        for (n, case) in cases.iter().copied().enumerate() {
+            rows.push((boundary + 100 + offset + i64::try_from(n).unwrap(), case));
+        }
+
+        let mut eligible = Vec::new();
+        for (id, (genres, tags, score, same_language, held)) in rows {
+            let genres: Vec<String> = genres.iter().map(|s| (*s).to_owned()).collect();
+            let tags: Vec<String> = tags.iter().map(|s| (*s).to_owned()).collect();
+            sqlx::query(
+                "INSERT INTO books(id,source_identity,target_language,title,visibility,
+                                   access_level,genres,tags,admin_hold)
+                 VALUES($1,$2,$3,'Score contract','public',$4,$5,$6,$7)",
+            )
+            .bind(id)
+            .bind(format!("ci:contextual-score:{seed}:{id}"))
+            .bind(if same_language { language.as_str() } else { "ru" })
+            .bind(tier)
+            .bind(genres)
+            .bind(tags)
+            .bind(held)
+            .execute(&mut *setup)
+            .await
+            .unwrap();
+            extra.push(id);
+            if let Some(score) = score {
+                eligible.push((id, score));
+            }
+        }
+        assert_eq!(eligible.len(), 29);
+        eligible.sort_by_key(|(id, score)| (std::cmp::Reverse(*score), id.to_string()));
+        for (id, score) in eligible.into_iter().take(20) {
+            expected.push((
+                id,
+                "content".to_owned(),
+                "similar_by_content".to_owned(),
+                score,
+            ));
+        }
+    }
+    sqlx::query("INSERT INTO book_recommendation_relations(book_id,related_book_id) VALUES($1,$2)")
+        .bind(seed)
+        .bind(manual)
+        .execute(&mut *setup)
+        .await
+        .unwrap();
+    setup.commit().await.unwrap();
+    f.books.extend(extra);
+    expected.push((
+        manual,
+        "related_books".to_owned(),
+        "manually_related".to_owned(),
+        1000,
+    ));
+    assert_eq!(expected.len(), 61);
+    expected.sort_unstable();
+
+    let generation = command(&f, Action::Refresh, None).await;
+    sqlx::query("UPDATE rec_generations SET cursor_book_id=$2 WHERE id=$1::uuid")
+        .bind(&generation)
+        .bind(seed - 1)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(f.store.advance_contextual_generation().await.unwrap());
+    let cursor: i64 =
+        sqlx::query_scalar("SELECT cursor_book_id FROM rec_generations WHERE id=$1::uuid")
+            .bind(&generation)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!(cursor, seed);
+    let mut actual: Vec<(i64, String, String, i16)> = sqlx::query_as(
+        "SELECT book_id,source,reason,score FROM rec_candidate_edges
+         WHERE generation_id=$1::uuid AND seed_id=$2",
+    )
+    .bind(&generation)
+    .bind(seed)
+    .fetch_all(&f.pool)
+    .await
+    .unwrap();
+    actual.sort_unstable();
+    assert_eq!(actual, expected);
+    command(&f, Action::Cancel, Some(&generation)).await;
+    stop(&f, &[generation]).await;
+    f.cleanup().await;
+}
