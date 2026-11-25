@@ -400,4 +400,134 @@ async fn run_paid_attachment_race(author_first: bool) {
         "D001_PAID_CHECKOUT_FENCES_FINAL_VERIFIED_ATTACHMENT_OK"
     };
     writeln!(std::io::stdout().lock(), "{marker}").unwrap();
+    if author_first {
+        return;
+    }
+
+    // Continue the real buyer-first case through T5. Replacing an unpinned
+    // head adds an immutable object, not a fourth retained logical edition.
+    let counts = || {
+        pg(
+            &url,
+            &format!(
+                "SELECT logical_editions, reader_retained_editions, physical_materializations
+                 FROM d001_chapter_logical_counts WHERE chapter_id={chapter}"
+            ),
+        )
+    };
+    assert_eq!(counts(), "2|2|2");
+    let make_edit = |expected_revision, body| {
+        save_chapter(SaveChapterRequest {
+            book_id: book as u64,
+            chapter_id: Some(chapter as u64),
+            number: 1,
+            expected_revision,
+            title: "D001 attachment race",
+            body,
+            access: "paid",
+            price_amount: 225,
+            command_key: &generate_session_token(),
+        })
+        .unwrap()
+    };
+    let unpinned_replacement = make_edit(revision + 1, "Unpinned logical V2 replacement");
+    writer
+        .publish_edit_bodyless(owner, &unpinned_replacement)
+        .await
+        .unwrap();
+    assert_eq!(counts(), "2|2|3");
+    let current = || {
+        let id = pg(
+            &url,
+            &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
+        )
+        .parse()
+        .unwrap();
+        ChapterVersionRef {
+            chapter_id: v1.chapter_id,
+            version_id: PositiveId::new(id).unwrap(),
+        }
+    };
+    let pinned_second = current();
+    assert_ne!(pinned_second, v2);
+    let second_object = paid
+        .encrypted_chapter(pinned_second)
+        .await
+        .unwrap()
+        .unwrap();
+    let second_ciphertext = store.get_verified(&second_object.object).await.unwrap();
+    let (second_buyer, _) = user(&accounts, "d001-attach-buyer-second@example.invalid").await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({second_buyer},600,'RUB')"
+        ),
+    );
+    let second_command = PurchaseCommand::new(
+        PositiveId::new(second_buyer).unwrap(),
+        WalletId::new(second_buyer).unwrap(),
+        pinned_second,
+        MoneyMinor::new(225).unwrap(),
+        IdempotencyKey::parse(&generate_session_token()).unwrap(),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            checkout
+                .checkout_once(&second_command)
+                .await
+                .unwrap()
+                .pinned,
+            pinned_second
+        );
+    }
+    assert_eq!(counts(), "2|2|3");
+
+    let final_edit = make_edit(revision + 2, "Current logical V3 after two paid pins");
+    writer
+        .publish_edit_bodyless(owner, &final_edit)
+        .await
+        .unwrap();
+    let final_head = current();
+    assert_ne!(final_head, pinned_second);
+    assert_ne!(final_head, v1);
+    assert_eq!(counts(), "3|3|4");
+    for (reader, own_version, entity, expected_ciphertext) in [
+        (buyer, v1, old_object, old_ciphertext),
+        (
+            second_buyer,
+            pinned_second,
+            second_object,
+            second_ciphertext,
+        ),
+    ] {
+        assert_eq!(
+            pg(
+                &url,
+                &format!(
+                    "SELECT w.balance_minor,count(f.id),min(f.version_id)
+                     FROM reader_wallet_accounts w
+                     JOIN chapter_purchase_facts f ON f.user_id=w.user_id
+                     WHERE w.user_id={reader} AND f.chapter_id={chapter} GROUP BY w.balance_minor"
+                ),
+            ),
+            format!("375|1|{}", own_version.version_id.get()),
+        );
+        assert_eq!(
+            store.get_verified(&entity.object).await.unwrap(),
+            expected_ciphertext
+        );
+    }
+    let source = registry
+        .owned_current_paid_markdown(owner, book, final_head, &bucket, &store, &ring)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(source.as_str(), final_edit.body.as_str());
+    writeln!(
+        std::io::stdout().lock(),
+        "D001_TWO_PAID_PINS_THREE_LOGICAL_EDITIONS_OK"
+    )
+    .unwrap();
 }
