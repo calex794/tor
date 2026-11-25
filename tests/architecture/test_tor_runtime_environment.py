@@ -46,19 +46,22 @@ stat() {
   fi
 }
 '''
-        self.harness += GUARD + ('\npassword=$(validate_runtime_configuration "$1" "$2")\n'
-                                 '[[ "$password" == "$3" ]]\n')
+        self.harness += GUARD
 
     def install(self, text):
-        self.runtime.write_text(text, encoding="ascii")
+        self.runtime.write_text(text, encoding="utf-8")
         self.runtime.chmod(0o600)
         self.dropin.write_bytes(TEMPLATE)
         self.dropin.chmod(0o644)
 
-    def guard(self):
+    def guard(self, diagnostic=False):
         before = self.db.read_bytes()
+        harness = self.harness + ('\nvalidate_runtime_configuration "$1" "$2" diagnostic\n'
+                                  if diagnostic else
+                                  '\npassword=$(validate_runtime_configuration "$1" "$2")\n'
+                                  '[[ "$password" == "$3" ]]\n')
         result = subprocess.run(
-            ["bash", "-euo", "pipefail", "-c", self.harness, "guard",
+            ["bash", "-euo", "pipefail", "-c", harness, "guard",
              str(self.secret), str(self.dropins), DB_PASSWORD],
             capture_output=True, text=True, timeout=5,
         )
@@ -205,6 +208,116 @@ stat() {
                 result = self.guard()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("REFUSE_RUNTIME_ENV", result.stderr)
+
+    def test_diagnostics_report_multiple_failures_without_secret_output(self):
+        unknown = "PRIVATE_UNKNOWN_IDENTIFIER_ABC"
+        self.db.write_text(
+            DB_LINE + "\n" + unknown + "=private-unknown-value\n"
+            "AWS_REGION=UPPERCASE\n"
+            "TOR_AUTH_ENABLED=0\n"
+            "AWS_REGION=ru-central1\n"
+            "TOR_S3_ADMIN_MASTER_KEY=private-malformed-key\n"
+            "AWS_ACCESS_KEY_ID=synthetic-access\n"
+        )
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        for expected in (
+            "file=tor-app.env line=2 parameter=unknown reason=unsupported-parameter",
+            "file=tor-app.env line=3 parameter=AWS_REGION reason=invalid-region",
+            "file=tor-app.env line=4 parameter=TOR_AUTH_ENABLED reason=unsupported-parameter",
+            "file=tor-app.env line=5 parameter=AWS_REGION reason=duplicate-parameter",
+            "file=tor-app.env line=6 parameter=TOR_S3_ADMIN_MASTER_KEY reason=invalid-key-encoding",
+            "file=tor-app.env line=7 parameter=AWS_ACCESS_KEY_ID reason=incomplete-aws-credential-pair",
+        ):
+            self.assertIn(expected, result.stderr)
+        for secret in (unknown, "private-unknown-value", "UPPERCASE", "private-malformed-key"):
+            self.assertNotIn(secret, result.stderr)
+        self.assertNotEqual(self.guard().returncode, 0)
+
+    def test_utf8_operator_comments_pass_same_release_guard(self):
+        # Production refusal reproduced: the first non-ASCII byte occurs
+        # on line 15, but belongs to an ignored operator comment.
+        app = DB_LINE + "\n" + "\n" * 13 + "# Настройки хранилища\n"
+        self.db.write_text(app, encoding="utf-8")
+        self.install(" # Комментарий оператора\nAWS_REGION=ru-central1\n")
+        original_app = self.db.read_bytes()
+        original_runtime = self.runtime.read_bytes()
+        result = self.guard(diagnostic=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "TOR_RUNTIME_ENV_OK\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertEqual(self.db.read_bytes(), original_app)
+        self.assertEqual(self.runtime.read_bytes(), original_runtime)
+
+    def test_utf8_support_does_not_relax_assignment_validation(self):
+        cases = (
+            ("AWS_REGION=регион\n", "parameter=AWS_REGION reason=invalid-value-syntax"),
+            ("ПАРАМЕТР=value\n", "parameter=unknown reason=invalid-assignment"),
+            ("# комментарий\x00\n", "parameter=unknown reason=control-character"),
+        )
+        for suffix, expected in cases:
+            with self.subTest(expected=expected):
+                self.db.write_text(DB_LINE + "\n" + suffix, encoding="utf-8")
+                result = self.guard(diagnostic=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+                self.assertNotEqual(self.guard().returncode, 0)
+        self.db.write_bytes(DB_LINE.encode("ascii") + b"\n# \xff\n")
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("file=tor-app.env line=2 parameter=unknown reason=invalid-utf8-file",
+                      result.stderr)
+        self.assertNotEqual(self.guard().returncode, 0)
+
+    def test_diagnostics_report_invalid_database_without_echoing_url(self):
+        invalid = DB_LINE.replace("127.0.0.1", "private-host.invalid")
+        self.db.write_text(invalid + "\n")
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("parameter=DATABASE_URL reason=invalid-local-database-url", result.stderr)
+        self.assertNotIn("private-host.invalid", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_diagnostics_for_split_duplicates_and_valid_configuration(self):
+        self.db.write_text(DB_LINE + "\nAWS_REGION=ru-central1\n")
+        self.install("AWS_REGION=ru-central1\n")
+        original = self.runtime.read_bytes()
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("file=tor-runtime.env line=1 parameter=AWS_REGION reason=duplicate-across-files",
+                      result.stderr)
+        self.assertEqual(self.runtime.read_bytes(), original)
+        self.install(f"TOR_S3_ADMIN_MASTER_KEY={MASTER}\n")
+        original = self.runtime.read_bytes()
+        result = self.guard(diagnostic=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "TOR_RUNTIME_ENV_OK\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self.runtime.read_bytes(), original)
+        self.assertEqual(self.dropin.read_bytes(), TEMPLATE)
+        self.assertEqual(self.guard().returncode, 0)
+
+    def test_diagnostic_entry_point_is_root_only_and_never_falls_through(self):
+        block = SOURCE.split("# TOR_RUNTIME_ENV_DIAGNOSTIC_BEGIN\n", 1)[1].split(
+            "# TOR_RUNTIME_ENV_DIAGNOSTIC_END", 1)[0]
+        self.assertLess(SOURCE.index("# TOR_RUNTIME_ENV_DIAGNOSTIC_BEGIN"),
+                        SOURCE.index("require_current_main_sha\n"))
+        for uid, guard_status, expected in ((1000, 0, 2), (0, 0, 0), (0, 1, 1)):
+            with self.subTest(uid=uid, guard_status=guard_status):
+                harness = f"id() {{ echo {uid}; }}\n" + (
+                    'validate_runtime_configuration() {\n'
+                    '  [[ "$*" == "/etc/tor /etc/systemd/system/tor-web.service.d diagnostic" ]] || exit 98\n'
+                    '  echo "GUARD_CALLED"\n'
+                    f'  return {guard_status}\n'
+                    '}\n'
+                ) + block + "\nexit 99\n"
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", harness,
+                                         "go-live", "--check-runtime"],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, expected)
+                self.assertEqual("GUARD_CALLED" in result.stdout, uid == 0)
 
     def test_guard_precedes_migration_and_restart(self):
         self.assertLess(SOURCE.index('validate_runtime_configuration "$secret_dir" /etc'),

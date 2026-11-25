@@ -4,9 +4,249 @@
 set -Eeuo pipefail
 umask 077
 
+# TOR_RUNTIME_ENV_GUARD_BEGIN
+# Accept previously documented combined app settings as well as the optional
+# operator-installed runtime pair. Never source either file as shell or rewrite
+# it. Stdout is private: the caller captures only the validated DB password.
+validate_runtime_configuration() {
+  local app_file="$1/tor-app.env" mode="${3:-release}"
+  local runtime_file="$1/tor-runtime.env" runtime_dropin="$2/30-runtime.conf"
+  [[ "$mode" == release || "$mode" == diagnostic ]] || return 2
+  if [[ -L "$1" || $(stat -c '%U:%G:%a' "$1" 2>/dev/null) != root:root:700 ]]; then
+    echo 'REFUSE_RUNTIME_ENV: unsafe secret directory /etc/tor' >&2
+    return 1
+  fi
+  if [[ -L "$app_file" || ! -f "$app_file" ||
+        $(stat -c '%U:%G:%a:%h' "$app_file" 2>/dev/null) != root:root:600:1 ]]; then
+    echo 'REFUSE_RUNTIME_ENV: missing or unsafe tor-app.env' >&2
+    return 1
+  fi
+  if [[ ! -e "$runtime_file" && ! -L "$runtime_file" &&
+        ! -e "$runtime_dropin" && ! -L "$runtime_dropin" ]]; then
+    runtime_file=""
+  else
+    if [[ -L "$2" || $(stat -c '%U:%G:%a' "$2" 2>/dev/null) != root:root:755 ]]; then
+      echo 'REFUSE_RUNTIME_ENV: unsafe runtime drop-in directory' >&2
+      return 1
+    fi
+    if [[ -L "$runtime_file" || ! -f "$runtime_file" ||
+          $(stat -c '%U:%G:%a:%h' "$runtime_file" 2>/dev/null) != root:root:600:1 ]]; then
+      echo 'REFUSE_RUNTIME_ENV: missing or unsafe tor-runtime.env' >&2
+      return 1
+    fi
+    if [[ -L "$runtime_dropin" || ! -f "$runtime_dropin" ||
+          $(stat -c '%U:%G:%a:%h' "$runtime_dropin" 2>/dev/null) != root:root:644:1 ]]; then
+      echo 'REFUSE_RUNTIME_ENV: missing or unsafe 30-runtime.conf' >&2
+      return 1
+    fi
+    if ! cmp -s "$runtime_dropin" <(printf '[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n'); then
+      echo 'REFUSE_RUNTIME_ENV: unexpected runtime systemd drop-in' >&2
+      return 1
+    fi
+  fi
+  # A deliberately small subset of systemd EnvironmentFile: unquoted ASCII
+  # assignments and UTF-8 comments. Never relax credential/value validation.
+  # Refuse unknown/duplicate names, continuation, expansion and raw diagnostics.
+  if ! python3 -I - "$app_file" "$runtime_file" "$mode" <<'PY'
+import base64
+import binascii
+import re
+import sys
+from pathlib import Path
+
+flags = {
+    "TOR_PAID_GRANTS_ENABLED", "TOR_PAID_AUTHOR_PUBLISH_ENABLED",
+    "TOR_PAID_AUTHOR_S3_ONLY_ENABLED", "TOR_FREE_PACK_READER_ENABLED",
+    "TOR_CHAPTER_IMPORT_PACK_DIRECT_ENABLED", "TOR_DROP_PACK_WORKER_ENABLED",
+    "TOR_DROP_PACK_PLANNER_ENABLED", "TOR_DROP_PACK_CUTOVER_ENABLED",
+    "TOR_COVER_WORKER_ENABLED",
+}
+buckets = {
+    "TOR_FREE_S3_BUCKET", "TOR_CHAPTER_IMPORT_S3_BUCKET",
+    "TOR_COVER_S3_BUCKET", "TOR_PAID_S3_BUCKET",
+}
+origins = {"TOR_FREE_S3_PUBLIC_ORIGIN", "TOR_PAID_S3_PUBLIC_ORIGIN"}
+keyring = {"TOR_CONTENT_KEK_V1", "TOR_CONTENT_KEK_V2"}
+allowed = flags | buckets | origins | keyring | {
+    "AWS_REGION", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY", "TOR_S3_ADMIN_MASTER_KEY",
+    "TOR_CONTENT_ACTIVE_KEK_ID",
+}
+
+# Report only fixed filenames, line numbers, reviewed variable names and
+# static reason codes. In particular, an unknown identifier could itself be
+# a secret, so never echo it (or a raw line, value or exception message).
+known_names = allowed | {
+    "DATABASE_URL", "TOR_AUTH_ENABLED", "TOR_DEMO_MODE",
+    "TOR_LISTEN_ADDR", "LD_PRELOAD",
+}
+problems = []
+
+
+def check(ok, reason, file, line=0, name=None):
+    if not ok:
+        safe_name = name if name in known_names else "unknown"
+        problems.append(
+            f"TOR_RUNTIME_ENV_DIAG file={file} line={line} "
+            f"parameter={safe_name} reason={reason}"
+        )
+    return bool(ok)
+
+
+db_url = re.compile(
+    r"postgresql://tor_app:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable"
+)
+
+
+def read_env(path, *, app):
+    file = "tor-app.env" if app else "tor-runtime.env"
+    values, locations, seen = {}, {}, set()
+    try:
+        with Path(path).open("rb") as stream:
+            raw = stream.read(65537)
+    except OSError:
+        check(False, "unreadable-file", file)
+        return values, locations
+    if not check(0 < len(raw) <= 65536, "empty-or-oversized-file", file):
+        return values, locations
+    # Preserve the old DB-only file's acceptance with or without final LF.
+    check(app or raw.endswith(b"\n"), "missing-final-lf", file)
+    try:
+        lines = raw.decode("utf-8").split("\n")
+    except UnicodeDecodeError as exc:
+        check(False, "invalid-utf8-file", file, raw.count(b"\n", 0, exc.start) + 1)
+        return values, locations
+    for number, line in enumerate(lines, 1):
+        if not line.strip(" ") or line.lstrip(" ").startswith("#"):
+            check(not re.search(r"[\x00-\x1f\x7f]", line),
+                  "control-character", file, number)
+            continue
+        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
+        if not check(match is not None, "invalid-assignment", file, number):
+            continue
+        name, value = match.groups()
+        if not check(name not in seen, "duplicate-parameter", file, number, name):
+            continue
+        seen.add(name)
+        if app and name == "DATABASE_URL":
+            if not check(db_url.fullmatch(value), "invalid-local-database-url",
+                         file, number, name):
+                continue
+        else:
+            if not check(name in allowed, "unsupported-parameter", file, number, name):
+                continue
+            if not check(re.fullmatch(r"[A-Za-z0-9+/=_:.-]{1,2048}", value),
+                         "invalid-value-syntax", file, number, name):
+                continue
+        values[name] = value
+        locations[name] = (file, number)
+    check(bool(values), "no-valid-assignments", file)
+    return values, locations
+
+
+def validate(values, locations):
+    def setting(ok, name, reason):
+        file, line = locations[name]
+        return check(ok, reason, file, line, name)
+
+    for name, value in values.items():
+        if name in flags:
+            setting(value in {"0", "1"}, name, "expected-boolean-01")
+        elif name in buckets:
+            setting(re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", value)
+                    and ".." not in value, name, "invalid-bucket-name")
+        elif name in origins:
+            setting(re.fullmatch(r"https://[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", value)
+                    and ".." not in value, name, "invalid-https-origin")
+        elif name == "AWS_REGION":
+            setting(re.fullmatch(r"[a-z0-9-]{2,64}", value), name, "invalid-region")
+        elif name == "AWS_ENDPOINT_URL_S3":
+            setting(value == "https://storage.yandexcloud.net", name, "unsupported-s3-endpoint")
+        elif name == "AWS_ACCESS_KEY_ID":
+            setting(8 <= len(value) <= 128, name, "invalid-access-key-length")
+        elif name == "AWS_SECRET_ACCESS_KEY":
+            setting(16 <= len(value) <= 256, name, "invalid-secret-key-length")
+        elif name == "TOR_S3_ADMIN_MASTER_KEY" or name in keyring:
+            try:
+                if name == "TOR_S3_ADMIN_MASTER_KEY":
+                    key = base64.b64decode(value, validate=True)
+                    canonical = base64.b64encode(key).decode()
+                else:
+                    key = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+                    canonical = base64.urlsafe_b64encode(key).decode().rstrip("=")
+                valid = len(key) == 32 and canonical == value
+            except (ValueError, binascii.Error):
+                valid = False
+            setting(valid, name, "invalid-key-encoding")
+        elif name == "TOR_CONTENT_ACTIVE_KEK_ID":
+            setting(value in {"content-kek-v1", "content-kek-v2"},
+                    name, "invalid-active-kek-id")
+    if ("AWS_ACCESS_KEY_ID" in values) != ("AWS_SECRET_ACCESS_KEY" in values):
+        name = "AWS_ACCESS_KEY_ID" if "AWS_ACCESS_KEY_ID" in values else "AWS_SECRET_ACCESS_KEY"
+        setting(False, name, "incomplete-aws-credential-pair")
+    if "TOR_CONTENT_KEK_V2" in values:
+        setting("TOR_CONTENT_KEK_V1" in values, "TOR_CONTENT_KEK_V2", "missing-kek-v1")
+        if "TOR_CONTENT_KEK_V1" in values:
+            setting(values["TOR_CONTENT_KEK_V1"] != values["TOR_CONTENT_KEK_V2"],
+                    "TOR_CONTENT_KEK_V2", "duplicate-kek-material")
+    if values.get("TOR_CONTENT_ACTIVE_KEK_ID") in {"content-kek-v1", "content-kek-v2"}:
+        required = ("TOR_CONTENT_KEK_V2" if values["TOR_CONTENT_ACTIVE_KEK_ID"] == "content-kek-v2"
+                    else "TOR_CONTENT_KEK_V1")
+        setting(required in values, "TOR_CONTENT_ACTIVE_KEK_ID", "missing-active-kek")
+    if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
+        setting("TOR_CONTENT_KEK_V1" in values, "TOR_PAID_GRANTS_ENABLED", "missing-kek-v1")
+
+
+try:
+    values, locations = read_env(sys.argv[1], app=True)
+    check("DATABASE_URL" in values, "missing-valid-database-url", "tor-app.env",
+          name="DATABASE_URL")
+    password = db_url.fullmatch(values.pop("DATABASE_URL")).group(1) if "DATABASE_URL" in values else None
+    if sys.argv[2]:
+        separate, other_locations = read_env(sys.argv[2], app=False)
+        for name in sorted(values.keys() & separate.keys()):
+            file, line = other_locations[name]
+            check(False, "duplicate-across-files", file, line, name)
+        for name, value in separate.items():
+            if name not in values:
+                values[name] = value
+                locations[name] = other_locations[name]
+    validate(values, locations)
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        sys.exit(1)
+    if sys.argv[3] == "diagnostic":
+        print("TOR_RUNTIME_ENV_OK")
+    else:
+        print(password)
+except Exception:
+    # No exception trace or text can be allowed to leak secret material.
+    print("TOR_RUNTIME_ENV_DIAG reason=internal-validation-error", file=sys.stderr)
+    sys.exit(1)
+PY
+  then
+    echo 'REFUSE_RUNTIME_ENV: invalid or unsupported runtime settings' >&2
+    return 1
+  fi
+}
+# TOR_RUNTIME_ENV_GUARD_END
+
+# TOR_RUNTIME_ENV_DIAGNOSTIC_BEGIN
+# Read-only operator command: no candidate, SQL, network or service actions.
+if [[ $# == 1 && $1 == --check-runtime ]]; then
+  if [[ $(id -u) -ne 0 ]]; then
+    echo "REFUSE_RUNTIME_ENV: root privileges required" >&2
+    exit 2
+  fi
+  validate_runtime_configuration /etc/tor /etc/systemd/system/tor-web.service.d diagnostic
+  exit 0
+fi
+# TOR_RUNTIME_ENV_DIAGNOSTIC_END
+
 sha=${1:-}
 if [[ $(id -u) -ne 0 || $# -ne 1 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA>" >&2
+  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA> | --check-runtime" >&2
   exit 2
 fi
 
@@ -70,152 +310,6 @@ for secret in "$app_secret" "$migrator_secret"; do
     exit 1
   fi
 done
-
-# TOR_RUNTIME_ENV_GUARD_BEGIN
-# Accept previously documented combined app settings as well as the optional
-# operator-installed runtime pair. Never source either file as shell or rewrite
-# it. Stdout is private: the caller captures only the validated DB password.
-validate_runtime_configuration() {
-  local app_file="$1/tor-app.env"
-  local runtime_file="$1/tor-runtime.env" runtime_dropin="$2/30-runtime.conf"
-  if [[ -L "$1" || $(stat -c '%U:%G:%a' "$1") != root:root:700 ||
-        -L "$app_file" || ! -f "$app_file" ||
-        $(stat -c '%U:%G:%a:%h' "$app_file") != root:root:600:1 ]]; then
-    echo 'REFUSE_RUNTIME_ENV: unsafe application configuration' >&2
-    return 1
-  fi
-  if [[ ! -e "$runtime_file" && ! -L "$runtime_file" &&
-        ! -e "$runtime_dropin" && ! -L "$runtime_dropin" ]]; then
-    runtime_file=""
-  else
-    if [[ -L "$2" || $(stat -c '%U:%G:%a' "$2") != root:root:755 ||
-          -L "$runtime_file" || ! -f "$runtime_file" ||
-          $(stat -c '%U:%G:%a:%h' "$runtime_file") != root:root:600:1 ||
-          -L "$runtime_dropin" || ! -f "$runtime_dropin" ||
-          $(stat -c '%U:%G:%a:%h' "$runtime_dropin") != root:root:644:1 ]]; then
-      echo 'REFUSE_RUNTIME_ENV: unsafe or incomplete runtime configuration' >&2
-      return 1
-    fi
-    if ! cmp -s "$runtime_dropin" <(printf '[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n'); then
-      echo 'REFUSE_RUNTIME_ENV: unexpected runtime systemd drop-in' >&2
-      return 1
-    fi
-  fi
-  # A deliberately small, unquoted, ASCII subset of systemd EnvironmentFile.
-  # Refuse unknown/duplicate names, continuation, expansion and raw diagnostics.
-  if ! python3 -I - "$app_file" "$runtime_file" <<'PY'
-import base64
-import binascii
-import re
-import sys
-from pathlib import Path
-
-flags = {
-    "TOR_PAID_GRANTS_ENABLED", "TOR_PAID_AUTHOR_PUBLISH_ENABLED",
-    "TOR_PAID_AUTHOR_S3_ONLY_ENABLED", "TOR_FREE_PACK_READER_ENABLED",
-    "TOR_CHAPTER_IMPORT_PACK_DIRECT_ENABLED", "TOR_DROP_PACK_WORKER_ENABLED",
-    "TOR_DROP_PACK_PLANNER_ENABLED", "TOR_DROP_PACK_CUTOVER_ENABLED",
-    "TOR_COVER_WORKER_ENABLED",
-}
-buckets = {
-    "TOR_FREE_S3_BUCKET", "TOR_CHAPTER_IMPORT_S3_BUCKET",
-    "TOR_COVER_S3_BUCKET", "TOR_PAID_S3_BUCKET",
-}
-origins = {"TOR_FREE_S3_PUBLIC_ORIGIN", "TOR_PAID_S3_PUBLIC_ORIGIN"}
-keyring = {"TOR_CONTENT_KEK_V1", "TOR_CONTENT_KEK_V2"}
-allowed = flags | buckets | origins | keyring | {
-    "AWS_REGION", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY", "TOR_S3_ADMIN_MASTER_KEY",
-    "TOR_CONTENT_ACTIVE_KEK_ID",
-}
-
-def require(ok):
-    if not ok:
-        raise ValueError("invalid runtime configuration")
-
-db_url = re.compile(
-    r"postgresql://tor_app:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable"
-)
-
-
-def read_env(path, *, app):
-    with Path(path).open("rb") as stream:
-        raw = stream.read(65537)
-    # Preserve the old DB-only file's acceptance with or without final LF.
-    require(0 < len(raw) <= 65536 and (app or raw.endswith(b"\n")))
-    values = {}
-    for line in raw.decode("ascii").split("\n"):
-        if not line.strip(" ") or line.lstrip(" ").startswith("#"):
-            require(not re.search(r"[\x00-\x1f\x7f]", line))
-            continue
-        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
-        require(match is not None)
-        name, value = match.groups()
-        require(name not in values)
-        if app and name == "DATABASE_URL":
-            require(db_url.fullmatch(value) is not None)
-        else:
-            require(name in allowed and re.fullmatch(r"[A-Za-z0-9+/=_:.-]{1,2048}", value))
-        values[name] = value
-    require(bool(values))
-    return values
-
-
-try:
-    values = read_env(sys.argv[1], app=True)
-    require("DATABASE_URL" in values)
-    password = db_url.fullmatch(values.pop("DATABASE_URL")).group(1)
-    if sys.argv[2]:
-        separate = read_env(sys.argv[2], app=False)
-        # Never permit systemd's later EnvironmentFile to silently override
-        # a credential or feature flag from the legacy application file.
-        require(not values.keys() & separate.keys())
-        values.update(separate)
-    for name, value in values.items():
-        if name in flags:
-            require(value in {"0", "1"})
-        elif name in buckets:
-            require(re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", value)
-                    and ".." not in value)
-        elif name in origins:
-            require(re.fullmatch(r"https://[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", value)
-                    and ".." not in value)
-        elif name == "AWS_REGION":
-            require(re.fullmatch(r"[a-z0-9-]{2,64}", value))
-        elif name == "AWS_ENDPOINT_URL_S3":
-            require(value == "https://storage.yandexcloud.net")
-        elif name == "AWS_ACCESS_KEY_ID":
-            require(8 <= len(value) <= 128)
-        elif name == "AWS_SECRET_ACCESS_KEY":
-            require(16 <= len(value) <= 256)
-        elif name == "TOR_S3_ADMIN_MASTER_KEY":
-            key = base64.b64decode(value, validate=True)
-            require(len(key) == 32 and base64.b64encode(key).decode() == value)
-        elif name in keyring:
-            key = base64.b64decode(value + "=", altchars=b"-_", validate=True)
-            require(len(key) == 32 and base64.urlsafe_b64encode(key).decode().rstrip("=") == value)
-        elif name == "TOR_CONTENT_ACTIVE_KEK_ID":
-            require(value in {"content-kek-v1", "content-kek-v2"})
-    require(("AWS_ACCESS_KEY_ID" in values) == ("AWS_SECRET_ACCESS_KEY" in values))
-    if "TOR_CONTENT_KEK_V2" in values:
-        require("TOR_CONTENT_KEK_V1" in values
-                and values["TOR_CONTENT_KEK_V1"] != values["TOR_CONTENT_KEK_V2"])
-    if "TOR_CONTENT_ACTIVE_KEK_ID" in values:
-        required = ("TOR_CONTENT_KEK_V2" if values["TOR_CONTENT_ACTIVE_KEK_ID"] == "content-kek-v2"
-                    else "TOR_CONTENT_KEK_V1")
-        require(required in values)
-    if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
-        require("TOR_CONTENT_KEK_V1" in values)
-    print(password)
-except (ValueError, OSError, UnicodeError, binascii.Error):
-    sys.exit(1)
-PY
-  then
-    echo 'REFUSE_RUNTIME_ENV: invalid or unsupported runtime settings' >&2
-    return 1
-  fi
-}
-# TOR_RUNTIME_ENV_GUARD_END
 
 # Fail before migrations if either configuration is unsafe. Capture the
 # password privately and still prove a real local TCP login as tor_app.
