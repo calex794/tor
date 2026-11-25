@@ -848,6 +848,29 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Enable bounded lock diagnostics only on disposable analytics DB
+        run: |
+          # Existing synthetic tor_ci service, never an operational database.
+          # Capture lock owner/waiter PIDs before the application's 50ms timeout.
+          # This changes the logging/deadlock check threshold, NOT lock_timeout.
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          ALTER DATABASE tor_ci SET log_lock_waits = on;
+          ALTER DATABASE tor_ci SET deadlock_timeout = '20ms';
+          ALTER DATABASE tor_ci SET log_error_verbosity = 'verbose';
+          ALTER DATABASE tor_ci SET log_parameter_max_length = 0;
+          ALTER DATABASE tor_ci SET log_parameter_max_length_on_error = 0;
+          SQL
+          observed="$(psql -X -v ON_ERROR_STOP=1 -At "$TEST_DATABASE_URL" <<'SQL'
+          SELECT current_database() = 'tor_ci' AND current_user = 'tor_app'
+            AND current_setting('log_lock_waits') = 'on'
+            AND current_setting('deadlock_timeout') = '20ms'
+            AND current_setting('log_error_verbosity') = 'verbose'
+            AND current_setting('log_parameter_max_length') = '0'
+            AND current_setting('log_parameter_max_length_on_error') = '0';
+          SQL
+          )"
+          test "$observed" = t
+          echo CI_PG_LOCK_DIAGNOSTICS_ENABLED
       - name: Prepare explicit legacy and installed-upgrade analytics databases
         run: |
           bash tools/ci_prepare_legacy_analytics.sh

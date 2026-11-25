@@ -9,8 +9,9 @@ export PATH="/usr/lib/postgresql/18/bin:$PATH"
 work=$(mktemp -d /tmp/tor-i11-pitr.XXXXXXXX)
 source_dir="$work/source"
 restore_dir="$work/restored"
-mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket,time-socket,time-config}
-time_dir="$work/time-target"
+mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket}
+time_root="$work/time-recovery"
+time_dir="$time_root/pgdata"
 pg_version=$(postgres --version)
 backrest_version=$(pgbackrest version)
 [[ $pg_version == *' 18.'* ]] || exit 2
@@ -222,49 +223,46 @@ wait_for_target_failure 30
 # Request PAUSE (not promotion), then assert the actual paused state in SQL.
 # The staged backup deliberately uses shutdown as the safe initial action;
 # build fresh trusted startup settings instead of inheriting the source config.
-backrest --pg1-path="$time_dir" --set="$label" --type=time \
+# Local POSIX fixture only. Keep the operational S3/host gate unchanged.
+mkdir -p "$time_root"/{config/pgbackrest-empty,evidence,pgsocket,pglog,pgbackrest-lock,pgbackrest-spool,tablespaces}
+chmod 0750 "$time_root/config" "$time_root/config/pgbackrest-empty"
+time_conf="$time_root/config/pgbackrest-recovery.conf"
+cat > "$time_conf" <<CONFIG
+[global]
+repo1-type=posix
+repo1-path=$work/repo
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=$key
+log-level-console=warn
+log-level-file=off
+log-path=$time_root/pglog
+lock-path=$time_root/pgbackrest-lock
+spool-path=$time_root/pgbackrest-spool
+process-max=2
+archive-async=n
+[tor]
+pg1-path=$time_dir
+pg1-port=15435
+pg1-socket-path=$time_root/pgsocket
+pg1-user=postgres
+CONFIG
+chmod 0640 "$time_conf"
+pgbackrest --config="$time_conf" --config-include-path="$time_root/config/pgbackrest-empty" \
+  --stanza=tor --repo=1 --pg1-path="$time_dir" --set="$label" --type=time \
   --target="$time_target" --target-timeline="$timeline" \
   --target-exclusive --target-action=shutdown restore >"$work/log/time-restore.log" 2>&1
 [[ -f "$time_dir/recovery.signal" && ! -e "$time_dir/standby.signal" ]]
-# These are disposable fixture files only. Never copy old auto.conf into
-# a trusted configuration or let its include/command settings take effect.
-mv -- "$time_dir/postgresql.auto.conf" "$work/time-config/original-auto.conf"
-: >"$time_dir/postgresql.auto.conf"
-cat >"$work/time-config/pg_hba.conf" <<'CONFIG'
-local all postgres peer
-local all all reject
-host all all 0.0.0.0/0 reject
-host all all ::/0 reject
-CONFIG
-: >"$work/time-config/pg_ident.conf"
-cat >"$work/time-config/postgresql.conf" <<CONFIG
-data_directory = '$time_dir'
-hba_file = '$work/time-config/pg_hba.conf'
-ident_file = '$work/time-config/pg_ident.conf'
-listen_addresses = ''
-port = 55435
-unix_socket_directories = '$work/time-socket'
-unix_socket_permissions = 0700
-shared_preload_libraries = ''
-archive_mode = off
-archive_command = ''
-primary_conninfo = ''
-primary_slot_name = ''
-recovery_end_command = ''
-archive_cleanup_command = ''
-hot_standby = on
-max_connections = 16
-shared_buffers = '32MB'
-restore_command = 'pgbackrest --config=$conf --stanza=tor --repo=1 --pg1-path=$time_dir archive-get %f "%p"'
-recovery_target_time = '$time_target'
-recovery_target_timeline = '$timeline'
-recovery_target_inclusive = off
-recovery_target_action = 'pause'
-CONFIG
+# Exercise actual RECOVERY-07/08/09a filesystem helpers, not a second
+# handwritten startup configuration. This adapter is CI-only and does
+# not invoke or bypass any operator entrypoint.
+python3 /opt/tor-i11-tools/i11_pitr_prepare_config.py "$work" "$label" "$time_target" "$timeline"
+[[ -s "$time_root/evidence/pg-config-receipt.json" ]]
+[[ -f "$time_root/evidence/pg-original-auto.conf" ]]
+[[ -f "$time_dir/postgresql.auto.conf" && ! -s "$time_dir/postgresql.auto.conf" ]]
 # Start only this throwaway cluster with fresh config; no production network.
 pg_ctl -D "$time_dir" -l "$work/log/time-start.log" -w -t 30 \
-    -o "-c config_file=$work/time-config/postgresql.conf" start >"$work/log/time-pgctl.log" 2>&1
-time_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/time-socket" -p 55435 -U postgres -d postgres "$@"; }
+    -o "-c config_file=$time_root/config/pg-startup/postgresql.conf" start >"$work/log/time-pgctl.log" 2>&1
+time_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$time_root/pgsocket" -p 15435 -U postgres -d postgres "$@"; }
 paused=false
 deadline=$((SECONDS + 30))
 while ((SECONDS < deadline)); do
@@ -283,6 +281,7 @@ done
 # readable standby alone. No pg_promote or pg_wal_replay_resume is allowed.
 [[ $(time_sql -c "SELECT (current_setting('recovery_target_time')::timestamptz='$time_target'::timestamptz) AND current_setting('recovery_target_timeline')='$timeline' AND current_setting('recovery_target_inclusive')='off' AND current_setting('recovery_target_action')='pause'") == t ]]
 [[ $(time_sql -c "SELECT current_setting('listen_addresses')='' AND current_setting('archive_mode')='off' AND current_setting('primary_conninfo')=''") == t ]]
+[[ $(time_sql -c "SELECT current_setting('config_file')='$time_root/config/pg-startup/postgresql.conf' AND current_setting('data_directory')='$time_dir' AND current_setting('port')='15435'") == t ]]
 [[ $(time_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
 [[ $(time_sql -c "SELECT pg_last_xact_replay_timestamp() < '$time_target'::timestamptz") == t ]]
 [[ $(time_sql -c "SELECT pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'") == t ]]
@@ -291,7 +290,7 @@ pg_ctl -D "$time_dir" -m fast -w -t 30 stop >/dev/null
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
-    'schema_version': 1, 'scope': 'isolated_container_fixture',
+    'schema_version': 2, 'scope': 'isolated_container_fixture',
     'postgres_version': sys.argv[2], 'pgbackrest_version': sys.argv[3],
     'backup_label': sys.argv[4], 'source_removed': True,
     'base_marker_restored': True, 'post_backup_wal_marker_restored': True,
@@ -301,6 +300,7 @@ print(json.dumps({
     'utc_target_replay_paused': True,
     'utc_target_transaction_boundary_verified': True,
     'utc_target_no_promotion_verified': True,
+    'generated_startup_config_verified_and_used': True,
     'drill_elapsed_seconds': round(time.monotonic() - float(sys.argv[1]), 3),
     'production_tested': False, 'offsite_tested': False,
     'application_acl_tested': False, 'rpo_slo_proven': False,
