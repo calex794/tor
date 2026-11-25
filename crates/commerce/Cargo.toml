@@ -2,12 +2,14 @@
 name = "tor-commerce"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
+license-file.workspace = true
 
 [dependencies]
 async-trait.workspace = true
 sha2 = "0.10"
 sqlx.workspace = true
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 
 [dev-dependencies]
 tokio.workspace = true

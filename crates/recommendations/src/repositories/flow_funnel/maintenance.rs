@@ -14,7 +14,8 @@ impl PgFlowFunnel {
                 "SELECT s.subject_id::text FROM rec_subjects s WHERE {SUBJECT_WORK}
                 ORDER BY s.subject_id LIMIT 1 FOR UPDATE OF s SKIP LOCKED"
             );
-            let subject: Option<String> = sqlx::query_scalar(&selection)
+            // SUBJECT_WORK is a fixed, code-owned SQL predicate.
+            let subject: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(selection))
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(unavailable)?;
@@ -86,7 +87,8 @@ impl PgFlowFunnel {
 
 pub(super) async fn pending(tx: &mut Transaction<'_, Postgres>) -> Result<bool, FlowFunnelError> {
     let sql = format!("SELECT EXISTS(SELECT 1 FROM rec_subjects s WHERE {SUBJECT_WORK})");
-    sqlx::query_scalar(&sql)
+    // SUBJECT_WORK is a fixed, code-owned SQL predicate.
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .fetch_one(&mut **tx)
         .await
         .map_err(unavailable)

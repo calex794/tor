@@ -1,7 +1,7 @@
 //! P1b: provider-neutral offer intent, with a strict external Boosty URL boundary.
 //! No money, purchase evidence, user history or active serving lives in this module.
-use chrono::DateTime;
 use std::fmt;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -155,11 +155,11 @@ impl PromoDraft {
                 return Err(OfferError::InvalidSchedule);
             }
             let parsed =
-                DateTime::parse_from_rfc3339(value).map_err(|_| OfferError::InvalidSchedule)?;
-            if parsed.timestamp_subsec_nanos() != 0 {
+                OffsetDateTime::parse(value, &Rfc3339).map_err(|_| OfferError::InvalidSchedule)?;
+            if parsed.nanosecond() != 0 {
                 return Err(OfferError::InvalidSchedule);
             }
-            Ok(parsed.timestamp())
+            Ok(parsed.unix_timestamp())
         }
         self.target.validate()?;
         self.creative.validate()?;

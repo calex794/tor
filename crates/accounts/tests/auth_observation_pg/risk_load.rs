@@ -1,4 +1,5 @@
 //! Test-only synthetic history; transaction rollback leaves no bulk fixtures.
+// SQLx 0.9 test SQL audit: EXPLAIN wraps the fixed production SQL constant.
 use tor_accounts::repositories::auth_risk_signals::{AuthRiskSignal, AUTH_RISK_SIGNALS_SQL};
 
 #[tokio::test]
@@ -45,9 +46,9 @@ async fn a_09_risk_query_uses_time_index_and_handles_large_history() {
     // 100k-row relation it may validly prefer a fast sequential scan; an index
     // name in that plan is not a stable performance requirement across PG 18
     // runner statistics. The production query retains the 2s budget.
-    let default_plan: Vec<String> = sqlx::query_scalar(&format!(
+    let default_plan: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {AUTH_RISK_SIGNALS_SQL}"
-    ))
+    )))
     .fetch_all(&mut *tx)
     .await
     .unwrap();
@@ -61,9 +62,9 @@ async fn a_09_risk_query_uses_time_index_and_handles_large_history() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let index_plan: Vec<String> = sqlx::query_scalar(&format!(
+    let index_plan: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {AUTH_RISK_SIGNALS_SQL}"
-    ))
+    )))
     .fetch_all(&mut *tx)
     .await
     .unwrap();

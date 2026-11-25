@@ -1,4 +1,5 @@
 //! Exact migrated C tables, real SELECT-only role, no analytics or consent tables.
+// SQLx 0.9 test SQL audit: Checked-in report SQL with fixed clock override; fixed table list.
 #[path = "canonical/fixture.rs"]
 pub(super) mod fixture;
 use fixture::Fixture;
@@ -56,9 +57,17 @@ async fn retained_firsts_require_matching_c_evidence_and_never_count_later_chapt
         assert_eq!(report.totals.books, 3);
         assert_eq!(report.totals.current_pairs, current);
         assert_eq!(report.totals.previous_pairs, previous);
-        let at = chrono::DateTime::parse_from_rfc3339(&report.measured_at_utc).unwrap();
-        let from = chrono::DateTime::parse_from_rfc3339(&report.current_from_utc).unwrap();
-        assert_eq!((at - from).num_seconds(), i64::from(days) * 86400);
+        let at = ::time::OffsetDateTime::parse(
+            &report.measured_at_utc,
+            &::time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let from = ::time::OffsetDateTime::parse(
+            &report.current_from_utc,
+            &::time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        assert_eq!((at - from).whole_seconds(), i64::from(days) * 86400);
     }
     f.finish().await;
 }
@@ -164,7 +173,7 @@ async fn half_open_boundaries_and_each_locked_source_recover_without_writes() {
         "transaction_timestamp()",
         "TIMESTAMPTZ '2026-11-11T12:00:00Z'",
     );
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(1_i32)
         .bind(None::<String>)
         .bind(None::<String>)
@@ -192,10 +201,10 @@ async fn half_open_boundaries_and_each_locked_source_recover_without_writes() {
         "reader_book_follows",
     ] {
         let mut lock = f.owner.begin().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "LOCK TABLE {}.{table} IN ACCESS EXCLUSIVE MODE",
             f.schema
-        ))
+        )))
         .execute(&mut *lock)
         .await
         .unwrap();

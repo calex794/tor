@@ -150,7 +150,8 @@ impl PgLayerChapterEntitlements {
                AND (c.chapter_no,c.id) {comparison} ($3,$4)
              ORDER BY c.chapter_no {order},c.id {order} LIMIT $5"
         );
-        let rows = sqlx::query(&sql)
+        // Comparison and order are fixed enum-selected SQL fragments, not input text.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor.get())
             .bind(chapter_id.get())
             .bind(cursor.chapter_no)

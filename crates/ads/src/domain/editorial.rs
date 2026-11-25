@@ -1,6 +1,6 @@
 //! Explicitly nonfinancial campaigns; dates are UTC instants, not browser time.
-use chrono::DateTime;
 use serde::{Deserialize, Serialize};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tor_contracts::exposure::PromotionSlot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,11 +71,12 @@ impl CampaignSpec {
             if value.len() > 40 {
                 return Err(EditorialError::Invalid);
             }
-            let time = DateTime::parse_from_rfc3339(value).map_err(|_| EditorialError::Invalid)?;
-            if time.timestamp_subsec_nanos() != 0 {
+            let time =
+                OffsetDateTime::parse(value, &Rfc3339).map_err(|_| EditorialError::Invalid)?;
+            if time.nanosecond() != 0 {
                 return Err(EditorialError::Invalid);
             }
-            Ok(time.timestamp())
+            Ok(time.unix_timestamp())
         }
         let starts_at = date(&self.starts_at)?;
         let ends_at = date(&self.ends_at)?;

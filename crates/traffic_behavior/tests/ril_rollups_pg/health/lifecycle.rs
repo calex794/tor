@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Lock only the generated test fixture schema.
 
 #[tokio::test]
 #[ignore = "requires fresh isolated PostgreSQL with HTML health migration"]
@@ -130,10 +131,10 @@ async fn html_expired_service_transition_keeps_predecessor_open_until_atomic_rep
         0
     );
     let mut lock = f.owner.begin().await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE {}.ril_flow_health_hourly IN ACCESS EXCLUSIVE MODE",
         f.schema
-    ))
+    )))
     .execute(&mut *lock)
     .await
     .unwrap();

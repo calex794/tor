@@ -72,7 +72,8 @@ async fn cursor_for_book(
                 "SELECT lower(author_name) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted"
             };
             let query_sql = catalog::scoped_sql(sql, digest, 2);
-            let mut query = sqlx::query_scalar(query_sql.as_ref())
+            // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+            let mut query = sqlx::query_scalar(sqlx::AssertSqlSafe(query_sql.into_owned()))
                 .bind(i64::try_from(first.id).map_err(|_| SearchError::Unavailable)?);
             if let Some(digest) = digest {
                 query = query.bind(digest.as_slice());
@@ -166,7 +167,8 @@ async fn read_previous_page(
             PREVIOUS_AUTHOR
         };
         let sql = catalog::scoped_sql(base, digest, 9);
-        let mut query = sqlx::query(sql.as_ref())
+        // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.into_owned()))
             .bind(filters.term.trim())
             .bind(key)
             .bind(id)
@@ -193,7 +195,8 @@ async fn read_previous_page(
             PREVIOUS_NEWEST
         };
         let sql = catalog::scoped_sql(base, digest, 8);
-        let mut query = sqlx::query(sql.as_ref())
+        // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.into_owned()))
             .bind(filters.term.trim())
             .bind(id)
             .bind(size)

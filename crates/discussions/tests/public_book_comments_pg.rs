@@ -1,4 +1,5 @@
 //! E-02: a narrow, real PostgreSQL test for public book comments only.
+// SQLx 0.9 test SQL audit: Fixed test-only book state assignments; book ID is bound.
 use tor_discussions::repositories::public_book_comments::{CreateResult, PgPublicBookComments};
 
 #[tokio::test]
@@ -365,11 +366,13 @@ async fn e_02_e03_received_replies_are_private_live_references() {
             .unwrap();
     }
     for change in ["admin_hold=true", "is_deleted=true", "visibility='draft'"] {
-        sqlx::query(&format!("UPDATE books SET {change} WHERE id=$1"))
-            .bind(book)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE books SET {change} WHERE id=$1"
+        )))
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
         assert!(repo
             .received_replies(users[0], 10)
             .await

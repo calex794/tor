@@ -72,7 +72,8 @@ pub(super) async fn read_page(
         _ => return Err(SearchError::Invalid),
     };
     let sql = scoped_sql(base, digest, 8);
-    let mut query = sqlx::query(sql.as_ref())
+    // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.into_owned()))
         .bind(filters.term.trim())
         .bind(after)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
@@ -160,7 +161,8 @@ pub(super) async fn count_filtered(
         return u64::try_from(count).map_err(|_| SearchError::Unavailable);
     }
     let sql = scoped_sql(FILTERED_TOTAL, digest, 6);
-    let mut query = sqlx::query_scalar(sql.as_ref())
+    // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+    let mut query = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.into_owned()))
         .bind(term.trim())
         .bind(language)
         .bind(genre)
@@ -278,7 +280,8 @@ pub(super) async fn read_lexical_page(
     };
     let sql = scoped_sql(base, digest, 9);
     let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
-    let mut query = sqlx::query(sql.as_ref())
+    // scoped_sql combines static SQL with a fixed bind index; values stay bound.
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.into_owned()))
         .bind(filters.term.trim())
         .bind(cursor_key.as_deref())
         .bind(cursor_id)

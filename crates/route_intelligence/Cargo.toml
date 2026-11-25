@@ -2,5 +2,7 @@
 name = "tor-route_intelligence"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
+license-file.workspace = true
 
 # Route Intelligence core is intentionally pure: no Axum, SQLx or storage I/O.

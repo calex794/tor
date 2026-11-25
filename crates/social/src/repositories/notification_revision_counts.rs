@@ -18,7 +18,8 @@ impl PgNotifications {
              ) visible",
             read_policy::VISIBLE
         );
-        let count: i64 = sqlx::query_scalar(&sql)
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .fetch_one(&self.pool)
             .await

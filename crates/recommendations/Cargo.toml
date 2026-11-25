@@ -2,9 +2,11 @@
 name = "tor-recommendations"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
+license-file.workspace = true
 
 [dependencies]
-tor-contracts = { path = "../contracts" }
+tor-contracts = { path = "../contracts", version = "=0.1.0" }
 sha2 = "0.10"
 sqlx.workspace = true
 serde.workspace = true

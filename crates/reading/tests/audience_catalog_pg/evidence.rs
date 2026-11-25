@@ -1,4 +1,5 @@
 use super::fixture::Fixture;
+// SQLx 0.9 test SQL audit: Fixed table list and timestamp-generated fixture schema.
 use tor_reading::{
     repositories::audience::PgAudience,
     services::audience::{
@@ -304,10 +305,10 @@ async fn unavailable_sources_and_select_only_role_never_become_empty_evidence() 
         "outbox_events",
     ] {
         let mut tx = f.owner.begin().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "LOCK TABLE {}.{table} IN ACCESS EXCLUSIVE MODE",
             f.schema
-        ))
+        )))
         .execute(&mut *tx)
         .await
         .unwrap();

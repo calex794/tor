@@ -1,4 +1,5 @@
 //! FLOW-09: complete genre summaries and one repeatable-read counter/health snapshot.
+// SQLx 0.9 test SQL audit: Timestamp-generated schema, fixed table names and numeric advisory-lock keys.
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
@@ -47,7 +48,7 @@ impl Fixture {
         );
         assert!(sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM public._sqlx_migrations WHERE version=202611294684 AND success)")
             .fetch_one(&owner).await.unwrap());
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&owner)
             .await
             .unwrap();
@@ -58,34 +59,36 @@ impl Fixture {
             "flow_observation_state",
             "flow_observation_proofs",
         ] {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE {schema}.{table}(LIKE public.{table} INCLUDING ALL)"
-            ))
+            )))
             .execute(&owner)
             .await
             .unwrap();
         }
-        sqlx::query(&format!("CREATE TABLE {schema}.source_books(id bigint PRIMARY KEY,title text NOT NULL,genres text[] NOT NULL,tags text[] NOT NULL)"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TABLE {schema}.source_books(id bigint PRIMARY KEY,title text NOT NULL,genres text[] NOT NULL,tags text[] NOT NULL)")))
             .execute(&owner).await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE VIEW {schema}.rec_materializable_books AS SELECT * FROM {schema}.source_books"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(&format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"))
-            .execute(&owner)
-            .await
-            .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA {schema} TO tor_app"
+        )))
+        .execute(&owner)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app"
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -95,7 +98,7 @@ impl Fixture {
             .after_connect(move |conn, _| {
                 let sql = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(&sql).execute(conn).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(sql)).execute(conn).await?;
                     Ok(())
                 })
             })
@@ -118,10 +121,13 @@ impl Fixture {
     }
     async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }
@@ -228,22 +234,22 @@ async fn closed_counts_and_health_cannot_come_from_different_commits() {
         .as_nanos()
         & 0x3fff_ffff_ffff_ffff) as i64;
     let signal = gate + 1;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE FUNCTION {}.snapshot_gate() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $gate$
         BEGIN PERFORM pg_advisory_xact_lock({signal});
           WHILE NOT pg_try_advisory_xact_lock({gate}) LOOP PERFORM pg_sleep(0.002); END LOOP;
           RETURN true;
         END; $gate$",
         f.schema
-    ))
+    )))
     .execute(&f.owner)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE OR REPLACE VIEW {}.rec_materializable_books AS
         SELECT * FROM {}.source_books WHERE {}.snapshot_gate()",
         f.schema, f.schema, f.schema
-    ))
+    )))
     .execute(&f.owner)
     .await
     .unwrap();
@@ -361,9 +367,11 @@ async fn closed_windows_use_exact_utc_hours_in_dst_and_fractional_offset_session
             .after_connect(move |conn, _| {
                 let schema = schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path={schema},public"))
-                        .execute(&mut *conn)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={schema},public"
+                    )))
+                    .execute(&mut *conn)
+                    .await?;
                     sqlx::query("SELECT set_config('TimeZone',$1,false)")
                         .bind(zone)
                         .execute(&mut *conn)

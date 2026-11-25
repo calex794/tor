@@ -16,7 +16,8 @@ pub(super) async fn read(
         ORDER BY b.id LIMIT 1 {}",
         if lock { "FOR SHARE OF b" } else { "" }
     );
-    if let Some(row) = sqlx::query(&sql)
+    // Only the fixed PUBLIC_BOOK predicate and a literal lock clause vary.
+    if let Some(row) = sqlx::query(sqlx::AssertSqlSafe(sql))
         .fetch_optional(&mut **tx)
         .await
         .map_err(unavailable)?
@@ -33,7 +34,8 @@ pub(super) async fn read(
         AND NOT c.admin_hold AND NOT c.is_deleted
         AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
         ORDER BY c.id LIMIT 1 {}", if lock { "FOR SHARE OF b,c,p" } else { "" });
-    if let Some(row) = sqlx::query(&sql)
+    // Only the fixed PUBLIC_BOOK predicate and a literal lock clause vary.
+    if let Some(row) = sqlx::query(sqlx::AssertSqlSafe(sql))
         .fetch_optional(&mut **tx)
         .await
         .map_err(unavailable)?

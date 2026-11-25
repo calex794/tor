@@ -1,10 +1,13 @@
 use sqlx::{postgres::PgPoolOptions, Row};
+// SQLx 0.9 test SQL audit: Timestamp-generated fixture schema; parsed epoch bound.
 use tor_reading::services::audience::time::ReadingTimeCounts;
 
 pub use super::super::canonical::fixture::Fixture;
 
 pub async fn fixture(clock: &str) -> Fixture {
-    let parsed = chrono::DateTime::parse_from_rfc3339(clock).unwrap();
+    let parsed =
+        ::time::OffsetDateTime::parse(clock, &::time::format_description::well_known::Rfc3339)
+            .unwrap();
     let mut f = Fixture::new().await;
     f.sql(
         "CREATE TABLE reader_chapter_starts (LIKE public.reader_chapter_starts INCLUDING ALL);
@@ -13,11 +16,11 @@ pub async fn fixture(clock: &str) -> Fixture {
         GRANT SELECT ON reader_chapter_starts,reading_test_clock TO tor_app",
     )
     .await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {}.reading_test_clock VALUES(to_timestamp($1::bigint::double precision))",
         f.schema
-    ))
-    .bind(parsed.timestamp())
+    )))
+    .bind(parsed.unix_timestamp())
     .execute(&f.owner)
     .await
     .unwrap();
@@ -37,9 +40,11 @@ pub async fn fixture(clock: &str) -> Fixture {
         .after_connect(move |connection, _| {
             let schema = namespace.clone();
             Box::pin(async move {
-                sqlx::query(&format!("SET search_path={schema},pg_catalog"))
-                    .execute(&mut *connection)
-                    .await?;
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "SET search_path={schema},pg_catalog"
+                )))
+                .execute(&mut *connection)
+                .await?;
                 sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                     .execute(&mut *connection)
                     .await?;
@@ -59,7 +64,7 @@ pub async fn fixture(clock: &str) -> Fixture {
     .fetch_one(&f.app)
     .await
     .unwrap();
-    assert_eq!(row.get::<i64, _>("clock"), parsed.timestamp());
+    assert_eq!(row.get::<i64, _>("clock"), parsed.unix_timestamp());
     assert_eq!(row.get::<String, _>("actor"), "tor_app");
     f
 }
