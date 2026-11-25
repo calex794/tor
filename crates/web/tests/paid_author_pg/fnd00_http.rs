@@ -448,7 +448,12 @@ async fn fnd00_paid_bodyless_owner_http_get_edit_v2_retains_purchased_v1() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("Paid bodyless V2 source"));
     assert!(!page.contains(initial_body));
-    println!("D001_PAID_CHECKOUT_V1_THEN_AUTHOR_HTTP_V2_OK");
+    // Preserve acceptance evidence even when libtest captures println! on success.
+    std::io::Write::write_all(
+        &mut std::io::stdout().lock(),
+        b"D001_PAID_CHECKOUT_V1_THEN_AUTHOR_HTTP_V2_OK\n",
+    )
+    .unwrap();
 
     // FND-00: rolling the operator flag back to OFF must never make a
     // bodyless V2 editable through the old PostgreSQL Markdown writer.
