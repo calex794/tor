@@ -158,7 +158,14 @@ S3 flags; compatible signed builds and operational rollback acceptance
 are separate requirements.
 `TOR_FREE_S3_PUBLIC_ORIGIN` must be derived from the actual signed reader
 GET URL/host and verified against CORS/CSP; do not guess that the SDK uses
-path-style or virtual-hosted-style URLs. S3 runtime requires the matching
+path-style or virtual-hosted-style URLs. The full-feature authenticated
+runtime requires this setting whenever `TOR_FREE_S3_BUCKET` is present.
+Read-only `--check-runtime` refuses a missing origin before any migration.
+Enabled paid grants also require the paid bucket, origin and KEK V1.
+The first full-profile CI startup exposed the previously unnamed
+`NotPresent` error; CI reproduces that missing-origin failure before testing
+a valid isolated MinIO configuration. A passing configuration check does
+not certify the actual production origin or provider permissions. S3 runtime requires the matching
 compiled Cargo features **and** approved credentials/permissions. A successful
 build does not establish HTTP reader correctness on Yandex.
 

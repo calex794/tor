@@ -90,7 +90,7 @@ stat() {
             "AWS_ENDPOINT_URL_S3=https://storage.yandexcloud.net\n"
             "AWS_ACCESS_KEY_ID=synthetic-access\n"
             "AWS_SECRET_ACCESS_KEY=synthetic-secret-0000\n"
-            "TOR_FREE_S3_BUCKET=tore\nTOR_PAID_GRANTS_ENABLED=0\n"
+            "TOR_FREE_S3_BUCKET=tore\nTOR_FREE_S3_PUBLIC_ORIGIN=https://storage.example.invalid\nTOR_PAID_GRANTS_ENABLED=0\n"
         )
         self.assertEqual(self.guard().returncode, 0)
         self.assertFalse(self.runtime.exists())
@@ -151,7 +151,7 @@ stat() {
                      "AWS_ENDPOINT_URL_S3=https://storage.yandexcloud.net\n"
                      "AWS_ACCESS_KEY_ID=synthetic-access\n"
                      "AWS_SECRET_ACCESS_KEY=synthetic-secret-0000\n"
-                     "TOR_FREE_S3_BUCKET=tore\nTOR_PAID_GRANTS_ENABLED=0\n")
+                     "TOR_FREE_S3_BUCKET=tore\nTOR_FREE_S3_PUBLIC_ORIGIN=https://storage.example.invalid\nTOR_PAID_GRANTS_ENABLED=0\n")
         original = self.runtime.read_bytes()
         self.assertEqual(self.guard().returncode, 0)
         self.assertEqual(self.guard().returncode, 0)
@@ -270,6 +270,32 @@ stat() {
         self.assertIn("file=tor-app.env line=2 parameter=unknown reason=invalid-utf8-file",
                       result.stderr)
         self.assertNotEqual(self.guard().returncode, 0)
+
+    def test_free_bucket_requires_verified_origin_before_sqlx(self):
+        self.db.write_text(DB_LINE + "\nTOR_FREE_S3_BUCKET=tore\n")
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("parameter=TOR_FREE_S3_BUCKET reason=missing-TOR_FREE_S3_PUBLIC_ORIGIN",
+                      result.stderr)
+        self.assertNotEqual(self.guard().returncode, 0)
+        self.install("TOR_FREE_S3_PUBLIC_ORIGIN=https://storage.example.invalid\n")
+        self.assertEqual(self.guard(diagnostic=True).stdout, "TOR_RUNTIME_ENV_OK\n")
+        self.assertEqual(self.guard().returncode, 0)
+
+    def test_paid_grants_require_bucket_origin_and_key_before_sqlx(self):
+        self.db.write_text(DB_LINE + "\nTOR_PAID_GRANTS_ENABLED=1\n")
+        result = self.guard(diagnostic=True)
+        self.assertNotEqual(result.returncode, 0)
+        for required in ("TOR_CONTENT_KEK_V1", "TOR_PAID_S3_BUCKET", "TOR_PAID_S3_PUBLIC_ORIGIN"):
+            self.assertIn("parameter=TOR_PAID_GRANTS_ENABLED reason=missing-" + required,
+                          result.stderr)
+        self.install(f"TOR_CONTENT_KEK_V1={V1}\n"
+                     "TOR_PAID_S3_BUCKET=paid-bucket\n"
+                     "TOR_PAID_S3_PUBLIC_ORIGIN=https://storage.example.invalid\n")
+        self.assertEqual(self.guard().returncode, 0)
+        self.install("TOR_PAID_AUTHOR_S3_ONLY_ENABLED=1\n")
+        self.assertIn("parameter=TOR_PAID_AUTHOR_S3_ONLY_ENABLED reason=paid-author-not-enabled",
+                      self.guard(diagnostic=True).stderr)
 
     def test_diagnostics_report_invalid_database_without_echoing_url(self):
         invalid = DB_LINE.replace("127.0.0.1", "private-host.invalid")

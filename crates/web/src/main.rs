@@ -298,7 +298,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             println!("TOR PostgreSQL catalogue and public reading on {address}");
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                let origin = env::var("TOR_PUBLIC_ORIGIN")?;
+                let origin = env::var("TOR_PUBLIC_ORIGIN")
+                    .map_err(|_| "Missing or invalid TOR_PUBLIC_ORIGIN")?;
                 let secure = origin.starts_with("https://");
                 let uri: axum::http::Uri = origin.parse()?;
                 let host = uri.host().unwrap_or("");
@@ -412,7 +413,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         >,
                     >,
                 ) = if paid_grants_enabled {
-                    let bucket = env::var("TOR_PAID_S3_BUCKET")?;
+                    let bucket = env::var("TOR_PAID_S3_BUCKET")
+                        .map_err(|_| "Missing or invalid TOR_PAID_S3_BUCKET")?;
                     let keyring = Arc::new(
                         tor_storage::services::crypto::ContentKeyring::from_environment()
                             .map_err(|_| "Invalid private content KEK V1/V2 configuration")?,

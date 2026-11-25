@@ -193,8 +193,20 @@ def validate(values, locations):
         required = ("TOR_CONTENT_KEK_V2" if values["TOR_CONTENT_ACTIVE_KEK_ID"] == "content-kek-v2"
                     else "TOR_CONTENT_KEK_V1")
         setting(required in values, "TOR_CONTENT_ACTIVE_KEK_ID", "missing-active-kek")
+    # The authenticated startup wires FREE grants whenever a FREE bucket is
+    # configured; its browser origin must be provided, never guessed.
+    if "TOR_FREE_S3_BUCKET" in values:
+        setting("TOR_FREE_S3_PUBLIC_ORIGIN" in values, "TOR_FREE_S3_BUCKET",
+                "missing-TOR_FREE_S3_PUBLIC_ORIGIN")
     if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
-        setting("TOR_CONTENT_KEK_V1" in values, "TOR_PAID_GRANTS_ENABLED", "missing-kek-v1")
+        for required in ("TOR_CONTENT_KEK_V1", "TOR_PAID_S3_BUCKET", "TOR_PAID_S3_PUBLIC_ORIGIN"):
+            setting(required in values, "TOR_PAID_GRANTS_ENABLED", "missing-" + required)
+    if values.get("TOR_PAID_AUTHOR_PUBLISH_ENABLED") == "1":
+        setting(values.get("TOR_PAID_GRANTS_ENABLED") == "1",
+                "TOR_PAID_AUTHOR_PUBLISH_ENABLED", "paid-grants-not-enabled")
+    if values.get("TOR_PAID_AUTHOR_S3_ONLY_ENABLED") == "1":
+        setting(values.get("TOR_PAID_AUTHOR_PUBLISH_ENABLED") == "1",
+                "TOR_PAID_AUTHOR_S3_ONLY_ENABLED", "paid-author-not-enabled")
 
 
 try:
