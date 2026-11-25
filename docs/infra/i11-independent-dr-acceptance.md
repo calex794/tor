@@ -184,3 +184,20 @@ remains `NOT_ACCEPTED` and must fail this gate.
 - Existing CI: `tools/i11_pitr_drill.py` proves PG18 physical full + WAL recovery within one isolated local container, including wrong-key/unreachable-target negative checks; `sealed-remote-copy` and `postgres-runtime` exercise disposable environment recovery. Post-merge CI on `main@ca9acb3855c298a5811455c3906c06c85ffc5fea` passed [17/17](https://github.com/calex794/tor/actions/runs/43530755043).
 - **Still not demonstrated:** independently protected offsite PostgreSQL and S3 archives, complete inventory after partial deletion, offline custody of *real* recovery keys, full independent-host TOR/ACL recovery, real outage notifications and measured RPO/RTO.
 - No change in this document alters the live VPS, primary PostgreSQL, production S3, IAM, source objects, backup timers or migrations.
+
+## RECOVERY-10a: checkout finance after sealed logical restore (CI only)
+
+The existing sealed-remote-copy fixture additionally seeds the actual D-08
+checkout and idempotent replay using the existing commerce PostgreSQL test.
+The independently restored encrypted dump must retain the exact buyer wallet,
+debit, purchase, idempotency command, immutable posting, platform credit and
+creator earning, with the same IDs, references, amounts and timestamps as
+before backup. The source snapshot must remain unchanged. The witness is
+read-only and rejects missing or duplicate records; it checks 250 minor-unit
+gross = 50 platform + 200 creator and 750 remaining from the synthetic
+initial balance 1000. No initial funding journal is claimed. No real money,
+keys or live data are used. Reuse the existing CI job; no new workflow.
+This is a logical restore witness, not proof that those business records
+survive physical PITR. Later integrate the same real TOR schema and checkout
+witness into a disposable physical restore and add separate refund/Layer/
+creator-credit cases and HTTP decryption/ACL tests. Do not close S061.
