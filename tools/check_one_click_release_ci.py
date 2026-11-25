@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only I-06: verify main ruleset and *every* required push CI job before SSH.
 
-A successful workflow shell is NOT proof that all 14 suites executed. This
+A successful workflow shell is NOT proof that every mandatory suite and matrix child executed. This
 script never authorizes production by itself (backup/restore and VPS readiness
 must be verified separately).
 """
@@ -183,7 +183,7 @@ def main() -> int:
         print(f"TOR_CI_{outcome.upper()}: {detail}", flush=True)
         if outcome == "pass":
             # A workflow success can hide missing/skipped suite jobs. Reuse the
-            # exact-main, two-workflow/16-job release auditor, fail-closed.
+            # exact-main release auditor, including every matrix child, fail-closed.
             try:
                 report = collect(api, opts.sha)
                 if not report["ci_complete"]:
@@ -200,7 +200,7 @@ def main() -> int:
             if state != "pass":
                 print(f"TOR_CI_REFUSED: I-06 after CI: {detail}", file=sys.stderr)
                 return 1
-            print("TOR_CI_VERIFIED: exact-main rules + all 14 suites + ci-required")
+            print("TOR_CI_VERIFIED: exact-main rules + every suite and matrix child + ci-required")
             return 0
         if outcome == "fail" or time.monotonic() >= deadline:
             print("TOR_CI_REFUSED: no verified complete green main build", file=sys.stderr)

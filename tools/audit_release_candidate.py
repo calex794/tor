@@ -16,7 +16,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS
+from ci_test_map import (
+    CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS,
+    SUITE_JOB_MATRICES, suite_api_job_names,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -89,15 +92,24 @@ def evaluate_ci(
             or set(expected.values()) != {"rules.yml", CI_WORKFLOW}
             or len(expected) != 2):
         raise EvidenceError("incomplete or unreviewed automatic workflow registry")
-    if len(SUITE_JOB_IDS) != len(SUITES) or len(set(SUITE_JOB_IDS.values())) != len(SUITES):
+    if (set(SUITE_JOB_IDS) != set(SUITES)
+            or len(set(SUITE_JOB_IDS.values())) != len(SUITES)
+            or not set(SUITE_JOB_MATRICES) <= set(SUITES)):
         raise EvidenceError("duplicate or incomplete suite-job registry")
+    suite_jobs = suite_api_job_names()
+    all_suite_jobs = [name for names in suite_jobs.values() for name in names]
+    if (any(not names for names in suite_jobs.values())
+            or len(all_suite_jobs) != len(set(all_suite_jobs))
+            or set(all_suite_jobs) & {"select", "select / select", "preflight", CI_REQUIRED_JOB}):
+        raise EvidenceError("duplicate, empty or conflicting suite API job registry")
     current = latest_push_runs(runs, sha)
     blockers: list[str] = []
     verified: list[str] = []
     checks: dict[str, dict] = {}
     suite_checks = {
-        suite: {"job": job_id, "state": "missing"}
-        for suite, job_id in SUITE_JOB_IDS.items()
+        suite: {"job": SUITE_JOB_IDS[suite], "state": "missing",
+                "jobs": dict.fromkeys(names, "missing")}
+        for suite, names in suite_jobs.items()
     }
     for title, filename in sorted(expected.items()):
         run = current.get(title)
@@ -136,13 +148,20 @@ def evaluate_ci(
                 continue
             # Preflight is an obligatory job, not an extra suite or an ignorable
             # wrapper. Require its success alongside selector, suites and gate.
-            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB, "preflight"}
-            for suite, job_id in SUITE_JOB_IDS.items():
-                job = by_name.get(job_id)
-                if job is not None:
-                    state = ("verified" if job.get("status") == "completed"
-                             and job.get("conclusion") == "success" else "blocked")
-                    suite_checks[suite] = {"job": job_id, "state": state}
+            required = set(all_suite_jobs) | selectors | {CI_REQUIRED_JOB, "preflight"}
+            for suite, job_names in suite_jobs.items():
+                states = suite_checks[suite]["jobs"]
+                for job_name in job_names:
+                    job = by_name.get(job_name)
+                    if job is not None:
+                        states[job_name] = (
+                            "verified" if job.get("status") == "completed"
+                            and job.get("conclusion") == "success" else "blocked"
+                        )
+                suite_checks[suite]["state"] = (
+                    "blocked" if "blocked" in states.values() else
+                    "missing" if "missing" in states.values() else "verified"
+                )
         missing, unexpected = sorted(required - set(names)), sorted(set(names) - required)
         if missing or unexpected:
             if filename == CI_WORKFLOW and len(names) == 1 and is_selector(jobs[0]):
