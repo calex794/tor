@@ -109,6 +109,31 @@ class ManagedEdgeTests(unittest.TestCase):
             self.assertEqual(self.store.activate(A, nginx), B)
         self.assertIn("fixture_channel", config.read_text())
 
+    def test_strict_root_umask_keeps_site_readable(self):
+        other = edge.EdgeStore(self.root / "strict-umask")
+        previous = os.umask(0o077)
+        try:
+            with other.locked():
+                target = other.prepare(self.root / B, B, self.signers)
+        finally:
+            os.umask(previous)
+        for path in (other.root, other.releases, other.settings, target, target / "site"):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((target / "site/game.js").stat().st_mode & 0o777, 0o644)
+
+    def test_prepared_checksum_mismatch_refused_before_reload(self):
+        with self.store.locked():
+            target = self.prepare()
+            (target / "nginx-http.conf").write_text("damaged")
+            nginx = NginxFixture(self.store)
+            with self.assertRaisesRegex(edge.EdgeError, "checksum mismatch"):
+                self.store.activate(B, nginx)
+            self.assertEqual(nginx.calls, [])
+            self.assertEqual(self.store.active_sha(), A)
+
+    def test_duplicate_public_setting_cannot_smuggle_data(self):
+        self.assertFalse(edge.settings_valid(b'{"telegram_url":"secret","telegram_url":null}'))
+
     def test_unchanged_release_does_not_reload(self):
         with self.store.locked():
             nginx = NginxFixture(self.store)
