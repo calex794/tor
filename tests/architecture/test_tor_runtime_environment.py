@@ -14,6 +14,9 @@ TEMPLATE = (ROOT / "ops/tor-runtime.conf.example").read_bytes()
 MASTER = base64.b64encode(b"a" * 32).decode()
 V1 = base64.urlsafe_b64encode(b"b" * 32).decode().rstrip("=")
 V2 = base64.urlsafe_b64encode(b"c" * 32).decode().rstrip("=")
+DB_PASSWORD = "d" * 64
+DB_LINE = (f"DATABASE_URL=postgresql://tor_app:{DB_PASSWORD}"
+           "@127.0.0.1:5432/tor?sslmode=disable")
 
 
 class RuntimeEnvironmentTests(unittest.TestCase):
@@ -28,7 +31,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.runtime = self.secret / "tor-runtime.env"
         self.dropin = self.dropins / "30-runtime.conf"
         self.db = self.secret / "tor-app.env"
-        self.db.write_text("DATABASE_URL=synthetic-db-only\n")
+        self.db.write_text(DB_LINE + "\n")
         self.db.chmod(0o600)
         # CI is unprivileged. Exercise real stat modes/link counts but
         # substitute root ownership for these temporary test-owned files.
@@ -43,7 +46,8 @@ stat() {
   fi
 }
 '''
-        self.harness += GUARD + '\nvalidate_runtime_configuration "$1" "$2"\n'
+        self.harness += GUARD + ('\npassword=$(validate_runtime_configuration "$1" "$2")\n'
+                                 '[[ "$password" == "$3" ]]\n')
 
     def install(self, text):
         self.runtime.write_text(text, encoding="ascii")
@@ -55,16 +59,86 @@ stat() {
         before = self.db.read_bytes()
         result = subprocess.run(
             ["bash", "-euo", "pipefail", "-c", self.harness, "guard",
-             str(self.secret), str(self.dropins)],
+             str(self.secret), str(self.dropins), DB_PASSWORD],
             capture_output=True, text=True, timeout=5,
         )
         self.assertEqual(self.db.read_bytes(), before)
         self.assertNotIn(MASTER, result.stdout + result.stderr)
         self.assertNotIn(V1, result.stdout + result.stderr)
+        self.assertNotIn(V2, result.stdout + result.stderr)
+        self.assertNotIn(DB_PASSWORD, result.stdout + result.stderr)
+        self.assertNotIn("synthetic-secret-0000", result.stdout + result.stderr)
         return result
 
     def test_legacy_database_only_installation(self):
         self.assertEqual(self.guard().returncode, 0)
+        self.db.write_text(DB_LINE)
+        self.assertEqual(self.guard().returncode, 0)
+
+    def test_previously_documented_combined_app_environment(self):
+        # Reproduce the old whole-file regex refusal using the actual legacy
+        # configuration shape; retain both DB and application bytes.
+        self.db.write_text(
+            "# Existing database and Yandex S3 settings\n" + DB_LINE + "\n\n"
+            f"TOR_S3_ADMIN_MASTER_KEY={MASTER}\n"
+            f"TOR_CONTENT_KEK_V1={V1}\nTOR_CONTENT_KEK_V2={V2}\n"
+            "TOR_CONTENT_ACTIVE_KEK_ID=content-kek-v2\n"
+            "AWS_REGION=ru-central1\n"
+            "AWS_ENDPOINT_URL_S3=https://storage.yandexcloud.net\n"
+            "AWS_ACCESS_KEY_ID=synthetic-access\n"
+            "AWS_SECRET_ACCESS_KEY=synthetic-secret-0000\n"
+            "TOR_FREE_S3_BUCKET=tore\nTOR_PAID_GRANTS_ENABLED=0\n"
+        )
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertFalse(self.runtime.exists())
+        self.assertFalse(self.dropin.exists())
+
+    def test_combined_and_separate_disjoint_settings_are_validated_together(self):
+        self.db.write_text(DB_LINE + f"\nTOR_CONTENT_KEK_V1={V1}\n")
+        self.install(f"TOR_CONTENT_KEK_V2={V2}\nTOR_CONTENT_ACTIVE_KEK_ID=content-kek-v2\n")
+        original = self.runtime.read_bytes()
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertEqual(self.runtime.read_bytes(), original)
+        self.install(f"TOR_CONTENT_KEK_V1={V1}\n")
+        self.assertNotEqual(self.guard().returncode, 0)
+
+    def test_combined_file_rejects_unsafe_db_and_runtime_settings(self):
+        invalid = (
+            "",
+            DB_LINE + "\n" + DB_LINE + "\n",
+            DB_LINE.replace("tor_app:", "tor_migrator:"),
+            DB_LINE.replace("127.0.0.1", "example.com"),
+            DB_LINE.replace(":5432", ":5433"),
+            DB_LINE.replace("/tor?", "/other?"),
+            DB_LINE.replace("sslmode=disable", "sslmode=require"),
+            DB_LINE.replace(DB_PASSWORD, "short"),
+            DB_LINE + "\nTOR_AUTH_ENABLED=0\n",
+            DB_LINE + "\nTOR_DEMO_MODE=1\n",
+            DB_LINE + "\nTOR_LISTEN_ADDR=0.0.0.0:3000\n",
+            DB_LINE + "\nLD_PRELOAD=/tmp/untrusted.so\n",
+            DB_LINE + "\nAWS_REGION=$(id)\n",
+            DB_LINE + "\nTOR_S3_ADMIN_MASTER_KEY=invalid\n",
+            DB_LINE + "\nAWS_ACCESS_KEY_ID=synthetic-access\n",
+            DB_LINE + f"\nTOR_CONTENT_KEK_V2={V2}\n",
+            DB_LINE + "\nAWS_REGION=ru-central1\nAWS_REGION=ru-central1\n",
+        )
+        for index, content in enumerate(invalid):
+            with self.subTest(index=index):
+                self.db.write_text(content)
+                result = self.guard()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("REFUSE_RUNTIME_ENV", result.stderr)
+
+    def test_combined_file_rejects_unsafe_permissions_and_links(self):
+        self.db.chmod(0o644)
+        self.assertNotEqual(self.guard().returncode, 0)
+        self.db.chmod(0o600)
+        other = self.secret / "copy"
+        os.link(self.db, other)
+        self.assertNotEqual(self.guard().returncode, 0)
+        self.db.unlink()
+        self.db.symlink_to(other)
+        self.assertNotEqual(self.guard().returncode, 0)
 
     def test_separate_master_and_storage_keys_accepted_without_rewrite(self):
         self.install(f"TOR_S3_ADMIN_MASTER_KEY={MASTER}\n"
@@ -138,6 +212,12 @@ stat() {
         self.assertLess(SOURCE.index('validate_runtime_configuration "$secret_dir" "$dropin_dir"'),
                         SOURCE.index('mv -Tf "$tmp" /opt/tor/current'))
         self.assertIn("EnvironmentFile=/etc/tor/tor-app.env", SOURCE)
+        self.assertIn('PGPASSWORD="$app_password" psql -X -w', SOURCE)
+        self.assertLess(SOURCE.index('PGPASSWORD="$app_password" psql'),
+                        SOURCE.index('bash "$migration_script" "$sha"'))
+        self.assertIn('validate_runtime_configuration "$secret_dir" "$dropin_dir" >/dev/null',
+                      SOURCE)
+        self.assertNotIn('app_line=$(cat "$app_secret")', SOURCE)
         self.assertEqual(TEMPLATE, b"[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n")
 
 

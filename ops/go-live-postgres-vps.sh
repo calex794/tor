@@ -72,31 +72,38 @@ for secret in "$app_secret" "$migrator_secret"; do
 done
 
 # TOR_RUNTIME_ENV_GUARD_BEGIN
-# Optional operator-installed, separate runtime file. Never source it as shell,
-# generate keys here, or let it override DB/auth/listener/process settings.
+# Accept previously documented combined app settings as well as the optional
+# operator-installed runtime pair. Never source either file as shell or rewrite
+# it. Stdout is private: the caller captures only the validated DB password.
 validate_runtime_configuration() {
+  local app_file="$1/tor-app.env"
   local runtime_file="$1/tor-runtime.env" runtime_dropin="$2/30-runtime.conf"
+  if [[ -L "$1" || $(stat -c '%U:%G:%a' "$1") != root:root:700 ||
+        -L "$app_file" || ! -f "$app_file" ||
+        $(stat -c '%U:%G:%a:%h' "$app_file") != root:root:600:1 ]]; then
+    echo 'REFUSE_RUNTIME_ENV: unsafe application configuration' >&2
+    return 1
+  fi
   if [[ ! -e "$runtime_file" && ! -L "$runtime_file" &&
         ! -e "$runtime_dropin" && ! -L "$runtime_dropin" ]]; then
-    return 0
-  fi
-  if [[ -L "$1" || -L "$2" ||
-        $(stat -c '%U:%G:%a' "$1") != root:root:700 ||
-        $(stat -c '%U:%G:%a' "$2") != root:root:755 ||
-        -L "$runtime_file" || ! -f "$runtime_file" ||
-        $(stat -c '%U:%G:%a:%h' "$runtime_file") != root:root:600:1 ||
-        -L "$runtime_dropin" || ! -f "$runtime_dropin" ||
-        $(stat -c '%U:%G:%a:%h' "$runtime_dropin") != root:root:644:1 ]]; then
-    echo 'REFUSE_RUNTIME_ENV: unsafe or incomplete runtime configuration' >&2
-    return 1
-  fi
-  if ! cmp -s "$runtime_dropin" <(printf '[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n'); then
-    echo 'REFUSE_RUNTIME_ENV: unexpected runtime systemd drop-in' >&2
-    return 1
+    runtime_file=""
+  else
+    if [[ -L "$2" || $(stat -c '%U:%G:%a' "$2") != root:root:755 ||
+          -L "$runtime_file" || ! -f "$runtime_file" ||
+          $(stat -c '%U:%G:%a:%h' "$runtime_file") != root:root:600:1 ||
+          -L "$runtime_dropin" || ! -f "$runtime_dropin" ||
+          $(stat -c '%U:%G:%a:%h' "$runtime_dropin") != root:root:644:1 ]]; then
+      echo 'REFUSE_RUNTIME_ENV: unsafe or incomplete runtime configuration' >&2
+      return 1
+    fi
+    if ! cmp -s "$runtime_dropin" <(printf '[Service]\nEnvironmentFile=/etc/tor/tor-runtime.env\n'); then
+      echo 'REFUSE_RUNTIME_ENV: unexpected runtime systemd drop-in' >&2
+      return 1
+    fi
   fi
   # A deliberately small, unquoted, ASCII subset of systemd EnvironmentFile.
   # Refuse unknown/duplicate names, continuation, expansion and raw diagnostics.
-  if ! python3 -I - "$runtime_file" <<'PY'
+  if ! python3 -I - "$app_file" "$runtime_file" <<'PY'
 import base64
 import binascii
 import re
@@ -126,22 +133,44 @@ def require(ok):
     if not ok:
         raise ValueError("invalid runtime configuration")
 
-try:
-    path = Path(sys.argv[1])
-    with path.open("rb") as stream:
+db_url = re.compile(
+    r"postgresql://tor_app:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable"
+)
+
+
+def read_env(path, *, app):
+    with Path(path).open("rb") as stream:
         raw = stream.read(65537)
-    require(0 < len(raw) <= 65536 and raw.endswith(b"\n"))
+    # Preserve the old DB-only file's acceptance with or without final LF.
+    require(0 < len(raw) <= 65536 and (app or raw.endswith(b"\n")))
     values = {}
-    for line in raw.decode("ascii").split("\n")[:-1]:
-        if not line or line.startswith("#"):
+    for line in raw.decode("ascii").split("\n"):
+        if not line.strip(" ") or line.lstrip(" ").startswith("#"):
             require(not re.search(r"[\x00-\x1f\x7f]", line))
             continue
-        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=([A-Za-z0-9+/=_:.-]{1,2048})", line)
+        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
         require(match is not None)
         name, value = match.groups()
-        require(name in allowed and name not in values)
+        require(name not in values)
+        if app and name == "DATABASE_URL":
+            require(db_url.fullmatch(value) is not None)
+        else:
+            require(name in allowed and re.fullmatch(r"[A-Za-z0-9+/=_:.-]{1,2048}", value))
         values[name] = value
     require(bool(values))
+    return values
+
+
+try:
+    values = read_env(sys.argv[1], app=True)
+    require("DATABASE_URL" in values)
+    password = db_url.fullmatch(values.pop("DATABASE_URL")).group(1)
+    if sys.argv[2]:
+        separate = read_env(sys.argv[2], app=False)
+        # Never permit systemd's later EnvironmentFile to silently override
+        # a credential or feature flag from the legacy application file.
+        require(not values.keys() & separate.keys())
+        values.update(separate)
     for name, value in values.items():
         if name in flags:
             require(value in {"0", "1"})
@@ -177,6 +206,7 @@ try:
         require(required in values)
     if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
         require("TOR_CONTENT_KEK_V1" in values)
+    print(password)
 except (ValueError, OSError, UnicodeError, binascii.Error):
     sys.exit(1)
 PY
@@ -187,24 +217,16 @@ PY
 }
 # TOR_RUNTIME_ENV_GUARD_END
 
-# Fail before migrations if the optional runtime configuration is unsafe.
-validate_runtime_configuration "$secret_dir" /etc/systemd/system/tor-web.service.d
-
-# Validate app authentication without sending the password via CLI arguments.
-app_line=$(cat "$app_secret")
-app_pattern='^DATABASE_URL=postgresql://tor_app:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable$'
-if [[ ! $app_line =~ $app_pattern ]]; then
-  echo "Refusing: invalid tor_app DATABASE_URL" >&2
-  exit 1
-fi
-app_password=${BASH_REMATCH[1]}
-app_whoami=$(PGHOST=127.0.0.1 PGUSER=tor_app PGDATABASE=tor \
- PGPASSWORD="$app_password" psql -X -v ON_ERROR_STOP=1 -Atqc 'SELECT current_user' 2>/dev/null)
+# Fail before migrations if either configuration is unsafe. Capture the
+# password privately and still prove a real local TCP login as tor_app.
+app_password=$(validate_runtime_configuration "$secret_dir" /etc/systemd/system/tor-web.service.d)
+app_whoami=$(PGHOST=127.0.0.1 PGPORT=5432 PGSSLMODE=disable PGUSER=tor_app PGDATABASE=tor \
+ PGPASSWORD="$app_password" psql -X -w -v ON_ERROR_STOP=1 -Atqc 'SELECT current_user' 2>/dev/null)
+unset app_password
 if [[ $app_whoami != tor_app ]]; then
   echo "Application role TCP/SCRAM authentication failed" >&2
   exit 1
 fi
-unset app_password app_line
 
 # Apply the canonical SQLx migrator from the verified staged release.
 # It creates the initial schema or upgrades additive migrations in place.
@@ -324,7 +346,7 @@ trap undo ERR
 # Retain the existing PostgreSQL drop-in. The separate runtime pair is
 # operator-owned, never rewritten, generated or removed by a release.
 # Recheck it before switching (operator changes must not race a release).
-validate_runtime_configuration "$secret_dir" "$dropin_dir"
+validate_runtime_configuration "$secret_dir" "$dropin_dir" >/dev/null
 # Validate mandatory security invariants and retain the operator's settings.
 if [[ -f "$dropin" ]]; then
   for line in \
