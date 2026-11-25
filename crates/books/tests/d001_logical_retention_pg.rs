@@ -499,16 +499,8 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
     use std::io::Write;
 
     let pool = pool().await;
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        Vec<String>,
-        Vec<String>,
-        bool,
-        String,
-        String,
-    )> = sqlx::query_as(include_str!("d001_reference_inventory.sql"))
+    type ForeignKeyRow = (String, String, String, Vec<String>, Vec<String>, bool, String, String);
+    let rows: Vec<ForeignKeyRow> = sqlx::query_as(include_str!("d001_reference_inventory.sql"))
         .fetch_all(&pool)
         .await
         .unwrap();
@@ -537,12 +529,16 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
         );
     }
     let unreviewed = rows.iter().filter(|row| row.7 == "unreviewed").count();
-    // Deliberately no clearance decision: unknown and soft references are not
-    // covered, and no schema inventory is a deletion, ACL or retention gate.
+    // This check stops schema review on any unknown edge. It is never a
+    // deletion, ACL or retention gate; review of soft references is separate.
     writeln!(
         log,
         "D001_VERSION_FK_SCHEMA_REPORT total={} unreviewed={unreviewed} soft_refs=out_of_scope",
         rows.len()
     )
     .unwrap();
+    assert_eq!(
+        unreviewed, 0,
+        "new or changed chapter-version foreign keys need explicit review"
+    );
 }
