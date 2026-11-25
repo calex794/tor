@@ -1,4 +1,5 @@
 //! FLOW-04 report over a copy of the officially migrated aggregate schema.
+// SQLx 0.9 test SQL audit: Test schema uses generated UUID; fixture SQL templates are code-owned.
 //! Fixtures stay in a private namespace of the disposable tor_ci database.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::Duration;
@@ -35,7 +36,10 @@ impl Fixture {
             format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"),
             format!("GRANT SELECT ON {schema}.ril_flow_hourly TO tor_app"),
         ] {
-            sqlx::query(&sql).execute(&owner).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(&owner)
+                .await
+                .unwrap();
         }
         let namespace = schema.clone();
         let app = PgPoolOptions::new()
@@ -44,9 +48,11 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let namespace = namespace.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path={namespace},public"))
-                        .execute(&mut *connection)
-                        .await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SET search_path={namespace},public"
+                    )))
+                    .execute(&mut *connection)
+                    .await?;
                     // A fractional-hour zone catches accidental local-hour truncation.
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(connection)
@@ -66,18 +72,23 @@ impl Fixture {
     }
 
     async fn execute(&self, sql: &str) {
-        sqlx::query(&sql.replace("{table}", &format!("{}.ril_flow_hourly", self.schema)))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(
+            sql.replace("{table}", &format!("{}.ril_flow_hourly", self.schema)),
+        ))
+        .execute(&self.owner)
+        .await
+        .unwrap();
     }
 
     async fn finish(self) {
         self.app.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
-            .execute(&self.owner)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.owner)
+        .await
+        .unwrap();
         self.owner.close().await;
     }
 }
@@ -167,18 +178,18 @@ async fn flow_hours_full_two_weeks_and_utc_boundaries() {
         }
     }
     // Reads never change the source counters.
-    let before: String = sqlx::query_scalar(&format!(
+    let before: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT sum(html_requests)::text FROM {}.ril_flow_hourly",
         fixture.schema
-    ))
+    )))
     .fetch_one(&fixture.owner)
     .await
     .unwrap();
     repo.report(7).await.unwrap();
-    let after: String = sqlx::query_scalar(&format!(
+    let after: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT sum(html_requests)::text FROM {}.ril_flow_hourly",
         fixture.schema
-    ))
+    )))
     .fetch_one(&fixture.owner)
     .await
     .unwrap();

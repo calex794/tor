@@ -1,4 +1,5 @@
 //! FLOW: real C writers, consent erasure, exact UTC returns and bounded history.
+// SQLx 0.9 test SQL audit: Trigger definition includes only a typed numeric fixture book ID.
 //! Retained collector regression: only the explicit legacy 191 database is accepted.
 #[path = "support/legacy_analytics.rs"]
 mod legacy;
@@ -589,12 +590,12 @@ async fn failure_and_consent_race(
     let one = book(pool, "fault", false).await;
     let coverage = active_coverage(pool).await;
     cohort(pool, a, 1, coverage, [false; 3]).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE FUNCTION ci_reader_return_fail() RETURNS trigger LANGUAGE plpgsql AS $$
          BEGIN IF NEW.book_id={} THEN RAISE EXCEPTION 'fixture derivative failure'; END IF; RETURN NEW; END $$;
          CREATE TRIGGER ci_reader_return_fail BEFORE INSERT ON reader_activity_days
          FOR EACH ROW EXECUTE FUNCTION ci_reader_return_fail();", one.id
-    )).execute(&owner).await.unwrap();
+    ))).execute(&owner).await.unwrap();
     let saved = sync
         .save_free(a, one.chapter, one.version, place(2), 0)
         .await
@@ -741,9 +742,17 @@ async fn cohort_cases(
         let result = report.returns_report(days).await.unwrap();
         assert_eq!(result.current.from_utc, result.previous.until_utc);
         for period in [&result.current, &result.previous] {
-            let from = chrono::DateTime::parse_from_rfc3339(&period.from_utc).unwrap();
-            let until = chrono::DateTime::parse_from_rfc3339(&period.until_utc).unwrap();
-            assert_eq!((until - from).num_seconds(), i64::from(days) * 86_400);
+            let from = ::time::OffsetDateTime::parse(
+                &period.from_utc,
+                &::time::format_description::well_known::Rfc3339,
+            )
+            .unwrap();
+            let until = ::time::OffsetDateTime::parse(
+                &period.until_utc,
+                &::time::format_description::well_known::Rfc3339,
+            )
+            .unwrap();
+            assert_eq!((until - from).whole_seconds(), i64::from(days) * 86_400);
             for metric in period.metrics {
                 assert_eq!(
                     metric.eligible + metric.pending + metric.unknown,

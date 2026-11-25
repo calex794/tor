@@ -23,7 +23,8 @@ impl PgRecommendations {
             let sql = format!(
                 "{ACTOR_DISCOVERY_CTE} SELECT EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$2)"
             );
-            let allowed: bool = sqlx::query_scalar(&sql)
+            // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+            let allowed: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
                 .bind(actor)
                 .bind(seed)
                 .fetch_one(&self.pool)
@@ -57,7 +58,8 @@ impl PgRecommendations {
                AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())
              ORDER BY b.created_at DESC,b.id DESC LIMIT $3"
         );
-        let rows = sqlx::query(&sql)
+        // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(seed)
             .bind(limit as i64)

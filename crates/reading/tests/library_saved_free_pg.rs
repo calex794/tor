@@ -1,4 +1,5 @@
 //! C-08/BR-060: save only exact previously opened FREE chapter editions.
+// SQLx 0.9 test SQL audit: EXPLAIN uses the production statement prepared on the isolated test connection, not external SQL.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
 #[path = "library_saved_free_pg/open_fixtures.rs"]
@@ -932,7 +933,7 @@ async fn br060_archived_10k_keyset_keeps_exact_version() {
     .await
     .expect("the archive SQL must be prepared on the isolated PG backend");
     let explain_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {prepared}");
-    let plan_lines: Vec<String> = sqlx::query_scalar(&explain_sql)
+    let plan_lines: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(explain_sql))
         .bind(actor)
         .bind(book)
         .bind(Some(9950_i64))

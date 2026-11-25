@@ -1,4 +1,5 @@
 //! Large synthetic workload only: actual F-04 repository SQL with EXPLAIN.
+// SQLx 0.9 test SQL audit: EXPLAIN wraps the fixed production SQL constant.
 //! C-verified provenance is tested separately via PgReadingSync in f04_rising_pg.
 use std::time::{Duration, Instant};
 
@@ -34,7 +35,7 @@ async fn f_04_rising_plan_on_100k_books_and_100k_completions() {
 
     // Explain the literal production SQL, not a hand-maintained approximation.
     let plan_sql = format!("EXPLAIN (ANALYZE, BUFFERS) {RISING_SHOWCASE_SQL}");
-    let plan: Vec<String> = sqlx::query_scalar(&plan_sql)
+    let plan: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(plan_sql))
         .bind(12_i64)
         .fetch_all(&pool)
         .await

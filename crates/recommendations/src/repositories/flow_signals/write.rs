@@ -99,9 +99,10 @@ impl PgFlowSignals {
                 let next = transition(prior, result, lease.started_ms);
                 write_state(&mut tx, lease, o, result, next.episode).await?;
                 if let Some(kind) = next.event {
-                    sqlx::query(&format!(
+                    // COLUMNS is a fixed schema column list; event values are bound.
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
                         "INSERT INTO flow_signal_events ({COLUMNS},kind) SELECT {COLUMNS},$4 FROM flow_signal_states WHERE rule=$1 AND days=$2 AND scope=$3 ON CONFLICT(rule,days,scope,episode_seq,kind) DO NOTHING"
-                    )).bind(o.rule.code()).bind(lease.days).bind(&o.scope).bind(kind.code()).execute(&mut *tx).await?;
+                    ))).bind(o.rule.code()).bind(lease.days).bind(&o.scope).bind(kind.code()).execute(&mut *tx).await?;
                 }
             }
             let changed = sqlx::query(

@@ -156,7 +156,8 @@ impl PgRecommendations {
         );
         let rows = tokio::time::timeout(
             std::time::Duration::from_millis(500),
-            sqlx::query(&sql)
+            // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+            sqlx::query(sqlx::AssertSqlSafe(sql))
                 .bind(actor)
                 .bind(source_book)
                 .bind(REVISION_STRIDE)

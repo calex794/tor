@@ -1,29 +1,33 @@
 use super::*;
+// SQLx 0.9 test SQL audit: Legacy namespace derives from the generated fixture schema; all table names and clauses are fixed.
 
 #[tokio::test]
 #[ignore = "requires fresh isolated PostgreSQL with HTML health migration"]
 async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health_is_an_error() {
     let f = Fixture::new().await;
     let namespace = format!("{}_legacy", f.schema);
-    sqlx::query(&format!("CREATE SCHEMA {namespace}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {namespace}")))
         .execute(&f.owner)
         .await
         .unwrap();
     for table in ["ril_flow_observed_hourly", "ril_flow_observed_receipts"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE TABLE {namespace}.{table} (LIKE public.{table} INCLUDING ALL)"
-        ))
+        )))
         .execute(&f.owner)
         .await
         .unwrap();
     }
-    sqlx::query(&format!("CREATE TABLE {namespace}._sqlx_migrations(version bigint PRIMARY KEY,success boolean NOT NULL)"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TABLE {namespace}._sqlx_migrations(version bigint PRIMARY KEY,success boolean NOT NULL)")))
         .execute(&f.owner).await.unwrap();
     for statement in [
         format!("GRANT USAGE ON SCHEMA {namespace} TO tor_app"),
         format!("GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {namespace} TO tor_app"),
     ] {
-        sqlx::query(&statement).execute(&f.owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(statement))
+            .execute(&f.owner)
+            .await
+            .unwrap();
     }
     let configured = namespace.clone();
     let legacy = sqlx::postgres::PgPoolOptions::new()
@@ -33,7 +37,7 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
             let schema = configured.clone();
             Box::pin(async move {
                 // Do not inherit the real public health tables in this fixture.
-                sqlx::query(&format!("SET search_path={schema}"))
+                sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path={schema}")))
                     .execute(&mut *connection)
                     .await?;
                 sqlx::query("SET statement_timeout='1s'")
@@ -85,7 +89,7 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
         .execute(&legacy)
         .await
         .unwrap();
-    sqlx::query(&format!("CREATE TABLE {namespace}.ril_flow_health_epochs (LIKE public.ril_flow_health_epochs INCLUDING ALL)"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TABLE {namespace}.ril_flow_health_epochs (LIKE public.ril_flow_health_epochs INCLUDING ALL)")))
         .execute(&f.owner).await.unwrap();
     assert!(
         matches!(
@@ -94,9 +98,9 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
         ),
         "one health table is not an absent capability"
     );
-    sqlx::query(&format!("CREATE TABLE {namespace}.ril_flow_health_hourly (LIKE public.ril_flow_health_hourly INCLUDING ALL)"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TABLE {namespace}.ril_flow_health_hourly (LIKE public.ril_flow_health_hourly INCLUDING ALL)")))
         .execute(&f.owner).await.unwrap();
-    sqlx::query(&format!("GRANT SELECT ON {namespace}.ril_flow_health_epochs,{namespace}.ril_flow_health_hourly TO tor_app"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("GRANT SELECT ON {namespace}.ril_flow_health_epochs,{namespace}.ril_flow_health_hourly TO tor_app")))
         .execute(&f.owner).await.unwrap();
     sqlx::query("INSERT INTO _sqlx_migrations VALUES(202611294685,true)")
         .execute(&legacy)
@@ -105,9 +109,9 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
     let (_, health) = source.observed_health_report(1, "UTC").await.unwrap();
     assert_eq!(health.unwrap().current.confirmed_hours, 0);
     let mut lock = f.owner.begin().await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE {namespace}.ril_flow_health_epochs IN ACCESS EXCLUSIVE MODE"
-    ))
+    )))
     .execute(&mut *lock)
     .await
     .unwrap();
@@ -126,9 +130,11 @@ async fn html_legacy_health_absence_preserves_counts_but_broken_or_locked_health
     );
     lock.rollback().await.unwrap();
     legacy.close().await;
-    sqlx::query(&format!("DROP SCHEMA {namespace} CASCADE"))
-        .execute(&f.owner)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP SCHEMA {namespace} CASCADE"
+    )))
+    .execute(&f.owner)
+    .await
+    .unwrap();
     f.finish().await;
 }

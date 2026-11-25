@@ -1,4 +1,5 @@
 //! One closed UTC window over matching C facts; no retired analytics relation is read.
+// SQLx 0.9 test SQL audit: Lock a fixed table in the timestamp-generated fixture schema.
 #[path = "audience_pg/canonical/fixture.rs"]
 mod fixture;
 use fixture::Fixture;
@@ -141,10 +142,10 @@ async fn completed_hour_edges_and_old_90_day_window_remain_read_only_and_exact()
         }
     );
     let mut lock = f.owner.begin().await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE {}.reader_chapter_starts IN ACCESS EXCLUSIVE MODE",
         f.schema
-    ))
+    )))
     .execute(&mut *lock)
     .await
     .unwrap();

@@ -1,4 +1,5 @@
 use super::*;
+// SQLx 0.9 test SQL audit: DDL targets only the generated test fixture schema.
 
 async fn now_ms(f: &Fixture) -> i64 {
     sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
@@ -193,10 +194,10 @@ async fn html_retry_of_committed_replacement_keeps_one_successor_and_the_origina
 #[ignore = "requires fresh isolated PostgreSQL with keyed HTML health migration"]
 async fn html_missing_registration_column_is_damaged_health_not_a_legacy_fallback() {
     let f = Fixture::new().await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "ALTER TABLE {}.ril_flow_health_epochs DROP COLUMN registration_key",
         f.schema
-    ))
+    )))
     .execute(&f.owner)
     .await
     .unwrap();

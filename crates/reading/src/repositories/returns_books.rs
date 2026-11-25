@@ -26,7 +26,8 @@ impl PgReadingReturns {
             .await
             .map_err(unavailable)?;
         let statement = books_query::book_report();
-        let rows = sqlx::query(&statement)
+        // The report builder concatenates only static SQL constants; values are bound below.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(statement))
             .bind(days)
             .bind(book_id)
             .fetch_all(&mut *tx)

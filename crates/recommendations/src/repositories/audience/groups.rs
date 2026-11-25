@@ -26,7 +26,8 @@ impl PgDiscoveryAudience {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let rows = sqlx::query(&sql::report())
+        // The report joins only fixed SQL constants; all filter values are bound.
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql::report()))
             .bind(query.days)
             .bind(None::<&str>)
             .bind(None::<&str>)

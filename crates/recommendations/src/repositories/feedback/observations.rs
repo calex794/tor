@@ -34,7 +34,8 @@ impl PgRecommendations {
                    AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=a.book_id)
                  RETURNING a.id::text"
             );
-            let id: Option<String> = sqlx::query_scalar(&sql)
+            // SQL text interpolates only the static ACTOR_DISCOVERY_CTE; values stay bound.
+            let id: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
                 .bind(actor)
                 .bind(digest.as_slice())
                 .bind(&subject)

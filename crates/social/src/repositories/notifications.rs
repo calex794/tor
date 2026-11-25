@@ -213,14 +213,17 @@ impl PgNotifications {
                ORDER BY n.id DESC LIMIT $3"#,
             read_policy::VISIBLE
         );
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(&sql)
-            .bind(actor)
-            .bind(before)
-            .bind(i64::from(limit))
-            .bind(section)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(unavailable)?;
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
+            sqlx::AssertSqlSafe(sql),
+        )
+        .bind(actor)
+        .bind(before)
+        .bind(i64::from(limit))
+        .bind(section)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)?;
         Ok(rows
             .into_iter()
             .map(|r| UserNotification {
@@ -335,7 +338,8 @@ impl PgNotifications {
                  )"#,
             read_policy::VISIBLE
         );
-        let count = sqlx::query(&sql)
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        let count = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .bind(id)
             .execute(&self.pool)
@@ -354,7 +358,8 @@ impl PgNotifications {
              WHERE n.recipient_user_id=$1 AND n.read_at IS NULL AND {}",
             read_policy::VISIBLE
         );
-        sqlx::query(&sql)
+        // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor)
             .execute(&self.pool)
             .await

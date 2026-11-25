@@ -1,4 +1,5 @@
 //! Registered-worker coverage, replay, lease expiry and real transaction fences.
+// SQLx 0.9 test SQL audit: Timestamp-generated schema from shared fixture; milliseconds bound.
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     Row,
@@ -37,36 +38,39 @@ async fn interval(f: &Fixture, start: i64, confirmed: i64, lease: i64) -> i64 {
 // A test-only clock in a disposable schema exercises exact SQL hour boundaries.
 // Explicit pg_catalog in this fixture's search_path permits the local override.
 async fn clock(f: &Fixture, millis: i64) {
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE TABLE IF NOT EXISTS {}.flow_test_clock(ms bigint NOT NULL)",
         f.schema
-    ))
+    )))
     .execute(&f.admin)
     .await
     .unwrap();
-    sqlx::query(&format!("DELETE FROM {}.flow_test_clock", f.schema))
-        .execute(&f.admin)
-        .await
-        .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {}.flow_test_clock",
+        f.schema
+    )))
+    .execute(&f.admin)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {}.flow_test_clock VALUES($1)",
         f.schema
-    ))
+    )))
     .bind(millis)
     .execute(&f.admin)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON {}.flow_test_clock TO tor_app",
         f.schema
-    ))
+    )))
     .execute(&f.admin)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE OR REPLACE FUNCTION {}.clock_timestamp() RETURNS timestamptz LANGUAGE sql VOLATILE AS 'SELECT to_timestamp(ms/1000.0) FROM {}.flow_test_clock'",
         f.schema, f.schema
-    )).execute(&f.admin).await.unwrap();
+    ))).execute(&f.admin).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

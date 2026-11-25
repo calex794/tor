@@ -1,5 +1,5 @@
 use super::{
-    harness::{through, Fixture, Spec},
+    harness::{through, Fixture, Spec, SPECS},
     TestResult,
 };
 use sqlx::{Connection, PgConnection};
@@ -10,11 +10,12 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
     // A real old writer blocks the first concurrent validation phase, after
     // the invalid index has already committed. No pg_catalog writes or sleeps
     // chosen to guess when index creation happens.
+    assert!(SPECS.iter().any(|known| known.table == spec.table));
     let mut writer = fixture.pool.begin().await?;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE public.{} IN ROW EXCLUSIVE MODE",
         spec.table
-    ))
+    )))
     .execute(&mut *writer)
     .await?;
     let mut connection = PgConnection::connect_with(&fixture.options).await?;
@@ -25,7 +26,11 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
         .fetch_one(&mut connection)
         .await?;
     let build = tokio::spawn(async move {
-        let result = through(spec.version).run_direct(&mut connection).await;
+        // SQLx 0.9 run_direct avoids the higher-ranked Acquire lifetime in a spawned future.
+        // None runs all migrations in the filtered set; false executes rather than skips.
+        let result = through(spec.version)
+            .run_direct(None, &mut connection, false)
+            .await;
         (result, connection)
     });
 
@@ -53,10 +58,10 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
 
     // The concurrent build still permits another writer's table lock.
     let mut next_writer = fixture.pool.begin().await?;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE public.{} IN ROW EXCLUSIVE MODE NOWAIT",
         spec.table
-    ))
+    )))
     .execute(&mut *next_writer)
     .await?;
     next_writer.rollback().await?;
