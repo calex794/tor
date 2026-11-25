@@ -492,3 +492,62 @@ async fn d001_paid_bodyless_equal_hash_is_not_a_unique_version_conflict() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
+    use std::io::Write;
+
+    let pool = pool().await;
+    type ForeignKeyRow = (
+        String,
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        bool,
+        String,
+        String,
+    );
+    let rows: Vec<ForeignKeyRow> = sqlx::query_as(include_str!("d001_reference_inventory.sql"))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let mut log = std::io::stdout().lock();
+    for (schema, table, name, source, target, valid, on_delete, class) in &rows {
+        writeln!(
+            log,
+            "D001_VERSION_FK {schema}.{table} {name} {source:?} -> {target:?} \
+             validated={valid} delete={on_delete} class={class}"
+        )
+        .unwrap();
+    }
+    for (want_table, want_class) in [
+        ("chapter_purchase_facts", "purchase-pin"),
+        ("reader_saved_free_chapters", "saved-free-pin"),
+        ("book_layer_free_archive_versions", "layer-free-pin"),
+        ("reader_free_opened_editions", "verified-first-open"),
+        ("reader_free_open_intents", "delivery-intent"),
+        ("chapter_purchase_commands", "checkout-replay"),
+    ] {
+        assert!(
+            rows.iter().any(|(_, table, _, _, _, _, _, class)| {
+                table == want_table && class == want_class
+            }),
+            "missing installed constraint for {want_table}: {want_class}"
+        );
+    }
+    let unreviewed = rows.iter().filter(|row| row.7 == "unreviewed").count();
+    // This check stops schema review on any unknown edge. It is never a
+    // deletion, ACL or retention gate; review of soft references is separate.
+    writeln!(
+        log,
+        "D001_VERSION_FK_SCHEMA_REPORT total={} unreviewed={unreviewed} soft_refs=out_of_scope",
+        rows.len()
+    )
+    .unwrap();
+    assert_eq!(
+        unreviewed, 0,
+        "new or changed chapter-version foreign keys need explicit review"
+    );
+}
