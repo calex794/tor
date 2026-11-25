@@ -56,27 +56,7 @@ jobs:
       - name: Feature boundary checks
         run: python3 tools/check_feature_layout.py
       - name: Prepare isolated database
-        run: |
-          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
-          # Fall back to apt if a future runner image removes either binary.
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
-          psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
-          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
-          CREATE DATABASE tor_ci OWNER tor_migrator;
-          SQL
-          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
+        run: bash tools/ci_prepare_isolated_pg.sh
       - name: Apply real SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
