@@ -18,6 +18,17 @@ use tor_reading::repositories::PgReader;
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Read the actual compiled profile without loading credentials or services.
+    if env::args().nth(1).as_deref() == Some("--release-capabilities") {
+        println!(
+            "TOR_RELEASE_CAPABILITIES s3-covers={} s3-free={} s3-paid={} s3-chapter-import={}",
+            cfg!(feature = "s3-covers"),
+            cfg!(feature = "s3-free"),
+            cfg!(feature = "s3-paid"),
+            cfg!(feature = "s3-chapter-import"),
+        );
+        return Ok(());
+    }
     let bind = env::var("TOR_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let address: SocketAddr = bind.parse()?;
     if !address.ip().is_loopback() {
