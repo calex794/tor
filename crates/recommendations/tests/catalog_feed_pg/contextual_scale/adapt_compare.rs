@@ -334,14 +334,13 @@ async fn trial(f: &Fixture, pool: &PgPool, sentinel: i64, policy: Policy, round:
             .await
             .unwrap();
     assert_eq!(status, "building");
-    let visited: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM rec_materializable_books WHERE id>$1 AND id<=$2",
-    )
-    .bind(seed - 1)
-    .bind(cursor)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let visited: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM rec_materializable_books WHERE id>$1 AND id<=$2")
+            .bind(seed - 1)
+            .bind(cursor)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     // A cancelled response could race an already committed page. Expose that
     // difference rather than claiming that every timeout means no progress.
     assert!(visited >= build.pages && visited <= build.pages + build.errors + build.timeouts);
