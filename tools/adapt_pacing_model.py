@@ -50,9 +50,11 @@ def arrivals(scenario, t):
     return readers, int(t % 20 == 0)
 
 
-def simulate(scenario, adaptive, ticks=1200):
-    if ticks <= 0:
-        raise ValueError("positive horizon required")
+def simulate(scenario, adaptive, ticks=1200, *, controller=None, workload=None):
+    if ticks <= 0 or (workload is not None and len(workload) != ticks):
+        raise ValueError("positive horizon and matching workload required")
+    if controller is not None and not adaptive:
+        raise ValueError("controller requires adaptive mode")
     pending = deque()  # shared FIFO connection wait
     backlog = deque()  # durable background arrivals not yet submitted
     active = []
@@ -67,6 +69,11 @@ def simulate(scenario, adaptive, ticks=1200):
     pacer = Pacer()
 
     for t in range(ticks):
+        if workload is None:
+            readers, jobs = arrivals(scenario, t)
+            missing = scenario == "stale" and 200 <= t < 600
+        else:
+            readers, jobs, missing = workload[t]
         # Complete tasks and observe only historical connection waits.
         while samples and samples[0][0] <= t - 20:
             samples.popleft()
@@ -82,7 +89,7 @@ def simulate(scenario, adaptive, ticks=1200):
                 builder_done += 1
                 builder_outstanding = False
                 if adaptive:
-                    if scenario == "stale" and 200 <= t < 600:
+                    if missing:
                         pressure = "missing"
                     elif any(k == "reader" for k, _ in pending) or any(wait >= 2 for _, wait in samples):
                         pressure = "high"
@@ -90,14 +97,18 @@ def simulate(scenario, adaptive, ticks=1200):
                         pressure = "low"
                     else:
                         pressure = "neutral"
-                    delay = pacer.after_progress(pressure)
+                    if controller is None:
+                        delay = pacer.after_progress(pressure)
+                    else:
+                        oldest_age = t - backlog[0] if backlog else 0
+                        delay = controller.after_progress(pressure, oldest_age, len(backlog))
+                        assert MIN_DELAY <= delay <= MAX_DELAY
                 else:
                     delay = MIN_DELAY
                 delays.append(delay * TICK_MS)
                 next_attempt = t + delay
         active = remaining
 
-        readers, jobs = arrivals(scenario, t)
         reader_arrivals += readers
         builder_arrivals += jobs
         pending.extend(("reader", t) for _ in range(readers))
@@ -131,7 +142,7 @@ def simulate(scenario, adaptive, ticks=1200):
     assert reader_arrivals == reader_done + unfinished_readers
     assert builder_arrivals == builder_done + unfinished_builders
     return {
-        "scenario": scenario, "policy": "adaptive" if adaptive else "existing_busy_idle",
+        "scenario": scenario, "policy": controller.name if controller is not None else ("adaptive" if adaptive else "existing_busy_idle"),
         "horizon_ms": ticks * TICK_MS, "reader_arrivals": reader_arrivals,
         "reader_completed": reader_done, "reader_unfinished": unfinished_readers,
         "reader_p95_model_ms": percentile(reader_latencies, 95),
