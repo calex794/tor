@@ -43,11 +43,6 @@ jobs:
         run: node --test tools/s006_free_progress_reconcile.test.mjs
       - name: S006 paid reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_paid_progress_reconcile.test.mjs
-      - name: MAIL-01b2 dependency lock preparation (temporary; never merge)
-        run: |
-          cargo update --workspace
-          git diff -- Cargo.lock
-          git diff --exit-code -- Cargo.lock
       - name: Rust formatting
         run: cargo fmt --all -- --check
   demo:
