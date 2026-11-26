@@ -99,14 +99,14 @@ class WorkflowTests(unittest.TestCase):
             if any(fragment in block for fragment in ('ssh "${opts[@]}"', 'scp -p "${opts[@]}"')):
                 self.assertIn("inputs.export_v2 == false", block, block.splitlines()[0])
 
-    def test_export_still_requires_exact_main_and_acceptance(self):
+    def test_export_still_requires_pinned_main_and_acceptance(self):
         self.assertIn("false:false:false|true:false:false|false:true:false|false:false:true", WORKFLOW)
         self.assertIn("TOR_RELEASE_PROTOCOL=v2", WORKFLOW)
         self.assertIn("github.ref == 'refs/heads/main'", WORKFLOW)
         self.assertIn("environment: tor-staging", WORKFLOW)
         for before, after in (("check_one_click_release_ci.py", "Собрать сайт"),
                               ("python3 tests/edge/managed_edge_smoke.py", "Собрать и подписать весь комплект v2"),
-                              ("Запретить установку устаревшего коммита", "Проверить автономный импорт"),
+                              ("Повторно проверить CI и принадлежность выпуска main", "Проверить автономный импорт"),
                               ("Проверить автономный импорт", "Сохранить полный автономный выпуск v2")):
             self.assertLess(WORKFLOW.index(before), WORKFLOW.index(after))
 

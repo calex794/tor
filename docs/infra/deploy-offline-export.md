@@ -9,7 +9,7 @@ mutually exclusive modes:
 * export_v2=true: sign and retain the complete bundle without SSH or SCP,
   even if no previous VPS or deployment host variables exist.
 
-The export still uses the protected tor-staging environment, exact-main
+The export still uses the protected tor-staging environment, pinned-main
 full CI audit, approved production capability profile from tools/build_tor_production_web.sh, real isolated TLS edge
 acceptance and final main check. The existing signing key is required;
 no SSH known-hosts file, old host, or old data access is required.
@@ -50,3 +50,8 @@ For disaster recovery, retain both independent manifest and signer SHA-256
 pins. The evidence artifact includes tor-v2-signers-pin. Use the existing
 RECOVERY-01 tool with --format v2 for a non-executable recovery stage,
 not the empty-install activation flow. See tor-recovery-release.md.
+
+The CI gate verifies the exact pinned SHA on main twice. Main may advance
+during export; no deployment/active-release comparison is needed for an
+export. A later manual first installation must still satisfy its own
+exact-main admission policy.

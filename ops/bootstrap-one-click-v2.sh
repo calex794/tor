@@ -14,7 +14,7 @@ tmp=$(mktemp -d /root/.tor-v2-bootstrap.XXXXXXXX)
 trap 'rm -rf -- "$tmp"' EXIT
 # Only explicitly reviewed helper source from the approved immutable commit,
 # not code from the deployment account's writable incoming directory.
-for name in release_bundle_v2.py managed_edge_release.py managed_systemd_release.py coordinated_release.py release_executor_v2.py adopt_edge_vhost.py install_release_v2.py; do
+for name in release_bundle_v2.py managed_edge_release.py managed_systemd_release.py coordinated_release.py release_executor_v2.py adopt_edge_vhost.py install_release_v2.py release_ancestry.py; do
   curl --disable --fail --silent --show-error --location --proto '=https' --retry 2 --max-time 30 \
     "https://raw.githubusercontent.com/calex794/tor/$sha/tools/$name" -o "$tmp/$name"
 done

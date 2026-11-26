@@ -1,7 +1,7 @@
 # DEPLOY-05b — переход одной кнопки на v2
 
 Same manual main-only GitHub Actions workflow, existing protected
-environment and exact-main CI gate. A root-owned readable marker
+environment and pinned-main exact-SHA CI gate. A root-owned readable marker
 /var/lib/tor-release/release-format with content 2 selects the signed
 v2 protocol. Missing marker selects legacy v1 during migration only;
 set environment/repository variable TOR_REQUIRE_RELEASE_V2=1 to fail
@@ -16,7 +16,7 @@ capabilities do not authorize a provider, data migration or runtime flags.
 Existing stage_only remains available for the selected installed protocol.
 The explicit prepare_v2, export_v2 and stage_only inputs are mutually exclusive.
 
-Both release modes preserve the original current-main and CI gates.
+Both protocols use the shared forward-only Git ancestry and exact-SHA CI gates.
 V2 signs every file using the distinct namespace, verifies before
 transfer and again in the root executor. The same sudo path accepts only
 one full SHA. Its installed v2 wrapper refuses incomplete bootstrap or
@@ -55,3 +55,10 @@ edge lab from the selected checkout before signing and transfer; its success
 is required and its log is retained. A pending wrapper without marker blocks
 ordinary releases; a v2 marker without the matching wrapper also refuses.
 A v2 invocation must report the expected exact-SHA v2 success marker.
+
+Ordinary updates in either protocol prove candidate ancestry on current main
+and from the active release using the shared #1292 release_ancestry module.
+V2 installs its own private root-owned copy of this module; the signed
+activation shell rechecks ancestry before migrations and before cutover.
+Manual clean activation, admission and bootstrap still require exact current
+main. Offline historical recovery verification has no live main dependency.

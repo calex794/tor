@@ -170,7 +170,15 @@ def run():
     def require_fixture_sha(sha):
         need(sha in approved, "unapproved fixture SHA")
 
-    with patch.object(executor, "require_main", require_fixture_sha):
+    # Real main is unrelated to synthetic signed lab generations. Only the
+    # lab substitutes the immutable ancestry check; the operator path uses
+    # the common trusted GitHub ancestry module.
+    def require_fixture_forward(sha, active):
+        require_fixture_sha(sha)
+        need(active in shas.values(), "unknown active fixture release")
+
+    with patch.object(executor, "require_main", require_fixture_sha), \
+         patch.object(executor, "require_forward", require_fixture_forward):
         with executor.release_lock() as fd:
             # Exercise actual prepared bundle/plan checks and every production
             # first-start phase (real PG init, migration, Nginx, systemd).

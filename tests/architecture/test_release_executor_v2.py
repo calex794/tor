@@ -113,6 +113,29 @@ class ExecutorTests(unittest.TestCase):
             self.assertEqual(cmd.call_count, 2)
             self.assertIn("https://pandaolate.ru/readyz", cmd.call_args.args)
 
+    def test_v2_forward_guard_reuses_exact_common_ancestry(self):
+        with patch.object(executor.ancestry, "verify_forward", return_value=C) as guard:
+            self.assertEqual(executor.require_forward(B, A), C)
+            guard.assert_called_once_with(executor.ancestry.public_get, B, A)
+        with patch.object(executor.ancestry, "verify_forward",
+                          side_effect=executor.ancestry.AncestryError("behind active")):
+            with self.assertRaises(executor.ancestry.AncestryError):
+                executor.require_forward(A, B)
+
+    def test_v2_uses_forward_before_mutation_and_signed_shell_rechecks(self):
+        source = (ROOT / "tools/release_executor_v2.py").read_text()
+        self.assertEqual(source.count("require_forward(sha, self.current())"), 2)
+        self.assertLess(source.index("require_forward(sha, app.current())"),
+                        source.index("target = app_store.stage("))
+        self.assertIn('["bash", str(path / "go-live-postgres-vps.sh"), sha, "--forward"]', source)
+        live = (ROOT / "ops/go-live-postgres-vps.sh").read_text()
+        self.assertIn("guard=/usr/local/lib/tor-release-v2/release_ancestry.py", live)
+        self.assertIn('python3 -I "$guard" "$sha" --from-active', live)
+        self.assertEqual(live.count("\nrequire_current_main_sha\n"), 2)
+        self.assertIn("root:root:600:1", live)
+        bootstrap = (ROOT / "ops/bootstrap-one-click-v2.sh").read_text()
+        self.assertIn("install_release_v2.py release_ancestry.py; do", bootstrap)
+
     def test_current_main_only(self):
         for payload in (b'{}', b'{"ref":"refs/heads/main","object":{"sha":"bad"}}'):
             with patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, payload)):
