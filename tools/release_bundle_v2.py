@@ -32,8 +32,13 @@ EDGE = {
     "nginx-proxy.conf": "ops/fallback/nginx-proxy.conf",
 }
 SYSTEMD = {"systemd-web-release.conf": "ops/systemd/40-tor-release.conf"}
-CONFIGS = {**EDGE, **SYSTEMD}
-PAYLOAD = (*BINARIES, *CONFIGS)
+SCRIPTS = {
+    "go-live-postgres-vps.sh": "ops/go-live-postgres-vps.sh",
+    "apply-tor-migrations-vps.sh": "ops/apply-tor-migrations-vps.sh",
+}
+CONFIGS = {**EDGE, **SYSTEMD, **SCRIPTS}
+MIGRATOR_CHECKSUM = "tor-migrate.sha256"
+PAYLOAD = (*BINARIES, *CONFIGS, MIGRATOR_CHECKSUM)
 FILES = frozenset((*PAYLOAD, MANIFEST, SIGNATURE))
 LIMITS = {name: 512 * 1024 * 1024 if name in BINARIES else 1024 * 1024
           for name in PAYLOAD}
@@ -147,15 +152,25 @@ def build(repo: Path, binaries: Path, destination: Path, sha: str) -> None:
     """Copy only the fixed allowlist from a trusted CI checkout."""
     validate_sha(sha)
     with candidate(destination) as temporary:
-        for name in PAYLOAD:
+        for name in (*BINARIES, *CONFIGS):
             source = binaries / name if name in BINARIES else repo / CONFIGS[name]
             with open_directory(source.parent) as fd:
                 copy_entry(fd, source.name, temporary / name, LIMITS[name],
                            0o755 if name in BINARIES else 0o644)
         with open_directory(temporary) as fd:
+            digest = consume(fd, "tor-migrate", LIMITS["tor-migrate"])
+        with (temporary / MIGRATOR_CHECKSUM).open("xb") as output:
+            output.write(f"{digest}  tor-migrate\n".encode("ascii"))
+            os.fchmod(output.fileno(), 0o644)
+            output.flush()
+            os.fsync(output.fileno())
+        with open_directory(temporary) as fd:
             hashes = {name: consume(fd, name, LIMITS[name]) for name in PAYLOAD}
-        (temporary / MANIFEST).write_bytes(manifest_bytes(sha, hashes))
-        (temporary / MANIFEST).chmod(0o644)
+        with (temporary / MANIFEST).open("xb") as output:
+            output.write(manifest_bytes(sha, hashes))
+            os.fchmod(output.fileno(), 0o644)
+            output.flush()
+            os.fsync(output.fileno())
 
 
 def verify(directory: Path, sha: str, signers: Path) -> None:
@@ -167,6 +182,9 @@ def verify(directory: Path, sha: str, signers: Path) -> None:
         manifest = read_small(fd, MANIFEST)
         read_small(fd, SIGNATURE)
         hashes = {name: consume(fd, name, LIMITS[name]) for name in PAYLOAD}
+        checksum = read_small(fd, MIGRATOR_CHECKSUM)
+        if checksum != (hashes["tor-migrate"] + "  tor-migrate\n").encode("ascii"):
+            raise BundleError("legacy migrator checksum differs from signed binary")
     if manifest != manifest_bytes(sha, hashes):
         raise BundleError("manifest does not match selected SHA and exact payload")
     result = subprocess.run(

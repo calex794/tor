@@ -85,6 +85,18 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertEqual((another / bundle.MANIFEST).read_bytes(),
                          (self.inbox / bundle.MANIFEST).read_bytes())
 
+    def test_signed_script_tamper_rejected(self):
+        (self.inbox / "go-live-postgres-vps.sh").write_text("tampered")
+        self.assert_refused()
+
+    def test_even_signed_inconsistent_migrator_checksum_rejected(self):
+        (self.inbox / bundle.MIGRATOR_CHECKSUM).write_text("0" * 64 + "  tor-migrate\n")
+        hashes = {name: hashlib.sha256((self.inbox / name).read_bytes()).hexdigest()
+                  for name in bundle.PAYLOAD}
+        (self.inbox / bundle.MANIFEST).write_bytes(bundle.manifest_bytes(SHA, hashes))
+        self.sign()
+        self.assert_refused()
+
     def test_altered_nginx_config_rejected(self):
         (self.inbox / "nginx-server.conf").write_text("tampered")
         self.assert_refused()

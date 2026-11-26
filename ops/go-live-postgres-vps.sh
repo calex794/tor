@@ -324,15 +324,28 @@ fi
 
 # Apply the canonical SQLx migrator from the verified staged release.
 # It creates the initial schema or upgrades additive migrations in place.
-migration_script=$(mktemp /root/.tor-migration.XXXXXXXX)
-trap 'rm -f "$migration_script"' EXIT
-curl --fail --silent --show-error --location --retry 3 \
-  "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
-  -o "$migration_script"
-bash -n "$migration_script"
-bash "$migration_script" "$sha"
-rm -f "$migration_script"
-trap - EXIT
+if [[ ${TOR_RELEASE_SIGNED_V2:-0} == 1 ]]; then
+  # The installed root executor verifies BOTH signed scripts and the
+  # generated migrator checksum before invoking this immutable copy.
+  migration_script="$release/apply-tor-migrations-vps.sh"
+  [[ -f "$migration_script" && ! -L "$migration_script" &&
+     $(stat -c '%U:%G:%a' "$migration_script") == root:root:644 ]] || {
+    echo "Signed migration script missing or unsafe" >&2
+    exit 1
+  }
+  bash -n "$migration_script"
+  bash "$migration_script" "$sha"
+else
+  migration_script=$(mktemp /root/.tor-migration.XXXXXXXX)
+  trap 'rm -f "$migration_script"' EXIT
+  curl --fail --silent --show-error --location --retry 3 \
+    "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
+    -o "$migration_script"
+  bash -n "$migration_script"
+  bash "$migration_script" "$sha"
+  rm -f "$migration_script"
+  trap - EXIT
+fi
 
 hist=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
   "SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE")

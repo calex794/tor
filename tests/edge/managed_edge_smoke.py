@@ -148,7 +148,7 @@ def signed_releases(root):
         repo = sources / sha
         fallback = repo / "ops" / "fallback"
         shutil.copytree(ROOT / "ops" / "fallback", fallback)
-        for rel in bundle.SYSTEMD.values():
+        for rel in (*bundle.SYSTEMD.values(), *bundle.SCRIPTS.values()):
             target = repo / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / rel, target)
