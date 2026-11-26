@@ -174,12 +174,16 @@ async fn a_03_bulk_session_revocation_preserves_current_and_foreign_http_pg() {
     assert!(!html.contains(&current));
     let token = csrf(&html);
     let cookies = format!("{current}; {csrf_cookie}");
-    let form = format!(
-        "session_id=others&current_password=LongSecurePassword2026&csrf_token={token}"
-    );
+    let form =
+        format!("session_id=others&current_password=LongSecurePassword2026&csrf_token={token}");
     let wrong = format!("session_id=others&current_password=wrong&csrf_token={token}");
     for (body, jar, origin, status) in [
-        (form.as_str(), current.as_str(), ORIGIN, StatusCode::FORBIDDEN),
+        (
+            form.as_str(),
+            current.as_str(),
+            ORIGIN,
+            StatusCode::FORBIDDEN,
+        ),
         (
             form.as_str(),
             cookies.as_str(),
