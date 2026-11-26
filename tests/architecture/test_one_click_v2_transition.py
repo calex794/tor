@@ -144,6 +144,33 @@ class TransitionTests(unittest.TestCase):
                                     capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 2)
 
+    def test_all_workflow_ssh_connections_use_only_pinned_host_keys(self):
+        options = [line.strip() for line in WORKFLOW.splitlines()
+                   if line.strip().startswith("opts=(")]
+        self.assertEqual(len(options), 5)
+        self.assertEqual(len(set(options)), 1)
+        for required in ("-F /dev/null", "-o GlobalKnownHostsFile=/dev/null",
+                         "-o StrictHostKeyChecking=yes", "-o BatchMode=yes",
+                         "-o IdentitiesOnly=yes", "-o ConnectTimeout=5",
+                         '-o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts"'):
+            self.assertIn(required, options[0])
+        for line in WORKFLOW.splitlines():
+            command = line.lstrip()
+            if command.startswith(("ssh ", "scp ")) or '=$(ssh ' in command:
+                self.assertIn('"${opts[@]}"', command)
+        self.assertEqual(WORKFLOW.count('ssh-keygen -F "$TOR_DEPLOY_HOST"'), 5)
+
+    def test_v2_post_activation_checks_actual_tls_readiness(self):
+        block = WORKFLOW.split("Проверить установленный SHA", 1)[1].split("      - name:", 1)[0]
+        for witness in ("readlink -f /opt/tor/current", "systemctl is-active --quiet tor-web.service",
+                        "http://127.0.0.1:3000/readyz", "PG_ACTIVATED",
+                        "readlink -f /var/lib/tor-edge/current",
+                        "curl --disable -fsS --noproxy '*' --max-time 5 --resolve "
+                        "pandaolate.ru:443:127.0.0.1 https://pandaolate.ru/readyz"):
+            self.assertLess(block.index(witness), block.index("TOR_DEPLOYED_OK"))
+        self.assertNotIn("curl -k", block)
+        self.assertNotIn("--insecure", block)
+
     def test_stage_only_never_enters_privileged_release_or_final_acceptance(self):
         self.assertIn("prepare_v2:\n", WORKFLOW)
         self.assertIn("default: false", WORKFLOW)

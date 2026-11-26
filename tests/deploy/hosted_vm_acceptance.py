@@ -316,6 +316,23 @@ class LabSSH:
                         " && sudo -n /usr/local/sbin/tor-one-click-release '" + sha + "'")
 
 
+    def verify_release(self, sha):
+        # Independently exercise the final workflow checks as the SSH user,
+        # after the root executor exits. No sudo, trusted-helper imports
+        # or test-only readiness substitute in this remote check.
+        bundle.validate_sha(sha)
+        return self.run(
+            'test "$(readlink -f /opt/tor/current)" = ' + "'/opt/tor/releases/" + sha + "' && "
+            'systemctl is-active --quiet tor-web.service && '
+            'test "$(curl --disable -fsS --noproxy \'*\' --max-time 5 '
+            'http://127.0.0.1:3000/readyz)" = ok && '
+            'test "$(cat /var/lib/tor-release/pg-activated)" = PG_ACTIVATED && '
+            'test "$(readlink -f /var/lib/tor-edge/current)" = ' +
+            "'/var/lib/tor-edge/releases/" + sha + "' && " +
+            'test "$(curl --disable -fsS --noproxy \'*\' --max-time 5 --resolve '
+            'pandaolate.ru:443:127.0.0.1 https://pandaolate.ru/readyz)" = ok')
+
+
 @contextmanager
 def lab_ssh(key):
     # Called only after the hosted_guard in run(). No production account,
@@ -806,6 +823,11 @@ def real_outage_acceptance(source, shas, db, credentials, book, key, signers, tr
          executor.service_pid() == pid, "same signed SSH release not idempotent")
     print("DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK", flush=True)
     print("DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK", flush=True)
+    need(transport.verify_release(candidate).returncode == 0,
+         "independent SSH post-release witness failed")
+    need(transport.verify_release(active).returncode != 0,
+         "SSH post-release witness accepted stale SHA")
+    print("DEPLOY08G_REMOTE_VERIFY_OK", flush=True)
 
 
 def run():

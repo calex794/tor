@@ -21,6 +21,7 @@ on:
       - 'ops/bootstrap-one-click-v2.sh'
       - 'ops/one-click-release-v2-wrapper.sh'
       - 'ops/one-click-release-vps.sh'
+      - '.github/workflows/tor-one-click-release.yml'
       - 'tools/release_ancestry.py'
       - 'tools/adopt_edge_vhost.py'
       - 'tests/deploy/**'
@@ -86,6 +87,7 @@ jobs:
           grep -Fxq 'DEPLOY08F_SSH_STAGE_ONLY_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08F_TAMPERED_INBOX_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08G_REMOTE_VERIFY_OK' "$RUNNER_TEMP/deploy-vm.log"
       - name: Retain sanitized fixture evidence
         if: always()
         uses: actions/upload-artifact@v4
