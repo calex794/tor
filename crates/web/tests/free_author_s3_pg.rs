@@ -38,6 +38,8 @@ const MARKDOWN: &str =
 mod admin_s3;
 #[path = "free_author_s3_pg/traffic.rs"]
 mod traffic;
+#[path = "free_author_s3_pg/d001_single_compaction_drill.rs"]
+mod d001_single_compaction_drill;
 
 // Run the DROP full PACK proof+PG acceptance in the existing MinIO CI lane.
 #[path = "drop_04a_pack_direct_pg_minio.rs"]
