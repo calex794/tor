@@ -14,12 +14,7 @@ async fn d001_single_delivery_and_pins_conflict_with_retirement_fence() {
     let chapter = first.chapter_id;
     let version = first.version_id;
     store
-        .attach_verified_and_publish(
-            owner,
-            book_id,
-            (chapter, version),
-            metadata(&initial.body),
-        )
+        .attach_verified_and_publish(owner, book_id, (chapter, version), metadata(&initial.body))
         .await
         .unwrap();
     let request = save(book_id, Some(chapter), 1, "Fence second body", 'Y');
