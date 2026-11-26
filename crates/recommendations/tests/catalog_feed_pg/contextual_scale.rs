@@ -5,6 +5,8 @@ use tor_recommendations::services::contextual::Action;
 
 #[path = "contextual_scale/adapt_compare.rs"]
 mod adapt_compare;
+#[path = "contextual_scale/candidate_plan.rs"]
+mod candidate_plan;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci current model schema"]
 async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
@@ -90,6 +92,7 @@ async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
     stop(&f, &[generation]).await;
     adapt_compare::run(&f, &shared, sentinel).await;
     shared.close().await;
+    candidate_plan::run(&f, &language).await;
     sqlx::query("DELETE FROM books WHERE target_language=$1 AND source_identity LIKE 'ci:contextual-scale:%'")
         .bind(&language)
         .execute(&f.pool)
