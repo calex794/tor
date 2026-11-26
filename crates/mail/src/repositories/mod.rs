@@ -51,8 +51,7 @@ impl PgMailQueue {
                 generation: r.try_get("generation")?,
                 intent: MailIntent {
                     purpose: MailPurpose::parse(&purpose).ok_or_else(invalid)?,
-                    event_id: PositiveId::new(r.try_get("event_id")?)
-                        .map_err(|_| invalid())?,
+                    event_id: PositiveId::new(r.try_get("event_id")?).map_err(|_| invalid())?,
                     recipient: UserId::new(r.try_get("recipient_user_id")?)
                         .map_err(|_| invalid())?,
                 },
@@ -62,11 +61,7 @@ impl PgMailQueue {
     }
 
     /// Reject a stale or already completed claim. No automatic SMTP replay.
-    pub async fn finish(
-        &self,
-        claim: MailClaim,
-        outcome: MailOutcome,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn finish(&self, claim: MailClaim, outcome: MailOutcome) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE mail_outbox SET status=$3, lease_until=NULL, finished_at=now() \
              WHERE id=$1 AND generation=$2 AND status='leased' AND lease_until>now()",

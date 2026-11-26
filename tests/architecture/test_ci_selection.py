@@ -42,6 +42,12 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 self.assertEqual(enabled(select(ROOT, paths)), set(SUITES))
 
+    def test_mail_queue_runs_postgres_and_production_changes_run_full(self):
+        result = select(ROOT, ["crates/mail/src/repositories/mod.rs"])
+        self.assertEqual(enabled(result), set(SUITES))
+        result = select(ROOT, ["crates/mail/tests/slices_pg.rs"])
+        self.assertEqual(enabled(result), {"rust", "postgres"})
+
     def test_real_dependency_reaches_browser_for_recommendation_source(self):
         result = select(ROOT, ["crates/recommendations/src/services/ranking.rs"])
         self.assertTrue({"rust", "postgres", "rec_browser", "reader_browser", "visual", "cover_browser",
