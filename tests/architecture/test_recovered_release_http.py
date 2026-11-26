@@ -63,6 +63,9 @@ class RecoveryHTTPTests(unittest.TestCase):
         self.assertIn('"$post_start_history" == "$source_history"', SMOKE)
         self.assertIn("DEPLOY07B_SIGNED_V2_RESTORED_PG_HTTP_OK", SMOKE)
         self.assertIn("I11_PG18_RESTORE_SOURCE_UNCHANGED_OK", SMOKE)
+        self.assertLess(SMOKE.index("s061_session_continuity.py seed"), SMOKE.index("postgres:18 pg_dump"))
+        self.assertLess(SMOKE.index("postgres:18 pg_restore"), SMOKE.index("s061_session_continuity.py check"))
+        self.assertIn("AUTH08_PG18_RESTORED_SESSIONS_OK", SMOKE)
         step = WORKFLOW.split("I-11 PostgreSQL 18 backup and clean restore drill", 1)[1].split("      - name:", 1)[0]
         self.assertIn("matrix.shard == 'foundation'", step)
         self.assertIn("cargo build -p tor-observability --bin tor-trace-store", step)
