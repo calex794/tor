@@ -1,6 +1,6 @@
 //! F-05 / S008: explicit chapter completion in the no-JavaScript reader.
 //! A bookmark, chapter GET, or a save at the beginning never proves completion.
-use super::{deny, session_user, AuthState};
+use super::{deny, session_security::activity_cookies, session_user, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Form, Path, State},
@@ -108,7 +108,10 @@ pub(super) async fn complete(
             // current frontier the now-eligible continuation request appears
             // immediately below the completion confirmation; rankings remain
             // available through an explicit link, not an involuntary detour.
-            private_response(Redirect::to(&format!("/read/{id}#continuation")), &[])
+            private_response(
+                Redirect::to(&format!("/read/{id}#continuation")),
+                &activity_cookies(&state, &headers).await,
+            )
         }
         Err(error) => deny(status(error)),
     }
