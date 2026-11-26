@@ -106,13 +106,14 @@ PY
 # code nor an open socket proves that WAL replay has finished and SQL works.
 wait_for_primary() {
   local deadline=$((SECONDS + ${1:-30})) state
+  local data_dir=${2:-$restore_dir} sql_function=${3:-restored_sql}
   while ((SECONDS < deadline)); do
-    if ! pg_ctl -D "$restore_dir" status >/dev/null 2>&1; then
+    if ! pg_ctl -D "$data_dir" status >/dev/null 2>&1; then
       echo 'FAIL: restored PostgreSQL exited before primary readiness' >&2
       return 1
     fi
     if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' \
-        restored_sql -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
+        "$sql_function" -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
       case "$state" in
         f) return 0 ;;
         t) ;; # A readable standby is still not the requested promoted database.
@@ -378,16 +379,8 @@ pgbackrest --config="$conf" --stanza=tor --pg1-path="$app_dir" \
 pg_ctl -D "$app_dir" -l "$work/log/app-start.log" -w -t 30 \
   -o "-c listen_addresses=127.0.0.1 -c port=15436 -c unix_socket_directories=$work/app-socket -c archive_mode=off -c hot_standby=off" start >/dev/null
 app_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/app-socket" -p 15436 -U postgres -d postgres "$@"; }
-app_ready=false
-deadline=$((SECONDS + 30))
-while ((SECONDS < deadline)); do
-  pg_ctl -D "$app_dir" status >/dev/null 2>&1 || exit 1
-  if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' app_sql -c 'SELECT pg_is_in_recovery()' 2>"$work/log/app-readiness.log"); then
-    if [[ $state == f ]]; then app_ready=true; break; fi
-  fi
-  sleep 0.2
-done
-[[ $app_ready == true ]]
+wait_for_primary 30 "$app_dir" app_sql
+[[ $(app_sql -c 'SELECT pg_is_in_recovery()') == f ]]
 [[ $(app_sql -c "SELECT current_setting('data_directory')='$app_dir' AND current_setting('listen_addresses')='127.0.0.1' AND current_setting('archive_mode')='off'") == t ]]
 [[ $(app_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
 [[ $(app_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]

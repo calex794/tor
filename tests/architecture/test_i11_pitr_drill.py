@@ -244,7 +244,10 @@ class Isolation(unittest.TestCase):
         self.assertIn('base_snapshot,before_target', content)
         self.assertIn('permission denied for table i11_recovery_markers', content)
         self.assertIn('recovery ended before configured recovery target was reached', content)
-        self.assertEqual(content.count('-c hot_standby=off'), 2)
+        earlier, app = content.split('# RECOVERY-10e-a:', 1)
+        self.assertEqual(earlier.count('-c hot_standby=off'), 2)
+        self.assertEqual(app.count('-c hot_standby=off'), 1)
+        self.assertIn('wait_for_primary 30 "$app_dir" app_sql', app)
 
     def test_utc_replay_requires_real_pause_and_transaction_boundaries(self):
         content = (ROOT / 'tools/i11_pitr_container.sh').read_text()

@@ -278,7 +278,10 @@ async fn verify_restored_free_archive() {
 #[ignore = "only inside isolated physical PITR container"]
 async fn verify_physical_free_archive() {
     assert!(std::path::Path::new("/.dockerenv").is_file());
-    assert_eq!(env::var("TOR_I11_DISPOSABLE_CONTAINER").as_deref(), Ok("yes"));
+    assert_eq!(
+        env::var("TOR_I11_DISPOSABLE_CONTAINER").as_deref(),
+        Ok("yes")
+    );
     let url = isolated_url("DROP07_RESTORED_DATABASE_URL", PHYSICAL);
     verify_archive(url).await;
     println!("FND05_PHYSICAL_FREE_LAYER_HTTP_OK");
@@ -328,7 +331,14 @@ async fn verify_archive(url: &str) {
     )
     .await;
     assert_v1(
-        read(&client, &origin, Method::POST, &layer, Some(&rights.buyer)).await,
+        read(
+            &client,
+            &origin,
+            Method::POST,
+            &layer,
+            Some(&rights.buyer),
+        )
+        .await,
         rights.version,
     )
     .await;
