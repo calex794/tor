@@ -42,7 +42,8 @@ impl PackageCoverVariantCleanup {
             // retired cover variant, checked again on claim, is used.
             if finish_private_removal(
                 PRIVATE_REMOVAL_TIMEOUT,
-                self.storage.remove_private_staging_variant(&item.storage_key),
+                self.storage
+                    .remove_private_staging_variant(&item.storage_key),
                 self.ledger.removed(item.id, item.lease_epoch),
                 self.ledger.retry(item.id, item.lease_epoch),
             )

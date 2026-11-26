@@ -44,7 +44,8 @@ impl PrivateCoverSourceCleanup {
         for item in claims {
             if finish_private_removal(
                 PRIVATE_REMOVAL_TIMEOUT,
-                self.storage.remove_private_staging_source(&item.storage_key),
+                self.storage
+                    .remove_private_staging_source(&item.storage_key),
                 self.ledger.removed(item.id, item.lease_epoch),
                 self.ledger.retry(item.id, item.lease_epoch),
             )
