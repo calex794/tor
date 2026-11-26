@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -114,13 +115,33 @@ class Systemd:
         result = self.command("systemctl", "show", "tor-web.service",
                               *("--property=" + name for name in PROPERTIES))
         values = {}
+        environment_files = []
         for line in result.stdout.decode("utf-8").splitlines():
             key, sep, value = line.partition("=")
-            if not sep or key not in PROPERTIES or key in values:
+            if not sep or key not in PROPERTIES:
                 raise UnitError("unexpected systemd property response")
+            if key == "EnvironmentFiles":
+                # systemctl show emits one row for each (path, ignore_errors)
+                # entry. The base unit and PG drop-in can even repeat a path.
+                # Preserve order and multiplicity; never expose file contents.
+                if not re.fullmatch(r".+ \(ignore_errors=(?:yes|no)\)", value):
+                    raise UnitError("invalid systemd EnvironmentFiles entry")
+                environment_files.append(value)
+                continue
+            if key in values:
+                raise UnitError("duplicate scalar systemd property: " + key)
             values[key] = value
+        if environment_files:
+            # Keep the journal's bounded, single-line string representation.
+            # A separator or deduplication would lose the exact ordered list.
+            values["EnvironmentFiles"] = json.dumps(
+                environment_files, ensure_ascii=True, separators=(",", ":"))
         if set(values) != set(PROPERTIES):
-            raise UnitError("incomplete systemd property response")
+            missing = sorted(set(PROPERTIES) - set(values))
+            raise UnitError("incomplete systemd property response: " + ", ".join(missing))
+        if any(len(value) > 4096 or any(ord(char) < 32 for char in value)
+               for value in values.values()):
+            raise UnitError("systemd property cannot be safely journaled")
         return values
 
 
