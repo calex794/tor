@@ -1,7 +1,9 @@
 //! H/C/F-05: an explicit browser completion for a D-owned encrypted V1.
 //! Unlike a S3 grant/GET or saved position this requires the sealed G anchor.
 use super::{
-    deny, session_security::activity_cookies, session_user,
+    deny,
+    session_security::activity_cookies,
+    session_user,
     sync_actions::{id, status},
     AuthState,
 };
