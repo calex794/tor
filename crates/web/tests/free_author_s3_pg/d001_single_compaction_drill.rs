@@ -131,7 +131,10 @@ impl Drill {
             .cloned()
             .collect();
         assert_eq!(
-            remaining.iter().map(FreeChapterObject::version_id).collect::<Vec<_>>(),
+            remaining
+                .iter()
+                .map(FreeChapterObject::version_id)
+                .collect::<Vec<_>>(),
             keep,
             "the actual retained set must exactly match the fixture expectation"
         );
@@ -169,11 +172,7 @@ impl Drill {
         .unwrap();
     }
 
-    async fn restore(
-        &self,
-        live: &mut Vec<FreeChapterObject>,
-        retired: &[FreeChapterObject],
-    ) {
+    async fn restore(&self, live: &mut Vec<FreeChapterObject>, retired: &[FreeChapterObject]) {
         for object in retired {
             let bytes = self.backup.get_verified(object).await.unwrap();
             self.primary.put_immutable(object, &bytes).await.unwrap();
@@ -238,12 +237,8 @@ async fn d001_single_offline_drill_reclaims_real_bytes_and_restores_exact_editio
     .parse()
     .unwrap();
     let publication = PgFreeS3Publication::new(pool.clone());
-    let writer = PgFreeAuthorPublisher::new(
-        publication,
-        drill.primary.clone(),
-        PRIMARY.to_owned(),
-    )
-    .unwrap();
+    let writer =
+        PgFreeAuthorPublisher::new(publication, drill.primary.clone(), PRIMARY.to_owned()).unwrap();
     let original = "Original body A for physical drill";
     let first = save_chapter(SaveChapterRequest {
         book_id: book as u64,
@@ -294,21 +289,24 @@ async fn d001_single_offline_drill_reclaims_real_bytes_and_restores_exact_editio
         let body = format!("Unpinned edit {n}: {}", "text ".repeat(128));
         let request = edit(&body);
         writer.publish_edit(owner, &request).await.unwrap();
-        live.push(
-            FreeChapterObject::for_markdown(chapter, current(&url, chapter), &body).unwrap(),
-        );
+        live.push(FreeChapterObject::for_markdown(chapter, current(&url, chapter), &body).unwrap());
         if n == 1 {
             old_command = Some(request);
         }
     }
     assert_eq!(retained(&url, chapter), "1|1|11");
     let pinned_one = current(&url, chapter);
-    drill.compact(&url, chapter, &mut live, &mut retired, &[pinned_one]).await;
+    drill
+        .compact(&url, chapter, &mut live, &mut retired, &[pinned_one])
+        .await;
     assert_eq!(live.len(), 1);
     assert_eq!(retired.len(), 10);
     // Replay an already completed save of a removed, unpinned materialization:
     // must not recreate old bytes, advance the head, or allocate a new version.
-    writer.publish_edit(owner, &old_command.unwrap()).await.unwrap();
+    writer
+        .publish_edit(owner, &old_command.unwrap())
+        .await
+        .unwrap();
     assert_eq!(current(&url, chapter), pinned_one);
     drill.assert_inventory(PRIMARY, &live).await;
     assert_eq!(retained(&url, chapter), "1|1|11");
@@ -317,11 +315,18 @@ async fn d001_single_offline_drill_reclaims_real_bytes_and_restores_exact_editio
     let opened = PgFreeOpenCapture::new(pool);
     library.add_book(reader_one, book).await.unwrap();
     drill.primary.get_verified(&live[0]).await.unwrap();
-    assert!(opened.record(reader_one, chapter, pinned_one).await.unwrap());
+    assert!(opened
+        .record(reader_one, chapter, pinned_one)
+        .await
+        .unwrap());
     assert_eq!(retained(&url, chapter), "1|1|11");
     // Re-publish A after its earlier physical copy was removed. A fresh
     // immutable ID/key must be used, not the deleted object's key.
-    for body in [original, "Unpinned logical V2 replacement", "Latest logical V2"] {
+    for body in [
+        original,
+        "Unpinned logical V2 replacement",
+        "Latest logical V2",
+    ] {
         writer.publish_edit(owner, &edit(body)).await.unwrap();
         let version = current(&url, chapter);
         assert_ne!(version, first_version);
@@ -329,21 +334,38 @@ async fn d001_single_offline_drill_reclaims_real_bytes_and_restores_exact_editio
     }
     let pinned_two = current(&url, chapter);
     assert_eq!(retained(&url, chapter), "2|2|14");
-    drill.compact(&url, chapter, &mut live, &mut retired, &[pinned_one, pinned_two]).await;
+    drill
+        .compact(
+            &url,
+            chapter,
+            &mut live,
+            &mut retired,
+            &[pinned_one, pinned_two],
+        )
+        .await;
     assert_eq!(live.len(), 2);
 
     library.add_book(reader_two, book).await.unwrap();
     drill.primary.get_verified(&live[1]).await.unwrap();
-    assert!(opened.record(reader_two, chapter, pinned_two).await.unwrap());
+    assert!(opened
+        .record(reader_two, chapter, pinned_two)
+        .await
+        .unwrap());
     for body in ["Intermediate logical V3", "Current logical V3"] {
         writer.publish_edit(owner, &edit(body)).await.unwrap();
-        live.push(
-            FreeChapterObject::for_markdown(chapter, current(&url, chapter), body).unwrap(),
-        );
+        live.push(FreeChapterObject::for_markdown(chapter, current(&url, chapter), body).unwrap());
     }
     let head = current(&url, chapter);
     assert_eq!(retained(&url, chapter), "3|3|16");
-    drill.compact(&url, chapter, &mut live, &mut retired, &[pinned_one, pinned_two, head]).await;
+    drill
+        .compact(
+            &url,
+            chapter,
+            &mut live,
+            &mut retired,
+            &[pinned_one, pinned_two, head],
+        )
+        .await;
     assert_eq!(live.len(), 3);
     assert_eq!(retired.len(), 13);
     for (reader, version) in [(reader_one, pinned_one), (reader_two, pinned_two)] {
