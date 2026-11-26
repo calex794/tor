@@ -1,6 +1,6 @@
 """Prevent dropped CI suites, duplicate selectors or divergent manual wrappers."""
 from pathlib import Path
-from ci_workflow_sources import expand_analytics
+from ci_workflow_sources import expand_ci_actions
 import re
 import subprocess
 import sys
@@ -16,7 +16,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 def job_sections(text):
-    text = expand_analytics(text)
+    text = expand_ci_actions(text)
     parts = text.split("\njobs:\n", 1)
     if len(parts) != 2:
         return {}
@@ -702,7 +702,7 @@ class WorkflowWiringTests(unittest.TestCase):
             ("tor-pg-rec-browser.yml", 1), ("rec-feedback-acceptance.yml", 1),
         ):
             with self.subTest(workflow=filename):
-                text = expand_analytics((WORKFLOWS / filename).read_text())
+                text = expand_ci_actions((WORKFLOWS / filename).read_text())
                 self.assertEqual(text.count(step), count)
                 self.assertEqual(text.count("run: bash tools/ci_prepare_isolated_pg.sh"), count)
                 self.assertNotIn("      - name: Prepare isolated database\n        run: |", text)
@@ -934,7 +934,7 @@ class WorkflowWiringTests(unittest.TestCase):
         )
         for workflow in ("tor-integration.yml", "tor-pg-reading-analytics.yml",
                          "rec-feedback-acceptance.yml"):
-            text = expand_analytics((WORKFLOWS / workflow).read_text())
+            text = expand_ci_actions((WORKFLOWS / workflow).read_text())
             for command in commands:
                 with self.subTest(workflow=workflow, command=command):
                     self.assertIn(command, text)
