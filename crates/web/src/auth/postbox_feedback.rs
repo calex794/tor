@@ -51,7 +51,10 @@ fn configure(
     }))
 }
 
-pub(super) fn router_from_env(accounts: &tor_accounts::repositories::PgAccounts, secure: bool) -> Router {
+pub(super) fn router_from_env(
+    accounts: &tor_accounts::repositories::PgAccounts,
+    secure: bool,
+) -> Router {
     if std::env::var("TOR_MAIL_POSTBOX_RELAY_ENABLED").as_deref() != Ok("1") {
         return Router::new();
     }
@@ -96,11 +99,7 @@ fn response(status: StatusCode) -> Response {
     (status, [(header::CACHE_CONTROL, "no-store")]).into_response()
 }
 
-async fn receive(
-    State(state): State<Arc<RelayState>>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
+async fn receive(State(state): State<Arc<RelayState>>, headers: HeaderMap, body: Bytes) -> Response {
     let (Some(timestamp), Some(signature)) = (
         single_header(&headers, "x-tor-mail-timestamp"),
         single_header(&headers, "x-tor-mail-signature"),
@@ -133,9 +132,10 @@ async fn receive(
             FeedbackDecision::Applied | FeedbackDecision::Unchanged | FeedbackDecision::Ignored,
         ))) => StatusCode::NO_CONTENT,
         Ok(Ok(PostboxDecision::InvalidRecipient)) => StatusCode::UNPROCESSABLE_ENTITY,
-        Ok(Ok(PostboxDecision::Uncorrelated | PostboxDecision::Feedback(FeedbackDecision::Uncorrelated))) => {
-            StatusCode::CONFLICT
-        }
+        Ok(Ok(
+            PostboxDecision::Uncorrelated
+            | PostboxDecision::Feedback(FeedbackDecision::Uncorrelated),
+        )) => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     response(status)
