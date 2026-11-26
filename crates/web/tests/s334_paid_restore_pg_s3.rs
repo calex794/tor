@@ -170,6 +170,24 @@ struct GrantServer {
     origin: String,
     client: reqwest::Client,
     task: tokio::task::JoinHandle<()>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    pool: sqlx::PgPool,
+}
+
+impl GrantServer {
+    async fn shutdown(mut self) {
+        let stop = self.stop.take().expect("one shutdown per test router");
+        let _ = stop.send(());
+        tokio::time::timeout(std::time::Duration::from_secs(10), &mut self.task)
+            .await
+            .expect("test HTTP server did not stop")
+            .expect("test HTTP server failed");
+        tokio::time::timeout(std::time::Duration::from_secs(10), self.pool.close())
+            .await
+            .expect("test PostgreSQL pool did not close");
+        assert!(self.pool.is_closed());
+        assert_eq!(self.pool.size(), 0);
+    }
 }
 
 impl Drop for GrantServer {
@@ -230,7 +248,8 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
     let accounts = PgAccounts::from_pool(pool.clone());
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
     let signer =
-        PgPrivateDelivery::with_keyring(pool, store, Arc::new(keyring), BUCKET.to_owned()).unwrap();
+        PgPrivateDelivery::with_keyring(pool.clone(), store, Arc::new(keyring), BUCKET.to_owned())
+            .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let router = tor_web::router_with_postgres_reading_auth_paid_grants(
@@ -242,7 +261,15 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
         Arc::new(signer),
         None,
     );
-    let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                let _ = stopped.await;
+            })
+            .await
+            .unwrap();
+    });
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -253,6 +280,8 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
         origin,
         client,
         task,
+        stop: Some(stop),
+        pool,
     }
 }
 
@@ -508,6 +537,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
             "sha256_ciphertext": hex::encode(reference.sha256_ciphertext),
         }),
     );
+    a.shutdown().await;
     pool.close().await;
 }
 
@@ -594,6 +624,7 @@ async fn s3_34_verify_physical_paid_revocations_after_witness() {
     let keyring = ContentKeyring::with_v2(key(), key_v2()).unwrap();
     let server = app_with_keyring(url, client(), keyring).await;
     verify_post_restore_revocations(url, &server).await;
+    server.shutdown().await;
     println!("I11_S334_PHYSICAL_PAID_REVOCATIONS_OK");
 }
 
@@ -648,7 +679,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    drop(missing);
+    missing.shutdown().await;
 
     let reader_keys = ContentKeyring::with_v2(kek.clone(), key_v2()).unwrap();
     let missing_v2 = app_with_keyring(url, c.clone(), reader_keys).await;
@@ -658,7 +689,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    drop(missing_v2);
+    missing_v2.shutdown().await;
     restore_object(url, &c, ID, digest).await;
     restore_object(url, &c, ID_V2, digest_v2).await;
     let missing_key_v2 = app(url, c.clone(), kek.clone()).await;
@@ -677,8 +708,8 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
         assert_eq!(decoded(old).await["version_id"], v1.to_string());
     }
 
-    drop(missing_key_v2);
-    drop(wrong_key_v2);
+    missing_key_v2.shutdown().await;
+    wrong_key_v2.shutdown().await;
 
     // RET-02c: simulate a transport-level S3 outage *after* restoring the
     // exact purchased V1. A live purchase and intact KEK must not bypass HEAD;
@@ -707,7 +738,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
         "provider outage does not revoke or refund a durable purchase"
     );
 
-    drop(unavailable);
+    unavailable.shutdown().await;
 
     // The external recovery KEK must be supplied independently of the DB
     // and S3 data. Missing/wrong KEK fails closed, never exposes a V1 grant.
@@ -728,7 +759,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    drop(wrong);
+    wrong.shutdown().await;
     let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
     let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
@@ -795,6 +826,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
     if revoke_after_grants {
         verify_post_restore_revocations(url, &correct).await;
     }
+    correct.shutdown().await;
 }
 
 async fn verify_post_restore_revocations(url: &str, correct: &GrantServer) {
