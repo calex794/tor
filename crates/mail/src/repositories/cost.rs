@@ -6,6 +6,8 @@ use crate::domain::{
 };
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 
+pub mod admin;
+
 #[derive(Clone)]
 pub struct PgMailCost {
     pool: PgPool,

@@ -281,32 +281,7 @@ fn router_inner(
         .merge(book_ordinary_deletion::router())
         .merge(book_ownership_finance::router())
         .merge(book_related::router().merge(book_origin_metadata::router()))
-        .route("/mail", get(mail::index))
-        .route("/mail/start/{recipient_user_id}", post(mail::start))
-        .route("/mail/{id}", get(mail::conversation))
-        .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
-        .route("/mail/{id}/block", post(mail::block))
-        .route(
-            "/mail/groups",
-            get(group_mail::index).post(group_mail::create),
-        )
-        .route("/mail/groups/{id}", get(group_mail::detail))
-        .route(
-            "/mail/groups/{id}/messages",
-            get(group_mail::poll).post(group_mail::send),
-        )
-        .route("/mail/groups/{id}/leave", post(group_mail::leave))
-        .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
-        .route("/mail/groups/{id}/disband", post(group_mail::disband))
-        .route("/books/{id}/room", get(book_rooms::page))
-        .route("/books/{id}/room/join", post(book_rooms::join))
-        .route("/books/{id}/room/messages", post(book_rooms::send))
-        .route("/books/{id}/room/leave", post(book_rooms::leave))
-        .route(
-            "/api/v1/me/messages",
-            get(mail_api::get).post(mail_api::post),
-        )
-        .route("/assets/mail.js", get(mail::script))
+        .merge(admin_mail_routes::member_routes())
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),

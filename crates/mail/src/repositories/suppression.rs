@@ -1,5 +1,7 @@
 //! Durable recipient suppression, sharing the quota serialization point.
-use crate::domain::suppression::{AttemptRef, DeliveryFeedback, FeedbackDecision, SuppressionReason};
+use crate::domain::suppression::{
+    AttemptRef, DeliveryFeedback, FeedbackDecision, SuppressionReason,
+};
 use sqlx::{PgPool, Postgres, Transaction};
 
 #[derive(Clone)]

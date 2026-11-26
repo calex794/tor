@@ -32,7 +32,9 @@ pub(crate) fn marker_token(value: &str) -> Option<&str> {
     };
     let token = value.strip_prefix("tor-")?.strip_suffix("@pandaolate.ru")?;
     (token.len() == 64
-        && token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
     .then_some(token)
 }
 
@@ -98,7 +100,9 @@ impl PostboxEvent {
             .filter(|v| {
                 v.is_ascii()
                     && v.len() <= 254
-                    && !v.bytes().any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+                    && !v
+                        .bytes()
+                        .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
             })
             .ok_or("invalid Postbox recipient address")?;
         let mail = &event["mail"];
