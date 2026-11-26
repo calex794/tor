@@ -83,6 +83,7 @@ pub(super) async fn check_connection_form(
     assert!(html.contains(&format!("action=\"{ROUTE}\"")));
     assert!(html.contains("type=\"password\" name=\"access_key_id\""));
     assert!(html.contains("type=\"password\" name=\"secret_access_key\""));
+    assert!(html.contains("type=\"password\" name=\"current_password\""));
     assert!(!html.contains("CI_TEST_SECRET_000000000000"));
     let csrf = html
         .split("name=\"csrf_token\" value=\"")
@@ -108,6 +109,16 @@ pub(super) async fn check_connection_form(
     assert_eq!(
         post(client, &cookies, ORIGIN, &invalid_bucket).await,
         StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        post(client, &cookies, ORIGIN, &payload).await,
+        StatusCode::UNAUTHORIZED,
+        "valid administrator cookie and CSRF alone cannot save S3 credentials"
+    );
+    let wrong_password = format!("{payload}&current_password=wrong-password");
+    assert_eq!(
+        post(client, &cookies, ORIGIN, &wrong_password).await,
+        StatusCode::UNAUTHORIZED
     );
     assert_eq!(
         pg(db, PROFILE_COUNT_SQL),

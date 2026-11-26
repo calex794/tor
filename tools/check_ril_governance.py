@@ -1012,10 +1012,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if audited_s3_connection:
         evidence += "\n" + functions.get("operator", "")
     if policy == "admin_s3_connection":
-        repository = _production(
-            (ROOT / "crates/storage/src/repositories/admin_s3_profiles.rs")
-                .read_text(encoding="utf-8")
-        )
+        repository = functions.get("__admin_s3_repo", "")
         auth_guard = all(v in evidence for v in (
             "session_token(headers)", "session_token_digest(&token)",
             "session_actor(&digest)", "!actor.administrator",
@@ -1024,20 +1021,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ))
         store_guard = all(v in repository for v in (
             "TOR_S3_ADMIN_MASTER_KEY", "Aes256Gcm",
-            "FOR SHARE OF s,u,r", "account_state='active'",
+            "FOR SHARE OF u,r", "account_state='active'",
             "save_verified", "admin_s3_profile_audit",
-            "valid_bucket(bucket)",
+            "valid_bucket(bucket)", "UPDATE sessions SET step_up_used_at=clock_timestamp()",
+            "step_up_proof_hash=$3", "step_up_scope=$4",
+            "step_up_payload_digest=$5", "step_up_expires_at>clock_timestamp()",
+            "step_up_used_at IS NULL", "S3_CONNECTION_STEP_UP_SCOPE",
+            "if consumed != 1", "tx.commit().await",
         ))
         connect_guard = (
             entry["method"] != "POST" or all(v in body for v in (
                 "state.cookies.same_origin(&headers)",
                 "state.cookies.valid_csrf(&headers, &csrf)",
                 "master_key_ready()", "head_bucket()",
-                "YANDEX_ENDPOINT", ".save_verified(&digest, &bucket",
-            ))
+                "YANDEX_ENDPOINT", ".save_verified(&digest, &proof, &bucket",
+                "permit_auth_attempt(&attempt_key, 6, 600)",
+                "verify_password_for_step_up(&password, &hash)",
+                "issue_administrator_s3_step_up(actor, &digest, &verified_password, &intent)",
+                "connection_intent_digest(&bucket, &access, &secret)",
+                "Ok(None) => return deny(StatusCode::UNAUTHORIZED)",
+            )) and (
+                entry["method"] != "POST" or
+                body.index("verify_password_for_step_up") < body.index("issue_administrator_s3_step_up")
+                < body.index("head_bucket()") < body.index(".save_verified(")
+            )
         )
         if not (audited_s3_connection and auth_guard and store_guard and connect_guard):
-            errors.append(f"{label}: S3 connection missing live role, CSRF, fixed provider, or encrypted persistence")
+            errors.append(f"{label}: S3 connection missing live role, CSRF, password proof, fixed provider, or encrypted persistence")
     # AUTH-04b: only the exact reviewed administrative session routes.
     admin_session_route = (
         entry["source"] == "crates/web/src/auth/admin_entry/sessions.rs"
@@ -2441,6 +2451,12 @@ def check(root: Path = ROOT) -> list[str]:
                     helper_functions = {}
                 for name in names:
                     source_cache[path]["__flow_" + name] = helper_functions.get(name, "")
+        if entry.get("policy") == "admin_s3_connection":
+            repository = root / "crates/storage/src/repositories/admin_s3_profiles.rs"
+            source_cache[path]["__admin_s3_repo"] = (
+                _strip_comments(_production(repository.read_text(encoding="utf-8")))
+                if repository.exists() else ""
+            )
         if entry.get("policy") == "admin_session_management":
             repository = root / "crates/accounts/src/repositories/admin_sessions.rs"
             source_cache[path]["__admin_session_repo"] = (

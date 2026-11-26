@@ -376,6 +376,7 @@ async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
     for scope in [
         "finance.refund.approve.v1",
         "finance.payout.post.v1",
+        tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE,
         BOOK_TRANSFER_SCOPE,
         BOOK_SHARES_SCOPE,
     ] {
@@ -387,6 +388,10 @@ async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
                 .unwrap(),
             "finance.payout.post.v1" => accounts
                 .issue_administrator_payout_step_up(actor, &session, &proof, 17, 100, &payload)
+                .await
+                .unwrap(),
+            tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE => accounts
+                .issue_administrator_s3_step_up(actor, &session, &proof, &payload)
                 .await
                 .unwrap(),
             _ => accounts

@@ -26,3 +26,6 @@ pub struct SessionActor {
     pub moderator: bool,
     pub administrator: bool,
 }
+
+/// One-use proof for saving the singleton encrypted S3 profile, not activation.
+pub const S3_CONNECTION_STEP_UP_SCOPE: &str = "storage.s3.connection.save.v1";

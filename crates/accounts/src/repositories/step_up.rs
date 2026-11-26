@@ -4,6 +4,7 @@
 use super::postgres::PgAccounts;
 use crate::services::security::{generate_session_token, session_token_digest, VerifiedPassword};
 use sqlx::Row;
+use tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE;
 
 const REFUND_SCOPE: &str = "finance.refund.approve.v1";
 const PAYOUT_SCOPE: &str = "finance.payout.post.v1";
@@ -74,8 +75,30 @@ impl PgAccounts {
         .await
     }
 
+    /// One-use proof for the exact submitted encrypted-profile intent.
+    pub async fn issue_administrator_s3_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        intent_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            S3_CONNECTION_STEP_UP_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id: 1,
+                revision: 1,
+                digest: intent_digest,
+            },
+        )
+        .await
+    }
+
     /// Authorizes only the specified decision digest. The caller must
-    /// construct this digest from the exact pending financial operation.
+    /// construct this digest from the exact pending protected operation.
     /// A one-time proof is stored only as SHA-256 on the active session.
     async fn issue_administrator_step_up(
         &self,

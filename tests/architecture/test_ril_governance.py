@@ -940,5 +940,19 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("admin sessions lack live authority")
 
+    def test_s3_connection_requires_password_before_network(self):
+        self.mutate(
+            "crates/web/src/auth/admin_s3.rs",
+            "verify_password_for_step_up(&password, &hash)", "unchecked_proof(&password, &hash)",
+        )
+        self.assert_detected("S3 connection missing live role")
+
+    def test_s3_connection_requires_one_use_consumption(self):
+        self.mutate(
+            "crates/storage/src/repositories/admin_s3_profiles.rs",
+            "step_up_used_at IS NULL", "TRUE",
+        )
+        self.assert_detected("S3 connection missing live role")
+
 if __name__ == "__main__":
     unittest.main()
