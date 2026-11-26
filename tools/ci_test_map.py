@@ -70,7 +70,7 @@ BUILD_ONLY_WORKFLOWS = {"tor-s3-candidate-build.yml"}
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
-ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml", "tor-fallback-edge.yml"}
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml", "tor-fallback-edge.yml", "tor-deploy-vm.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
 ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml", "tor-fnd06-two-release.yml"}
 POSTGRES_SUITES = {
