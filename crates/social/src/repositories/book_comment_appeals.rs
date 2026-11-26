@@ -1,8 +1,11 @@
 //! S049: an independent review can reverse an explicit public Book-comment hide.
 //! Never accepts arbitrary comment IDs as authority, and never reads chapter bodies.
 #![forbid(unsafe_code)]
-use super::book_shares::BookShareError;
-use sqlx::{PgPool, Postgres, Transaction};
+use super::{
+    book_shares::BookShareError,
+    comment_appeal_common::{actor, administrator, decision_note, submission_reason, validate_limit},
+};
+use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct PgBookCommentAppeals {
@@ -29,52 +32,6 @@ pub struct PendingAppeal {
     pub reason: String,
 }
 
-fn command_key_valid(key: &str) -> bool {
-    key.len() == 43
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
-async fn actor(
-    tx: &mut Transaction<'_, Postgres>,
-    digest: &[u8; 32],
-    for_submission: bool,
-) -> Result<i64, BookShareError> {
-    let query = if for_submission {
-        "SELECT u.id FROM sessions s JOIN users u ON u.id=s.user_id
-         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-           AND u.account_state='active' FOR UPDATE OF u FOR SHARE OF s"
-    } else {
-        "SELECT u.id FROM sessions s JOIN users u ON u.id=s.user_id
-         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-           AND u.account_state='active' FOR SHARE OF s,u"
-    };
-    sqlx::query_scalar(query)
-        .bind(digest.as_slice())
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or(BookShareError::Forbidden)
-}
-
-async fn administrator(
-    tx: &mut Transaction<'_, Postgres>,
-    digest: &[u8; 32],
-) -> Result<i64, BookShareError> {
-    sqlx::query_scalar(
-        "SELECT u.id FROM sessions s
-         JOIN users u ON u.id=s.user_id
-         JOIN account_roles r ON r.user_id=u.id
-         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-           AND u.account_state='active' AND r.role='administrator' AND r.is_active
-         FOR SHARE OF s,u,r",
-    )
-    .bind(digest.as_slice())
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BookShareError::Forbidden)
-}
-
 impl PgBookCommentAppeals {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -87,9 +44,7 @@ impl PgBookCommentAppeals {
         digest: &[u8; 32],
         limit: u16,
     ) -> Result<Vec<AuthorAppealRow>, BookShareError> {
-        if !(1..=50).contains(&limit) {
-            return Err(BookShareError::Invalid);
-        }
+        validate_limit(limit)?;
         let mut tx = self.pool.begin().await?;
         let owner = actor(&mut tx, digest, false).await?;
         let rows: Vec<(i64, i64, i64, String, Option<String>)> = sqlx::query_as(
@@ -136,15 +91,7 @@ impl PgBookCommentAppeals {
         reason: &str,
         command_key: &str,
     ) -> Result<i64, BookShareError> {
-        let reason = reason.trim();
-        if hide_event_id <= 0
-            || reason.chars().count() < 20
-            || reason.chars().count() > 1000
-            || reason.contains('\0')
-            || !command_key_valid(command_key)
-        {
-            return Err(BookShareError::Invalid);
-        }
+        let reason = submission_reason(hide_event_id, reason, command_key)?;
         let mut tx = self.pool.begin().await?;
         let owner = actor(&mut tx, digest, true).await?;
         let target: Option<(i64, String)> = sqlx::query_as(
@@ -226,9 +173,7 @@ impl PgBookCommentAppeals {
         digest: &[u8; 32],
         limit: u16,
     ) -> Result<Vec<PendingAppeal>, BookShareError> {
-        if !(1..=50).contains(&limit) {
-            return Err(BookShareError::Invalid);
-        }
+        validate_limit(limit)?;
         let mut tx = self.pool.begin().await?;
         administrator(&mut tx, digest).await?;
         let rows: Vec<(i64, i64, i64, i64, i64, i64, String)> = sqlx::query_as(
@@ -280,15 +225,7 @@ impl PgBookCommentAppeals {
         decision: &str,
         note: &str,
     ) -> Result<(), BookShareError> {
-        let note = note.trim();
-        if appeal_id <= 0
-            || !matches!(decision, "denied" | "restored")
-            || note.is_empty()
-            || note.chars().count() > 500
-            || note.contains('\0')
-        {
-            return Err(BookShareError::Invalid);
-        }
+        let note = decision_note(appeal_id, decision, note)?;
         let mut tx = self.pool.begin().await?;
         let reviewer = administrator(&mut tx, digest).await?;
         let appeal: Option<(String, i64, i64)> = sqlx::query_as(
