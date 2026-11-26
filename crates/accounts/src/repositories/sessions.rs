@@ -1,5 +1,7 @@
 //! A-03: bounded, owner-only active sessions. Never expose token hashes.
 use super::PgAccounts;
+use crate::services::security::{SESSION_AGE_SECONDS, SESSION_RENEWAL_INTERVAL_SECONDS};
+use std::time::Duration;
 
 pub struct ActiveSession {
     pub id: String,
@@ -9,6 +11,57 @@ pub struct ActiveSession {
 }
 
 impl PgAccounts {
+    /// Extend only a still-live session following accepted browser activity.
+    /// Return the remaining server lifetime even when no write was necessary:
+    /// a browser that missed a previous Set-Cookie can synchronize again.
+    pub async fn renew_session_on_activity(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<Option<u32>, sqlx::Error> {
+        tokio::time::timeout(
+            Duration::from_millis(300),
+            self.renew_session_inner(digest),
+        )
+        .await
+        .map_err(|_| sqlx::Error::PoolTimedOut)?
+    }
+
+    async fn renew_session_inner(&self, digest: &[u8; 32]) -> Result<Option<u32>, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("SELECT set_config('statement_timeout','200ms',true),set_config('lock_timeout','25ms',true)")
+            .execute(&mut *tx).await?;
+        // No row is changed until at least one day has elapsed since the last
+        // full TTL. A live legacy seven-day session is eligible immediately.
+        sqlx::query(
+            "UPDATE sessions s
+             SET expires_at=now()+($2::double precision * INTERVAL '1 second')
+             WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
+               AND s.expires_at<=now()+($3::double precision * INTERVAL '1 second')
+               AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.account_state='active')",
+        )
+        .bind(digest.as_slice())
+        .bind(f64::from(SESSION_AGE_SECONDS))
+        .bind(f64::from(SESSION_AGE_SECONDS - SESSION_RENEWAL_INTERVAL_SECONDS))
+        .execute(&mut *tx)
+        .await?;
+        // A separate read-committed statement sees a concurrent renewal rather
+        // than returning the old expiry from the UPDATE statement's snapshot.
+        let seconds: Option<i64> = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM (s.expires_at-now())))::bigint
+             FROM sessions s JOIN users u ON u.id=s.user_id
+             WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
+               AND u.account_state='active'",
+        )
+        .bind(digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(seconds
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .map(|value| value.min(SESSION_AGE_SECONDS)))
+    }
+
     /// The caller is the authenticated owner, not an ID supplied by the browser.
     /// This is a snapshot of at most 50 live sessions, not a "last seen" feed.
     pub async fn list_active_sessions(

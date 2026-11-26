@@ -7,7 +7,7 @@ use axum::{
 };
 use tor_accounts::services::security::generate_session_token;
 
-pub(crate) const SESSION_AGE: u32 = 7 * 24 * 60 * 60;
+pub(crate) use tor_accounts::services::security::SESSION_AGE_SECONDS as SESSION_AGE;
 const CSRF_AGE: u32 = 60 * 60;
 
 #[derive(Clone)]
@@ -17,7 +17,7 @@ pub(crate) struct CookiePolicy {
 }
 
 impl CookiePolicy {
-    fn session_name(&self) -> &'static str {
+    pub(crate) fn session_name(&self) -> &'static str {
         if self.secure {
             "__Host-tor-session"
         } else {
@@ -80,7 +80,12 @@ impl CookiePolicy {
     }
 
     pub(crate) fn session_cookie(&self, token: &str) -> String {
-        self.cookie(self.session_name(), token, SESSION_AGE, "Strict")
+        self.session_cookie_with_age(token, SESSION_AGE)
+    }
+
+    /// Never advertise a lifetime beyond the current server-side session.
+    pub(crate) fn session_cookie_with_age(&self, token: &str, age: u32) -> String {
+        self.cookie(self.session_name(), token, age.min(SESSION_AGE), "Strict")
     }
 
     pub(crate) fn cleared_cookies(&self) -> [String; 2] {

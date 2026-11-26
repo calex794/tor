@@ -243,3 +243,65 @@ async fn a_07_admin_refund_step_up_binds_live_session_and_password_rotation() {
     .unwrap();
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_03_rolling_session_renewal_is_bounded_and_never_resurrects() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let digest = session_token_digest(&format!("rolling-{nonce}"));
+    let actor = accounts
+        .register_with_session(
+            &format!("rolling-pg-{nonce}@example.invalid"),
+            "Rolling",
+            "$argon2id$test-hash",
+            &digest,
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    async fn expiry(pool: &sqlx::PgPool, digest: &[u8; 32]) -> f64 {
+        sqlx::query_scalar(
+            "SELECT extract(epoch FROM expires_at)::double precision FROM sessions WHERE token_hash=$1",
+        )
+        .bind(digest.as_slice())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    let before = expiry(&pool, &digest).await;
+    let renewed = accounts.renew_session_on_activity(&digest).await.unwrap();
+    assert!(renewed.is_some_and(|age| (2_591_990..=2_592_000).contains(&age)));
+    let after = expiry(&pool, &digest).await;
+    assert!(after - before > 29.0 * 24.0 * 3600.0);
+    let (first, second) = tokio::join!(
+        accounts.renew_session_on_activity(&digest),
+        accounts.renew_session_on_activity(&digest),
+    );
+    assert!(first.unwrap().is_some());
+    assert!(second.unwrap().is_some());
+    assert_eq!(expiry(&pool, &digest).await, after, "no repeat write");
+
+    // Expired rows retain their original lifetime; a valid-shaped token
+    // cannot restore a session that is already dead.
+    let expired = session_token_digest(&format!("expired-{nonce}"));
+    accounts.insert_session(actor, &expired, NonZeroU32::new(60).unwrap()).await.unwrap();
+    sqlx::query(
+        "UPDATE sessions SET created_at=now()-INTERVAL '2 days',
+         expires_at=now()-INTERVAL '1 day' WHERE token_hash=$1",
+    )
+    .bind(expired.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(accounts.renew_session_on_activity(&expired).await.unwrap(), None);
+    assert!(accounts.revoke_session(&digest).await.unwrap());
+    assert_eq!(accounts.renew_session_on_activity(&digest).await.unwrap(), None);
+    assert_eq!(expiry(&pool, &digest).await, after);
+}

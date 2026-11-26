@@ -10,7 +10,10 @@ use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_accounts::{
+    repositories::PgAccounts,
+    services::security::{generate_session_token, session_token_digest},
+};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -80,6 +83,9 @@ async fn register(app: &Router, email: &str, display_name: &str) -> String {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
+    assert!(created.headers().get_all(header::SET_COOKIE).iter().any(|v| {
+        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+    }));
     cookie(&created, "tor-dev-session=")
 }
 
@@ -93,6 +99,9 @@ async fn login(app: &Router, email: &str) -> String {
     );
     let login = send(app, request("POST", "/login", &form, &csrf_cookie, ORIGIN)).await;
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
+    assert!(login.headers().get_all(header::SET_COOKIE).iter().any(|v| {
+        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+    }));
     cookie(&login, "tor-dev-session=")
 }
 
@@ -302,4 +311,86 @@ async fn run_case() {
             .status(),
         StatusCode::SEE_OTHER
     );
+}
+
+fn navigation(path: &str, cookies: &str) -> Request<Body> {
+    let mut req = request("GET", path, "", cookies, ORIGIN);
+    for (name, value) in [
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-dest", "document"),
+        ("sec-fetch-user", "?1"),
+    ] {
+        req.headers_mut().insert(name, value.parse().unwrap());
+    }
+    req
+}
+
+fn has_session_cookie(response: &Response) -> bool {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=")))
+}
+
+#[tokio::test]
+#[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
+async fn a_03_rolling_session_browser_navigation_pg() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog.clone(),
+        PgReader::new(catalog.pool().clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let signed_in = register(&app, &format!("rolling-{nonce}%40example.invalid"), "Rolling").await;
+    let actor = accounts
+        .active_session_user(&session_token_digest(signed_in.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
+    // A session issued by the previous release has the old shorter TTL.
+    let raw = generate_session_token();
+    let digest = session_token_digest(&raw);
+    accounts
+        .insert_session(actor, &digest, std::num::NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
+    let legacy = format!("tor-dev-session={raw}");
+    for req in [
+        request("GET", "/me", "", &legacy, ORIGIN),
+        navigation("/assets/site.css", &legacy),
+        navigation("/odmen", &legacy),
+        {
+            let mut req = navigation("/me", &legacy);
+            req.headers_mut().insert("sec-fetch-site", "cross-site".parse().unwrap());
+            req
+        },
+    ] {
+        assert!(!has_session_cookie(&send(&app, req).await));
+    }
+    let renewed = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(renewed.status(), StatusCode::OK);
+    assert_eq!(cookie(&renewed, "tor-dev-session="), legacy);
+    assert_eq!(renewed.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(renewed.headers().get_all(header::SET_COOKIE).iter().any(|v| {
+        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+    }));
+    // A second qualifying request also repairs a missed Set-Cookie without
+    // issuing a second token or extending the database lifetime again.
+    let again = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(cookie(&again, "tor-dev-session="), legacy);
+    accounts.revoke_session(&digest).await.unwrap();
+    let denied = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(denied.status(), StatusCode::SEE_OTHER);
+    assert!(!has_session_cookie(&denied));
 }
