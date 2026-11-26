@@ -471,6 +471,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "loop_01_browser_smoke.cjs",
             "chapter_file_import_browser.cjs",
             "home_spotlight_visual_smoke.cjs",
+            "auth_dialog_browser.cjs",
             "search_visual_smoke.cjs",
             "ranking_visual_smoke.cjs",
             "paid_reader_browser_smoke.cjs",
