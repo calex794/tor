@@ -3175,6 +3175,20 @@
     },
     {
       "method": "GET",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "page",
+      "policy": "admin_session_management"
+    },
+    {
+      "method": "POST",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "revoke",
+      "policy": "admin_session_management"
+    },
+    {
+      "method": "GET",
       "template": "/assets/tor-auth-dialog.js",
       "source": "crates/web/src/auth/account_form_http.rs",
       "handler": "dialog_script",

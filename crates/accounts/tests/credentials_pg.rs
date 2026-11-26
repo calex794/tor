@@ -243,3 +243,482 @@ async fn a_07_admin_refund_step_up_binds_live_session_and_password_rotation() {
     .unwrap();
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_03_rolling_session_renewal_is_bounded_and_never_resurrects() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let digest = session_token_digest(&format!("rolling-{nonce}"));
+    let actor = accounts
+        .register_with_session(
+            &format!("rolling-pg-{nonce}@example.invalid"),
+            "Rolling",
+            "$argon2id$test-hash",
+            &digest,
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    async fn expiry(pool: &sqlx::PgPool, digest: &[u8; 32]) -> f64 {
+        sqlx::query_scalar(
+            "SELECT extract(epoch FROM expires_at)::double precision FROM sessions WHERE token_hash=$1",
+        )
+        .bind(digest.as_slice())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    let before = expiry(&pool, &digest).await;
+    let renewed = accounts.renew_session_on_activity(&digest).await.unwrap();
+    assert!(renewed.is_some_and(|age| (2_591_990..=2_592_000).contains(&age)));
+    let after = expiry(&pool, &digest).await;
+    assert!(after - before > 29.0 * 24.0 * 3600.0);
+    let (first, second) = tokio::join!(
+        accounts.renew_session_on_activity(&digest),
+        accounts.renew_session_on_activity(&digest),
+    );
+    assert!(first.unwrap().is_some());
+    assert!(second.unwrap().is_some());
+    assert_eq!(expiry(&pool, &digest).await, after, "no repeat write");
+
+    // Expired rows retain their original lifetime; a valid-shaped token
+    // cannot restore a session that is already dead.
+    let expired = session_token_digest(&format!("expired-{nonce}"));
+    accounts
+        .insert_session(actor, &expired, NonZeroU32::new(60).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE sessions SET created_at=now()-INTERVAL '2 days',
+         expires_at=now()-INTERVAL '1 day' WHERE token_hash=$1",
+    )
+    .bind(expired.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        accounts.renew_session_on_activity(&expired).await.unwrap(),
+        None
+    );
+    assert!(accounts.revoke_session(&digest).await.unwrap());
+    assert_eq!(
+        accounts.renew_session_on_activity(&digest).await.unwrap(),
+        None
+    );
+    assert_eq!(expiry(&pool, &digest).await, after);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
+    use tor_accounts::{
+        repositories::{
+            book_step_up::{BookStepUpScope, BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
+            step_up::StepUpIssueError,
+        },
+        services::security::{hash_password, verify_password_for_step_up},
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let password = "AuthSixPassword2026";
+    let hash = hash_password(password).unwrap();
+    let session = session_token_digest(&format!("step-up-renew-{nonce}"));
+    let other = session_token_digest(&format!("step-up-other-{nonce}"));
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let actor = accounts
+        .register_with_session(
+            &format!("step-up-renew-{nonce}@example.invalid"),
+            "Step up",
+            &hash,
+            &session,
+            ttl,
+        )
+        .await
+        .unwrap();
+    accounts.insert_session(actor, &other, ttl).await.unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'administrator',TRUE)",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let payload = [11; 32];
+    // Capture every persisted proof field, not only the deadline.
+    async fn proof_state(pool: &sqlx::PgPool, session: &[u8; 32]) -> String {
+        sqlx::query_scalar(
+            "SELECT jsonb_build_array(
+                encode(step_up_proof_hash,'hex'),step_up_scope,
+                step_up_resource_id,step_up_revision,encode(step_up_payload_digest,'hex'),
+                step_up_issued_at,step_up_expires_at,step_up_used_at
+             )::text FROM sessions WHERE token_hash=$1",
+        )
+        .bind(session.as_slice())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    for scope in [
+        "finance.refund.approve.v1",
+        "finance.payout.post.v1",
+        tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE,
+        BOOK_TRANSFER_SCOPE,
+        BOOK_SHARES_SCOPE,
+    ] {
+        let proof = verify_password_for_step_up(password, &hash).unwrap();
+        let token = match scope {
+            "finance.refund.approve.v1" => accounts
+                .issue_administrator_refund_step_up(actor, &session, &proof, 17, 1, &payload)
+                .await
+                .unwrap(),
+            "finance.payout.post.v1" => accounts
+                .issue_administrator_payout_step_up(actor, &session, &proof, 17, 100, &payload)
+                .await
+                .unwrap(),
+            tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE => accounts
+                .issue_administrator_s3_step_up(actor, &session, &proof, &payload)
+                .await
+                .unwrap(),
+            _ => accounts
+                .issue_book_mutation_step_up(
+                    actor,
+                    &session,
+                    &proof,
+                    17,
+                    1,
+                    BookStepUpScope {
+                        name: scope,
+                        payload_digest: &payload,
+                    },
+                )
+                .await
+                .unwrap(),
+        };
+        let valid: bool = sqlx::query_scalar(
+            "SELECT step_up_proof_hash=$2 AND step_up_scope=$3
+                AND step_up_used_at IS NULL
+                AND step_up_expires_at>clock_timestamp()
+                AND step_up_expires_at<=step_up_issued_at+INTERVAL '5 minutes'
+             FROM sessions WHERE token_hash=$1",
+        )
+        .bind(session.as_slice())
+        .bind(session_token_digest(&token).as_slice())
+        .bind(scope)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(valid);
+        // Exercise both an unused expired proof and a consumed expired
+        // proof. Rolling the ordinary session must preserve either state.
+        for consumed in [false, true] {
+            sqlx::query(
+                "UPDATE sessions SET expires_at=now()+INTERVAL '1 hour',
+                   step_up_issued_at=now()-INTERVAL '6 minutes',
+                   step_up_expires_at=now()-INTERVAL '1 minute',
+                   step_up_used_at=CASE WHEN $2 THEN now()-INTERVAL '2 minutes' ELSE NULL END
+                 WHERE token_hash=$1",
+            )
+            .bind(session.as_slice())
+            .bind(consumed)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let before = proof_state(&pool, &session).await;
+            assert!(accounts
+                .renew_session_on_activity(&session)
+                .await
+                .unwrap()
+                .is_some_and(|age| age >= 2_591_990));
+            assert_eq!(proof_state(&pool, &session).await, before, "{scope}");
+        }
+    }
+    let selected = accounts
+        .list_active_sessions(actor, &session)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.current)
+        .unwrap()
+        .id;
+    assert_eq!(
+        accounts
+            .revoke_owned_session(actor, &other, &selected, &hash)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        accounts.renew_session_on_activity(&session).await.unwrap(),
+        None
+    );
+    let proof = verify_password_for_step_up(password, &hash).unwrap();
+    assert_eq!(
+        accounts
+            .issue_administrator_refund_step_up(actor, &session, &proof, 17, 1, &payload)
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(
+        accounts
+            .issue_administrator_payout_step_up(actor, &session, &proof, 17, 100, &payload)
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(
+        accounts
+            .issue_book_mutation_step_up(
+                actor,
+                &session,
+                &proof,
+                17,
+                1,
+                BookStepUpScope {
+                    name: BOOK_TRANSFER_SCOPE,
+                    payload_digest: &payload,
+                },
+            )
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(
+        accounts.active_session_user(&other).await.unwrap(),
+        Some(actor)
+    );
+    // Retire only this fixture's administrator grant. The subsequent
+    // authority suite must be able to exercise the last-administrator guard.
+    assert_eq!(
+        sqlx::query(
+            "UPDATE account_roles SET is_active=FALSE
+             WHERE user_id=$1 AND role='administrator' AND is_active"
+        )
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .rows_affected(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::{Duration, Instant};
+
+    const SESSION_COUNT: usize = 48;
+    const WORKERS: usize = 6;
+    const ROUNDS: usize = 4;
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let setup = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&url)
+        .await
+        .unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'AUTH-07 load fixture','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("auth-load-{nonce}@example.invalid"))
+    .fetch_one(&setup)
+    .await
+    .unwrap();
+    // One intentionally skewed synthetic account. The hot-path lookup must
+    // stay bounded by token_hash even with a large existing session history.
+    // This is not a model of 100,000 concurrently connected readers.
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,created_at,expires_at)
+         SELECT $1,decode(md5($2||i::text)||md5($2||':'||i::text),'hex'),
+                now()-INTERVAL '40 days',
+                CASE WHEN i%2=0 THEN now()-INTERVAL '10 days'
+                     ELSE now()+INTERVAL '2 days' END
+         FROM generate_series(1,99952) i",
+    )
+    .bind(actor)
+    .bind(format!("auth-load-background-{nonce}-"))
+    .execute(&setup)
+    .await
+    .unwrap();
+    let mut digests = Vec::new();
+    for i in 0..SESSION_COUNT {
+        let digest = session_token_digest(&format!("auth-load-selected-{nonce}-{i}"));
+        let ttl = if i % 2 == 0 { 3600 } else { 2_592_000 };
+        accounts
+            .insert_session(actor, &digest, NonZeroU32::new(ttl).unwrap())
+            .await
+            .unwrap();
+        digests.push(digest);
+    }
+    async fn snapshot(pool: &sqlx::PgPool, digests: &[[u8; 32]]) -> Vec<(f64, String)> {
+        let mut rows = Vec::new();
+        for digest in digests {
+            rows.push(
+                sqlx::query_as(
+                    "SELECT extract(epoch FROM expires_at)::double precision,xmin::text
+                     FROM sessions WHERE token_hash=$1",
+                )
+                .bind(digest.as_slice())
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            );
+        }
+        rows
+    }
+
+    let before = snapshot(&setup, &digests).await;
+    let mut first_renewal = None;
+    // Measure the existing authority read separately from the renewal path,
+    // on the same pool, fixture and concurrency. No adaptive timeout changes.
+    for (phase, renew, rounds) in [
+        ("authority", false, ROUNDS),
+        ("mixed_first_renewal", true, 1),
+        ("fresh_renewal", true, ROUNDS),
+    ] {
+        let mut tasks = Vec::new();
+        let started = Instant::now();
+        for worker in 0..WORKERS {
+            let accounts = accounts.clone();
+            let assigned = digests[worker..]
+                .iter()
+                .step_by(WORKERS)
+                .copied()
+                .collect::<Vec<_>>();
+            tasks.push(tokio::spawn(async move {
+                let mut timings = Vec::new();
+                let mut failures = 0;
+                for _ in 0..rounds {
+                    for digest in &assigned {
+                        let now = Instant::now();
+                        let ok = if renew {
+                            matches!(
+                                accounts.renew_session_on_activity(digest).await,
+                                Ok(Some(age)) if age > 2_505_000
+                            )
+                        } else {
+                            matches!(
+                                accounts.active_session_user(digest).await,
+                                Ok(Some(user)) if user == actor
+                            )
+                        };
+                        timings.push(now.elapsed().as_micros());
+                        failures += usize::from(!ok);
+                    }
+                }
+                (timings, failures)
+            }));
+        }
+        let mut timings = Vec::new();
+        let mut failures = 0;
+        for task in tasks {
+            let (mut elapsed, failed) = task.await.unwrap();
+            timings.append(&mut elapsed);
+            failures += failed;
+        }
+        timings.sort_unstable();
+        let percentile = |p: usize| timings[(timings.len() - 1) * p / 100];
+        println!(
+            "AUTH07 phase={phase} fixture_sessions=100000 pool=3 workers={WORKERS} \
+             requests={} failures={failures} p50_us={} p95_us={} max_us={} elapsed_ms={}",
+            timings.len(),
+            percentile(50),
+            percentile(95),
+            timings.last().unwrap(),
+            started.elapsed().as_millis()
+        );
+        assert_eq!(failures, 0, "{phase}");
+        assert_eq!(timings.len(), SESSION_COUNT * rounds);
+        let after = snapshot(&setup, &digests).await;
+        if phase == "authority" {
+            assert_eq!(before, after, "authority read must not mutate sessions");
+        } else if phase == "mixed_first_renewal" {
+            for (i, (old, new)) in before.iter().zip(&after).enumerate() {
+                if i % 2 == 0 {
+                    assert!(new.0 > old.0);
+                    assert_ne!(new.1, old.1, "eligible session was not updated");
+                } else {
+                    assert_eq!(old, new, "fresh session was physically rewritten");
+                }
+            }
+            first_renewal = Some(after);
+        } else {
+            assert_eq!(
+                first_renewal.as_ref().unwrap(),
+                &after,
+                "fresh renewal must not change expiry or row version"
+            );
+        }
+    }
+
+    // Hold a row eligible for renewal and verify bounded failure without
+    // blocking unrelated reads. The runtime still owns only three connections.
+    sqlx::query("UPDATE sessions SET expires_at=now()+INTERVAL '1 hour' WHERE token_hash=$1")
+        .bind(digests[0].as_slice())
+        .execute(&setup)
+        .await
+        .unwrap();
+    let mut blocker = setup.begin().await.unwrap();
+    sqlx::query("SELECT user_id FROM sessions WHERE token_hash=$1 FOR UPDATE")
+        .bind(digests[0].as_slice())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let blocked_at = Instant::now();
+    let (blocked, independent) = tokio::join!(
+        accounts.renew_session_on_activity(&digests[0]),
+        accounts.active_session_user(&digests[1])
+    );
+    println!(
+        "AUTH07 locked_renewal_failed={} independent_authority_ok={} elapsed_ms={}",
+        blocked.is_err(),
+        matches!(&independent, Ok(Some(user)) if *user == actor),
+        blocked_at.elapsed().as_millis()
+    );
+    assert!(
+        blocked.is_err(),
+        "locked renewal must fail within the budget"
+    );
+    assert_eq!(independent.unwrap(), Some(actor));
+    assert!(blocked_at.elapsed() < Duration::from_secs(1));
+    blocker.rollback().await.unwrap();
+
+    assert!(accounts
+        .renew_session_on_activity(&digests[0])
+        .await
+        .unwrap()
+        .is_some());
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(actor)
+        .execute(&setup)
+        .await
+        .unwrap();
+    pool.close().await;
+    setup.close().await;
+}

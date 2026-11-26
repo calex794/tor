@@ -87,10 +87,17 @@ impl PgAccounts {
             .bind(new_hash)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "WITH ended AS (
+                UPDATE sessions SET revoked_at=now()
+                WHERE user_id=$1 AND revoked_at IS NULL RETURNING session_id
+             )
+             INSERT INTO account_security_events(user_id,event_kind,revoked_count)
+             SELECT $1,'password_reset',count(*) FROM ended",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("UPDATE password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL")
             .bind(user_id).execute(&mut *tx).await?;
         tx.commit().await?;

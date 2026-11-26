@@ -1,7 +1,9 @@
 //! H/C/F-05: an explicit browser completion for a D-owned encrypted V1.
 //! Unlike a S3 grant/GET or saved position this requires the sealed G anchor.
 use super::{
-    deny, session_user,
+    deny,
+    session_security::activity_cookies,
+    session_user,
     sync_actions::{id, status},
     AuthState,
 };
@@ -148,6 +150,11 @@ pub(super) async fn post(
             {
                 tracing::warn!("paid chapter achievement delivery remains queued");
             }
+            let cookies = if newly_completed {
+                activity_cookies(&state, &headers).await
+            } else {
+                Vec::new()
+            };
             private_response(
                 Json(CompletionResult {
                     status: if newly_completed {
@@ -156,7 +163,7 @@ pub(super) async fn post(
                         "already_completed"
                     },
                 }),
-                &[],
+                &cookies,
             )
         }
         Err(error) => deny(status(error)),

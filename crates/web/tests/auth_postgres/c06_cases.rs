@@ -34,6 +34,7 @@ async fn owned_get(app: &Router, cookies: &str, uri: &str, status: StatusCode) -
     let reply = send(app, json_request("GET", uri, "", cookies, ORIGIN, "")).await;
     assert_eq!(reply.status(), status, "{uri}");
     assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(!reply.headers().contains_key(header::SET_COOKIE));
     let body = body_of(reply).await;
     assert!(
         !body.contains(SECRET),
@@ -154,6 +155,7 @@ pub(super) async fn purchased_version_http_journey(
         .await;
         assert_eq!(denied.status(), StatusCode::FORBIDDEN);
         assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(!denied.headers().contains_key(header::SET_COOKIE));
         assert!(body_of(denied).await.is_empty());
     }
     let invalid = purchase_request(5, 1, 0); // First block has four UTF-16 units.
@@ -173,6 +175,7 @@ pub(super) async fn purchased_version_http_journey(
     .await;
     assert_eq!(saved.status(), StatusCode::OK);
     assert_eq!(saved.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(cookie(&saved, "tor-dev-session="), first_session);
     let receipt = body_of(saved).await;
     assert!(receipt.contains(r#""revision":1"#));
     assert!(!receipt.contains(SECRET));

@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 451] = [
+static ROUTES: [RouteRegistration; 453] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -460,7 +460,9 @@ static ROUTES: [RouteRegistration; 451] = [
     RouteRegistration::new("/odmen", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 447
     RouteRegistration::new("/odmen/storage/s3", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 448
     RouteRegistration::new("/odmen/storage/s3", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 449
-    RouteRegistration::new("/assets/tor-auth-dialog.js", "GET", "/assets/", Exact, Static, System, Free), // 450
+    RouteRegistration::new("/odmen/security/sessions", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 450
+    RouteRegistration::new("/odmen/security/sessions", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 451
+    RouteRegistration::new("/assets/tor-auth-dialog.js", "GET", "/assets/", Exact, Static, System, Free), // 452
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

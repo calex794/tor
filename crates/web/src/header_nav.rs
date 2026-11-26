@@ -68,6 +68,16 @@ fn html_route(method: &Method, path: &str) -> bool {
         .contains(&path)
 }
 
+// Only a user-activated same-origin document navigation counts here, not
+// background fetches, automatic reloads, prefetch, images or health probes.
+fn user_navigation(headers: &HeaderMap) -> bool {
+    let value = |name| headers.get(name).and_then(|v| v.to_str().ok());
+    matches!(value("sec-fetch-site"), Some("same-origin" | "none"))
+        && value("sec-fetch-mode") == Some("navigate")
+        && value("sec-fetch-dest") == Some("document")
+        && value("sec-fetch-user") == Some("?1")
+}
+
 // Only public browsing pages can open the progressive-enhancement dialog.
 // Private account, admin and standalone authentication pages keep their CSP.
 fn auth_dialog_route(path: &str) -> bool {
@@ -161,6 +171,9 @@ async fn with_visitor(
     }
 
     let session = state.cookies.session_token(request.headers());
+    let renewal_navigation = may_issue_header_csrf(request.uri().path())
+        && state.cookies.same_origin(request.headers())
+        && user_navigation(request.headers());
     let authenticated = if let Some(token) = session.as_deref() {
         matches!(
             state
@@ -224,6 +237,29 @@ async fn with_visitor(
             if let Ok(mut value) = HeaderValue::from_str(&cookie) {
                 value.set_sensitive(true);
                 response.headers_mut().append(header::SET_COOKIE, value);
+            }
+        }
+    }
+    // Keep administrative report responses cookie-free. Do not replace an
+    // explicit login/logout/rotation cookie from the handler.
+    if is_html && response.status() == StatusCode::OK && authenticated && renewal_navigation {
+        if let Some(token) = session.as_deref() {
+            let prefix = format!("{}=", state.cookies.session_name());
+            let already_set = response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .any(|v| v.to_str().is_ok_and(|v| v.starts_with(&prefix)));
+            if !already_set {
+                if let Some(cookie) = state.cookies.activity_cookie(&state.accounts, token).await {
+                    if let Ok(mut value) = HeaderValue::from_str(&cookie) {
+                        value.set_sensitive(true);
+                        response.headers_mut().append(header::SET_COOKIE, value);
+                        response
+                            .headers_mut()
+                            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+                    }
+                }
             }
         }
     }

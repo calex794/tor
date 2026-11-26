@@ -231,7 +231,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
@@ -822,7 +822,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "cargo test -p tor-accounts "
             "--test access_audit_pg --test auth_observation_pg "
             "--test credentials_pg --test slices_pg "
-            "-- --ignored --test-threads=1"
+            "-- --ignored --test-threads=1 --show-output"
         )
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             with self.subTest(workflow=filename):

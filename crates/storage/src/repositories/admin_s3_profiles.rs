@@ -6,7 +6,9 @@ use aes_gcm::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use tor_contracts::auth::S3_CONNECTION_STEP_UP_SCOPE;
 use zeroize::{Zeroize, Zeroizing};
 
 const AAD: &[u8] = b"tor:s3-admin:yandex:v1";
@@ -41,6 +43,7 @@ pub enum AdminS3Error {
     Invalid,
     MasterKeyMissing,
     Forbidden,
+    StepUpRequired,
     Unavailable,
 }
 
@@ -69,10 +72,12 @@ impl PgAdminS3Profiles {
 
     /// This method is only called AFTER a successful read-only S3 HeadBucket
     /// with the supplied credentials. It rechecks the live administrator
-    /// session *inside* the write transaction, with locks against role revoke.
+    /// session and consumes an exact-intent one-use proof inside the same
+    /// transaction as the encrypted profile and audit write.
     pub async fn save_verified(
         &self,
         digest: &[u8; 32],
+        proof_token: &str,
         bucket: &str,
         access: &str,
         secret: &str,
@@ -80,6 +85,15 @@ impl PgAdminS3Profiles {
         if !valid_bucket(bucket) || !valid_access_key(access) || !valid_secret_key(secret) {
             return Err(AdminS3Error::Invalid);
         }
+        if proof_token.len() != 43
+            || !proof_token
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        {
+            return Err(AdminS3Error::StepUpRequired);
+        }
+        let proof_hash = Sha256::digest(proof_token.as_bytes());
+        let intent = connection_intent_digest(bucket, access, secret);
         let key = master_key_from_env()?;
         let (nonce, ciphertext) = encrypt(&key, access, secret)?;
         let mut tx = self
@@ -93,8 +107,8 @@ impl PgAdminS3Profiles {
              JOIN account_roles r ON r.user_id=u.id
                 AND r.role='administrator' AND r.is_active
              WHERE s.token_hash=$1 AND s.revoked_at IS NULL
-                AND s.expires_at>now() AND u.account_state='active'
-             FOR SHARE OF s,u,r",
+                AND s.expires_at>clock_timestamp() AND u.account_state='active'
+             FOR SHARE OF u,r",
         )
         .bind(digest.as_slice())
         .fetch_optional(&mut *tx)
@@ -103,6 +117,31 @@ impl PgAdminS3Profiles {
         let Some(actor) = actor else {
             return Err(AdminS3Error::Forbidden);
         };
+        // This conditional update locks the session and rechecks its current
+        // lifetime after the role/account locks. The proof is consumed only if
+        // the enclosing transaction commits, and cannot be replayed.
+        let consumed = sqlx::query(
+            "UPDATE sessions SET step_up_used_at=clock_timestamp()
+             WHERE user_id=$1 AND token_hash=$2 AND revoked_at IS NULL
+               AND expires_at>clock_timestamp()
+               AND step_up_proof_hash=$3 AND step_up_scope=$4
+               AND step_up_resource_id=1 AND step_up_revision=1
+               AND step_up_payload_digest=$5
+               AND step_up_issued_at<=clock_timestamp()
+               AND step_up_expires_at>clock_timestamp() AND step_up_used_at IS NULL",
+        )
+        .bind(actor)
+        .bind(digest.as_slice())
+        .bind(proof_hash.as_slice())
+        .bind(S3_CONNECTION_STEP_UP_SCOPE)
+        .bind(intent.as_slice())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AdminS3Error::Unavailable)?
+        .rows_affected();
+        if consumed != 1 {
+            return Err(AdminS3Error::StepUpRequired);
+        }
         sqlx::query(
             "INSERT INTO admin_s3_profiles
                 (id,bucket,ciphertext,nonce,updated_by_user_id,verified_at)
@@ -131,6 +170,18 @@ impl PgAdminS3Profiles {
         .map_err(|_| AdminS3Error::Unavailable)?;
         tx.commit().await.map_err(|_| AdminS3Error::Unavailable)
     }
+}
+
+/// A domain-separated, length-framed fingerprint of the exact connection
+/// intent. Raw keys never enter the session proof or the security log.
+pub fn connection_intent_digest(bucket: &str, access: &str, secret: &str) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(S3_CONNECTION_STEP_UP_SCOPE.as_bytes());
+    for value in [bucket, access, secret] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    digest.finalize().into()
 }
 
 pub fn valid_bucket(bucket: &str) -> bool {
@@ -214,6 +265,27 @@ fn encrypt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn connection_proof_binds_all_fields_without_ambiguous_concatenation() {
+        let first = connection_intent_digest("bucket-a", "access-a", "secret-a");
+        assert_ne!(
+            first,
+            connection_intent_digest("bucket-b", "access-a", "secret-a")
+        );
+        assert_ne!(
+            first,
+            connection_intent_digest("bucket-a", "access-b", "secret-a")
+        );
+        assert_ne!(
+            first,
+            connection_intent_digest("bucket-a", "access-a", "secret-b")
+        );
+        assert_ne!(
+            connection_intent_digest("ab", "c", "d"),
+            connection_intent_digest("a", "bc", "d")
+        );
+    }
+
     #[test]
     fn validate_yandex_bucket_and_keys_without_network() {
         assert!(valid_bucket("tore"));
