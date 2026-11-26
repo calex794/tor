@@ -43,7 +43,7 @@ pub enum MailRoute {
 /// Only the canonical ASCII transport domain is accepted. Never send the
 /// mailbox local part to a resolver. The future adapter must use an absolute
 /// DNS name, without the operating system's search suffix expansion.
-fn public_domain(domain: &str) -> bool {
+pub(super) fn public_domain(domain: &str) -> bool {
     !domain.is_empty()
         && domain.len() <= 253
         && domain.contains('.')
