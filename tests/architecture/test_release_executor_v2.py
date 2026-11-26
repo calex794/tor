@@ -149,6 +149,104 @@ class ExecutorTests(unittest.TestCase):
                 with self.assertRaises(executor.ExecutorError):
                     executor.require_database_policy()
 
+    def test_outage_approval_is_exact_private_and_consumed_once(self):
+        directory = self.root / "approval"
+        directory.mkdir(mode=0o700)
+        path = directory / "allow"
+        path.write_bytes((A + "\n" + B + "\n").encode())
+        path.chmod(0o600)
+        executor.require_outage_approval(A, B, path=path)
+        with self.assertRaises(executor.ExecutorError):
+            executor.require_outage_approval(A, C, path=path, consume=True)
+        self.assertTrue(path.exists())
+        path.chmod(0o644)
+        with self.assertRaises(executor.ExecutorError):
+            executor.require_outage_approval(A, B, path=path, consume=True)
+        path.chmod(0o600)
+        alias = directory / "alias"
+        os.link(path, alias)
+        with self.assertRaises(executor.ExecutorError):
+            executor.require_outage_approval(A, B, path=path, consume=True)
+        alias.unlink()
+        executor.require_outage_approval(A, B, path=path, consume=True)
+        self.assertFalse(path.exists())
+        with self.assertRaises(OSError):
+            executor.require_outage_approval(A, B, path=path, consume=True)
+        path.symlink_to(self.releases / A / "tor-web")
+        with self.assertRaises(ValueError):
+            executor.require_outage_approval(A, B, path=path, consume=True)
+
+    def test_outage_requires_completed_v2_marker(self):
+        path = self.root / "release-format"
+        path.write_bytes(b"2\n")
+        path.chmod(0o644)
+        executor.require_v2_marker(path)
+        for payload in (b"1\n", b"2", b"2\n\n"):
+            path.write_bytes(payload)
+            with self.assertRaises(executor.ExecutorError):
+                executor.require_v2_marker(path)
+
+    def test_outage_stopped_state_and_listener_are_checked(self):
+        stopped = b"LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\n"
+        def response(data):
+            return subprocess.CompletedProcess([], 0, data)
+        with patch.object(executor, "command", side_effect=[response(stopped), response(b"")]):
+            executor.require_stopped_web()
+        for status, listener in (
+            (stopped.replace(b"inactive", b"active"), b""),
+            (stopped.replace(b"MainPID=0", b"MainPID=123"), b""),
+            (stopped + b"MainPID=0\n", b""),
+            (stopped, b"LISTEN 127.0.0.1:3000"),
+        ):
+            with patch.object(executor, "command", side_effect=[response(status), response(listener)]):
+                with self.assertRaises(executor.ExecutorError):
+                    executor.require_stopped_web()
+
+    def test_outage_verification_requires_real_offline_edge(self):
+        with patch.object(executor, "trace_inactive"), \\
+             patch.object(executor, "require_stopped_web") as stopped, \\
+             patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, b"502")):
+            executor.Application(self.store, self.root / "signers", 9).verify_outage(A)
+            self.assertEqual(stopped.call_count, 2)
+        with patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, b"200")):
+            with self.assertRaisesRegex(executor.ExecutorError, "offline HTTPS"):
+                executor.require_outage_edge()
+
+    def test_outage_restore_stops_and_never_restarts_previous_binary(self):
+        self.store.switch(B, A)
+        app = executor.Application(self.store, self.root / "signers", 9)
+        with patch.object(executor, "trace_inactive"), \\
+             patch.object(executor, "require_stopped_web") as stopped, \\
+             patch.object(executor, "command") as cmd:
+            app.restore_outage(A, B)
+            cmd.assert_called_once_with("systemctl", "stop", executor.APP, timeout=90)
+            self.assertEqual(stopped.call_count, 2)
+            self.assertEqual(self.store.current(), A)
+
+    def test_outage_activation_uses_signed_recovery_shell_and_lock(self):
+        app = executor.Application(self.store, self.root / "signers", 9)
+        with patch.object(app, "verify_outage"), patch.object(app, "verify"), \\
+             patch.object(executor, "require_forward"), patch.object(executor, "trace_inactive"), \\
+             patch.object(executor.bundle, "verify"), \\
+             patch.object(executor.subprocess, "Popen") as popen:
+            popen.return_value.wait.return_value = 0
+            app.activate_outage(B)
+            popen.assert_called_once_with(
+                ["bash", str(self.releases / B / "go-live-postgres-vps.sh"), B, "--recover", "--forward"],
+                env=executor.SAFE_ENV, pass_fds=(9,))
+
+    def test_root_outage_argument_is_separate_from_normal_wrapper(self):
+        self.assertEqual(executor.release_request([A]), ("normal", A))
+        self.assertEqual(executor.release_request(["--recover"]), ("journal", None))
+        self.assertEqual(executor.release_request(["--repair-outage", B]), ("outage", B))
+        for args in ([], ["--repair-outage"], ["--repair-outage", "bad"], [A, "--recover"]):
+            with self.assertRaises(ValueError):
+                executor.release_request(args)
+        wrapper = ROOT / "ops/one-click-release-v2-wrapper.sh"
+        result = subprocess.run(["bash", str(wrapper), "--repair-outage", B],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+
     def test_current_main_only(self):
         for payload in (b'{}', b'{"ref":"refs/heads/main","object":{"sha":"bad"}}'):
             with patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, payload)):
