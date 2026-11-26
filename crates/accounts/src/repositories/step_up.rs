@@ -134,7 +134,7 @@ impl PgAccounts {
         let stored_hash: String = session
             .try_get("password_hash")
             .map_err(|_| StepUpIssueError::Unavailable)?;
-        if !verified_password.matches_hash(&stored_hash) {
+        if !verified_password.is_fresh() || !verified_password.matches_hash(&stored_hash) {
             return Err(StepUpIssueError::StepUpRequired);
         }
 

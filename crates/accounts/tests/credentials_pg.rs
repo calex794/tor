@@ -314,3 +314,181 @@ async fn a_03_rolling_session_renewal_is_bounded_and_never_resurrects() {
     );
     assert_eq!(expiry(&pool, &digest).await, after);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
+    use tor_accounts::{
+        repositories::{
+            book_step_up::{BookStepUpScope, BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
+            step_up::StepUpIssueError,
+        },
+        services::security::{hash_password, verify_password_for_step_up},
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let password = "AuthSixPassword2026";
+    let hash = hash_password(password).unwrap();
+    let session = session_token_digest(&format!("step-up-renew-{nonce}"));
+    let other = session_token_digest(&format!("step-up-other-{nonce}"));
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let actor = accounts
+        .register_with_session(
+            &format!("step-up-renew-{nonce}@example.invalid"),
+            "Step up",
+            &hash,
+            &session,
+            ttl,
+        )
+        .await
+        .unwrap();
+    accounts.insert_session(actor, &other, ttl).await.unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'administrator',TRUE)",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let payload = [11; 32];
+    // Capture every persisted proof field, not only the deadline.
+    async fn proof_state(pool: &sqlx::PgPool, session: &[u8; 32]) -> String {
+        sqlx::query_scalar(
+            "SELECT jsonb_build_array(
+                encode(step_up_proof_hash,'hex'),step_up_scope,
+                step_up_resource_id,step_up_revision,encode(step_up_payload_digest,'hex'),
+                step_up_issued_at,step_up_expires_at,step_up_used_at
+             )::text FROM sessions WHERE token_hash=$1",
+        )
+        .bind(session.as_slice())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    for scope in [
+        "finance.refund.approve.v1",
+        "finance.payout.post.v1",
+        BOOK_TRANSFER_SCOPE,
+        BOOK_SHARES_SCOPE,
+    ] {
+        let proof = verify_password_for_step_up(password, &hash).unwrap();
+        let token = match scope {
+            "finance.refund.approve.v1" => accounts
+                .issue_administrator_refund_step_up(actor, &session, &proof, 17, 1, &payload)
+                .await
+                .unwrap(),
+            "finance.payout.post.v1" => accounts
+                .issue_administrator_payout_step_up(actor, &session, &proof, 17, 100, &payload)
+                .await
+                .unwrap(),
+            _ => accounts
+                .issue_book_mutation_step_up(
+                    actor,
+                    &session,
+                    &proof,
+                    17,
+                    1,
+                    BookStepUpScope {
+                        name: scope,
+                        payload_digest: &payload,
+                    },
+                )
+                .await
+                .unwrap(),
+        };
+        let valid: bool = sqlx::query_scalar(
+            "SELECT step_up_proof_hash=$2 AND step_up_scope=$3
+                AND step_up_used_at IS NULL
+                AND step_up_expires_at>clock_timestamp()
+                AND step_up_expires_at<=step_up_issued_at+INTERVAL '5 minutes'
+             FROM sessions WHERE token_hash=$1",
+        )
+        .bind(session.as_slice())
+        .bind(session_token_digest(&token).as_slice())
+        .bind(scope)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(valid);
+        // Exercise both an unused expired proof and a consumed expired
+        // proof. Rolling the ordinary session must preserve either state.
+        for consumed in [false, true] {
+            sqlx::query(
+                "UPDATE sessions SET expires_at=now()+INTERVAL '1 hour',
+                   step_up_issued_at=now()-INTERVAL '6 minutes',
+                   step_up_expires_at=now()-INTERVAL '1 minute',
+                   step_up_used_at=CASE WHEN $2 THEN now()-INTERVAL '2 minutes' ELSE NULL END
+                 WHERE token_hash=$1",
+            )
+            .bind(session.as_slice())
+            .bind(consumed)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let before = proof_state(&pool, &session).await;
+            assert!(accounts
+                .renew_session_on_activity(&session)
+                .await
+                .unwrap()
+                .is_some_and(|age| age >= 2_591_990));
+            assert_eq!(proof_state(&pool, &session).await, before, "{scope}");
+        }
+    }
+    let selected = accounts
+        .list_active_sessions(actor, &session)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.current)
+        .unwrap()
+        .id;
+    assert_eq!(
+        accounts
+            .revoke_owned_session(actor, &other, &selected, &hash)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        accounts.renew_session_on_activity(&session).await.unwrap(),
+        None
+    );
+    let proof = verify_password_for_step_up(password, &hash).unwrap();
+    assert_eq!(
+        accounts
+            .issue_administrator_refund_step_up(actor, &session, &proof, 17, 1, &payload)
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(
+        accounts
+            .issue_administrator_payout_step_up(actor, &session, &proof, 17, 100, &payload)
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(
+        accounts
+            .issue_book_mutation_step_up(
+                actor,
+                &session,
+                &proof,
+                17,
+                1,
+                BookStepUpScope {
+                    name: BOOK_TRANSFER_SCOPE,
+                    payload_digest: &payload,
+                },
+            )
+            .await,
+        Err(StepUpIssueError::StepUpRequired)
+    );
+    assert_eq!(accounts.active_session_user(&other).await.unwrap(), Some(actor));
+}
