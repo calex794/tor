@@ -7,9 +7,8 @@ use aws_sdk_s3::{
 };
 use axum::{
     body::{to_bytes, Body},
-    http::{header, Method, Request, StatusCode},
+    http::{header, Method, StatusCode},
     response::Response,
-    Router,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -27,13 +26,12 @@ use tor_commerce::{
     repositories::layers::PgLayers,
 };
 use tor_contracts::paid_delivery::PositiveId;
-use tower::ServiceExt;
 
 const SOURCE: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci";
 const RESTORED: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_offsite_restore_ci";
 const ENDPOINT: &str = "http://127.0.0.1:9010";
 const BUCKET: &str = "tor-dr-ci-book-pack";
-const ORIGIN: &str = "http://127.0.0.1:3095";
+const PHYSICAL: &str = "postgresql://tor_app@127.0.0.1:15436/tor_ci";
 const V1: &str = "DROP-07 recovered historical FREE V1";
 
 #[derive(Serialize, Deserialize)]
@@ -209,8 +207,14 @@ async fn seed_free_archive() {
     .unwrap();
 }
 
-async fn read(app: &Router, method: Method, route: &str, session: Option<&str>) -> Response {
-    let mut request = Request::builder().method(method).uri(route);
+async fn read(
+    client: &reqwest::Client,
+    origin: &str,
+    method: Method,
+    route: &str,
+    session: Option<&str>,
+) -> Response {
+    let mut request = client.request(method, format!("{origin}{route}"));
     if let Some(token) = session {
         let csrf = generate_session_token();
         request = request
@@ -218,13 +222,21 @@ async fn read(app: &Router, method: Method, route: &str, session: Option<&str>) 
                 header::COOKIE,
                 format!("tor-dev-session={token}; tor-dev-csrf={csrf}"),
             )
-            .header(header::ORIGIN, ORIGIN)
+            .header(header::ORIGIN, origin)
             .header("x-csrf-token", csrf);
     }
-    app.clone()
-        .oneshot(request.body(Body::empty()).unwrap())
-        .await
-        .unwrap()
+    let mut received = request.send().await.unwrap();
+    let status = received.status();
+    let headers = received.headers().clone();
+    let mut body = Vec::new();
+    while let Some(chunk) = received.chunk().await.unwrap() {
+        assert!(body.len() + chunk.len() <= 200_001);
+        body.extend_from_slice(&chunk);
+    }
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    *response.headers_mut() = headers;
+    response
 }
 
 async fn assert_v1(response: Response, version: i64) {
@@ -258,12 +270,27 @@ async fn assert_denial(response: Response, status: StatusCode) {
 #[ignore = "restore database and MinIO provisioned by the sealed-remote-copy job"]
 async fn verify_restored_free_archive() {
     let url = isolated_url("DROP07_RESTORED_DATABASE_URL", RESTORED);
+    verify_archive(url).await;
+    println!("FND05_RESTORED_FREE_ARCHIVE_HTTP_OK");
+}
+
+#[tokio::test]
+#[ignore = "only inside isolated physical PITR container"]
+async fn verify_physical_free_archive() {
+    assert!(std::path::Path::new("/.dockerenv").is_file());
+    assert_eq!(env::var("TOR_I11_DISPOSABLE_CONTAINER").as_deref(), Ok("yes"));
+    let url = isolated_url("DROP07_RESTORED_DATABASE_URL", PHYSICAL);
+    verify_archive(url).await;
+    println!("FND05_PHYSICAL_FREE_LAYER_HTTP_OK");
+}
+
+async fn verify_archive(url: &str) {
     let rights: Rights =
         serde_json::from_slice(&fs::read(env::var_os("DROP07_RIGHTS_FILE").unwrap()).unwrap())
             .unwrap();
     let catalog = PgCatalog::connect(url).await.unwrap();
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
-    let client = Client::from_conf(
+    let s3 = Client::from_conf(
         aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new("us-east-1"))
@@ -278,21 +305,30 @@ async fn verify_restored_free_archive() {
             .force_path_style(true)
             .build(),
     );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
     let app =
-        tor_web::free_pack_http::router(accounts, false, ORIGIN.into(), client, BUCKET.into())
+        tor_web::free_pack_http::router(accounts, false, origin.clone(), s3, BUCKET.into())
             .unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap();
     let saved = format!(
         "/api/v1/chapters/{}/free-source?mode=saved&version_id={}",
         rights.chapter, rights.version
     );
     let layer = format!("/api/v1/reader/layer/free/{}/pack", rights.chapter);
     assert_v1(
-        read(&app, Method::GET, &saved, Some(&rights.saved)).await,
+        read(&client, &origin, Method::GET, &saved, Some(&rights.saved)).await,
         rights.version,
     )
     .await;
     assert_v1(
-        read(&app, Method::POST, &layer, Some(&rights.buyer)).await,
+        read(&client, &origin, Method::POST, &layer, Some(&rights.buyer)).await,
         rights.version,
     )
     .await;
@@ -302,28 +338,28 @@ async fn verify_restored_free_archive() {
         Some(rights.buyer.as_str()),
     ] {
         assert_denial(
-            read(&app, Method::GET, &saved, token).await,
+            read(&client, &origin, Method::GET, &saved, token).await,
             StatusCode::NOT_FOUND,
         )
         .await;
     }
     assert_denial(
-        read(&app, Method::POST, &layer, None).await,
+        read(&client, &origin, Method::POST, &layer, None).await,
         StatusCode::UNAUTHORIZED,
     )
     .await;
     for token in [&rights.unrelated, &rights.revoked, &rights.saved] {
         assert_denial(
-            read(&app, Method::POST, &layer, Some(token)).await,
+            read(&client, &origin, Method::POST, &layer, Some(token)).await,
             StatusCode::NOT_FOUND,
         )
         .await;
     }
     let public = format!("/api/v1/chapters/{}/free-source", rights.chapter);
     assert_denial(
-        read(&app, Method::GET, &public, None).await,
+        read(&client, &origin, Method::GET, &public, None).await,
         StatusCode::NOT_FOUND,
     )
     .await;
-    println!("FND05_RESTORED_FREE_ARCHIVE_HTTP_OK");
+    server.abort();
 }
