@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import release_bundle_v2 as bundle
 import stage_recovery_ci_release as fixture
+import tor_recovery_auth as recovery_auth
 
 SHA = "a" * 40
 SMOKE = (ROOT / "tools/tor_pg_backup_restore_smoke.sh").read_text()
@@ -70,6 +71,36 @@ class RecoveryHTTPTests(unittest.TestCase):
         self.assertIn("matrix.shard == 'foundation'", step)
         self.assertIn("cargo build -p tor-observability --bin tor-trace-store", step)
         self.assertIn("bash tools/tor_pg_backup_restore_smoke.sh", step)
+
+
+    def test_auth_recovery_refuses_unsafe_identity(self):
+        for database in ("postgres", "template1", "tor;DROP", "TOR", ""):
+            with self.subTest(database=database), self.assertRaises(recovery_auth.Refused):
+                recovery_auth.operator_guard(database, "123456789", 15432)
+        for identity in ("0", "-1", "abc", "18446744073709551616"):
+            with self.subTest(identity=identity), self.assertRaises(recovery_auth.Refused):
+                recovery_auth.operator_guard("tor", identity, 15432)
+        with self.assertRaises(recovery_auth.Refused):
+            recovery_auth.operator_guard("tor", "123456789", 5432)
+
+    def test_auth_recovery_requires_atomic_guard_and_offline_plan(self):
+        guard = recovery_auth.operator_guard("tor", "123456789", 15432)
+        for check in ("NOT pg_is_in_recovery()", "inet_server_addr() IS NULL",
+                      "current_database() = 'tor'", "pg_control_system()",
+                      "pg_stat_activity", "IS NOT TRUE"):
+            self.assertIn(check, guard)
+        plan = recovery_auth.plan_sql(guard)
+        self.assertIn("BEGIN READ ONLY", plan)
+        self.assertNotIn("UPDATE public.sessions", plan)
+        statement = recovery_auth.invalidation_sql(guard)
+        self.assertEqual(statement.count(guard), 2)
+        self.assertLess(statement.index(guard), statement.index("LOCK TABLE"))
+        self.assertLess(statement.rindex(guard), statement.index("UPDATE public.sessions"))
+        self.assertLess(statement.index("AUTH08C live sessions remain"), statement.index("COMMIT;"))
+        self.assertIn("ACCESS EXCLUSIVE", statement)
+        self.assertIn("WHERE " + recovery_auth.ACTIVE, statement)
+        continuity = (ROOT / "tools/s061_session_continuity.py").read_text()
+        self.assertIn("revoke_restored = invalidation_sql()", continuity)
 
 
 if __name__ == "__main__":
