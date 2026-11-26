@@ -17,6 +17,8 @@ on:
       - 'tools/managed_systemd_release.py'
       - 'tools/coordinated_release.py'
       - 'tools/release_executor_v2.py'
+      - 'tools/install_release_v2.py'
+      - 'tools/release_ancestry.py'
       - 'tools/adopt_edge_vhost.py'
       - 'tests/deploy/**'
       - '.github/workflows/tor-deploy-vm.yml'
@@ -58,6 +60,10 @@ jobs:
           grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_RECOVERED_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_UNAPPROVED_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_FAILED_REPAIR_STOPPED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_SIGNED_REPAIR_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED' "$RUNNER_TEMP/deploy-vm.log"
       - name: Retain sanitized fixture evidence
         if: always()
         uses: actions/upload-artifact@v4

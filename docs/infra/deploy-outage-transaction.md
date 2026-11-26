@@ -47,3 +47,23 @@ broken predecessor. Success requires real application and edge verification.
 This is an implementation candidate, not operational approval. Hosted VM must
 still exercise the new production boundary and signed recovery shell; do not
 install the helper or run a recovery on the live VPS on this evidence alone.
+
+## DEPLOY-08d-c: full signed-shell hosted acceptance
+
+The existing guarded Ubuntu 24.04 test gains a separate outage phase after
+the synthetic normal-release fixture. Four immutable historical main SHAs
+serve only as identities for lab-signed copies of the current checkout, never
+as assertions about historical build contents. The public forward ancestry
+proof is checked by the actual installed module and the signed go-live shell
+without any production guard bypass. The phase installs private helper modules
+and a fixture marker only; actual v1 bootstrap and SSH transport remain
+separate tests.
+
+Required evidence: healthy refusal without consuming approval, stopped normal
+update refusal, absent/wrong approval refusal, signed startup failure after
+actual recovery migration and readable pg_dump, terminal stopped restoration,
+replay refusal, successful real signed repair with retained book/credential
+witnesses, interruption after actual signed cutover, root journal recovery
+without claiming a healthy rollback, and fresh approval followed by retry.
+The GitHub workflow requires all four DEPLOY08D markers. No production
+credentials, production deployment, or v2 helper rollout is performed.
