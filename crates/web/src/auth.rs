@@ -110,6 +110,7 @@ mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
 mod referral_routes;
+mod registration_mail;
 mod reply_read_state;
 mod reset_delivery;
 mod saved_free_chapters;

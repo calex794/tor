@@ -3,6 +3,7 @@
 pub mod access_audit;
 pub mod access_level;
 pub mod auth_observation;
+pub mod email;
 
 /// Single canonical email key used for uniqueness, login, and account lookup.
 /// Deliberately conservative: provider-specific alias rewriting is not allowed.

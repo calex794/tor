@@ -14,6 +14,7 @@ pub struct QuotaKeys {
     recipient: [u8; 32],
     registration_ip: Option<[u8; 32]>,
     key_binding: [u8; 32],
+    registration_intent: Option<tor_contracts::mail::MailIntent>,
 }
 
 impl QuotaKeys {
@@ -28,6 +29,18 @@ impl QuotaKeys {
     pub(crate) fn key_binding(&self) -> &[u8; 32] {
         &self.key_binding
     }
+
+    pub fn signup_source(&self) -> tor_contracts::mail::SignupMailSource {
+        tor_contracts::mail::SignupMailSource {
+            recipient_key: self.recipient,
+            registration_ip_key: self.registration_ip,
+            key_binding: self.key_binding,
+        }
+    }
+
+    pub(crate) fn matches_registration(&self, intent: tor_contracts::mail::MailIntent) -> bool {
+        self.registration_intent == Some(intent)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +50,7 @@ pub enum QuotaDecision {
     AlreadyReserved,
     StaleClaim,
     KeyMismatch,
+    RegistrationEvidenceRequired,
     GlobalDailyLimit,
     TransactionalReserve,
     GlobalPace,
