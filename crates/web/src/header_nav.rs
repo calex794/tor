@@ -184,7 +184,7 @@ pub(crate) fn render(html: String) -> String {
 }
 
 fn render_for(html: &str, visitor: &Visitor) -> String {
-    let (mobile, desktop) = if visitor.authenticated {
+    let (mobile, desktop, member_nav) = if visitor.authenticated {
         let (mobile_logout, desktop_logout) = visitor
             .csrf
             .as_deref()
@@ -208,7 +208,9 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
             .unwrap_or_default();
         (
             format!(
-                r#"<a class="site-mobile-nav__link" href="/me">Кабинет</a>
+                r#"<a class="site-mobile-nav__link" href="/me/library">Библиотека</a>
+<a class="site-mobile-nav__link site-mobile-nav__link--create" href="/me/books/new">Создать книгу</a>
+<a class="site-mobile-nav__link" href="/me">Кабинет</a>
 <a class="site-mobile-nav__link" href="/me/books">Мои книги</a>
 {mobile_logout}"#
             ),
@@ -217,6 +219,8 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
 <a class="button button--small" href="/me">Кабинет</a>
 {desktop_logout}"#
             ),
+            r#"<a class="site-nav__link" href="/me/library">Библиотека</a>
+<a class="button button--small site-nav__create" href="/me/books/new">Создать книгу</a>"#,
         )
     } else {
         (
@@ -226,9 +230,11 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
             r#"<a class="site-nav__link" href="/login">Войти</a>
 <a class="button button--small" href="/register">Регистрация</a>"#
                 .to_owned(),
+            "",
         )
     };
     html.replace("<!--HEADER_MOBILE_AUTH-->", &mobile)
+        .replace("<!--HEADER_DESKTOP_MEMBER_NAV-->", member_nav)
         .replace("<!--HEADER_DESKTOP_AUTH-->", &desktop)
 }
 
@@ -291,8 +297,12 @@ mod tests {
         assert!(guest.contains("href=\"/login\">Войти</a>"));
         assert!(guest.contains("href=\"/register\">Регистрация</a>"));
         assert!(!guest.contains("action=\"/logout\""));
-        // The creation CTA remains visible; its route enforces the session.
-        assert!(guest.contains("href=\"/me/books/new\""));
+        let guest_header = guest.split("</header>").next().unwrap();
+        assert!(!guest_header.contains("href=\"/me/books/new\""));
+        assert!(!guest_header.contains("href=\"/me/library\""));
+        assert!(!guest_header.contains("href=\"/me\""));
+        assert!(!guest_header.contains("href=\"/me/books\""));
+        assert_eq!(guest_header.matches("href=\"/catalog\"").count(), 2);
         let signed_in = render_for(
             template,
             &Visitor {
@@ -305,5 +315,15 @@ mod tests {
         assert!(signed_in.contains("href=\"/me/books\">Мои книги</a>"));
         assert!(signed_in.contains("name=\"csrf_token\" value=\"csrf-token\""));
         assert!(signed_in.contains("action=\"/logout\""));
+        let signed_in_header = signed_in.split("</header>").next().unwrap();
+        for path in ["/me/books/new", "/me/library", "/me", "/me/books", "/catalog"] {
+            assert_eq!(
+                signed_in_header.matches(&format!("href=\"{path}\"")).count(),
+                2,
+                "{path}: exactly one link in each navigation"
+            );
+        }
+        assert!(!signed_in.contains("<!--HEADER_"));
+        assert!(!guest.contains("<!--HEADER_"));
     }
 }

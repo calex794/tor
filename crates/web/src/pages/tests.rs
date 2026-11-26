@@ -507,10 +507,14 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
 }
 
 #[test]
-fn s019_header_has_book_registration_on_desktop_and_mobile() {
+fn s019_guest_header_hides_book_registration_on_desktop_and_mobile() {
     let html = layout("Каталог", "Книги", "").0;
-    assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
-    assert!(html.contains("Создать книгу"));
+    let header = html.split("</header>").next().unwrap();
+    assert!(!header.contains("href=\"/me/books/new\""));
+    assert!(!header.contains("Создать книгу"));
+    assert!(!header.contains("href=\"/me/library\""));
+    assert!(!header.contains("href=\"/me\""));
+    assert_eq!(header.matches("href=\"/catalog\"").count(), 2);
 }
 
 #[test]
