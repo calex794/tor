@@ -84,7 +84,9 @@ jobs:
         run: bash tools/rec13_browser_acceptance.sh
       - name: 100k catalogue contextual model PostgreSQL acceptance
         if: ${{ matrix.lane == 'current' }}
-        run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1 --nocapture
+        run: |
+          cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1 --nocapture
+          cargo test -p tor-web --test adapt_http_pg -- --ignored --exact adapt_http_pacing_comparison --nocapture --test-threads=1
       - name: Confirm committed source was tested
         if: always()
         run: git diff --exit-code
