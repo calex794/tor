@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_contracts::{
     auth::UserId,
-    mail::{MailIntent, MailPurpose},
+    mail::{MailIntent, MailPurpose, RegistrationMailEvidence},
     paid_delivery::PositiveId,
 };
 use tor_mail::{
@@ -19,6 +19,27 @@ fn keys(recipient: u8, ip: Option<u8>) -> QuotaKeys {
         .keys(
             &format!("mail-quota-fixture-{recipient}@example.invalid"),
             ip.map(|value| std::net::Ipv4Addr::new(192, 0, 2, value).into()),
+        )
+        .unwrap()
+}
+
+fn registration_keys(claim: MailClaim, recipient: u8, ip: Option<u8>, secret: &str) -> QuotaKeys {
+    let signer = QuotaKeySigner::from_hex(&secret.repeat(32)).unwrap();
+    let address = format!("mail-quota-fixture-{recipient}@example.invalid");
+    let captured = signer
+        .keys(
+            &address,
+            ip.map(|value| std::net::Ipv4Addr::new(192, 0, 2, value).into()),
+        )
+        .unwrap();
+    signer
+        .keys_for_registration(
+            claim.intent,
+            &address,
+            RegistrationMailEvidence {
+                user_id: claim.intent.recipient,
+                source: captured.signup_source(),
+            },
         )
         .unwrap()
 }
@@ -90,9 +111,20 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
 
     let a = claim(&queue, user, 1, RegistrationConfirmation).await;
     let b = claim(&queue, user, 2, RegistrationConfirmation).await;
+    assert_eq!(
+        quota.reserve(a, keys(1, Some(1))).await.unwrap(),
+        RegistrationEvidenceRequired
+    );
+    assert_eq!(
+        quota
+            .reserve(a, registration_keys(b, 2, Some(2), "4f"))
+            .await
+            .unwrap(),
+        RegistrationEvidenceRequired
+    );
     let (ra, rb) = tokio::join!(
-        quota.reserve(a, keys(1, Some(1))),
-        quota.reserve(b, keys(2, Some(2)))
+        quota.reserve(a, registration_keys(a, 1, Some(1), "4f")),
+        quota.reserve(b, registration_keys(b, 2, Some(2), "4f"))
     );
     let (ra, rb) = (ra.unwrap(), rb.unwrap());
     assert!(matches!(
@@ -100,19 +132,16 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         (Reserved, GlobalPace) | (GlobalPace, Reserved)
     ));
     let (winner, winner_keys) = if ra == Reserved {
-        (a, keys(1, Some(1)))
+        (a, registration_keys(a, 1, Some(1), "4f"))
     } else {
-        (b, keys(2, Some(2)))
+        (b, registration_keys(b, 2, Some(2), "4f"))
     };
     let restarted = PgMailQuota::new(PgPool::connect(&url).await.unwrap());
     assert_eq!(
         restarted.reserve(winner, winner_keys).await.unwrap(),
         AlreadyReserved
     );
-    let wrong_key = QuotaKeySigner::from_hex(&"5a".repeat(32))
-        .unwrap()
-        .keys("reader@example.invalid", None)
-        .unwrap();
+    let wrong_key = registration_keys(winner, 1, None, "5a");
     assert_eq!(quota.reserve(winner, wrong_key).await.unwrap(), KeyMismatch);
     assert_eq!(
         restarted.reserve(winner, winner_keys).await.unwrap(),
@@ -135,25 +164,46 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     clear(&pool).await;
     seed(&pool, 3, RegistrationConfirmation, keys(3, Some(3)), 180).await;
     assert_eq!(
-        quota.reserve(registration, keys(3, Some(4))).await.unwrap(),
+        quota
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(4), "4f")
+            )
+            .await
+            .unwrap(),
         RegistrationRecipientDaily
     );
     clear(&pool).await;
     seed(&pool, 1, RegistrationConfirmation, keys(3, Some(3)), 60).await;
     assert_eq!(
-        quota.reserve(registration, keys(3, Some(4))).await.unwrap(),
+        quota
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(4), "4f")
+            )
+            .await
+            .unwrap(),
         RegistrationRecipientCooldown
     );
     clear(&pool).await;
     seed(&pool, 10, RegistrationConfirmation, keys(4, Some(3)), 180).await;
     assert_eq!(
-        quota.reserve(registration, keys(3, Some(3))).await.unwrap(),
+        quota
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
+            .await
+            .unwrap(),
         RegistrationIpDaily
     );
     clear(&pool).await;
     seed(&pool, 10, RegistrationConfirmation, keys(4, None), 180).await;
     assert_eq!(
-        quota.reserve(registration, keys(3, None)).await.unwrap(),
+        quota
+            .reserve(registration, registration_keys(registration, 3, None, "4f"))
+            .await
+            .unwrap(),
         RegistrationIpDaily
     );
 
@@ -171,7 +221,13 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     clear(&pool).await;
     seed(&pool, 200, ProjectNews, keys(7, None), 180).await;
     assert_eq!(
-        quota.reserve(registration, keys(3, Some(3))).await.unwrap(),
+        quota
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
+            .await
+            .unwrap(),
         GlobalDailyLimit
     );
     sqlx::query(
@@ -181,7 +237,13 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     .await
     .unwrap();
     assert_eq!(
-        quota.reserve(registration, keys(3, Some(3))).await.unwrap(),
+        quota
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
+            .await
+            .unwrap(),
         Reserved
     );
 

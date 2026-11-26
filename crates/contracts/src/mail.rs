@@ -38,6 +38,21 @@ pub struct MailIntent {
     pub recipient: UserId,
 }
 
+/// Server-side signup snapshot, never deserialized from a browser.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct SignupMailSource {
+    pub recipient_key: [u8; 32],
+    pub registration_ip_key: Option<[u8; 32]>,
+    pub key_binding: [u8; 32],
+}
+
+/// Returned by accounts for an unexpired committed signup.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct RegistrationMailEvidence {
+    pub user_id: UserId,
+    pub source: SignupMailSource,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

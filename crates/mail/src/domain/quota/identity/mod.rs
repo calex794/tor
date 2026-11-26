@@ -63,7 +63,32 @@ impl QuotaKeySigner {
                 .filter(|ip| !ip.is_unspecified() && !ip.is_loopback())
                 .map(|ip| self.ip_key(ip)),
             key_binding: self.digest(b"tor/mail/quota/v1/key-binding\0", b""),
+            registration_intent: None,
         })
+    }
+
+    /// The worker resolves committed account evidence and the current
+    /// delivery address. A later IP cannot replace the captured signup IP.
+    pub fn keys_for_registration(
+        &self,
+        intent: tor_contracts::mail::MailIntent,
+        current_transport_address: &str,
+        evidence: tor_contracts::mail::RegistrationMailEvidence,
+    ) -> Result<QuotaKeys, &'static str> {
+        if intent.purpose != tor_contracts::mail::MailPurpose::RegistrationConfirmation
+            || intent.recipient != evidence.user_id
+        {
+            return Err("registration mail evidence does not match intent");
+        }
+        let mut keys = self.keys(current_transport_address, None)?;
+        if keys.recipient != evidence.source.recipient_key
+            || keys.key_binding != evidence.source.key_binding
+        {
+            return Err("registration mail evidence is no longer valid");
+        }
+        keys.registration_ip = evidence.source.registration_ip_key;
+        keys.registration_intent = Some(intent);
+        Ok(keys)
     }
 
     fn ip_key(&self, ip: IpAddr) -> [u8; 32] {

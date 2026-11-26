@@ -93,3 +93,53 @@ fn transport_domain_must_be_precanonicalized_by_accounts() {
     let b = signer.keys("reader@xn--e1afmkfd.xn--p1ai", None).unwrap();
     assert_eq!(a.recipient(), b.recipient());
 }
+
+#[test]
+fn registration_evidence_preserves_source_and_rejects_mismatches() {
+    use tor_contracts::{
+        auth::UserId,
+        mail::{MailIntent, MailPurpose, RegistrationMailEvidence},
+        paid_delivery::PositiveId,
+    };
+    let signer = signer("4f");
+    let user = UserId::new(42).unwrap();
+    let intent = MailIntent {
+        purpose: MailPurpose::RegistrationConfirmation,
+        event_id: PositiveId::new(99).unwrap(),
+        recipient: user,
+    };
+    let captured = signer
+        .keys("reader@example.com", Some("192.0.2.7".parse().unwrap()))
+        .unwrap();
+    let evidence = RegistrationMailEvidence {
+        user_id: user,
+        source: captured.signup_source(),
+    };
+    let keys = signer
+        .keys_for_registration(intent, "Reader@EXAMPLE.COM", evidence)
+        .unwrap();
+    assert_eq!(keys.registration_ip(), captured.registration_ip());
+    assert!(keys.matches_registration(intent));
+    let mut different = intent;
+    different.event_id = PositiveId::new(100).unwrap();
+    assert!(!keys.matches_registration(different));
+    assert!(signer
+        .keys_for_registration(intent, "other@example.com", evidence)
+        .is_err());
+    let wrong_user = RegistrationMailEvidence {
+        user_id: UserId::new(43).unwrap(),
+        ..evidence
+    };
+    assert!(signer
+        .keys_for_registration(intent, "reader@example.com", wrong_user)
+        .is_err());
+    let other = QuotaKeySigner::from_hex(&"5a".repeat(32)).unwrap();
+    assert!(other
+        .keys_for_registration(intent, "reader@example.com", evidence)
+        .is_err());
+    let mut not_registration = intent;
+    not_registration.purpose = MailPurpose::SupportReply;
+    assert!(signer
+        .keys_for_registration(not_registration, "reader@example.com", evidence)
+        .is_err());
+}

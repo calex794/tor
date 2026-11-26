@@ -256,7 +256,36 @@ impl PgAccounts {
         ttl: NonZeroU32,
         context: RegistrationContext<'_>,
     ) -> Result<i64, AccountWriteError> {
+        self.register_with_audited_session_referral_mail(
+            email,
+            name,
+            password_hash,
+            digest,
+            ttl,
+            context,
+            None,
+        )
+        .await
+    }
+
+    /// Capture optional mail evidence with account, session and referral.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn register_with_audited_session_referral_mail(
+        &self,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        context: RegistrationContext<'_>,
+        mail_source: Option<tor_contracts::mail::SignupMailSource>,
+    ) -> Result<i64, AccountWriteError> {
         let RegistrationContext { referral, audit } = context;
+        if mail_source.is_some()
+            && audit.event_kind != crate::domain::access_audit::LoginEventKind::Registration
+        {
+            return Err(AccountWriteError::Unavailable);
+        }
         let mut transaction = self.pool.begin().await?;
         let user_id: i64 = sqlx::query_scalar(
             "INSERT INTO users (email_normalized, display_name, password_hash) \
@@ -374,6 +403,9 @@ impl PgAccounts {
             .bind(source)
             .execute(&mut *transaction)
             .await?;
+        }
+        if let Some(source) = mail_source {
+            super::registration_mail::capture(&mut transaction, user_id, source).await?;
         }
         transaction.commit().await?;
         Ok(user_id)

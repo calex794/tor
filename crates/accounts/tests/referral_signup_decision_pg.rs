@@ -408,3 +408,6 @@ async fn f_09_pg_disabled_manual_code_rolls_back_audited_signup_and_guest_claim(
         "rejected manual code must not consume the guest capture"
     );
 }
+
+#[path = "referral_signup_decision_pg/mail_source.rs"]
+mod mail_source;

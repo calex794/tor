@@ -27,6 +27,11 @@ impl PgMailQuota {
         claim: MailClaim,
         keys: QuotaKeys,
     ) -> Result<QuotaDecision, sqlx::Error> {
+        if claim.intent.purpose == MailPurpose::RegistrationConfirmation
+            && !keys.matches_registration(claim.intent)
+        {
+            return Ok(QuotaDecision::RegistrationEvidenceRequired);
+        }
         let mut tx = self.pool.begin().await?;
         // Serialize all providers/credentials/workers against the same initial
         // budget. Do not use transaction-start time after waiting for this lock.
