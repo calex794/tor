@@ -115,3 +115,18 @@ This verifies bootstrap logic and installed wrapper on the disposable host;
 remote bootstrap source downloads, GitHub Actions-to-VPS SSH transport, and
 independent off-server restore still require separate acceptance. No VPS
 credentials or real production mutation.
+
+### Sudoers fixture preflight
+
+The first 08e VM (45895555907) failed at global visudo -c after installing
+the fixture TOR rule. Its captured stderr was not retained, so the exact
+cause is unknown. Before creating TOR state, now check the existing VM
+sudoers globally, retain bounded escaped parser diagnostics on failure,
+and independently prove the complete syntax. Only on this guarded hosted
+VM, a parsed canonical root:root single-link regular sudoers file with mode
+0644 may be tightened to 0440; no text, ownership, writable files, arbitrary
+include paths or symlinks are modified. Unknown defects remain fatal. The
+fixture rule uses the actual v1 bootstrap comment and exact permission line,
+is independently checked with visudo -c -f before installation, then its
+ownership/mode and the full global configuration are checked. Production
+bootstrap continues to require unmodified global visudo -c.

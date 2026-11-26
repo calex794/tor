@@ -75,6 +75,8 @@ jobs:
           grep -Fxq 'DEPLOY08D_REAL_FAILED_REPAIR_STOPPED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08D_REAL_SIGNED_REPAIR_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_EXISTING_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_TOR_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08E_REAL_V1_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08E_REAL_VHOST_PIN_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08E_REAL_V1_V2_BOOTSTRAP_OK' "$RUNNER_TEMP/deploy-vm.log"

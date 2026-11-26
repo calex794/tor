@@ -270,6 +270,60 @@ def sudo_release(*args):
         env=executor.SAFE_ENV, capture_output=True, timeout=240)
 
 
+def visudo_diagnostic(stage, result):
+    # The VM has only disposable OS sudoers and fixture rules. Bound and
+    # escape the diagnostic, never print an environment or a secret file.
+    print("DEPLOY08E_VISUDO_DIAGNOSTIC stage=" + stage
+          + " exit=" + str(result.returncode)
+          + " stdout=" + repr(result.stdout[:2048])
+          + " stderr=" + repr(result.stderr[:2048]), flush=True)
+
+
+def parsed_vm_sudoers_paths(output):
+    # Only canonical standard sudoers files reported as parsed successfully
+    # by the real parser are eligible for fixture-only mode normalization.
+    for line in output.splitlines():
+        match = re.fullmatch(
+            rb"(/etc/sudoers(?:\.d/[A-Za-z0-9_-]+)?): parsed OK", line)
+        if match:
+            yield Path(match.group(1).decode("ascii"))
+
+
+def require_vm_sudoers(stage, *, normalize_runner_modes=False):
+    result = executor.command("visudo", "-c", check=False)
+    if result.returncode == 0:
+        return
+    visudo_diagnostic(stage, result)
+    if normalize_runner_modes:
+        # GitHub-hosted images may create a root-owned sudoers include
+        # with mode 0644. Only fix that precise mode discrepancy on this
+        # disposable VM, after proving the full syntax independently.
+        # No rule text, ownership, symlink or writable file is changed.
+        syntax = executor.command("visudo", "-c", "-f", "/etc/sudoers", check=False)
+        if syntax.returncode != 0:
+            visudo_diagnostic("existing_syntax", syntax)
+            raise RuntimeError("invalid pre-existing VM sudoers syntax")
+        for path in sorted(set(parsed_vm_sudoers_paths(syntax.stdout + b"\n" + syntax.stderr))):
+            if path.resolve(strict=True) != path:
+                continue
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                info = os.fstat(fd)
+                if (stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_gid == 0
+                        and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o644):
+                    os.fchmod(fd, 0o440)
+                    os.fsync(fd)
+                    print("DEPLOY08E_VM_SUDOERS_MODE_NORMALIZED " + str(path),
+                          flush=True)
+            finally:
+                os.close(fd)
+        result = executor.command("visudo", "-c", check=False)
+        if result.returncode == 0:
+            return
+        visudo_diagnostic("existing_after_mode_check", result)
+    raise RuntimeError("VM sudoers validation failed: " + stage)
+
+
 def make_legacy_fixture(sha, key):
     # The first-install/normal rollback fixture is already healthy. Rebuild
     # only its lab metadata into the real v1 layout, without replacing the
@@ -323,9 +377,21 @@ def make_legacy_fixture(sha, key):
     wrapper = wrapper.rstrip(b"\n") + b"\n" + transition.V1_MARKER + b"\n"
     first.new_file(transition.WRAPPER, wrapper, 0o755)
     sudoers = Path("/etc/sudoers.d/tor-one-click-release")
-    rule = b"tor-deploy ALL=(root) NOPASSWD: /usr/local/sbin/tor-one-click-release *\n"
+    rule = (b"# TOR one-click release: restricted root helper only\n"
+            b"tor-deploy ALL=(root) NOPASSWD: /usr/local/sbin/tor-one-click-release *\n")
+    staged_rule = LAB / "approved-legacy-sudoers"
+    first.new_file(staged_rule, rule, 0o440)
+    syntax = executor.command("visudo", "-c", "-f", str(staged_rule), check=False)
+    if syntax.returncode != 0:
+        visudo_diagnostic("new_rule_syntax", syntax)
+        raise RuntimeError("invalid fixture TOR sudoers rule")
     first.new_file(sudoers, rule, 0o440)
-    executor.command("visudo", "-c")
+    info = sudoers.lstat()
+    need(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_gid == 0
+         and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o440,
+         "unexpected fixture TOR sudoers ownership or mode")
+    require_vm_sudoers("after_tor_rule")
+    print("DEPLOY08E_VM_TOR_SUDOERS_OK", flush=True)
     return legacy, wrapper, sudoers, rule
 
 
@@ -600,6 +666,9 @@ def run():
     need(len(token) <= 8192 and re.fullmatch(rb"[A-Za-z0-9._~+/-]+=*", token),
          "invalid Actions bearer credential syntax")
     os.umask(0o077)
+    # Check the existing runner configuration before any TOR mutation.
+    require_vm_sudoers("existing", normalize_runner_modes=True)
+    print("DEPLOY08E_VM_EXISTING_SUDOERS_OK", flush=True)
     # Same compiled checkout, separate synthetic identities for fault fixtures.
     shas = {label: hashlib.sha256((checkout + ":vm:" + label).encode()).hexdigest()[:40]
             for label in "ABCD"}
