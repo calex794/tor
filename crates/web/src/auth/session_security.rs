@@ -18,6 +18,20 @@ pub(super) struct RevokeForm {
     csrf_token: Option<String>,
 }
 
+/// Called only after an authenticated and CSRF-checked reading command
+/// has committed. Retrieval and background grant issuance never call this.
+pub(super) async fn activity_cookies(state: &AuthState, headers: &HeaderMap) -> Vec<String> {
+    let Some(token) = state.cookies.session_token(headers) else {
+        return Vec::new();
+    };
+    state
+        .cookies
+        .activity_cookie(&state.accounts, &token)
+        .await
+        .into_iter()
+        .collect()
+}
+
 pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let user = match super::session_user(&state, &headers).await {
         Ok(Some(user)) => user,
@@ -32,8 +46,14 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Ok(sessions) => sessions,
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
+    // History is independently owner-scoped. An unavailable history must
+    // not prevent the owner from using the device revocation controls.
+    let history = state.accounts.security_history(&digest).await.ok();
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::active_sessions(&csrf, &sessions), &cookies)
+    private_response(
+        pages::active_sessions(&csrf, &sessions, history.as_deref()),
+        &cookies,
+    )
 }
 
 pub(super) async fn revoke(
@@ -53,7 +73,8 @@ pub(super) async fn revoke(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return private_response(status, &[]),
     };
-    if !valid_session_id(&form.session_id) {
+    let revoke_others = form.session_id == "others";
+    if !revoke_others && !valid_session_id(&form.session_id) {
         return private_response(StatusCode::BAD_REQUEST, &[]);
     }
     let Some(token) = state.cookies.session_token(&headers) else {
@@ -84,6 +105,17 @@ pub(super) async fn revoke(
     };
     if !valid {
         return private_response(StatusCode::UNAUTHORIZED, &[]);
+    }
+    if revoke_others {
+        return match state
+            .accounts
+            .revoke_other_owned_sessions(user, &session_token_digest(&token), &expected)
+            .await
+        {
+            Ok(Some(_)) => private_response(Redirect::to("/me/security/sessions"), &[]),
+            Ok(None) => private_response(StatusCode::NOT_FOUND, &[]),
+            Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        };
     }
     match state
         .accounts

@@ -1,4 +1,5 @@
 //! Private administrative entry point. This is a URL alias, NOT an ACL.
+mod sessions;
 use super::*;
 use axum::{http::HeaderValue, response::Html};
 
@@ -13,6 +14,7 @@ const ADMIN_MENU: &str = r#"<section class="section"><div class="container">
 <li><a href="/odmen/surprises">Сюрпризы</a></li>
 <li><a href="/odmen/mail">Почта</a></li>
 <li><a href="/odmen/support">Поддержка</a></li>
+<li><a href="/odmen/security/sessions">Сеансы пользователей</a></li>
 <li><a href="/odmen/finance/refunds">Возвраты</a></li>
 <!--S3_ADMIN_LINK-->
 </ul>
@@ -29,6 +31,10 @@ pub(super) fn storage_routes() -> Router<AuthState> {
 #[cfg(not(feature = "s3-free"))]
 pub(super) fn storage_routes() -> Router<AuthState> {
     Router::new()
+}
+
+pub(super) fn routes() -> Router<AuthState> {
+    storage_routes().merge(sessions::router())
 }
 
 fn body() -> Html<String> {

@@ -134,6 +134,13 @@ jobs:
               "promoted_candidate",
               "rolled_back_previous",
           ], report["saved_v1_s3_read_stages"]
+          assert report["session_continuity_stages"] == [
+              "previous_before_migration",
+              "previous_after_migration",
+              "parallel_candidate",
+              "promoted_candidate",
+              "rolled_back_previous",
+          ], report["session_continuity_stages"]
           assert report["postcutover_rollback"] is True
           assert "catalog_survived_on_upgraded_schema" in report["events"]
           print("FND06_TWO_BINARY_PRIVATE_S3_ROLLBACK_OK")

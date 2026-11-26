@@ -3172,6 +3172,20 @@
       "source": "crates/web/src/auth/admin_s3.rs",
       "handler": "save",
       "policy": "admin_s3_connection"
+    },
+    {
+      "method": "GET",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "page",
+      "policy": "admin_session_management"
+    },
+    {
+      "method": "POST",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "revoke",
+      "policy": "admin_session_management"
     }
   ]
 }

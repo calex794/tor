@@ -590,10 +590,20 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
         "0",
         "historical report reads must not create optional analytics state"
     );
-    accounts
-        .revoke_session(&session_token_digest(&tokens[0]))
-        .await
-        .unwrap();
+    // This intentionally frozen pre-retirement fixture has no new A audit
+    // schema. Seed revocation directly; current A tests exercise its audit.
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "WITH revoked AS (UPDATE sessions SET revoked_at=now() \
+                 WHERE token_hash=decode('{}','hex') AND revoked_at IS NULL \
+                 RETURNING 1) SELECT count(*) FROM revoked",
+                hex::encode(session_token_digest(&tokens[0]))
+            )
+        ),
+        "1"
+    );
     private(
         &call(&app, &path, &cookies[0]).await,
         StatusCode::UNAUTHORIZED,
