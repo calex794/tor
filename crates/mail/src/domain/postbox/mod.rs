@@ -3,6 +3,8 @@
 use super::suppression::DeliveryFeedback;
 use serde_json::Value;
 
+pub mod relay;
+
 const MAX_EVENT_BYTES: usize = 65536;
 
 pub struct PostboxEvent {
@@ -51,6 +53,10 @@ fn single_recipient(value: &Value) -> Result<&Value, &'static str> {
 }
 
 impl PostboxEvent {
+    pub fn identity_id(&self) -> &str {
+        &self.identity_id
+    }
+
     /// Select only actionable, unambiguous recipient-specific feedback.
     /// Unknown kinds and generic failures are deliberately ignored.
     pub fn parse(payload: &[u8]) -> Result<Option<Self>, &'static str> {

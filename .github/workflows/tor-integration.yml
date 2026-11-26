@@ -43,6 +43,8 @@ jobs:
         run: node --test tools/s006_free_progress_reconcile.test.mjs
       - name: S006 paid reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_paid_progress_reconcile.test.mjs
+      - name: MAIL-01g2b relay protocol offline tests (no network)
+        run: python3 -m unittest discover -s tests/architecture -p test_postbox_relay.py
       - name: Rust formatting
         run: cargo fmt --all -- --check
   demo:
