@@ -6,6 +6,10 @@ on:
         description: "Только подготовить подписанный комплект v2 для первичной настройки"
         type: boolean
         default: false
+      export_v2:
+        description: "Экспортировать подписанный комплект v2 без подключения к VPS"
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -23,20 +27,26 @@ jobs:
     env:
       TARGET_SHA: ${{ github.sha }}
       PREPARE_V2: ${{ inputs.prepare_v2 }}
+      EXPORT_V2: ${{ inputs.export_v2 }}
       REQUIRE_V2: ${{ vars.TOR_REQUIRE_RELEASE_V2 }}
       TOR_DEPLOY_HOST: ${{ vars.TOR_DEPLOY_HOST }}
       TOR_DEPLOY_USER: ${{ vars.TOR_DEPLOY_USER }}
-      TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
-      TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
     steps:
       - name: "Проверить сервер и выбранную ветку"
         shell: bash
         run: |
           set -euo pipefail
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$TOR_DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
-          [[ "$TOR_DEPLOY_USER" == tor-deploy ]]
-          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          case "$PREPARE_V2:$EXPORT_V2" in
+            false:false|true:false|false:true) ;;
+            *) echo "Choose only one preparation/export mode" >&2; exit 1;;
+          esac
+          if [[ "$EXPORT_V2" == true ]]; then
+            echo "TOR_RELEASE_PROTOCOL=v2" >> "$GITHUB_ENV"
+          else
+            [[ "$TOR_DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+            [[ "$TOR_DEPLOY_USER" == tor-deploy ]]
+          fi
           echo "TOR_RELEASE_SHA $TARGET_SHA"
 
       - uses: actions/checkout@v4
@@ -62,20 +72,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: "Установить SSH с проверкой ключа сервера"
+      - name: "Установить SSH с проверкой ключа сервера и определить установленный протокол выпуска"
+        if: inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+          TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
           umask 077
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"' EXIT
           printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
           printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
-
-      - name: "Определить установленный протокол выпуска"
-        shell: bash
-        run: |
-          set -euo pipefail
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           protocol=$(ssh "${opts[@]}" "$destination" '
@@ -124,11 +135,27 @@ jobs:
           sha256sum target/release/tor-trace-store | sed 's#target/release/##' \
             > "$RUNNER_TEMP/tor-trace-store.sha256"
 
-      - name: "Подписать сборку существующим ключом GitHub"
-        if: env.TOR_RELEASE_PROTOCOL == 'v1'
+      - name: "Проверить реальный NGINX и откат для выбранного SHA"
+        if: env.TOR_RELEASE_PROTOCOL == 'v2'
         shell: bash
         run: |
           set -euo pipefail
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx iproute2 util-linux openssl openssh-client
+          sudo unshare --net -- bash -ec 'ip link set lo up; exec python3 tests/edge/managed_edge_smoke.py' | tee "$RUNNER_TEMP/tor-v2-edge.log"
+
+      - name: "Подписать сборку существующим ключом GitHub"
+        if: env.TOR_RELEASE_PROTOCOL == 'v1' && inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519"' EXIT
+          test -n "$TOR_DEPLOY_SSH_KEY"
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
           {
             printf 'TOR_RELEASE_SHA %s\n' "$TARGET_SHA"
             cat "$RUNNER_TEMP/tor-web.sha256"
@@ -140,10 +167,20 @@ jobs:
           test -s "$RUNNER_TEMP/tor-release-manifest.sig"
 
       - name: "Передать проверенную сборку на VPS без остановки сайта"
-        if: env.TOR_RELEASE_PROTOCOL == 'v1'
+        if: env.TOR_RELEASE_PROTOCOL == 'v1' && inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+          TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"' EXIT
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           inbox="/opt/tor/incoming/$TARGET_SHA"
@@ -164,21 +201,17 @@ jobs:
             "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256 && sha256sum -c --status tor-trace-store.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
 
-      - name: "Проверить реальный NGINX и откат для выбранного SHA"
-        if: env.TOR_RELEASE_PROTOCOL == 'v2'
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash tools/ci_prepare_ubuntu_mirror.sh
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx iproute2 util-linux openssl openssh-client
-          sudo unshare --net -- bash -ec 'ip link set lo up; exec python3 tests/edge/managed_edge_smoke.py' | tee "$RUNNER_TEMP/tor-v2-edge.log"
-
       - name: "Собрать и подписать весь комплект v2"
         if: env.TOR_RELEASE_PROTOCOL == 'v2'
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519"' EXIT
+          test -n "$TOR_DEPLOY_SSH_KEY"
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
           python3 tools/release_bundle_v2.py build --repo . --binaries target/release --directory "$RUNNER_TEMP/tor-v2" --sha "$TARGET_SHA"
           ssh-keygen -Y sign -f "$RUNNER_TEMP/tor_id_ed25519" -n tor-release-v2 "$RUNNER_TEMP/tor-v2/tor-release-manifest-v2" >/dev/null
           printf 'tor-release ' > "$RUNNER_TEMP/tor-v2-signers"
@@ -186,10 +219,20 @@ jobs:
           python3 tools/release_bundle_v2.py verify --sha "$TARGET_SHA" --signers "$RUNNER_TEMP/tor-v2-signers" --directory "$RUNNER_TEMP/tor-v2"
 
       - name: "Передать подписанный комплект v2"
-        if: env.TOR_RELEASE_PROTOCOL == 'v2'
+        if: env.TOR_RELEASE_PROTOCOL == 'v2' && inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+          TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"' EXIT
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           inbox="/opt/tor/incoming/v2/$TARGET_SHA"
@@ -207,10 +250,20 @@ jobs:
           }
 
       - name: "Резервная копия PostgreSQL, миграции, обновление и откат при ошибке"
-        if: inputs.prepare_v2 == false
+        if: inputs.prepare_v2 == false && inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+          TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"' EXIT
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
@@ -223,10 +276,20 @@ jobs:
           fi
 
       - name: "Проверить установленный SHA, службу и HTTPS"
-        if: inputs.prepare_v2 == false
+        if: inputs.prepare_v2 == false && inputs.export_v2 == false
+        env:
+          TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+          TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          trap 'rm -f "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"' EXIT
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           ssh "${opts[@]}" "$destination" \
@@ -240,8 +303,28 @@ jobs:
           echo "TOR_DEPLOYED_OK $TARGET_SHA"
 
       - name: "Подготовка v2 завершена без обновления"
-        if: inputs.prepare_v2 == true
+        if: inputs.prepare_v2 == true && inputs.export_v2 == false
         run: echo "TOR_V2_PREPARED_ONLY $TARGET_SHA"
+
+      - name: "Проверить автономный импорт подписанного выпуска"
+        if: inputs.export_v2 == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sha256sum "$RUNNER_TEMP/tor-v2/tor-release-manifest-v2" | cut -d' ' -f1)
+          printf '%s\n' "$pin" > "$RUNNER_TEMP/tor-v2-manifest-pin"
+          python3 tools/import_offline_release.py --source "$RUNNER_TEMP/tor-v2" --directory "$RUNNER_TEMP/tor-offline-v2" --sha "$TARGET_SHA" --signers "$RUNNER_TEMP/tor-v2-signers" --manifest-sha256 "$pin"
+          echo "TOR_V2_EXPORT_ONLY $TARGET_SHA manifest_sha256=$pin deployment=none"
+
+      - name: "Сохранить полный автономный выпуск v2"
+        if: inputs.export_v2 == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-offline-v2-${{ github.sha }}
+          path: ${{ runner.temp }}/tor-offline-v2/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
 
       - name: "Сохранить контрольные суммы выпуска"
         if: always()
@@ -255,5 +338,7 @@ jobs:
             ${{ runner.temp }}/tor-v2/tor-release-manifest-v2
             ${{ runner.temp }}/tor-v2/tor-release-manifest-v2.sig
             ${{ runner.temp }}/tor-v2-edge.log
+            ${{ runner.temp }}/tor-v2-manifest-pin
+            ${{ runner.temp }}/tor-v2-signers
           if-no-files-found: warn
           retention-days: 14

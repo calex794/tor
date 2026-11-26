@@ -59,3 +59,7 @@ paths, checks actual route status/HSTS/redirect/asset, and proves the
 extra listener disappears on restoration. No external traffic. Fourteen
 new architecture tests cover admission journal/failures, address guards,
 SSH signer and sudo/file restrictions. CI results are not yet confirmed.
+
+DEPLOY-06d provides the offline export mode of the existing button and
+verified import; see deploy-offline-export.md. No SSH contact is needed
+to prepare the full install bundle. External acceptance remains required.

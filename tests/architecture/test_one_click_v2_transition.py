@@ -78,10 +78,10 @@ class TransitionTests(unittest.TestCase):
     def test_stage_only_never_enters_privileged_release_or_final_acceptance(self):
         self.assertIn("prepare_v2:\n", WORKFLOW)
         self.assertIn("default: false", WORKFLOW)
-        self.assertEqual(WORKFLOW.count("if: inputs.prepare_v2 == false"), 2)
+        self.assertEqual(WORKFLOW.count("if: inputs.prepare_v2 == false && inputs.export_v2 == false"), 2)
         for name in ("Резервная копия PostgreSQL", "Проверить установленный SHA"):
             block = WORKFLOW.split(name, 1)[1].split("      - name:", 1)[0]
-            self.assertIn("if: inputs.prepare_v2 == false", block)
+            self.assertIn("if: inputs.prepare_v2 == false && inputs.export_v2 == false", block)
         self.assertIn("TOR_V2_PREPARED_ONLY", WORKFLOW)
 
     def test_pending_bootstrap_cannot_downgrade(self):
