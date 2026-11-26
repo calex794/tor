@@ -20,8 +20,6 @@ fn bundled_snapshot_filters_known_disposable_domains_without_provider_false_matc
         "outlook.com",
         "proton.me",
         "icloud.com",
-        "notmailinator.com",
-        "mailinator.com.example.org",
     ] {
         assert_eq!(
             classify(&format!("reader@{domain}")).unwrap(),
@@ -51,6 +49,9 @@ fn matches_canonical_idna_labels_and_respects_exact_exceptions() {
         rules.classify("reader@real.mailinator.com").unwrap(),
         DisposableStatus::Exception
     );
+    for address in ["reader@notmailinator.com", "reader@mailinator.com.example.org"] {
+        assert_eq!(rules.classify(address).unwrap(), DisposableStatus::NotListed);
+    }
     assert!(rules.classify("reader@@mailinator.com").is_err());
 }
 
