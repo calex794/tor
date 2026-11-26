@@ -105,6 +105,24 @@ async fn d001_single_seal_survives_reconnect_and_denies_new_obligations() {
     assert!(!closed);
     writer.rollback().await.unwrap();
 
+    // A transaction with a pre-seal snapshot must not miss a committed
+    // closure. Its later FOR SHARE conflicts with the updated gate row.
+    let mut stale = app.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *stale)
+        .await
+        .unwrap();
+    let stale_open: bool = sqlx::query_scalar(
+        "SELECT sealed_at IS NULL FROM d001_free_single_admission_gates
+         WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(version)
+    .fetch_one(&mut *stale)
+    .await
+    .unwrap();
+    assert!(stale_open);
+
     // Commit, close both pools, then use new DB connections. No process memory
     // or session lock carries the admission decision across reconnect.
     let closed: bool = sqlx::query_scalar(seal)
@@ -121,6 +139,18 @@ async fn d001_single_seal_survives_reconnect_and_denies_new_obligations() {
         .await
         .unwrap();
     assert!(repeated);
+    let stale_error = sqlx::query(pin)
+        .bind(reader)
+        .bind(chapter)
+        .bind(version)
+        .execute(&mut *stale)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        stale_error.as_database_error().unwrap().code().as_deref(),
+        Some("40001")
+    );
+    stale.rollback().await.unwrap();
     drop(store);
     migrator.close().await;
     app.close().await;
