@@ -34,10 +34,7 @@ fn stable_casefolding_and_separate_domains_without_alias_rewriting() {
     );
     assert_ne!(
         a.recipient(),
-        first
-            .keys("reader@example.com", ip)
-            .unwrap()
-            .recipient()
+        first.keys("reader@example.com", ip).unwrap().recipient()
     );
     assert_ne!(
         a.key_binding(),
