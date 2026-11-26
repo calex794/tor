@@ -223,7 +223,14 @@ mod tests {
             ),
         ];
         for (mx, expected) in cases {
-            let dns = FakeDns::new(mx, Records { value: (), ttl: 100 }, TemporaryFailure);
+            let dns = FakeDns::new(
+                mx,
+                Records {
+                    value: (),
+                    ttl: 100,
+                },
+                TemporaryFailure,
+            );
             assert_eq!(check_mail_domain(&dns, "example.com").await, expected);
             assert_eq!(dns.count(), 1);
         }
@@ -270,14 +277,7 @@ mod tests {
             DnsAnswer::TemporaryFailure,
             DnsAnswer::TemporaryFailure,
         );
-        for invalid in [
-            "a",
-            "a@b.com",
-            "a..com",
-            "a.com.",
-            "127.0.0.1",
-            "a_b.com",
-        ] {
+        for invalid in ["a", "a@b.com", "a..com", "a.com.", "127.0.0.1", "a_b.com"] {
             assert_eq!(
                 check_mail_domain(&dns, invalid).await,
                 MailRoute::InvalidDomain
