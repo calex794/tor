@@ -16,8 +16,8 @@ class HistoricalRecoveryEvidenceTests(unittest.TestCase):
         smoke = ROOT / "tools/tor_s334_paid_restore_smoke.sh"
         subprocess.run(["bash", "-n", str(smoke)], check=True)
         body = smoke.read_text()
-        self.assertLess(body.index('source_paid_snapshot='), body.index('postgres:18 pg_dump'))
-        self.assertLess(body.index('postgres:18 pg_restore'), body.index('restored_paid_snapshot='))
+        self.assertLess(body.index('source_paid_snapshot='), body.index('pg_dump --host=127.0.0.1'))
+        self.assertLess(body.index('pg_restore --host=127.0.0.1'), body.index('restored_paid_snapshot='))
         self.assertLess(body.index('restored_paid_snapshot='), body.index('s3_34_verify_restored_paid_v1_and_rejected_keys'))
         self.assertIn('S334 unexpected pre-refund revocation', body)
         self.assertIn('$(paid_snapshot "$TEST_DATABASE_URL")" == "$source_paid_snapshot"', body)
