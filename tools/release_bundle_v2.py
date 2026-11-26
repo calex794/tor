@@ -94,6 +94,8 @@ def copy_entry(src_fd: int, source: str, dest: Path, limit: int, mode: int):
     with dest.open("xb") as output:
         consume(src_fd, source, limit, output)
         os.fchmod(output.fileno(), mode)
+        output.flush()
+        os.fsync(output.fileno())
 
 
 def manifest_bytes(sha: str, hashes: dict[str, str]) -> bytes:
@@ -131,7 +133,11 @@ def candidate(destination: Path):
         # No untrusted writer may access parent; release executor holds its lock.
         if os.path.lexists(destination):
             raise BundleError("candidate already exists")
+        with open_directory(temporary) as fd:
+            os.fsync(fd)
         os.rename(temporary, destination)
+        with open_directory(parent) as fd:
+            os.fsync(fd)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
@@ -188,6 +194,9 @@ def stage(source: Path, destination: Path, sha: str, signers: Path) -> None:
             copy_entry(fd, name, temporary / name, LIMITS[name],
                        0o755 if name in BINARIES else 0o644)
         verify(temporary, sha, signers)
+        # The published verified binary must be traversable by tor-deploy.
+        # Before verification the temporary directory stays private (0700).
+        temporary.chmod(0o755)
 
 
 def main() -> int:

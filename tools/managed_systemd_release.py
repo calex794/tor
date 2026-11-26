@@ -165,20 +165,26 @@ class UnitPolicy:
         if systemd.snapshot() != receipt.baseline:
             raise UnitError("UNIT_ROLLBACK_UNVERIFIED: effective policy differs")
 
-    def apply(self, source: Path, sha: str, signers: Path, systemd) -> Receipt:
-        """Verify signed staged bundle, apply policy; caller owns app restart."""
+    def plan(self, source: Path, sha: str, signers: Path, systemd) -> Receipt:
+        """Read-only receipt for journaling before any policy mutation."""
         trusted.trusted(source, directory=True)
         trusted.trusted(signers)
         for name in bundle.FILES:
             trusted.trusted(source / name)
         bundle.verify(source, sha, signers)
         data = trusted.read_small(source / SOURCE, 4096)
-        wanted = policy(data)
+        policy(data)
         previous = read_current(self.directory)
         systemd.verify()
         baseline = systemd.snapshot()
         check_identity(baseline)
-        receipt = Receipt(previous, data, baseline)
+        return Receipt(previous, data, baseline)
+
+    def apply_receipt(self, receipt: Receipt, systemd) -> Receipt:
+        previous, data, baseline = receipt.previous, receipt.candidate, receipt.baseline
+        wanted = policy(data)
+        if read_current(self.directory) != previous or systemd.snapshot() != baseline:
+            raise UnitError("service policy changed after preflight")
         if previous == data:
             check_effective(baseline, baseline, wanted)
             return receipt
@@ -194,3 +200,11 @@ class UnitPolicy:
                 raise UnitError("UNIT_ROLLBACK_UNVERIFIED: operator recovery required") from None
             raise UnitError("UNIT_ROLLBACK_VERIFIED: policy refused") from exc
         return receipt
+
+    def apply(self, source: Path, sha: str, signers: Path, systemd) -> Receipt:
+        """Verify signed staged bundle, apply policy; caller owns app restart."""
+        receipt = self.plan(source, sha, signers, systemd)
+        if receipt.previous == receipt.candidate:
+            check_effective(receipt.baseline, receipt.baseline, policy(receipt.candidate))
+            return receipt
+        return self.apply_receipt(receipt, systemd)

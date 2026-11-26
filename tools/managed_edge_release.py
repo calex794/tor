@@ -285,6 +285,22 @@ class EdgeStore:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def recover(self, previous: str, candidate: str, nginx):
+        """Reconcile disk and live workers after an interrupted transaction.
+
+        Unlike activate(), the on-disk link may not match the live generation.
+        Refuse unrelated changes, then explicitly reload the known old release.
+        """
+        self.inspect(previous)
+        current = self.active_sha()
+        if current not in (previous, candidate):
+            raise EdgeError("edge changed outside recorded transaction")
+        if current != previous:
+            self.switch_link(previous)
+        nginx.test()
+        nginx.reload()
+        nginx.probe(previous, self.releases / previous)
+
     def activate(self, sha: str, nginx) -> str:
         """Requires an adopted vhost; restores the last known good edge on error."""
         self.inspect(sha)
