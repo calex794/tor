@@ -1,6 +1,11 @@
 name: "TOR — Обновить сайт"
 on:
   workflow_dispatch:
+    inputs:
+      stage_only:
+        description: "Только подготовить подписанный выпуск на VPS (без установки)"
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -60,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/check_feature_layout.py
-          cargo build --release -p tor-web
+          bash tools/build_tor_production_web.sh
           cargo build --release -p tor-migrations --bin tor-migrate
           cargo build --release -p tor-observability --bin tor-trace-store
           sha256sum target/release/tor-web | sed 's#target/release/##' \
@@ -128,6 +133,7 @@ jobs:
           }
 
       - name: "Резервная копия PostgreSQL, миграции, обновление и откат при ошибке"
+        if: ${{ !inputs.stage_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -137,6 +143,7 @@ jobs:
             "test -x /usr/local/sbin/tor-one-click-release || { echo TOR_ONE_CLICK_SETUP_REQUIRED; exit 2; }; sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'"
 
       - name: "Проверить установленный SHA, службу и HTTPS"
+        if: ${{ !inputs.stage_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +155,10 @@ jobs:
              test \"\$(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz)\" = ok &&
              test \"\$(cat /var/lib/tor-release/pg-activated)\" = PG_ACTIVATED"
           echo "TOR_DEPLOYED_OK $TARGET_SHA"
+
+      - name: "Подтвердить подготовку без установки"
+        if: ${{ inputs.stage_only }}
+        run: echo "TOR_STAGE_ONLY_OK $TARGET_SHA (no deployment)"
 
       - name: "Сохранить контрольные суммы выпуска"
         if: always()

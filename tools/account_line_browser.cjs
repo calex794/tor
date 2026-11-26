@@ -78,6 +78,28 @@ async function inspectAccountNavigation(page,width) {
     const returning=await browser.newContext({viewport:{width:390,height:844}});
     try {
       const page=await returning.newPage();
+      // NEwBOO parity: personal navigation is absent in guest HTML and
+      // visible only after a verified session, at both viewport sizes.
+      for (const width of [1440,390]) {
+        for (const [visitor,signedIn] of [[page,false],[alice.page,true]]) {
+          await visitor.setViewportSize({width,height:width===390?844:1000});
+          await visitor.goto(base+'/');
+          const header=visitor.locator('.site-header');
+          for (const href of ['/me/books/new','/me/library','/me','/me/books']) {
+            assert.equal(await header.locator(`a[href="${href}"]`).count(),signedIn?2:0,
+              `header ${href}: session=${signedIn}, viewport=${width}`);
+          }
+          const mobile=width===390;
+          if(mobile)await visitor.locator('summary.site-mobile-menu__trigger').click();
+          const nav=header.locator(mobile?'.site-mobile-nav':'.site-nav');
+          assert(await nav.locator('a[href="/catalog"]').isVisible());
+          if(signedIn) {
+            assert(await nav.locator('a[href="/me/books/new"]').isVisible());
+            assert(await nav.locator('a[href="/me/library"]').isVisible());
+          }
+          if(mobile)await visitor.locator('summary.site-mobile-menu__trigger').click();
+        }
+      }
       await page.goto(base+'/me/library');
       assert.equal(new URL(page.url()).pathname,'/login');
       assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');

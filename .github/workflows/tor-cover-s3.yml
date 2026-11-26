@@ -15,7 +15,7 @@ jobs:
     needs: select
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 55
     services:
       postgres:
         image: postgres:18
@@ -89,13 +89,7 @@ jobs:
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
@@ -172,6 +166,10 @@ jobs:
       - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
         if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-free,s3-chapter-import' -- -D warnings
+      - name: Build the exact production profile and prove actual startup with S3 configured
+        run: |
+          bash tools/build_tor_production_web.sh
+          bash tools/test_tor_production_web_startup.sh
       - name: MinIO diagnostics on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
