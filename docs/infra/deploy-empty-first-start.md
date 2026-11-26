@@ -45,3 +45,15 @@ SSH onboarding and real VM acceptance remain separate DEPLOY-06c/08.
 Recovery of old data uses RECOVER only. Current tests use real filesystem
 journal, signed template fixtures and injected operation boundary,
 not a real clean VPS/PG/systemd start. No production deployment.
+
+## Safe database diagnostics
+
+The app/migrator TCP authorization checks use three unaligned psql columns
+with an explicit colon separator. A standalone PostgreSQL boolean field
+is t/f, unlike a boolean coerced to text in concatenation (true/false).
+The expected role, database and CREATE permission are still checked exactly.
+For signed --install-empty only, return fixed stage codes 10–19 from the
+init script. The controller reports only a fixed step name and numeric exit
+status in FIRST_START_INCOMPLETE, without ever forwarding SQL, stderr,
+stdout, environment or passwords. Legacy standalone behavior is preserved.
+No failed initialization is automatically retried or deleted.
