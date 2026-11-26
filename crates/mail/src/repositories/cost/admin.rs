@@ -20,6 +20,14 @@ impl LimitChange {
             && self.warning_2 <= self.news_pause
             && self.news_pause < self.monthly_limit
             && self.monthly_limit <= MAX_LIMIT_KOPECKS
+            && [
+                self.warning_1,
+                self.warning_2,
+                self.news_pause,
+                self.monthly_limit,
+            ]
+            .iter()
+            .all(|value| value % 100 == 0)
     }
 }
 
@@ -48,9 +56,7 @@ impl PgMailCost {
         let _actor = operator(&mut tx, digest).await?;
         lock_guard(&mut tx).await?;
         let revision = revision(&mut tx).await?;
-        let snapshot = load(&mut *tx)
-            .await?
-            .ok_or(CostAdminError::Unavailable)?;
+        let snapshot = load(&mut tx).await?.ok_or(CostAdminError::Unavailable)?;
         tx.commit().await?;
         Ok(CostAdminView { revision, snapshot })
     }
@@ -83,7 +89,7 @@ impl PgMailCost {
         let actor = operator(&mut tx, digest).await?;
         lock_guard(&mut tx).await?;
         let old_revision = revision(&mut tx).await?;
-        let old = load(&mut *tx)
+        let old = load(&mut tx)
             .await?
             .ok_or(CostAdminError::Unavailable)?
             .limits;

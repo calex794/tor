@@ -30,6 +30,13 @@ pub(super) fn body(view: &CostAdminView, csrf: &str) -> String {
             } else {
                 "В пределах бюджета"
             };
+            let free_status = if u.free_allowance == 0 {
+                "Бесплатная квота не подтверждена или недоступна."
+            } else if u.reserved_attempts >= u.free_allowance {
+                "Учтённая бесплатная квота исчерпана. Регистрация не блокируется по этому порогу."
+            } else {
+                "Бесплатная квота ещё доступна."
+            };
             format!(
                 "<dl><dt>Расчётный месяц (МСК)</dt><dd>{}</dd>\
                  <dt>Оценка расходов</dt><dd>{}</dd>\
@@ -37,7 +44,8 @@ pub(super) fn body(view: &CostAdminView, csrf: &str) -> String {
                  <dt>Зарезервировано попыток</dt><dd>{}</dd>\
                  <dt>Учтённая бесплатная квота</dt><dd>{}</dd>\
                  <dt>Остаток бесплатной квоты</dt><dd>{}</dd></dl>\
-                 <p><strong>{warning}</strong></p>",
+                 <p><strong>{warning}</strong></p>\
+                 <p>{free_status}</p>",
                 pages::escape_html(&u.month_start),
                 money(cost),
                 money(l.monthly_limit.saturating_sub(cost).max(0)),
