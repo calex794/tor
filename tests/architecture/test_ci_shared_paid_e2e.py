@@ -35,6 +35,8 @@ label = name + " " + " ".join(args)
 with Path(os.environ["TRACE"]).open("a") as out:
     out.write(json.dumps([name, args, os.environ.get("TOR_PAID_CHECKOUT_ENABLED"),
                           os.environ.get("TOR_LAYER_READER_ENABLED")]) + "\n")
+if name in ("psql", "curl", "nohup"):
+    sys.exit(99)  # Negative controls must never touch PostgreSQL or the network.
 if os.environ["FAIL_MATCH"] and os.environ["FAIL_MATCH"] in label:
     sys.exit(17)
 if name == "cargo" and "paid_grants_s3_pg" in args:
@@ -102,7 +104,7 @@ class SharedPaidE2EAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             trace, output = root / "trace", root / "mock-output"
-            for name in ("cargo", "node", "python3", "bash"):
+            for name in ("cargo", "node", "python3", "bash", "psql", "curl", "nohup"):
                 stub = root / name
                 stub.write_text(STUB)
                 stub.chmod(0o700)
