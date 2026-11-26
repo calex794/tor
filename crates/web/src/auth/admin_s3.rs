@@ -20,8 +20,7 @@ use tor_accounts::{
 };
 use tor_storage::repositories::admin_s3_profiles::{
     connection_intent_digest, valid_access_key, valid_bucket, valid_secret_key, AdminS3Error,
-    PgAdminS3Profiles,
-    YANDEX_ENDPOINT, YANDEX_REGION,
+    PgAdminS3Profiles, YANDEX_ENDPOINT, YANDEX_REGION,
 };
 use zeroize::Zeroizing;
 
@@ -154,7 +153,11 @@ async fn save(
         return deny(StatusCode::UNAUTHORIZED);
     }
     let attempt_key = session_token_digest(&format!("auth:s3-stepup:{actor}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 6, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return deny(StatusCode::TOO_MANY_REQUESTS),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

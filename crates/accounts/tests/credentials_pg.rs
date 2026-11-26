@@ -495,5 +495,8 @@ async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
             .await,
         Err(StepUpIssueError::StepUpRequired)
     );
-    assert_eq!(accounts.active_session_user(&other).await.unwrap(), Some(actor));
+    assert_eq!(
+        accounts.active_session_user(&other).await.unwrap(),
+        Some(actor)
+    );
 }
