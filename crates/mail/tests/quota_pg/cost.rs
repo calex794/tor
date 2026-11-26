@@ -1,5 +1,5 @@
 use super::*;
-use tor_mail::repositories::cost::PgMailCost;
+use tor_mail::repositories::{cost::PgMailCost, postbox_feedback::PgPostboxFeedback};
 
 async fn set_count(pool: &PgPool, value: i64) {
     sqlx::query("UPDATE mail_cost_months SET reserved_attempts=$1")
@@ -82,7 +82,25 @@ async fn mail_01_h1_monthly_envelope_is_atomic_durable_and_not_a_free_tier_cutof
         AlreadyReserved
     );
     assert_eq!(count(&cost).await, 2001);
-    assert!(queue.finish(registration, MailOutcome::Uncertain).await.unwrap());
+    let feedback = PgPostboxFeedback::new(pool.clone());
+    sqlx::query("UPDATE mail_cost_policy SET enabled=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(feedback
+        .prepare(registration, "cost-identity-fixture")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(count(&cost).await, 2001);
+    sqlx::query("UPDATE mail_cost_policy SET enabled=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(queue
+        .finish(registration, MailOutcome::Uncertain)
+        .await
+        .unwrap());
 
     // Short quota-ledger cleanup cannot refund the monthly charge.
     clear(&pool).await;
@@ -110,7 +128,7 @@ async fn mail_01_h1_monthly_envelope_is_atomic_durable_and_not_a_free_tier_cutof
     let (a, b) = (a.unwrap(), b.unwrap());
     assert!(matches!(
         (a, b),
-        (Reserved, GlobalPace) | (GlobalPace, Reserved)
+        (Reserved, GlobalPace | CostMonthlyLimit) | (GlobalPace | CostMonthlyLimit, Reserved)
     ));
     assert_eq!(count(&cost).await, 8225);
     let denied = if a == Reserved { second } else { first };

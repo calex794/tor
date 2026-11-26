@@ -72,3 +72,13 @@ fn unavailable_allowance_is_not_assumed_and_inconsistent_state_fails_closed() {
     overflow.usage.as_mut().unwrap().rate_per_thousand = i64::MAX;
     assert_eq!(overflow.admission(SupportReply), CostStateUnavailable);
 }
+
+#[test]
+fn previously_reserved_send_is_checked_again_without_double_charging() {
+    let mut value = state(8225);
+    assert_eq!(value.submission(SupportReply), Reserved);
+    assert_eq!(value.admission(SupportReply), CostMonthlyLimit);
+    assert_eq!(value.submission(ProjectNews), CostNewsPaused);
+    value.limits.enabled = false;
+    assert_eq!(value.submission(SupportReply), CostEmergencyStop);
+}

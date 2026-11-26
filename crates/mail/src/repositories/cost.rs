@@ -53,6 +53,17 @@ async fn load(conn: &mut PgConnection) -> Result<Option<CostSnapshot>, sqlx::Err
     .transpose()
 }
 
+/// Caller holds the quota guard. Do not create or charge a second attempt.
+pub(super) async fn submission_enabled(
+    tx: &mut Transaction<'_, Postgres>,
+    claim: MailClaim,
+) -> Result<bool, sqlx::Error> {
+    let Some(snapshot) = load(&mut **tx).await? else {
+        return Ok(false);
+    };
+    Ok(snapshot.submission(claim.intent.purpose) == QuotaDecision::Reserved)
+}
+
 /// Caller holds the quota singleton lock and has just inserted the
 /// reservation. Future configuration writers MUST take that same lock.
 /// The monthly increment and SMTP permit commit together or neither does.

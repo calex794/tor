@@ -54,6 +54,16 @@ pub struct CostSnapshot {
 
 impl CostSnapshot {
     pub fn admission(&self, purpose: MailPurpose) -> QuotaDecision {
+        self.evaluate(purpose, 1)
+    }
+
+    /// A previously reserved attempt already counts towards the total.
+    /// Re-evaluate current policy without charging it a second time.
+    pub fn submission(&self, purpose: MailPurpose) -> QuotaDecision {
+        self.evaluate(purpose, 0)
+    }
+
+    fn evaluate(&self, purpose: MailPurpose, additional: i64) -> QuotaDecision {
         use QuotaDecision::*;
         let l = self.limits;
         if !l.enabled {
@@ -66,7 +76,11 @@ impl CostSnapshot {
         {
             return CostStateUnavailable;
         }
-        let Some(next) = self.usage.as_ref().and_then(|u| u.estimate_kopecks(1)) else {
+        let Some(next) = self
+            .usage
+            .as_ref()
+            .and_then(|u| u.estimate_kopecks(additional))
+        else {
             return CostStateUnavailable;
         };
         if self.boundary_pause {

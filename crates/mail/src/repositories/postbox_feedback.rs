@@ -53,6 +53,10 @@ impl PgPostboxFeedback {
             tx.rollback().await?;
             return Ok(None);
         };
+        if !super::cost::submission_enabled(&mut tx, claim).await? {
+            tx.rollback().await?;
+            return Ok(None);
+        }
         let inserted = sqlx::query(
             "INSERT INTO mail_feedback_attempts \
              (outbox_id,generation,recipient_key,key_binding,identity_id,marker,reserved_at) \
@@ -64,6 +68,8 @@ impl PgPostboxFeedback {
                AND m.lease_until>clock_timestamp() \
                AND r.reserved_at>clock_timestamp()-interval '120 seconds' \
                AND r.reserved_at<=clock_timestamp() \
+               AND date_trunc('month',r.reserved_at AT TIME ZONE 'Europe/Moscow') \
+                 =date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow') \
                AND NOT EXISTS (SELECT 1 FROM mail_recipient_suppression s \
                  WHERE s.recipient_key=r.recipient_key \
                  AND (s.suppressed_until IS NULL OR s.suppressed_until>clock_timestamp())) \
