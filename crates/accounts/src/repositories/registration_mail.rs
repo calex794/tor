@@ -17,7 +17,12 @@ pub(super) async fn capture(
     )
     .bind(user_id)
     .bind(source.recipient_key.as_slice())
-    .bind(source.registration_ip_key.as_ref().map(|key| key.as_slice()))
+    .bind(
+        source
+            .registration_ip_key
+            .as_ref()
+            .map(|key| key.as_slice()),
+    )
     .bind(source.key_binding.as_slice())
     .execute(&mut **tx)
     .await?;
