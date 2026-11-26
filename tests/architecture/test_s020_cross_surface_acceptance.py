@@ -5,7 +5,7 @@ and the server-side age gates remain wired into required CI. It does not replace
 the tests themselves or authorize enabling the 18+/21+ editor in production.
 """
 from pathlib import Path
-from ci_workflow_sources import expand_pg_runtime
+from ci_workflow_sources import expand_paid_e2e, expand_pg_runtime
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +40,7 @@ class S020CrossSurfaceCoverage(unittest.TestCase):
                     self.assertEqual(source.count(command), 1)
 
     def test_real_paid_encrypted_minio_and_live_revocation_remain_required(self):
-        workflow = self.read(".github/workflows/tor-integration.yml")
+        workflow = expand_paid_e2e(self.read(".github/workflows/tor-integration.yml"))
         self.assertIn(
             "cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg",
             workflow,

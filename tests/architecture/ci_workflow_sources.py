@@ -321,6 +321,52 @@ def expand_pg_runtime(text, script=None):
     return text.replace(PG_RUNTIME_CALL, expanded, 1)
 
 
+PAID_E2E_SCRIPTS = (
+    "tools/ci_paid_e2e_prepare_pg.sh",
+    "tools/ci_paid_e2e_start_minio.sh",
+    "tools/ci_paid_e2e_acceptance.sh",
+)
+PAID_E2E_PREFIX = (
+    "#!/usr/bin/env bash\n"
+    "# CI-only disposable PostgreSQL and private loopback S3 fixtures.\n"
+    "set -euo pipefail\n"
+    "if [[ \"${GITHUB_ACTIONS:-}\" != true || \"${PGHOST:-}\" != 127.0.0.1 ||\n"
+    "      \"${PGDATABASE:-}\" != postgres ||\n"
+    "      \"${TEST_DATABASE_URL:-}\" != postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci ||\n"
+    "      \"${MIGRATOR_URL:-}\" != postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci ]]; then\n"
+    "  echo 'Refusing non-isolated paid E2E fixture' >&2\n"
+    "  exit 2\n"
+    "fi\n"
+)
+PAID_E2E_S3_GUARD = (
+    "if [[ \"${TOR_TEST_S3_ENDPOINT:-}\" != http://127.0.0.1:9000 ]]; then\n"
+    "  echo 'Refusing non-loopback paid E2E S3 endpoint' >&2\n"
+    "  exit 2\n"
+    "fi\n"
+)
+
+
+def expand_paid_e2e(text):
+    """Restore only the three reviewed paid E2E run bodies for source tests."""
+    for index, path in enumerate(PAID_E2E_SCRIPTS):
+        call = f"        run: bash {path}\n"
+        if call not in text:
+            continue
+        if text.count(call) != 1:
+            raise ValueError("ambiguous paid E2E script call")
+        script = (ROOT / path).read_text(encoding="utf-8")
+        prefix = PAID_E2E_PREFIX + (PAID_E2E_S3_GUARD if index == 2 else "")
+        if not script.startswith(prefix) or not script.endswith("\n"):
+            raise ValueError("missing paid E2E isolation guard")
+        body = script[len(prefix):]
+        if not body.startswith("set -euo pipefail\n"):
+            raise ValueError("missing paid E2E fail-closed shell")
+        inline = "        run: |\n" + "".join(
+            "          " + line for line in body.splitlines(keepends=True))
+        text = text.replace(call, inline, 1)
+    return text
+
+
 def expand_ci_actions(text):
-    return expand_pg_runtime(expand_s3_cover(expand_cover_browser(
-        expand_rec_browser(expand_analytics(text)))))
+    return expand_paid_e2e(expand_pg_runtime(expand_s3_cover(expand_cover_browser(
+        expand_rec_browser(expand_analytics(text))))))
