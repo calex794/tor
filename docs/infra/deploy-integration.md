@@ -22,3 +22,16 @@ requires a healthy baseline for normal coordinated update; v2 emergency
 outage recovery and independent external DR are not accepted by this PR.
 Do not replace the v1 root helper until that operational limitation is
 understood. The integrated tree must pass fresh CI and real VM acceptance.
+
+## Confirmed VM startup diagnosis and main synchronization
+
+Run 45819731097 reported PostgreSQL configuration syntax error near .0.
+The fixture pg_conftool invocation omitted PostgreSQL-level quoting of
+listen_addresses. Quote the string settings and validate using the actual
+postgres -C configuration parser before systemd start, then check the live
+PG18 settings. This corrects the documented fixture failure, not a live VPS.
+
+Use GitHub's verified merge tree 45d3f24d15912b5caa0447f6a17dae5b496b7818
+for main 1035afe11d3c6c0989fdd83aec3f782659c9bc9f plus this PR's prior head.
+The merged tree retains RECOVERY-10e-b1's GrantServer TCP HTTP transport,
+all DEPLOY07C evidence markers and the physical recovery runbook.

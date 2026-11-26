@@ -73,10 +73,23 @@ if [[ -d /var/lib/postgresql/18/main ]]; then
 fi
 pg_createcluster --start-conf=auto 18 main -- --auth-local=peer --auth-host=scram-sha-256
 pg_conftool 18 main set port 5432
-pg_conftool 18 main set listen_addresses 127.0.0.1
-pg_conftool 18 main set password_encryption scram-sha-256
+# pg_conftool writes raw PostgreSQL configuration values. Shell quoting
+# alone is insufficient: string and unit-bearing values need SQL quotes.
+pg_conftool 18 main set listen_addresses "'127.0.0.1'"
+pg_conftool 18 main set password_encryption "'scram-sha-256'"
 pg_conftool 18 main set max_connections 20
-pg_conftool 18 main set shared_buffers 64MB
+pg_conftool 18 main set shared_buffers "'64MB'"
+# Exercise PostgreSQL's actual configuration parser before starting the unit.
+# Report only the known fixture properties, never credential contents.
+pg_config_value() {
+  runuser -u postgres -- /usr/lib/postgresql/18/bin/postgres \
+    -D /var/lib/postgresql/18/main \
+    -c config_file=/etc/postgresql/18/main/postgresql.conf -C "$1"
+}
+[[ $(pg_config_value listen_addresses) == 127.0.0.1 ]]
+[[ $(pg_config_value password_encryption) == scram-sha-256 ]]
+[[ $(pg_config_value port) == 5432 ]]
+echo 'DEPLOY08A_PG_CONFIG_PARSED_OK'
 systemctl daemon-reload
 systemctl reset-failed postgresql@18-main.service || true
 if ! systemctl start postgresql@18-main.service; then
@@ -88,7 +101,35 @@ if ! systemctl start postgresql@18-main.service; then
   exit 1
 fi
 umask 077
-runuser -u postgres -- psql -X -Atqc 'SHOW server_version_num' | grep -Eq '^18[0-9]{4}$'
+runuser -u postgres -- psql -X -Atqc 'SHOW server_version_num' | grep -Eq '^18[0-9]{4}
+# Remove only the standard package default link, not arbitrary vhosts.
+default=/etc/nginx/sites-enabled/default
+if [[ -e "$default" || -L "$default" ]]; then
+  [[ -L "$default" && $(readlink -f "$default") == /etc/nginx/sites-available/default ]] || exit 2
+  unlink "$default"
+fi
+[[ -z $(find /etc/nginx/sites-enabled /etc/nginx/conf.d -mindepth 1 -maxdepth 1 -print -quit) ]] || exit 2
+# Two workers are sufficient for generation fencing, avoid dozens on CI VMs.
+sed -i -E 's/^worker_processes[[:space:]]+auto;/worker_processes 2;/' /etc/nginx/nginx.conf
+nginx -t
+systemctl restart nginx.service
+useradd --create-home --user-group --shell /usr/sbin/nologin tor-deploy
+install -d -m 0700 /etc/letsencrypt/live/pandaolate.ru
+openssl req -x509 -newkey rsa:2048 -nodes -days 3 \
+  -subj '/CN=pandaolate.ru' -addext 'subjectAltName=DNS:pandaolate.ru' \
+  -keyout /etc/letsencrypt/live/pandaolate.ru/privkey.pem \
+  -out /etc/letsencrypt/live/pandaolate.ru/fullchain.pem >/dev/null 2>&1
+chmod 0600 /etc/letsencrypt/live/pandaolate.ru/privkey.pem
+install -m 0644 /etc/letsencrypt/live/pandaolate.ru/fullchain.pem \
+  /usr/local/share/ca-certificates/tor-deploy-lab.crt
+update-ca-certificates >/dev/null
+# Real localhost TLS verification uses normal trust, never curl -k.
+printf '%s\n' "$GITHUB_SHA" > /root/tor-deploy-lab/approved-checkout
+echo 'DEPLOY08A_HOSTED_VM_FIXTURE_READY'
+
+[[ $(runuser -u postgres -- psql -X -Atqc 'SHOW listen_addresses') == 127.0.0.1 ]]
+[[ $(runuser -u postgres -- psql -X -Atqc 'SHOW password_encryption') == scram-sha-256 ]]
+echo 'DEPLOY08A_REAL_PG18_ACTIVE_OK'
 # Remove only the standard package default link, not arbitrary vhosts.
 default=/etc/nginx/sites-enabled/default
 if [[ -e "$default" || -L "$default" ]]; then

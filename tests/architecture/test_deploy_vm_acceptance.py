@@ -24,6 +24,18 @@ class DeploymentVMTests(unittest.TestCase):
                           "continue-on-error:", "contents: write"):
             self.assertNotIn(forbidden, workflow)
 
+    def test_pg_setup_checks_real_parser_before_unit_start(self):
+        setup = (ROOT / "tests/deploy/hosted_vm_setup.sh").read_text()
+        for setting, value in (("listen_addresses", "127.0.0.1"),
+                               ("password_encryption", "scram-sha-256"),
+                               ("shared_buffers", "64MB")):
+            self.assertIn(f"pg_conftool 18 main set {setting} " + '"' + "'" + value + "'" + '"', setup)
+        self.assertIn('-c config_file=/etc/postgresql/18/main/postgresql.conf -C "$1"', setup)
+        self.assertLess(setup.index("DEPLOY08A_PG_CONFIG_PARSED_OK"),
+                        setup.index("if ! systemctl start postgresql@18-main.service"))
+        self.assertLess(setup.index("if ! systemctl start postgresql@18-main.service"),
+                        setup.index("DEPLOY08A_REAL_PG18_ACTIVE_OK"))
+
     def test_fixture_syntax_and_real_boundaries(self):
         setup = ROOT / "tests/deploy/hosted_vm_setup.sh"
         subprocess.run(["bash", "-n", str(setup)], check=True)
