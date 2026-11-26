@@ -66,3 +66,6 @@ async fn mail_01_duplicate_claim_fence_restart_and_priority() {
         .await
         .unwrap();
 }
+
+#[path = "quota_pg/mod.rs"]
+mod quota_pg;

@@ -1,3 +1,5 @@
+pub mod quota;
+
 use tor_contracts::mail::MailIntent;
 
 /// A claim generation fences late results from a previous claim.
