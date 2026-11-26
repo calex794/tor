@@ -1,4 +1,5 @@
 pub mod quota;
+pub mod suppression;
 
 use crate::domain::{MailClaim, MailOutcome};
 use sqlx::{PgPool, Row};

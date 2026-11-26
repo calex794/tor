@@ -4,6 +4,7 @@ use crate::domain::{
         QuotaDecision, QuotaKeys, DAILY_LIMIT, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
         TRANSACTIONAL_RESERVE,
     },
+    suppression::SuppressionReason,
     MailClaim,
 };
 use sqlx::PgPool;
@@ -69,7 +70,8 @@ impl PgMailQuota {
             Some(_) => {}
             None => {
                 let has_history = sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM mail_send_reservations)",
+                    "SELECT EXISTS(SELECT 1 FROM mail_send_reservations) \
+                     OR EXISTS(SELECT 1 FROM mail_recipient_suppression)",
                 )
                 .fetch_one(&mut *tx)
                 .await?;
@@ -95,6 +97,21 @@ impl PgMailQuota {
         if duplicate {
             tx.rollback().await?;
             return Ok(QuotaDecision::AlreadyReserved);
+        }
+
+        let suppressed = sqlx::query_scalar::<_, String>(
+            "SELECT reason FROM mail_recipient_suppression WHERE recipient_key=$1 \
+             AND (suppressed_until IS NULL OR suppressed_until>clock_timestamp())",
+        )
+        .bind(keys.recipient().as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(reason) = suppressed {
+            let reason = SuppressionReason::parse(&reason).ok_or_else(|| {
+                sqlx::Error::Protocol("invalid recipient suppression".to_owned())
+            })?;
+            tx.rollback().await?;
+            return Ok(QuotaDecision::RecipientSuppressed(reason));
         }
 
         // Keep at least two full rolling windows, independent of user deletion.

@@ -1,4 +1,5 @@
 pub mod quota;
+pub mod suppression;
 
 use tor_contracts::mail::MailIntent;
 

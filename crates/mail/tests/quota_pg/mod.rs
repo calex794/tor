@@ -247,3 +247,5 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     assert_eq!(recent, 1);
     clear(&pool).await;
 }
+
+mod suppression;
