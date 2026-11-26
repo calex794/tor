@@ -70,7 +70,7 @@ BUILD_ONLY_WORKFLOWS = {"tor-s3-candidate-build.yml"}
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
-ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml", "tor-fallback-edge.yml", "tor-deploy-vm.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
 ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml", "tor-fnd06-two-release.yml"}
 POSTGRES_SUITES = {
@@ -175,12 +175,14 @@ TEST_SUITES = {
     "tools/checkout_http_pg_smoke.py": {"postgres"},
     "tools/tor_pg_restart_smoke.sh": {"postgres"},
     "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
+    "tools/stage_recovery_ci_release.py": {"postgres"},
     "tools/s061_cutover_pg_smoke.py": {"postgres"},
     "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/drop07_pack_restore_ci.sh": {"backup_recovery"},
     "crates/web/tests/fnd05_restored_free_rights_pg_s3.rs": {"rust", "backup_recovery"},
     "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
+    "tools/i11_s334_paid_recovery_facts.sql": {"purchased_recovery"},
 }
 
 # Explicit PG integration test targets currently executed by the mandatory

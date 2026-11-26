@@ -61,7 +61,11 @@ impl PgMailQueue {
     }
 
     /// Reject a stale or already completed claim. No automatic SMTP replay.
-    pub async fn finish(&self, claim: MailClaim, outcome: MailOutcome) -> Result<bool, sqlx::Error> {
+    pub async fn finish(
+        &self,
+        claim: MailClaim,
+        outcome: MailOutcome,
+    ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE mail_outbox SET status=$3, lease_until=NULL, finished_at=now() \
              WHERE id=$1 AND generation=$2 AND status='leased' AND lease_until>now()",
