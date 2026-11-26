@@ -1,0 +1,7 @@
+# MAIL-01a: recipient syntax policy
+
+Owner A (accounts), integration with outbound mail G via web wiring. New registrations call registration_email before Argon2 and account creation. Login and existing account identity normalization remain unchanged. A conservative dot-atom local part and dotted IDNA DNS-style domain are supported; local part ≤64 bytes, transport address ≤254 bytes, DNS labels ≤63 bytes. No quoted locals, address literals or SMTPUTF8 local parts until support is demonstrated. IDNA converts only the wire domain: the historic normalized identity key remains unchanged, including IDN spelling. Do not rewrite aliases or silently correct typos. Quota/suppression keys must use canonical transport domains so IDN spelling cannot bypass them.
+
+A syntactically valid address is not a verified mailbox; reserved and nonexistent domains are a DNS-policy concern. MAIL-01b must distinguish MX, Null MX, implicit MX via A/AAAA, NXDOMAIN and temporary resolver failures. MAIL-01c must bound/cache lookup concurrency, expiry and retries. MAIL-01d/e require local disposable-domain data and non-destructive typo hints. MAIL-01f/g/h add atomic provider/recipient quotas, permanent bounce and complaint suppression, and redacted metrics before real delivery. No external SMTP probes, no sending during tests, no login codes.
+
+Acceptance: cargo test -p tor-accounts and existing registration/login HTTP+PG regressions. New syntax checks do not lock out existing users and do not prove DNS reachability. No production rollout in this PR.
