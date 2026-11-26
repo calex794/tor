@@ -687,7 +687,10 @@ async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
         matches!(&independent, Ok(Some(user)) if *user == actor),
         blocked_at.elapsed().as_millis()
     );
-    assert!(blocked.is_err(), "locked renewal must fail within the budget");
+    assert!(
+        blocked.is_err(),
+        "locked renewal must fail within the budget"
+    );
     assert_eq!(independent.unwrap(), Some(actor));
     assert!(blocked_at.elapsed() < Duration::from_secs(1));
     blocker.rollback().await.unwrap();
