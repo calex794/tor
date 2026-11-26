@@ -1,3 +1,4 @@
+pub mod cost;
 pub mod postbox_feedback;
 pub mod quota;
 pub mod suppression;

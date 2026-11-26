@@ -141,6 +141,15 @@ impl PgMailQuota {
             .await?;
         let decision = QuotaDecision::parse(&decision)
             .ok_or_else(|| sqlx::Error::Protocol("invalid mail quota decision".to_owned()))?;
+        if decision == QuotaDecision::Reserved {
+            let cost = super::cost::record_reservation(&mut tx, claim).await?;
+            if cost != QuotaDecision::Reserved {
+                // Neither the short quota ledger nor the monthly counter may
+                // commit when admission is denied. No SMTP permit is issued.
+                tx.rollback().await?;
+                return Ok(cost);
+            }
+        }
         tx.commit().await?;
         Ok(decision)
     }
