@@ -115,6 +115,136 @@ async fn session_id(accounts: &PgAccounts, cookie: &str) -> String {
         .id
 }
 
+#[tokio::test]
+#[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
+async fn a_03_bulk_session_revocation_preserves_current_and_foreign_http_pg() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog.clone(),
+        PgReader::new(catalog.pool().clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let email = format!("bulk-{nonce}%40example.invalid");
+    let current = register(&app, &email, "BulkOwner").await;
+    let second = login(&app, &email).await;
+    let foreign = register(
+        &app,
+        &format!("bulk-foreign-{nonce}%40example.invalid"),
+        "Foreign",
+    )
+    .await;
+    let current_digest = session_token_digest(current.split_once('=').unwrap().1);
+    let user = accounts
+        .active_session_user(&current_digest)
+        .await
+        .unwrap()
+        .unwrap();
+    let ttl = std::num::NonZeroU32::new(3600).unwrap();
+    let mut other_digests = Vec::new();
+    for index in 0..51 {
+        let digest = session_token_digest(&format!("bulk-{nonce}-{index}"));
+        accounts.insert_session(user, &digest, ttl).await.unwrap();
+        other_digests.push(digest);
+    }
+    let visible = accounts
+        .list_active_sessions(user, &current_digest)
+        .await
+        .unwrap();
+    assert_eq!(visible.len(), 50);
+    assert!(visible[0].current, "current device must never be cut off");
+    let page = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &current, ORIGIN),
+    )
+    .await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let html = body_of(page).await;
+    assert!(html.contains("Завершить все остальные сеансы"));
+    assert!(html.contains("Действует до (UTC)"));
+    assert!(!html.contains(&current));
+    let token = csrf(&html);
+    let cookies = format!("{current}; {csrf_cookie}");
+    let form = format!(
+        "session_id=others&current_password=LongSecurePassword2026&csrf_token={token}"
+    );
+    let wrong = format!("session_id=others&current_password=wrong&csrf_token={token}");
+    for (body, jar, origin, status) in [
+        (form.as_str(), current.as_str(), ORIGIN, StatusCode::FORBIDDEN),
+        (
+            form.as_str(),
+            cookies.as_str(),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            wrong.as_str(),
+            cookies.as_str(),
+            ORIGIN,
+            StatusCode::UNAUTHORIZED,
+        ),
+    ] {
+        let denied = send(
+            &app,
+            request("POST", "/me/security/sessions", body, jar, origin),
+        )
+        .await;
+        assert_eq!(denied.status(), status);
+    }
+    assert_eq!(
+        accounts
+            .list_active_sessions(user, &current_digest)
+            .await
+            .unwrap()
+            .len(),
+        50
+    );
+    let success = send(
+        &app,
+        request("POST", "/me/security/sessions", &form, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(success.status(), StatusCode::SEE_OTHER);
+    assert_eq!(success.headers()[header::LOCATION], "/me/security/sessions");
+    assert!(!success.headers().contains_key(header::SET_COOKIE));
+    let remaining = accounts
+        .list_active_sessions(user, &current_digest)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert!(remaining[0].current);
+    for digest in other_digests {
+        assert_eq!(accounts.active_session_user(&digest).await.unwrap(), None);
+    }
+    for (session, expected) in [
+        (&current, StatusCode::OK),
+        (&second, StatusCode::SEE_OTHER),
+        (&foreign, StatusCode::OK),
+    ] {
+        assert_eq!(
+            send(&app, request("GET", "/me", "", session, ORIGIN))
+                .await
+                .status(),
+            expected
+        );
+    }
+    let repeated = send(
+        &app,
+        request("POST", "/me/security/sessions", &form, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(repeated.status(), StatusCode::SEE_OTHER);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
 async fn a_03_owner_session_list_revocation_and_csrf_http_pg() {

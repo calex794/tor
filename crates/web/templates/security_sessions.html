@@ -3,9 +3,19 @@
     <header class="ui-page-header">
       <div class="ui-page-header__content">
         <h1 class="ui-page-header__title">Активные сеансы</h1>
-        <p class="ui-page-header__text">Здесь показаны до 50 действующих сеансов. Время означает вход, а не последнюю активность. IP-адреса и секреты входа не выводятся.</p>
+        <p class="ui-page-header__text">Здесь показаны до 50 действующих сеансов. Текущий сеанс находится первым. Время входа не означает последнюю активность. IP-адреса и секреты входа не выводятся.</p>
       </div>
     </header>
+    <div class="ui-page-header__content">
+      <h2>Завершить все остальные сеансы</h2>
+      <p>Вы останетесь в системе на этом устройстве. Все другие действующие сеансы будут завершены, даже если они не показаны ниже.</p>
+      <form method="post" action="/me/security/sessions">
+        <input type="hidden" name="csrf_token" value="<!--CSRF-->">
+        <input type="hidden" name="session_id" value="others">
+        <label>Текущий пароль<input type="password" name="current_password" autocomplete="current-password" maxlength="512" required></label>
+        <button class="button" type="submit">Завершить все остальные сеансы</button>
+      </form>
+    </div>
     <ul class="me-now-list" aria-label="Ваши действующие сеансы">
       <!--SESSIONS-->
     </ul>

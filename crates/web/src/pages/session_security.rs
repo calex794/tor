@@ -23,7 +23,7 @@ pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
         let _ = write!(
             rows,
             "<li class=\"me-now-item\"><div><strong>{agent}{current_label}</strong>\
-             <p>Вход (UTC): {opened}</p></div>\
+             <p>Вход (UTC): {opened}</p><p>Действует до (UTC): {expires}</p></div>\
              <form method=\"post\" action=\"/me/security/sessions\">\
              <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
              <input type=\"hidden\" name=\"session_id\" value=\"{id}\">\
@@ -31,6 +31,7 @@ pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
              <button class=\"button button--small\" type=\"submit\">Завершить сеанс</button>\
              </form></li>",
             opened = escape_html(&session.opened_utc),
+            expires = escape_html(&session.expires_utc),
             csrf = escape_html(csrf),
             id = escape_html(&session.id)
         );
@@ -38,8 +39,9 @@ pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
     if sessions.is_empty() {
         rows.push_str("<li>Действующих сеансов не найдено.</li>");
     }
-    let body =
-        include_str!("../../templates/security_sessions.html").replace("<!--SESSIONS-->", &rows);
+    let body = include_str!("../../templates/security_sessions.html")
+        .replace("<!--SESSIONS-->", &rows)
+        .replace("<!--CSRF-->", &escape_html(csrf));
     layout(
         "Активные сеансы",
         "Завершение входа на других устройствах.",

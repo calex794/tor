@@ -53,7 +53,8 @@ pub(super) async fn revoke(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return private_response(status, &[]),
     };
-    if !valid_session_id(&form.session_id) {
+    let revoke_others = form.session_id == "others";
+    if !revoke_others && !valid_session_id(&form.session_id) {
         return private_response(StatusCode::BAD_REQUEST, &[]);
     }
     let Some(token) = state.cookies.session_token(&headers) else {
@@ -84,6 +85,17 @@ pub(super) async fn revoke(
     };
     if !valid {
         return private_response(StatusCode::UNAUTHORIZED, &[]);
+    }
+    if revoke_others {
+        return match state
+            .accounts
+            .revoke_other_owned_sessions(user, &session_token_digest(&token), &expected)
+            .await
+        {
+            Ok(Some(_)) => private_response(Redirect::to("/me/security/sessions"), &[]),
+            Ok(None) => private_response(StatusCode::NOT_FOUND, &[]),
+            Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        };
     }
     match state
         .accounts
