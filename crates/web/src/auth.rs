@@ -101,6 +101,7 @@ mod paid_completion;
 mod password_change;
 mod password_reset;
 mod personal_books;
+mod postbox_feedback;
 mod private_reader;
 mod profile_http;
 mod public_profile;
@@ -155,6 +156,7 @@ fn router_inner(
     let notification_proof_delivery = notification_proof_delivery::ProofDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
+    let postbox_routes = postbox_feedback::router_from_env(&accounts, secure);
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
     let editorial_routes = crate::editorial_http::routes(accounts.clone(), cookies.clone());
@@ -443,7 +445,7 @@ fn router_inner(
     let app = app
         .merge(crate::recommendation_http::routes(rec_runtime.clone()))
         .merge(audience_routes);
-    let app = app.merge(editorial_routes);
+    let app = app.merge(editorial_routes).merge(postbox_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
 
