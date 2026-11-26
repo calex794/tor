@@ -71,7 +71,8 @@ impl PgMailQuota {
             None => {
                 let has_history = sqlx::query_scalar::<_, bool>(
                     "SELECT EXISTS(SELECT 1 FROM mail_send_reservations) \
-                     OR EXISTS(SELECT 1 FROM mail_recipient_suppression)",
+                     OR EXISTS(SELECT 1 FROM mail_recipient_suppression) \
+                     OR EXISTS(SELECT 1 FROM mail_feedback_attempts)",
                 )
                 .fetch_one(&mut *tx)
                 .await?;

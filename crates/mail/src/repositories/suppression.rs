@@ -1,6 +1,6 @@
 //! Durable recipient suppression, sharing the quota serialization point.
-use crate::domain::suppression::{AttemptRef, DeliveryFeedback, FeedbackDecision};
-use sqlx::PgPool;
+use crate::domain::suppression::{AttemptRef, DeliveryFeedback, FeedbackDecision, SuppressionReason};
+use sqlx::{PgPool, Postgres, Transaction};
 
 #[derive(Clone)]
 pub struct PgMailSuppression {
@@ -34,22 +34,7 @@ impl PgMailSuppression {
             return Ok(FeedbackDecision::UnboundKey);
         }
 
-        let outcome: String = sqlx::query_scalar(RECORD_SQL)
-            .bind(attempt.outbox_id)
-            .bind(attempt.generation)
-            .bind(reason.as_str())
-            .fetch_one(&mut *tx)
-            .await?;
-        let decision = match outcome.as_str() {
-            "applied" => FeedbackDecision::Applied,
-            "unchanged" => FeedbackDecision::Unchanged,
-            "uncorrelated" => FeedbackDecision::Uncorrelated,
-            _ => {
-                return Err(sqlx::Error::Protocol(
-                    "invalid mail feedback outcome".to_owned(),
-                ))
-            }
-        };
+        let decision = record_attempt(&mut tx, attempt, reason).await?;
         tx.commit().await?;
         Ok(decision)
     }
@@ -70,14 +55,47 @@ impl PgMailSuppression {
     }
 }
 
+pub(super) async fn record_attempt(
+    tx: &mut Transaction<'_, Postgres>,
+    attempt: AttemptRef,
+    reason: SuppressionReason,
+) -> Result<FeedbackDecision, sqlx::Error> {
+    let outcome: String = sqlx::query_scalar(RECORD_SQL)
+        .bind(attempt.outbox_id)
+        .bind(attempt.generation)
+        .bind(reason.as_str())
+        .fetch_one(&mut **tx)
+        .await?;
+    let decision = match outcome.as_str() {
+        "applied" => FeedbackDecision::Applied,
+        "unchanged" => FeedbackDecision::Unchanged,
+        "uncorrelated" => FeedbackDecision::Uncorrelated,
+        _ => {
+            return Err(sqlx::Error::Protocol(
+                "invalid mail feedback outcome".to_owned(),
+            ))
+        }
+    };
+    Ok(decision)
+}
+
 // Use the immutable attempt time, not arrival time, so duplicate callbacks
 // cannot extend the block. A complaint cannot be downgraded by a bounce.
 const RECORD_SQL: &str = r#"
 WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS at),
 source AS MATERIALIZED (
-    SELECT r.recipient_key,r.reserved_at FROM mail_send_reservations r,stamp s
-    WHERE r.outbox_id=$1 AND r.generation=$2
-      AND r.reserved_at>s.at-interval '48 hours' AND r.reserved_at<=s.at
+    SELECT recipient_key,reserved_at FROM (
+        SELECT f.recipient_key,f.reserved_at,0 AS priority
+        FROM mail_feedback_attempts f,stamp s,mail_send_budget_guard g
+        WHERE f.outbox_id=$1 AND f.generation=$2 AND g.singleton
+          AND f.key_binding=g.key_binding
+          AND f.reserved_at>s.at-interval '90 days' AND f.reserved_at<=s.at
+        UNION ALL
+        SELECT r.recipient_key,r.reserved_at,1 AS priority
+        FROM mail_send_reservations r,stamp s
+        WHERE r.outbox_id=$1 AND r.generation=$2
+          AND r.reserved_at>s.at-interval '48 hours' AND r.reserved_at<=s.at
+    ) candidates ORDER BY priority LIMIT 1
 ), changed AS (
     INSERT INTO mail_recipient_suppression AS existing
         (recipient_key,reason,source_reserved_at,suppressed_until)
