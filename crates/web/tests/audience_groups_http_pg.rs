@@ -593,12 +593,14 @@ async fn groups_http_exact_details_complete_periods_and_live_admin() {
     // This intentionally frozen pre-retirement fixture has no new A audit
     // schema. Seed revocation directly; current A tests exercise its audit.
     assert_eq!(
-        sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL")
-            .bind(session_token_digest(&tokens[0]).as_slice())
-            .execute(accounts.pool())
-            .await
-            .unwrap()
-            .rows_affected(),
+        sqlx::query(
+            "UPDATE sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL"
+        )
+        .bind(session_token_digest(&tokens[0]).as_slice())
+        .execute(accounts.pool())
+        .await
+        .unwrap()
+        .rows_affected(),
         1
     );
     private(

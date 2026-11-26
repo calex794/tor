@@ -288,13 +288,15 @@ async fn auth_04_admin_session_revocation_rechecks_authority_and_audits_pg() {
             .count(),
         2
     );
-    assert!(accounts
-        .security_history(&victim)
-        .await
-        .unwrap()
-        .is_empty());
-    assert_eq!(accounts.renew_session_on_activity(&victim).await.unwrap(), None);
-    assert_eq!(accounts.renew_session_on_activity(&second).await.unwrap(), None);
+    assert!(accounts.security_history(&victim).await.unwrap().is_empty());
+    assert_eq!(
+        accounts.renew_session_on_activity(&victim).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts.renew_session_on_activity(&second).await.unwrap(),
+        None
+    );
     sqlx::query(
         "UPDATE account_roles SET is_active=FALSE
          WHERE user_id=$1 AND role='administrator'",
