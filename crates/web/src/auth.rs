@@ -304,7 +304,10 @@ fn router_inner(
             get(mail_api::get).post(mail_api::post),
         )
         .route("/assets/mail.js", get(mail::script))
-        .route("/assets/tor-auth-dialog.js", get(account_form_http::dialog_script))
+        .route(
+            "/assets/tor-auth-dialog.js",
+            get(account_form_http::dialog_script),
+        )
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),

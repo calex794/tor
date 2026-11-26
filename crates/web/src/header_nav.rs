@@ -70,13 +70,10 @@ fn html_route(method: &Method, path: &str) -> bool {
 // Private account, admin and standalone authentication pages keep their CSP.
 fn auth_dialog_route(path: &str) -> bool {
     matches!(path, "/" | "/catalog")
-        || ["/books/", "/read/", "/reader/"]
-            .into_iter()
-            .any(|prefix| {
-                path.strip_prefix(prefix).is_some_and(|id| {
-                    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
-                })
-            })
+        || ["/books/", "/read/", "/reader/"].into_iter().any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+        })
 }
 
 // Read-only administrative reports must neither issue CSRF cookies nor expose
@@ -239,10 +236,8 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
         )
     } else {
         (
-            r#"<a class="site-mobile-nav__link" href="/login">Войти</a>"#
-                .to_owned(),
-            r#"<a class="button button--small" href="/login">Войти</a>"#
-                .to_owned(),
+            r#"<a class="site-mobile-nav__link" href="/login">Войти</a>"#.to_owned(),
+            r#"<a class="button button--small" href="/login">Войти</a>"#.to_owned(),
             "",
         )
     };
