@@ -204,6 +204,18 @@ impl PgCheckout {
             });
         }
 
+        // Match the author Book -> Chapter -> publication lock order.
+        // Even a rejected mixed-book quote locks Books in ascending ID order;
+        // the existing per-offer gates still decide eligibility and ownership.
+        let chapter_ids: Vec<i64> = command
+            .offers()
+            .iter()
+            .map(|offer| offer.edition.chapter_id.get())
+            .collect();
+        super::offer_locks::lock_books(&mut tx, &chapter_ids)
+            .await
+            .map_err(unavailable)?;
+
         // Lock all eligible offers BEFORE the wallet, just as D-02 does.
         // One Book only; this avoids lock inversions with another batch and
         // prevents an unrelated Book's terms being sold accidentally.

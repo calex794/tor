@@ -292,16 +292,10 @@ async fn run_paid_attachment_race(author_first: bool) {
                 )
                 .await;
                 let (purchase, ()) = tokio::join!(checkout.checkout_once(&cmd), async {
-                    // The command's chapter FK may wait before the offer read.
-                    let buyer_pid = blocked_statement(
-                        &url,
-                        author_pid,
-                        &[
-                            "INSERT INTO chapter_purchase_commands",
-                            "SELECT p.version_id, c.price_amount",
-                        ],
-                    )
-                    .await;
+                    // Checkout must wait at the Book fence, before the
+                    // command's FK can lock the chapter or expected edition.
+                    let buyer_pid =
+                        blocked_statement(&url, author_pid, &["SELECT b.id FROM books b"]).await;
                     assert_ne!(buyer_pid, row_pid);
                     row.release();
                 });
