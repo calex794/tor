@@ -258,10 +258,15 @@ fi
 
 sha=${1:-}
 recovery=0
-if [[ $# == 2 && $2 == --recover ]]; then
+forward_release=0
+if [[ $# == 2 && $2 == --forward ]]; then
+  forward_release=1
+elif [[ $# == 3 && $2 == --recover && $3 == --forward ]]; then
+  recovery=1; forward_release=1
+elif [[ $# == 2 && $2 == --recover ]]; then
   recovery=1
 elif [[ $# != 1 ]]; then
-  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA> [--recover] | --check-runtime" >&2
+  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA> [--recover] [--forward] | --check-runtime" >&2
   exit 2
 fi
 if [[ $(id -u) -ne 0 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
@@ -270,8 +275,15 @@ if [[ $(id -u) -ne 0 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 # TOR_MAIN_SHA_GUARD_BEGIN
-# Fail closed before any SQLx migration when the selected staged SHA is stale.
+# Manual activation stays exact-main; the root helper opts in to forward-only.
 require_current_main_sha() {
+  if [[ ${forward_release:-0} == 1 ]]; then
+    local guard=/usr/local/sbin/tor-release-ancestry
+    [[ -f "$guard" && ! -L "$guard" && $(stat -c '%U:%G:%a' "$guard") == root:root:755 ]] ||
+      { echo "REFUSE_RELEASE_ANCESTRY: trusted guard missing" >&2; return 1; }
+    python3 -I "$guard" "$sha" --from-active
+    return
+  fi
   local actual_main_sha
   if ! command -v python3 >/dev/null 2>&1; then
     echo "REFUSE_OBSOLETE_MAIN: python3 is required to verify GitHub main" >&2
@@ -432,8 +444,8 @@ chmod 0644 "$schema_tmp"
 mv -fT "$schema_tmp" "$schema_marker"
 echo "TOR_SCHEMA_MARKED $latest_schema"
 
-# Check again: main may have changed while SQLx ran. Old binary remains active
-# on refusal; an already applied SQLx migration must be handled separately.
+# Recheck before cutover. Forward mode permits main to advance, but still
+# refuses off-main candidates and downgrades from the currently active SHA.
 require_current_main_sha
 
 dropin_dir=/etc/systemd/system/tor-web.service.d

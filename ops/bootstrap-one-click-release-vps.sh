@@ -13,7 +13,7 @@ refuse() {
   refuse 'give the full 40-character approved main SHA'
 sha=$1
 id tor-deploy >/dev/null || refuse 'existing tor-deploy account not found'
-for command in curl python3 visudo systemctl install chown readlink ssh-keygen; do
+for command in curl python3 visudo systemctl install chown readlink ssh-keygen flock; do
   command -v "$command" >/dev/null || refuse "missing $command"
 done
 [[ -d /opt/tor && ! -L /opt/tor &&
@@ -28,27 +28,13 @@ systemctl is-active --quiet tor-web.service ||
 [[ $(cat /var/lib/tor-release/pg-activated) == PG_ACTIVATED ]] ||
   refuse 'real PostgreSQL mode has not been activated'
 
-# Installer itself is downloaded by the operator using an immutable Git SHA;
-# also verify the given SHA is still the exact protected main commit.
-main_sha=$(
-  curl -fsSL --retry 2 --max-time 15 \
-    -H 'Accept: application/vnd.github+json' \
-    https://api.github.com/repos/calex794/tor/git/ref/heads/main |
-  python3 -c '
-import json
-import re
-import sys
-v=json.load(sys.stdin)
-sha=v.get("object", {}).get("sha", "")
-if v.get("ref") != "refs/heads/main" or not re.fullmatch(r"[0-9a-f]{40}", sha):
-    sys.exit(1)
-print(sha)
-'
-) || refuse 'cannot verify current GitHub main'
-[[ "$main_sha" == "$sha" ]] ||
-  refuse 'bootstrap SHA is not current main'
+# Root runs this reviewed installer from an immutable approved main SHA.
+# The pinned verifier below checks membership without requiring main to stop.
+exec 9>/run/lock/tor-one-click-release.lock
+flock -n 9 || refuse 'another TOR release is running'
 
 helper=/usr/local/sbin/tor-one-click-release
+guard=/usr/local/sbin/tor-release-ancestry
 sudoers=/etc/sudoers.d/tor-one-click-release
 signers=/etc/tor/tor-release-allowed-signers
 [[ -d /etc/tor && ! -L /etc/tor &&
@@ -79,7 +65,7 @@ printf '%s\n' "$public_key" > "$public_tmp"
 chmod 0600 "$signer_tmp" "$public_tmp"
 ssh-keygen -lf "$public_tmp" >/dev/null ||
   refuse 'invalid trusted release public key'
-[[ ! -L "$helper" && ! -L "$sudoers" ]] ||
+[[ ! -L "$helper" && ! -L "$guard" && ! -L "$sudoers" ]] ||
   refuse 'unexpected symlink at trusted setup destination'
 if [[ -e "$helper" ]]; then
   grep -Fxq '# Installed by ops/bootstrap-one-click-release-vps.sh' "$helper" ||
@@ -91,8 +77,17 @@ if [[ -e "$sudoers" ]]; then
 fi
 
 download=$(mktemp /root/.tor-release-helper.XXXXXXXX)
+guard_download=$(mktemp /root/.tor-release-ancestry.XXXXXXXX)
 config_tmp=$(mktemp /etc/sudoers.d/.tor-one-click.XXXXXXXX)
-trap 'rm -f -- "$download" "$config_tmp" "$signer_tmp" "$public_tmp"' EXIT
+trap 'rm -f -- "$download" "$guard_download" "$config_tmp" "$signer_tmp" "$public_tmp"' EXIT
+
+curl -fsSL --retry 2 --max-time 20 \
+  "https://raw.githubusercontent.com/calex794/tor/$sha/tools/release_ancestry.py" \
+  -o "$guard_download" || refuse 'could not fetch pinned ancestry guard'
+grep -Fq '# TOR: shared immutable forward-release ancestry guard.' "$guard_download" ||
+  refuse 'unexpected ancestry guard content'
+python3 -I "$guard_download" "$sha" --main-only ||
+  refuse 'bootstrap SHA is not a verified main ancestor'
 
 curl -fsSL --retry 2 --max-time 20 \
   "https://raw.githubusercontent.com/calex794/tor/$sha/ops/one-click-release-vps.sh" \
@@ -119,6 +114,7 @@ chown -R root:root /opt/tor/releases
 chown root:root /opt/tor /opt/tor/releases
 chmod 0755 /opt/tor /opt/tor/releases
 
+install -o root -g root -m 0755 "$guard_download" "$guard"
 install -o root -g root -m 0755 "$download" "$helper"
 # Marker is checked for safe replacement on a later explicit bootstrap run.
 printf '%s\n' '# Installed by ops/bootstrap-one-click-release-vps.sh' >> "$helper"
