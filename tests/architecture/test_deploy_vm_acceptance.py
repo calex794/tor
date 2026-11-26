@@ -26,10 +26,17 @@ class DeploymentVMTests(unittest.TestCase):
 
     def test_pg_setup_checks_real_parser_before_unit_start(self):
         setup = (ROOT / "tests/deploy/hosted_vm_setup.sh").read_text()
-        for setting, value in (("listen_addresses", "127.0.0.1"),
-                               ("password_encryption", "scram-sha-256"),
-                               ("shared_buffers", "64MB")):
-            self.assertIn(f"pg_conftool 18 main set {setting} " + '"' + "'" + value + "'" + '"', setup)
+        block = setup.split("<<'TOR_VM_PG_CONFIG'\n", 1)[1].split("\nTOR_VM_PG_CONFIG\n", 1)[0]
+        settings = [line for line in block.splitlines()
+                    if line.strip() and not line.startswith("#")]
+        self.assertEqual(settings, ["port = 5432", "listen_addresses = '127.0.0.1'",
+                                    "password_encryption = 'scram-sha-256'",
+                                    "max_connections = 20", "shared_buffers = '64MB'"])
+        self.assertNotIn("pg_conftool 18 main set", setup)
+        self.assertIn("pg_size_bytes(current_setting('shared_buffers'))", setup)
+        self.assertEqual(setup.count("DEPLOY08A_HOSTED_VM_FIXTURE_READY"), 1)
+        self.assertEqual(setup.count("useradd --create-home"), 1)
+        self.assertIn("grep -Eq '^18[0-9]{4}$'", setup)
         self.assertIn('-c config_file=/etc/postgresql/18/main/postgresql.conf -C "$1"', setup)
         self.assertLess(setup.index("DEPLOY08A_PG_CONFIG_PARSED_OK"),
                         setup.index("if ! systemctl start postgresql@18-main.service"))

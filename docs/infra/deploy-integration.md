@@ -35,3 +35,15 @@ Use GitHub's verified merge tree 45d3f24d15912b5caa0447f6a17dae5b496b7818
 for main 1035afe11d3c6c0989fdd83aec3f782659c9bc9f plus this PR's prior head.
 The merged tree retains RECOVERY-10e-b1's GrantServer TCP HTTP transport,
 all DEPLOY07C evidence markers and the physical recovery runbook.
+
+Run 45824045088 confirmed the earlier quoting repair was incomplete:
+pg_conftool had added quotes around already quoted values. The architecture
+job 45824045113 also found a malformed shell script (duplicated suffix from
+a literal replacement of a regex-containing line). Restore the previously
+intact script and write the five fixed settings directly into the freshly
+created fixture postgresql.conf. Check parser output before systemd starts,
+then verify the actual running PG18 settings including shared_buffers bytes.
+No production configuration or migration policy is changed.
+
+Synchronize main b88c734a25d36ce018be34ecc9e08b5f3f822c91 using exact non-overlapping blobs; preserve
+REUSE-12A/B audience browser helper changes unchanged.
