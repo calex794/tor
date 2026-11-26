@@ -51,6 +51,7 @@ pub enum QuotaDecision {
     StaleClaim,
     KeyMismatch,
     RegistrationEvidenceRequired,
+    RecipientSuppressed(super::suppression::SuppressionReason),
     GlobalDailyLimit,
     TransactionalReserve,
     GlobalPace,
