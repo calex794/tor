@@ -635,6 +635,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
     let v2 = snapshot["v2_id"].as_i64().unwrap();
     let buyer = snapshot["buyer_cookie"].as_str().unwrap();
     let buyer_v2 = snapshot["buyer_v2_cookie"].as_str().unwrap();
+    let purchase_v2_id = snapshot["purchase_v2_id"].as_i64().unwrap();
     let digest_v2 = snapshot["sha256_ciphertext_v2"].as_str().unwrap();
     let stranger = snapshot["stranger_cookie"].as_str().unwrap();
     let csrf = snapshot["csrf"].as_str().unwrap();
@@ -760,6 +761,7 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
     );
 
     wrong.shutdown().await;
+    println!("DEPLOY07C_MISSING_WRONG_KEYS_AND_PROVIDER_DENIED");
     let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
     let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
@@ -785,6 +787,23 @@ async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
         StatusCode::FORBIDDEN,
         "a stolen purchase ID cannot grant a V1 after disaster recovery"
     );
+    // Both buyers have a legitimate right, but only to their own purchased
+    // version. A valid session and a different real purchase ID cannot swap it.
+    for (actor, other_purchase) in [(buyer, purchase_v2_id), (buyer_v2, purchase_id)] {
+        assert_eq!(
+            grant(
+                &correct,
+                chapter,
+                Some(actor),
+                Some(csrf),
+                &json!({"purchase_id":other_purchase.to_string()}).to_string(),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN,
+        );
+    }
+    println!("DEPLOY07C_CROSS_PURCHASE_AND_ANONYMOUS_DENIED");
     let accepted = grant(&correct, chapter, Some(buyer), Some(csrf), "{}").await;
     assert_eq!(accepted.status(), StatusCode::OK);
     assert_eq!(
@@ -868,4 +887,5 @@ async fn verify_post_restore_revocations(url: &str, correct: &GrantServer) {
             .status(),
         StatusCode::FORBIDDEN
     );
+    println!("DEPLOY07C_BOTH_RESTORED_REFUNDS_DENIED");
 }

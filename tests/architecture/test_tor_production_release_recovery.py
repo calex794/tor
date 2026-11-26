@@ -124,8 +124,12 @@ stat() {
     def test_stage_only_does_not_activate(self):
         self.assertIn("stage_only:\n", WORKFLOW)
         self.assertIn("default: false", WORKFLOW)
-        self.assertEqual(WORKFLOW.count("if: ${{ !inputs.stage_only }}"), 2)
-        self.assertIn("if: ${{ inputs.stage_only }}", WORKFLOW)
+        guard = "if: inputs.prepare_v2 == false && inputs.export_v2 == false && inputs.stage_only == false"
+        self.assertEqual(WORKFLOW.count(guard), 2)
+        for name in ("Резервная копия PostgreSQL", "Проверить установленный SHA"):
+            self.assertIn(guard, WORKFLOW.split(name, 1)[1].split("      - name:", 1)[0])
+        self.assertIn("if: inputs.stage_only == true", WORKFLOW)
+        self.assertIn("false:false:false|true:false:false|false:true:false|false:false:true", WORKFLOW)
         self.assertIn("TOR_STAGE_ONLY_OK", WORKFLOW)
         self.assertLess(WORKFLOW.index("TOR_RELEASE_STAGED"),
                         WORKFLOW.index("TOR_STAGE_ONLY_OK"))

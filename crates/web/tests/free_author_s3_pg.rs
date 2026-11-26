@@ -36,6 +36,8 @@ const MARKDOWN: &str =
 
 #[path = "free_author_s3_pg/admin_s3.rs"]
 mod admin_s3;
+#[path = "free_author_s3_pg/d001_single_compaction_drill.rs"]
+mod d001_single_compaction_drill;
 #[path = "free_author_s3_pg/traffic.rs"]
 mod traffic;
 
