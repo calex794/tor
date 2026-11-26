@@ -44,7 +44,7 @@ def operator_guard(database, system_id, port):
     return f"""
 DO $guard$
 BEGIN
-    IF NOT (
+    IF (
         current_database() = '{database}'
         AND current_user = 'postgres' AND session_user = 'postgres'
         AND NOT pg_is_in_recovery()
@@ -61,10 +61,10 @@ BEGIN
             SELECT 1 FROM pg_stat_activity
             WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
         )
-    ) THEN
+    ) IS NOT TRUE THEN
         RAISE EXCEPTION 'AUTH08C isolated promoted database guard failed';
     END IF;
-END
+END;
 $guard$;
 """
 
@@ -76,6 +76,7 @@ BEGIN READ WRITE;
 SET LOCAL search_path=pg_catalog;
 SET LOCAL lock_timeout='2s';
 SET LOCAL statement_timeout='120s';
+SET LOCAL stats_fetch_consistency='none';
 {guard}
 LOCK TABLE public.sessions IN ACCESS EXCLUSIVE MODE;
 {guard}
@@ -89,7 +90,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.sessions WHERE {ACTIVE}) THEN
         RAISE EXCEPTION 'AUTH08C live sessions remain';
     END IF;
-END
+END;
 $verify$;
 COMMIT;
 """
@@ -118,7 +119,9 @@ def verify_receipts(root, args):
             raise Refused("recovery receipt does not match independent pin")
         records.append(json.loads(raw, object_pairs_hook=unique_fields))
     stage, replay = records
-    if (stage.get("scope") != "physical_files_staged_only"
+    if (type(stage.get("schema_version")) is not int or stage["schema_version"] != 1
+            or type(replay.get("schema_version")) is not int or replay["schema_version"] != 1
+            or stage.get("scope") != "physical_files_staged_only"
             or stage.get("source_machine_id") != args.source_machine_id
             or stage.get("target_machine_id") != args.target_machine_id
             or stage.get("pg_port") != args.pg_port
