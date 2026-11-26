@@ -171,7 +171,7 @@ struct GrantServer {
     client: reqwest::Client,
     task: tokio::task::JoinHandle<()>,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
-    pool: sqlx::PgPool,
+    catalog: PgCatalog,
 }
 
 impl GrantServer {
@@ -182,11 +182,12 @@ impl GrantServer {
             .await
             .expect("test HTTP server did not stop")
             .expect("test HTTP server failed");
-        tokio::time::timeout(std::time::Duration::from_secs(10), self.pool.close())
+        let pool = self.catalog.pool();
+        tokio::time::timeout(std::time::Duration::from_secs(10), pool.close())
             .await
             .expect("test PostgreSQL pool did not close");
-        assert!(self.pool.is_closed());
-        assert_eq!(self.pool.size(), 0);
+        assert!(pool.is_closed());
+        assert_eq!(pool.size(), 0);
     }
 }
 
@@ -248,12 +249,11 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
     let accounts = PgAccounts::from_pool(pool.clone());
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
     let signer =
-        PgPrivateDelivery::with_keyring(pool.clone(), store, Arc::new(keyring), BUCKET.to_owned())
-            .unwrap();
+        PgPrivateDelivery::with_keyring(pool, store, Arc::new(keyring), BUCKET.to_owned()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let router = tor_web::router_with_postgres_reading_auth_paid_grants(
-        catalog,
+        catalog.clone(),
         reader,
         accounts,
         false,
@@ -281,7 +281,7 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
         client,
         task,
         stop: Some(stop),
-        pool,
+        catalog,
     }
 }
 
