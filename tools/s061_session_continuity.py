@@ -226,7 +226,7 @@ def assert_stale_restore_invalidation(sql, source, witness):
     expect_refusal(
         revoke_restored.replace(
             "COMMIT;",
-            "DO $ BEGIN RAISE EXCEPTION 'AUTH08C forced rollback'; END; $; COMMIT;",
+            "DO $forced_rollback$ BEGIN RAISE EXCEPTION 'AUTH08C forced rollback'; END; $forced_rollback$; COMMIT;",
         ),
         "AUTH08C forced rollback",
     )
