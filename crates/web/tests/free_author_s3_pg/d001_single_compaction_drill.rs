@@ -107,15 +107,11 @@ impl Drill {
         let ids = pg(
             url,
             &format!(
-                "SELECT v.version_id FROM d001_registered_storage_overhang v
+                "SELECT r.version_id
+                 FROM d001_record_free_single_retirement_candidates({chapter},0,128) r
                  JOIN free_chapter_storage_objects f
-                   ON f.chapter_id=v.chapter_id AND f.version_id=v.version_id
-                 WHERE v.chapter_id={chapter} AND f.bucket='{PRIMARY}'
-                   AND NOT v.has_active_pack_placement
-                   AND NOT EXISTS (
-                     SELECT 1 FROM reader_free_open_intents i
-                     WHERE i.chapter_id=v.chapter_id AND i.version_id=v.version_id)
-                 ORDER BY v.version_id"
+                   ON f.chapter_id=r.chapter_id AND f.version_id=r.version_id
+                 WHERE f.bucket='{PRIMARY}' ORDER BY r.version_id"
             ),
         );
         let candidates: Vec<i64> = ids.lines().map(|line| line.parse().unwrap()).collect();
