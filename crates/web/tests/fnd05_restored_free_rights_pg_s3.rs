@@ -310,9 +310,8 @@ async fn verify_archive(url: &str) {
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let app =
-        tor_web::free_pack_http::router(accounts, false, origin.clone(), s3, BUCKET.into())
-            .unwrap();
+    let app = tor_web::free_pack_http::router(accounts, false, origin.clone(), s3, BUCKET.into())
+        .unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -331,14 +330,7 @@ async fn verify_archive(url: &str) {
     )
     .await;
     assert_v1(
-        read(
-            &client,
-            &origin,
-            Method::POST,
-            &layer,
-            Some(&rights.buyer),
-        )
-        .await,
+        read(&client, &origin, Method::POST, &layer, Some(&rights.buyer)).await,
         rights.version,
     )
     .await;
