@@ -26,3 +26,33 @@ the existing FND-06 two-binary run. A backup contains revocations only up
 to its recovery point. Revocations after that point require WAL/PITR
 or a deliberate invalidation policy; no claim that a stale backup can
 preserve later security events. No production deployment.
+
+## AUTH-08b — stale backup revocation gap and recovery policy
+
+After the normal continuity and source-unchanged assertions, the isolated
+I-11 drill deliberately revokes exactly one synthetic source cookie.
+The already restored archive cannot contain that later revocation; its
+loopback HTTP process must demonstrate that the old cookie still works.
+Then invalidate all live sessions in the disposable restored database,
+verify zero live sessions and a zero-row retry, and exercise denial of
+all three old cookies on both passive and qualifying active navigation.
+New synthetic sessions must still work, and the invalidation must not
+mutate the source. This is a test of session invalidation, not a real
+password login or an independently reviewed operational recovery.
+
+For a normal release/restart with unchanged PostgreSQL, retain sessions.
+For point-in-time or backup recovery that may have lost security events,
+keep TOR offline and the recovered database isolated until security
+state is reconciled. If continuity of revocations cannot be independently
+established, require explicit invalidation of all restored live sessions
+before granting access. A stale recovery can also lose password changes,
+account closures, role removals and reset-token consumption; invalidating
+sessions alone does not establish that the recovered identity state is
+safe. Reconcile those separately before public cutover. This policy must
+be wired into the separately approved operational recovery gate, not
+executed automatically on normal startup, migration or deployment.
+
+The fixture intentionally starts a loopback-only HTTP server to prove
+the risk before invalidation; never expose a real stale restored database
+to traffic for that experiment. No external restore, promotion or VPS
+changes are authorized by this test.
