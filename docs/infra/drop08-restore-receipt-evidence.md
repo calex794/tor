@@ -127,8 +127,12 @@ psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
 TOR_D001_SINGLE_BACKUP_VERIFIED proves exact immutable receipt/manifest/file
 agreement. It is neither a removal authorization nor a policy for reopening
 a closed edition. The existing I-11 disposable lane archives a synthetic old
-SINGLE in its separate loopback vault, discards the local source, checks the
-exact receipt from the restored PostgreSQL dump, rejects corrupted recovered
-bytes and verifies a fresh download again. This is not production provider,
+SINGLE in its separate loopback vault, discards the local source, verifies a
+vault readback, and only then invokes the privileged D-001 fixture seal. The
+subsequent encrypted PostgreSQL dump must preserve the exact seal timestamp,
+exclude the edition from the fresh candidate queue, deny a fresh delivery
+hold, and preserve the current synthetic V2. The recovery test downloads the
+historical file again, checks the exact restored SQL receipt, rejects corrupted
+bytes and verifies a fresh download. This is not production provider,
 credentials, administrative history, or independent physical host acceptance.
-No primary S3 DELETE, restore-to-live or automatic activation is added.
+No primary S3 DELETE, restore-to-live, reopening or automatic activation is added.

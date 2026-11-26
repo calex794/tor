@@ -86,6 +86,11 @@ ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 drop07_seed_pack "$work/pack-fixture"
 d001_single_seed "$work/single-fixture"
+# Archive and verify the exact historical file before sealing the fixture.
+# The encrypted database dump below must contain the committed closure.
+s3 --request PUT --output /dev/null "$endpoint/$bucket"
+d001_single_archive "$work/single-fixture" "$endpoint/$bucket"
+d001_single_seal_fixture "$work/single-fixture" "$endpoint/$bucket"
 # Reuse the existing I-11 historical paid V1/V2 fixture in this separate
 # disposable sealed-restore lane (no real purchase or payment claimed here).
 psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
@@ -135,9 +140,7 @@ node tools/tor_dr_archive_crypto.cjs seal "$work/offline.key" \
   "$work/source.dump" "$work/archive.enc"
 digest="$(sha256sum "$work/archive.enc" | cut -d ' ' -f 1)"
 [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
-s3 --request PUT --output /dev/null "$endpoint/$bucket"
 drop07_archive_pack "$work/pack-fixture" "$endpoint/$bucket"
-d001_single_archive "$work/single-fixture" "$endpoint/$bucket"
 s3 --upload-file "$work/archive.enc" \
   --header 'If-None-Match: *' \
   --header 'Content-Type: application/octet-stream' \
