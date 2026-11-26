@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -188,9 +189,44 @@ def assert_stale_restore_invalidation(sql, source, witness):
 
     # Use the exact same atomic mutation as the offline operator step.
     # The production-only target/host guard is never bypassed by that CLI.
-    from tor_recovery_auth import invalidation_sql
+    from tor_recovery_auth import invalidation_sql, operator_guard
 
     revoke_restored = invalidation_sql()
+    restored_before = session_snapshot(sql, RESTORE_URL, witness)
+
+    def expect_refusal(statement, marker):
+        result = subprocess.run(
+            ["psql", RESTORE_URL, "-X", "-A", "-t", "-q",
+             "-v", "ON_ERROR_STOP=1"],
+            input=statement, text=True, capture_output=True, timeout=25,
+        )
+        require(result.returncode != 0 and marker in result.stderr,
+                "AUTH08C expected guarded SQL refusal")
+        require(session_snapshot(sql, RESTORE_URL, witness) == restored_before,
+                "AUTH08C failed transaction changed restored sessions")
+        require(request(3096, token)[0] == 200,
+                "AUTH08C refused operation invalidated a live session")
+
+    # Execute the real operator guard against this deliberately wrong target:
+    # ordinary application role, TCP and unapproved cluster identity.
+    expect_refusal(
+        invalidation_sql(operator_guard("tor_restore_ci", "1", 15432)),
+        "AUTH08C isolated promoted database guard failed",
+    )
+    print("AUTH08C_WRONG_TARGET_REFUSED")
+
+    # Force a failure after the actual UPDATE and verification, but before
+    # COMMIT. The connection must roll back and the original cookie survive.
+    require(revoke_restored.count("COMMIT;") == 1,
+            "AUTH08C unexpected transaction boundary")
+    expect_refusal(
+        revoke_restored.replace(
+            "COMMIT;",
+            "DO $ BEGIN RAISE EXCEPTION 'AUTH08C forced rollback'; END; $; COMMIT;",
+        ),
+        "AUTH08C forced rollback",
+    )
+    print("AUTH08C_INVALIDATION_ROLLBACK_OK")
     active_count = """
         SELECT count(*) FROM sessions
         WHERE revoked_at IS NULL AND expires_at>now()
