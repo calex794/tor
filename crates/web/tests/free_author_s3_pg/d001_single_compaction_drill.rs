@@ -6,7 +6,6 @@
 use super::*;
 use tor_reading::repositories::{free_open_capture::PgFreeOpenCapture, PgLibrary};
 use tor_storage::services::free_chapter::{FreeChapterObject, FreeChapterStore};
-use tor_web::author_chapter_http::FreeChapterPublisher;
 
 const PRIMARY: &str = "tor-d001-single-drill-primary-ci";
 const BACKUP: &str = "tor-d001-single-drill-backup-ci";
