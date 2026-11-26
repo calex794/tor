@@ -40,11 +40,17 @@ async fn clear(pool: &PgPool) {
 }
 
 // Seed controlled ledger history without waiting 24h or sending mail.
-async fn seed(pool: &PgPool, count: i64, purpose: MailPurpose, keys: QuotaKeys, age_seconds: i64) {
+async fn seed(
+    pool: &PgPool,
+    count: i64,
+    purpose: MailPurpose,
+    keys: QuotaKeys,
+    age_seconds: i64,
+) {
     sqlx::query(
         "INSERT INTO mail_send_reservations \
          (outbox_id,generation,purpose,recipient_key,registration_ip_key,reserved_at) \
-         SELECT 900000000000+n,1,$2,$3,$4,clock_timestamp()-($5*interval '1 second') \
+         SELECT 900000000000+n,1,$2,$3,$4,clock_timestamp()-($5::bigint*interval '1 second') \
          FROM generate_series(1::bigint,$1::bigint) n",
     )
     .bind(count)
@@ -87,7 +93,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
 
     let a = claim(&queue, user, 1, RegistrationConfirmation).await;
     let b = claim(&queue, user, 2, RegistrationConfirmation).await;
-    let (ra, rb) = tokio::join!(quota.reserve(a, keys(1, Some(1))), quota.reserve(b, keys(2, Some(2))));
+    let (ra, rb) = tokio::join!(
+        quota.reserve(a, keys(1, Some(1))),
+        quota.reserve(b, keys(2, Some(2)))
+    );
     let (ra, rb) = (ra.unwrap(), rb.unwrap());
     assert!(matches!((ra, rb), (Reserved, GlobalPace) | (GlobalPace, Reserved)));
     let (winner, winner_keys) = if ra == Reserved {
