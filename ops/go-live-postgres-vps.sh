@@ -275,12 +275,23 @@ if [[ $(id -u) -ne 0 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 # TOR_MAIN_SHA_GUARD_BEGIN
-# Manual activation stays exact-main; the root helper opts in to forward-only.
+# Manual activation stays exact-main; trusted root helpers opt in to forward-only.
 require_current_main_sha() {
   if [[ ${forward_release:-0} == 1 ]]; then
     local guard=/usr/local/sbin/tor-release-ancestry
-    [[ -f "$guard" && ! -L "$guard" && $(stat -c '%U:%G:%a' "$guard") == root:root:755 ]] ||
-      { echo "REFUSE_RELEASE_ANCESTRY: trusted guard missing" >&2; return 1; }
+    if [[ ${TOR_RELEASE_SIGNED_V2:-0} == 1 ]]; then
+      # v2 always uses its independently installed immutable helper module,
+      # not a Python file delivered by the candidate or the v1 inbox.
+      guard=/usr/local/lib/tor-release-v2/release_ancestry.py
+      [[ ! -L /usr/local/lib/tor-release-v2 &&
+         $(stat -c '%U:%G:%a' /usr/local/lib/tor-release-v2) == root:root:700 &&
+         -f "$guard" && ! -L "$guard" &&
+         $(stat -c '%U:%G:%a:%h' "$guard") == root:root:600:1 ]] ||
+        { echo "REFUSE_RELEASE_ANCESTRY: trusted v2 guard missing" >&2; return 1; }
+    else
+      [[ -f "$guard" && ! -L "$guard" && $(stat -c '%U:%G:%a' "$guard") == root:root:755 ]] ||
+        { echo "REFUSE_RELEASE_ANCESTRY: trusted guard missing" >&2; return 1; }
+    fi
     python3 -I "$guard" "$sha" --from-active
     return
   fi
@@ -382,12 +393,23 @@ fi
 
 # Apply the canonical SQLx migrator from the verified staged release.
 # It creates the initial schema or upgrades additive migrations in place.
-migration_script=$(mktemp /root/.tor-migration.XXXXXXXX)
-trap 'rm -f "$migration_script"' EXIT
-curl --fail --silent --show-error --location --retry 3 \
-  "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
-  -o "$migration_script"
-bash -n "$migration_script"
+if [[ ${TOR_RELEASE_SIGNED_V2:-0} == 1 ]]; then
+  # The installed root v2 executor verifies the immutable signed scripts.
+  migration_script="$release/apply-tor-migrations-vps.sh"
+  [[ -f "$migration_script" && ! -L "$migration_script" &&
+     $(stat -c '%U:%G:%a' "$migration_script") == root:root:644 ]] || {
+    echo "Signed migration script missing or unsafe" >&2
+    exit 1
+  }
+  bash -n "$migration_script"
+else
+  migration_script=$(mktemp /root/.tor-migration.XXXXXXXX)
+  trap 'rm -f "$migration_script"' EXIT
+  curl --fail --silent --show-error --location --retry 3 \
+    "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
+    -o "$migration_script"
+  bash -n "$migration_script"
+fi
 if [[ "$recovery" == 1 ]]; then
   # Stop the known-broken service's restart loop only after validation.
   systemctl stop tor-web.service
@@ -395,8 +417,10 @@ if [[ "$recovery" == 1 ]]; then
 else
   bash "$migration_script" "$sha"
 fi
-rm -f "$migration_script"
-trap - EXIT
+if [[ ${TOR_RELEASE_SIGNED_V2:-0} != 1 ]]; then
+  rm -f "$migration_script"
+  trap - EXIT
+fi
 
 hist=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
   "SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE")

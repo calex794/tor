@@ -39,3 +39,7 @@ and exposure checks. HTTP tests cover anonymous/reader denial, cross-origin,
 CSRF and password failure, foreign session binding, single/bulk revoke,
 preservation of other accounts and role loss. RIL mutation tests reject
 removed guard evidence. Real browser execution and final CI remain pending.
+
+Integration note: the unmerged AUTH migration was renumbered from 202999100007
+ to 202999100049 because main now owns 202999100007 for D001. No committed
+ main migration or installed database checksum was changed.

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Pandaolate — временная пауза</title>
+  <link rel="stylesheet" href="/_tor-fallback/style.css">
+  <script src="/_tor-fallback/game.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="brand">Pandaolate</span><span class="tag">Временно недоступно</span></header>
+    <section class="intro" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">Пауза между главами</p>
+        <h1 id="title">История ещё не закончилась.</h1>
+        <p>Сайт временно не отвечает. Пока связь восстанавливается, соберите небольшую библиотеку в нашей змейке.</p>
+        <div class="actions">
+          <a class="primary" href="/">На главную</a>
+          <button id="check" type="button" hidden>Проверить связь</button>
+          <a id="telegram" rel="noopener noreferrer" href="#" hidden>Новости в Telegram</a>
+        </div>
+        <p id="connection" class="muted" role="status">Попробуйте открыть сайт немного позже.</p>
+      </div>
+      <div class="panel" aria-labelledby="game-title">
+        <div class="game-heading">
+          <h2 id="game-title">Книжная змейка</h2>
+          <div class="scores">Книги <strong id="score">0</strong> · Рекорд <strong id="best">0</strong></div>
+        </div>
+        <canvas id="board" width="360" height="360" tabindex="0" aria-label="Игровое поле змейки; используйте стрелки или кнопки направлений">Игре требуется поддержка Canvas.</canvas>
+        <p id="game-status" class="muted" role="status">Нажмите «Играть», чтобы начать.</p>
+        <div class="actions">
+          <button id="start" class="primary" type="button">Играть</button>
+          <button id="pause" type="button" disabled>Пауза</button>
+        </div>
+        <div class="directions" aria-label="Управление змейкой">
+          <button data-dir="up" class="up" aria-label="Вверх" type="button">↑</button>
+          <button data-dir="left" class="left" aria-label="Влево" type="button">←</button>
+          <button data-dir="down" class="down" aria-label="Вниз" type="button">↓</button>
+          <button data-dir="right" class="right" aria-label="Вправо" type="button">→</button>
+        </div>
+        <noscript>Для игры и проверки связи нужен JavaScript. Ссылка на главную доступна.</noscript>
+      </div>
+    </section>
+    <footer>Это автономная страница. Игра не требует входа и не отправляет игровой результат на сервер.</footer>
+  </main>
+</body>
+</html>
