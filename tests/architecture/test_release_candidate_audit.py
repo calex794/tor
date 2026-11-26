@@ -265,6 +265,44 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
             collect(api, SHA, ROOT)
         self.assertEqual(api.main_reads, 2)
 
+    def test_pinned_main_can_advance_during_exact_ci_collection(self):
+        _, runs, jobs = fixtures()
+        for row in runs:
+            row["head_branch"] = "main"
+
+        class ForwardAPI(MockAPI):
+            def get(self, path, params=None):
+                if "/compare/" in path:
+                    self.assert_compare(path, params)
+                    return {
+                        "status": "ahead", "base_commit": {"sha": SHA},
+                        "merge_base_commit": {"sha": SHA},
+                        "ahead_by": 1, "behind_by": 0,
+                    }
+                if path.endswith("/actions/runs"):
+                    if params.get("branch") != "main":
+                        raise AssertionError("expected main push scope")
+                value = super().get(path, params)
+                if path.endswith("/git/ref/heads/main"):
+                    value["object"]["type"] = "commit"
+                return value
+
+            @staticmethod
+            def assert_compare(path, params):
+                if not path.endswith(f"/compare/{SHA}...{OTHER}") or params != {"per_page": 1}:
+                    raise AssertionError("comparison must use immutable full SHAs")
+
+        api = ForwardAPI(runs, jobs, main=SHA, main_after=OTHER)
+        self.assertTrue(collect(api, SHA, ROOT, pinned_main=True)["ci_complete"])
+        self.assertEqual(api.main_reads, 2)
+        runs[0]["head_branch"] = "feature"
+        with self.assertRaises(EvidenceError):
+            collect(ForwardAPI(runs, jobs), SHA, ROOT, pinned_main=True)
+        runs[0]["head_branch"] = "main"
+        jobs[2][-1]["conclusion"] = "failure"
+        self.assertFalse(collect(ForwardAPI(runs, jobs), SHA, ROOT,
+                                 pinned_main=True)["ci_complete"])
+
     def test_incomplete_workflow_or_job_pagination_fails_closed(self):
         _, runs, jobs = fixtures()
         with self.assertRaises(EvidenceError):

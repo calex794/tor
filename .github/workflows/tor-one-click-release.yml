@@ -42,12 +42,11 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: "Убедиться, что main не изменился"
+      - name: "Проверить зафиксированный SHA исходников"
         shell: bash
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$TARGET_SHA" ]]
-          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$TARGET_SHA" ]]
 
       - name: "Дождаться успешных проверок того же коммита"
         env:
@@ -55,7 +54,7 @@ jobs:
         run: |
           python3 tools/check_one_click_release_ci.py \
             --repo ${{ github.repository }} --sha "$TARGET_SHA" \
-            --timeout-seconds 1200
+            --timeout-seconds 1200 --pinned-main
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -123,14 +122,13 @@ jobs:
             "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256 && sha256sum -c --status tor-trace-store.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
 
-      - name: "Запретить установку устаревшего коммита"
-        shell: bash
+      - name: "Повторно проверить CI и принадлежность выпуска main"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$TARGET_SHA" ]] || {
-            echo "TOR_RELEASE_REFUSED: main moved during packaging; run again" >&2
-            exit 1
-          }
+          python3 tools/check_one_click_release_ci.py \
+            --repo ${{ github.repository }} --sha "$TARGET_SHA" \
+            --timeout-seconds 0 --pinned-main
 
       - name: "Резервная копия PostgreSQL, миграции, обновление и откат при ошибке"
         if: ${{ !inputs.stage_only }}
