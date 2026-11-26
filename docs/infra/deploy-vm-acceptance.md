@@ -5,9 +5,10 @@ Ubuntu 24.04 runner VM, never a self-hosted runner or actual VPS. The lab
 provisions actual PostgreSQL 18 package cluster, Nginx, systemd, local
 test TLS and an unprivileged tor-deploy identity. Existing default runner
 PGDATA is not deleted; only recognized package cluster configurations
-are retained separately before creating the dedicated fixture cluster.
+are retained separately before creating the dedicated fixture cluster in the standard PG18/main layout. Package PGDATA
+is preserved; failed systemd startup emits status, journal and fixture PG logs.
 No deployment environment, repository secrets, SSH or external S3.
-The test uses the default approved Cargo feature profile.
+The test uses the exact accepted production capability profile, without configuring S3.
 
 The guarded test calls real DEPLOY-06a preparation and DEPLOY-06b
 first-start operations directly inside the disposable VM. The operator
@@ -34,8 +35,7 @@ Required actual evidence, emitted only after corresponding assertions:
   unwinding after live D switch, durable journal blocks next update,
   recover verifies prior B plus data/credential witnesses.
 
-No private data is exported; the only uploaded file is the sanitized
-fixture log. The VM is discarded by GitHub; no destructive database
+No private data is exported; the only uploaded files are the setup diagnostics and sanitized fixture log. The VM is discarded by GitHub; no destructive database
 cleanup is needed. This is a real hosted VM test, not an independently
 provisioned external DR server, power-off/reboot test, two independent
 source SHA upgrade or operational S3 acceptance. The workflow must first

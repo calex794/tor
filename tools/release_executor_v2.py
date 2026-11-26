@@ -223,6 +223,8 @@ class Application:
         trace_inactive()
         self.store.switch(previous, candidate)
         command("systemctl", "daemon-reload")
+        # Clear a failed candidate start limit on the fixed web unit.
+        command("systemctl", "reset-failed", APP)
         command("systemctl", "restart", APP, timeout=90)
         # Retain the additive SQLx schema and all database contents.
         for _ in range(20):

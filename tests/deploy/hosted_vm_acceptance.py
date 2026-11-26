@@ -190,7 +190,7 @@ def run():
             app.verify(shas["A"])
             need(http("/catalog"), "missing first catalog")
             print("DEPLOY08A_REAL_FIRST_START_OK", flush=True)
-            first.query("INSERT INTO books(source_identity,target_language,title,visibility) VALUES ('ci:deploy08a:retained','ru','DEPLOY08A retained book','public')", "tor")
+            first.query("INSERT INTO books(source_identity,target_language,title,visibility,access_level) VALUES ('ci:deploy08a:retained','ru','DEPLOY08A retained book','public','basic')", "tor")
             book = first.query("SELECT id FROM books WHERE source_identity='ci:deploy08a:retained'", "tor").decode()
             need(book.isdigit(), "fixture book not inserted")
             db = database_witness()

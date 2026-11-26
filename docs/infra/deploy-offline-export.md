@@ -1,15 +1,16 @@
 # DEPLOY-06d — autonomous signed release export
 
-The existing manual main-only "TOR — Обновить сайт" workflow has three
+The existing manual main-only "TOR — Обновить сайт" workflow has four
 mutually exclusive modes:
 
-* ordinary update: both boolean inputs false;
+* ordinary update: all boolean inputs false;
+* stage_only=true: transfer the negotiated protocol without activation;
 * prepare_v2=true: sign and transfer without activation to an existing VPS;
 * export_v2=true: sign and retain the complete bundle without SSH or SCP,
   even if no previous VPS or deployment host variables exist.
 
 The export still uses the protected tor-staging environment, exact-main
-full CI audit, normal approved non-S3 build profile, real isolated TLS edge
+full CI audit, approved production capability profile from tools/build_tor_production_web.sh, real isolated TLS edge
 acceptance and final main check. The existing signing key is required;
 no SSH known-hosts file, old host, or old data access is required.
 Signing/deployment key environment variables are scoped to relevant

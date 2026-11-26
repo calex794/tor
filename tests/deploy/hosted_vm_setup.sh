@@ -24,6 +24,8 @@ done
 if getent passwd tor-deploy >/dev/null; then exit 2; fi
 install -d -m 0700 /root/tor-deploy-lab
 export DEBIAN_FRONTEND=noninteractive
+# Package cluster creation expects standard system directory modes.
+umask 022
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl gpg postgresql-common \
   nginx openssl openssh-client iproute2
@@ -63,16 +65,29 @@ if [[ -d /etc/postgresql ]]; then
   mv -T /etc/postgresql /root/tor-deploy-lab/unused-runner-pg-config
 fi
 install -d -m 0755 /etc/postgresql
-[[ ! -e /var/lib/postgresql/18/tor-deploy-lab ]] || exit 2
-pg_createcluster --start-conf=manual --datadir /var/lib/postgresql/18/tor-deploy-lab \
-  18 main -- --auth-local=peer --auth-host=scram-sha-256
+# Standard Debian layout; preserve unused stopped package data.
+if [[ -d /var/lib/postgresql/18/main ]]; then
+  [[ ! -L /var/lib/postgresql/18/main &&
+     ! -e /var/lib/postgresql/18/unused-runner-main ]] || exit 2
+  mv -T /var/lib/postgresql/18/main /var/lib/postgresql/18/unused-runner-main
+fi
+pg_createcluster --start-conf=auto 18 main -- --auth-local=peer --auth-host=scram-sha-256
 pg_conftool 18 main set port 5432
 pg_conftool 18 main set listen_addresses 127.0.0.1
 pg_conftool 18 main set password_encryption scram-sha-256
 pg_conftool 18 main set max_connections 20
 pg_conftool 18 main set shared_buffers 64MB
 systemctl daemon-reload
-systemctl start postgresql@18-main.service
+systemctl reset-failed postgresql@18-main.service || true
+if ! systemctl start postgresql@18-main.service; then
+  # Fixture has no database credentials yet; retain startup diagnostics.
+  pg_lsclusters >&2 || true
+  systemctl status --no-pager -l postgresql@18-main.service >&2 || true
+  journalctl --no-pager -n 100 -u postgresql@18-main.service >&2 || true
+  tail -n 80 /var/log/postgresql/postgresql-18-main.log >&2 || true
+  exit 1
+fi
+umask 077
 runuser -u postgres -- psql -X -Atqc 'SHOW server_version_num' | grep -Eq '^18[0-9]{4}$'
 # Remove only the standard package default link, not arbitrary vhosts.
 default=/etc/nginx/sites-enabled/default

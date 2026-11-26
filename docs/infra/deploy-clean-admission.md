@@ -50,7 +50,7 @@ main SHA can use the existing one-click update.
 Still required: offline signed bundle export for initial installation
 without an existing deployment host, real combined systemd/PG/Rust VM
 acceptance, external DNS/TLS/firewall proof, operator approval.
-Local install remains non-S3 until the independent provider/profile gate.
+Local install uses the approved production S3-capable binary with no provider or runtime S3 activation.
 No VPS changes in this PR.
 
 The isolated Nginx lab now adds an extra IPv4 to its private loopback

@@ -9,6 +9,7 @@ on:
       - 'ops/init-tor-database.sh'
       - 'ops/apply-tor-migrations-vps.sh'
       - 'ops/go-live-postgres-vps.sh'
+      - 'tools/build_tor_production_web.sh'
       - 'tools/prepare_clean_install.py'
       - 'tools/activate_clean_install.py'
       - 'tools/release_bundle_v2.py'
@@ -36,9 +37,9 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build real approved default-profile Rust executables
+      - name: Build real approved production-profile Rust executables
         run: |
-          cargo build --locked --release -p tor-web
+          bash tools/build_tor_production_web.sh
           cargo build --locked --release -p tor-migrations --bin tor-migrate
           cargo build --locked --release -p tor-observability --bin tor-trace-store
       - name: Prepare authenticated Ubuntu mirrors
@@ -46,7 +47,8 @@ jobs:
       - name: Provision isolated disposable VM system services
         shell: bash
         run: |
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/bash tests/deploy/hosted_vm_setup.sh
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/bash tests/deploy/hosted_vm_setup.sh 2>&1 | tee "$RUNNER_TEMP/deploy-vm-setup.log"
       - name: Real first start, signed update, failure and interrupted release recovery
         shell: bash
         run: |
@@ -58,6 +60,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tor-deploy-vm-evidence-${{ github.sha }}
-          path: ${{ runner.temp }}/deploy-vm.log
+          path: |
+            ${{ runner.temp }}/deploy-vm-setup.log
+            ${{ runner.temp }}/deploy-vm.log
           if-no-files-found: warn
           retention-days: 10

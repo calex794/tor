@@ -217,6 +217,11 @@ class Operations:
         new_file(edge.SIGNERS, edge.read_small(self.signers, 16384))
         bundle.stage(self.source, self.target, self.sha, edge.SIGNERS)
         clean.verified_source(self.target, self.sha, edge.SIGNERS, self.pin)
+        profile = executor.command("runuser", "-u", "tor-deploy", "--", "env", "-i",
+                                   "PATH=/usr/bin:/bin", "timeout", "10s",
+                                   str(self.target / "tor-web"), "--release-capabilities").stdout.strip()
+        if profile != b"TOR_RELEASE_CAPABILITIES s3-covers=true s3-free=true s3-paid=true s3-chapter-import=true":
+            raise Refused("first install requires approved production capabilities")
         for path in (executor.TOR.parent, executor.STATE.parent, edge.SIGNERS.parent.parent):
             edge.sync_dir(path)
 
