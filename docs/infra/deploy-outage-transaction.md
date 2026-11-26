@@ -67,3 +67,18 @@ witnesses, interruption after actual signed cutover, root journal recovery
 without claiming a healthy rollback, and fresh approval followed by retry.
 The GitHub workflow requires all four DEPLOY08D markers. No production
 credentials, production deployment, or v2 helper rollout is performed.
+
+### Hosted API quota correction
+
+Run 45879951473 failed before outage mutation on anonymous GitHub API HTTP
+403 (rate limit exceeded). The VM now uses the job's ephemeral contents:read
+Actions token solely for real GitHub main/ref and comparison requests, via
+a private 0600 transient lab file. The token is removed from the process
+environment before subprocess execution, is not logged or placed in the
+bundle, and is removed in finally. The private fixture copy of the ancestry
+module adapts only Request construction; the verifier, live API response
+validation, installed CLI and signed go-live shell remain active. This is
+not a production authentication change. The production anonymous API can
+still rate-limit; fail-closed is retained. The authenticated marker is
+required in CI. A separate operational API availability improvement is
+needed if anonymous rate limits become a recurring production issue.

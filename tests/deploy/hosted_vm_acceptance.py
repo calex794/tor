@@ -10,6 +10,7 @@ other components are used unchanged.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import os
 from pathlib import Path
 import pwd
@@ -36,7 +37,8 @@ LAB = Path("/root/tor-deploy-lab")
 # Public immutable main ancestry for the full signed-shell test. These are
 # fixture aliases, NOT claims to have built the historical commits. Every
 # bundle contains this checkout's binaries/scripts and a temporary lab key.
-# No ancestry override is installed for the real outage acceptance.
+# Real outage acceptance uses live API proofs through an authenticated lab-only
+# Request adapter; the verifier and signed shell are not changed.
 REAL_CHAIN = {
     "B": "85768a7b08e9fb12b5bc71943b9db17fceaf817d",
     "E": "3c433d846e89bec21cc57b3398f760499932f745",
@@ -66,6 +68,47 @@ def hosted_guard():
     need(not os.path.lexists(executor.TOR) and not os.path.lexists(first.WORKSPACE),
          "never run the lab on an existing installation")
     return sha
+
+
+def vm_authenticated_request(url, *, headers):
+    """Only the disposable VM gets an ephemeral Actions read-only API token.
+
+    This function is embedded into the lab copy of release_ancestry.py, not
+    the production module or signed shell. No comparison result is faked.
+    """
+    import os
+    import re
+    import stat
+    from pathlib import Path
+    from urllib.parse import urlsplit
+    from urllib.request import Request as OriginalRequest
+
+    target = urlsplit(url)
+    if (target.scheme != "https" or target.netloc != "api.github.com"
+            or not re.fullmatch(
+                r"/repos/calex794/tor/(?:git/ref/heads/main|compare/[a-f0-9]{40}\.\.\.[a-f0-9]{40})",
+                target.path)):
+        raise RuntimeError("fixture API destination refused")
+    directory = Path("/root/tor-deploy-lab")
+    parent = directory.lstat()
+    if (os.geteuid() != 0 or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != 0 or parent.st_gid != 0
+            or stat.S_IMODE(parent.st_mode) != 0o700
+            or not (directory / "approved-checkout").is_file()):
+        raise RuntimeError("fixture API outside guarded VM")
+    fd = os.open(directory / "actions-read-token", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            raise RuntimeError("unsafe fixture API token file")
+        token = stream.read(513)
+    if not re.fullmatch(rb"[A-Za-z0-9_-]{20,512}", token):
+        raise RuntimeError("missing or invalid fixture API token")
+    request = OriginalRequest(url, headers=headers)
+    # Do not send the authorization header on redirects.
+    request.add_unredirected_header("Authorization", "Bearer " + token.decode("ascii"))
+    return request
 
 
 def fixture_release(label, sha, signers, key, *, broken=False, late_failure=False):
@@ -167,7 +210,7 @@ def secrets_witness():
 
 def installed_executor(*args):
     # Use the actual installed root modules in a separate interpreter.
-    # The synthetic fixture ancestry patch is not present in this process.
+    # Only the VM-local Request adapter authenticates the live API calls.
     result = subprocess.run(
         ["/usr/bin/python3", "-I", "-B", "-c",
          'import runpy, sys; sys.path.insert(0, "/usr/local/lib/tor-release-v2"); '
@@ -182,7 +225,9 @@ def installed_executor(*args):
                       b"TOR_V2_REFUSED: TOR_OUTAGE_RESTORED_STOPPED: website remains stopped",
                       b"TOR_V2_REFUSED: TOR_ROLLBACK_UNVERIFIED: root inspection required"):
             print(line.decode(), flush=True)
-        elif line.startswith(b"REFUSE_RELEASE_ANCESTRY:"):
+        elif (line.startswith(b"REFUSE_RELEASE_ANCESTRY:")
+              or line == b"TOR_RELEASE_REFUSED: ancestry proof failed: HTTPError"
+              or line == b"TOR_V2_REFUSED: HTTPError"):
             print("DEPLOY08D_ANCESTRY_REFUSED", flush=True)
     return result
 
@@ -216,12 +261,22 @@ def repair_witness(db, credentials, book, *, stopped, previous, candidate=None):
 
 def real_outage_acceptance(source, shas, db, credentials, book):
     # The guarded disposable first-install lab has no legacy wrapper. Install
-    # exactly the reviewed private modules and fixture marker, NOT the actual
-    # v1 adoption/bootstrap. That remains a separate acceptance requirement.
+    # the reviewed private modules (only the ancestry HTTP Request adapter
+    # is fixture-specific) and marker, NOT the actual v1 adoption/bootstrap.
     need(executor.AppStore().current() == shas["B"], "unexpected real-chain baseline")
     for prev, candidate in zip("BEF", "EFG"):
         executor.require_forward(shas[candidate], shas[prev])
+    print("DEPLOY08D_AUTHENTICATED_LIVE_ANCESTRY_OK", flush=True)
     files = {name: (ROOT / "tools" / name).read_bytes() for name in transition.MODULES}
+    # Preserve the actual verifier, active pointer check and CLI, changing
+    # only Request construction in the private disposable copy. The signed
+    # go-live shell executes that copy under python -I as on the VPS.
+    original = files["release_ancestry.py"]
+    anchor = b"\ndef public_get(path, params=None):"
+    need(original.count(anchor) == 1, "fixture ancestry integration changed")
+    adapter = inspect.getsource(vm_authenticated_request).encode()
+    files["release_ancestry.py"] = original.replace(
+        anchor, b"\n" + adapter + b"\nRequest = vm_authenticated_request\n" + anchor)
     transition.install_helpers(transition.HELPERS, files)
     transition.publish_marker(transition.MARKER)
     executor.require_v2_marker()
@@ -301,8 +356,8 @@ def real_outage_acceptance(source, shas, db, credentials, book):
     print("DEPLOY08D_REAL_SIGNED_REPAIR_OK", flush=True)
 
     # Crash the root executor after the actual signed shell has started and
-    # verified G, before the coordinator can durably commit. No shell, Git
-    # proof, service, database or verification boundary is mocked.
+    # verified G, before the coordinator can durably commit. The Git proof
+    # is live and authenticated; shell, service and database are real.
     executor.command("systemctl", "stop", executor.APP)
     approve_outage(shas["F"], shas["G"])
     class CrashAfterRepair(executor.Application):
@@ -344,6 +399,10 @@ def real_outage_acceptance(source, shas, db, credentials, book):
 
 def run():
     checkout = hosted_guard()
+    # Strip the Actions credential before any subprocess is launched. Only
+    # the guarded lab phase uses it via a private transient file.
+    token = os.environ.pop("TOR_VM_GITHUB_TOKEN", "")
+    need(re.fullmatch(r"[A-Za-z0-9_-]{20,512}", token), "read-only Actions token required")
     os.umask(0o077)
     # Same compiled checkout, separate synthetic identities for fault fixtures.
     shas = {label: hashlib.sha256((checkout + ":vm:" + label).encode()).hexdigest()[:40]
@@ -500,8 +559,18 @@ def run():
                 need(database_witness() == db and secrets_witness() == credentials, "crash recovery lost state")
                 need(b"DEPLOY08A retained book" in http("/books/" + book), "recovery lost retained book")
                 print("DEPLOY08A_ABRUPT_PROCESS_EXIT_RECOVERED", flush=True)
-    # Outside both fixture ancestry patches and previous release locks.
-    real_outage_acceptance(source, shas, db, credentials, book)
+    # Outside the synthetic ancestry patches and prior release locks.
+    # The read-only Actions token is never passed to the installed executor,
+    # signed shell, or database through their environment or command line.
+    token_path = LAB / "actions-read-token"
+    first.new_file(token_path, token.encode("ascii"), 0o600)
+    del token
+    try:
+        with patch.object(executor.ancestry, "Request", vm_authenticated_request):
+            real_outage_acceptance(source, shas, db, credentials, book)
+    finally:
+        token_path.unlink(missing_ok=True)
+        edge.sync_dir(LAB)
     print("DEPLOY08A_VM_ACCEPTANCE_OK", flush=True)
 
 

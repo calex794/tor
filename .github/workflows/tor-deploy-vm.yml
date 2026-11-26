@@ -53,13 +53,17 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/bash tests/deploy/hosted_vm_setup.sh 2>&1 | tee "$RUNNER_TEMP/deploy-vm-setup.log"
       - name: Real first start, signed update, failure and interrupted release recovery
         shell: bash
+        env:
+          # Job permissions are contents: read; not a production secret.
+          TOR_VM_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE,TOR_VM_GITHUB_TOKEN /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08A_VM_ACCEPTANCE_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_RECOVERED_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_AUTHENTICATED_LIVE_ANCESTRY_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08D_REAL_UNAPPROVED_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08D_REAL_FAILED_REPAIR_STOPPED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08D_REAL_SIGNED_REPAIR_OK' "$RUNNER_TEMP/deploy-vm.log"
