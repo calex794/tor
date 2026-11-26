@@ -84,6 +84,10 @@ VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 drop07_seed_pack "$work/pack-fixture"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 seed_active_cover_backup \
+    -- --exact --ignored --test-threads=1
+[[ -s "$work/cover-manifest.sha256" ]]
 history="$(psql "$MIGRATOR_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
@@ -187,6 +191,11 @@ hidden_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
   -c "SELECT id FROM books WHERE source_identity='ci:dr:hidden' AND visibility='draft'")"
 [[ "$pub_id" =~ ^[0-9]+$ && "$hidden_id" =~ ^[0-9]+$ ]]
 drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  FND05_RESTORED_DATABASE_URL="$restored_url" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 verify_restored_active_cover \
+    -- --exact --ignored --test-threads=1 --show-output | tee "$work/cover-restore.log"
+grep -Fxq 'FND05_RESTORED_ACTIVE_COVER_HTTP_OK' "$work/cover-restore.log"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3095 \
