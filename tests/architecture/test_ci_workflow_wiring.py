@@ -262,11 +262,14 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertEqual(pg.count("cargo build -p tor-web\n"), 1)
                 self.assertIn("      - name: D-04 real HTTP and PostgreSQL sessions", pg)
                 self.assertIn("          cargo build -p tor-web\n", pg)
-                for drill in (
-                    "bash tools/tor_pg_restart_smoke.sh",
-                    "bash tools/tor_pg_backup_restore_smoke.sh",
-                ):
-                    self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
+                self.assertIn("          test -x ./target/debug/tor-web\n"
+                              "          bash tools/tor_pg_restart_smoke.sh", pg)
+                # Keep the real web build reused; v2 signs the real migrator
+                # and trace writer too, without starting either executable.
+                self.assertIn("          test -x ./target/debug/tor-web\n"
+                              "          test -x ./target/debug/tor-migrate\n"
+                              "          cargo build -p tor-observability --bin tor-trace-store\n"
+                              "          bash tools/tor_pg_backup_restore_smoke.sh", pg)
 
     def test_reader_and_visual_use_headless_chromium_shell(self):
         # Manual and required jobs retain their independent install contracts.

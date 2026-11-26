@@ -6,10 +6,13 @@ umask 077
 
 release_sha=${1:-}
 recovery=0
+empty_install=0
 if [[ $# == 2 && $2 == --recover ]]; then
   recovery=1
+elif [[ $# == 2 && $2 == --install-empty ]]; then
+  empty_install=1
 elif [[ $# != 1 ]]; then
-  echo "Usage (as root): bash ops/apply-tor-migrations-vps.sh <STAGED_GIT_SHA> [--recover]" >&2
+  echo "Usage (as root): bash ops/apply-tor-migrations-vps.sh <STAGED_GIT_SHA> [--recover|--install-empty]" >&2
   exit 2
 fi
 if [[ $(id -u) -ne 0 || ! $release_sha =~ ^[0-9a-f]{40}$ ]]; then
@@ -20,7 +23,16 @@ if ! systemctl is-active --quiet postgresql@18-main.service; then
   echo "Refusing: PostgreSQL 18/main is inactive" >&2
   exit 1
 fi
-if [[ "$recovery" == 1 ]]; then
+if [[ $empty_install == 1 ]]; then
+  [[ ! -L /srv/tor-install/activation.json &&
+     $(stat -c '%U:%G:%a:%h' /srv/tor-install/activation.json) == root:root:600:1 &&
+     ! -e /opt/tor/current && ! -L /opt/tor/current &&
+     ! -e /var/lib/tor-release/pg-activated && ! -L /var/lib/tor-release/pg-activated ]] ||
+    { echo 'Refusing: clean-install activation guard missing' >&2; exit 1; }
+  if systemctl is-active --quiet tor-web.service; then
+    echo 'Refusing: existing web service' >&2; exit 1
+  fi
+elif [[ "$recovery" == 1 ]]; then
   [[ $(systemctl show tor-web.service -p ActiveState --value) == inactive &&
      $(cat /var/lib/tor-release/pg-activated) == PG_ACTIVATED ]] || {
     echo "Refusing recovery migration: prior PostgreSQL activation and stopped web required" >&2
@@ -68,6 +80,11 @@ if [[ $database_owner != tor_migrator ]]; then
 fi
 table_count=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
   "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_sqlx_migrations'")
+if [[ $empty_install == 1 ]]; then
+  [[ $table_count == 0 &&
+     $(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc "SELECT to_regclass('public._sqlx_migrations') IS NULL") == t ]] ||
+    { echo 'Refusing: clean install requires empty schema' >&2; exit 1; }
+fi
 if [[ $table_count != 0 && $table_count -lt 17 ]]; then
   echo "Unexpected partial schema ($table_count tables), refusing migration" >&2
   exit 1
@@ -146,7 +163,9 @@ echo "MIGRATIONS_OK: $versions/$expected SQLx versions, $tables domain tables"
 echo "BACKUP_OK: $backup (local only; off-server backup still required)"
 echo "=== PostgreSQL and Rust service ==="
 systemctl is-active postgresql@18-main.service
-if [[ "$recovery" == 1 ]]; then
+if [[ $empty_install == 1 ]]; then
+  echo "TOR_EMPTY_SCHEMA_MIGRATED"
+elif [[ "$recovery" == 1 ]]; then
   [[ $(systemctl show tor-web.service -p ActiveState --value) == inactive ]]
   echo "TOR_RECOVERY_SCHEMA_READY: web remains stopped; activation still required"
 else

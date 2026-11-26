@@ -641,6 +641,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
+    println!("DEPLOY07C_MISSING_WRONG_KEYS_AND_PROVIDER_DENIED");
     let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
     let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
@@ -666,6 +667,23 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::FORBIDDEN,
         "a stolen purchase ID cannot grant a V1 after disaster recovery"
     );
+    // Both buyers have a legitimate right, but only to their own purchased
+    // version. A valid session and a different real purchase ID cannot swap it.
+    for (actor, other_purchase) in [(buyer, purchase_v2_id), (buyer_v2, purchase_id)] {
+        assert_eq!(
+            grant(
+                &correct,
+                chapter,
+                Some(actor),
+                Some(csrf),
+                &json!({"purchase_id":other_purchase.to_string()}).to_string(),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN,
+        );
+    }
+    println!("DEPLOY07C_CROSS_PURCHASE_AND_ANONYMOUS_DENIED");
     let accepted = grant(&correct, chapter, Some(buyer), Some(csrf), "{}").await;
     assert_eq!(accepted.status(), StatusCode::OK);
     assert_eq!(
@@ -725,4 +743,5 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
             .status(),
         StatusCode::FORBIDDEN
     );
+    println!("DEPLOY07C_BOTH_RESTORED_REFUNDS_DENIED");
 }

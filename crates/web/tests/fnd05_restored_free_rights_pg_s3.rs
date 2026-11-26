@@ -338,6 +338,7 @@ async fn verify_archive(url: &str) {
         None,
         Some(rights.unrelated.as_str()),
         Some(rights.buyer.as_str()),
+        Some(rights.revoked.as_str()),
     ] {
         assert_denial(
             read(&client, &origin, Method::GET, &saved, token).await,
@@ -364,4 +365,5 @@ async fn verify_archive(url: &str) {
     )
     .await;
     server.abort();
+    println!("DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK");
 }
