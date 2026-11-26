@@ -18,7 +18,7 @@ spec.loader.exec_module(drill)
 
 
 def valid_report():
-    return {'schema_version': 6, 'scope': 'isolated_container_fixture',
+    return {'schema_version': 7, 'scope': 'isolated_container_fixture',
             'postgres_version': 'postgres (PostgreSQL) 18.1',
             'pgbackrest_version': 'pgBackRest 2.57.0',
             'backup_label': '20261111-120000F', 'drill_elapsed_seconds': 2.5,
@@ -60,7 +60,7 @@ class RecoveryContract(unittest.TestCase):
         report['secret'] = 'must not appear in output'
         with self.assertRaises(ValueError):
             drill.validate_report(json.dumps(report))
-        for version in (True, 1, 2, 3, 4, 5, 7, '6'):
+        for version in (True, 1, 2, 3, 4, 5, 6, '7'):
             report = valid_report()
             report['schema_version'] = version
             with self.assertRaises(ValueError):
@@ -96,6 +96,10 @@ class Isolation(unittest.TestCase):
         archive = parent / 'restored.dump'
         archive.write_bytes(b'PGDMPsynthetic fixture')
         archive.chmod(0o600)
+        for name in drill.HTTP_FIXTURE_LIMITS:
+            fixture = parent / name
+            fixture.write_bytes(b'synthetic-' + name.encode())
+            fixture.chmod(0o600)
         return archive
 
     def test_fixture_dump_requires_private_bounded_regular_custom_archive(self):
@@ -175,11 +179,13 @@ class Isolation(unittest.TestCase):
 
     def test_build_context_has_only_fixed_recovery_fixture_files(self):
         modules = {name: (ROOT / 'tools' / name).read_bytes() for name in drill.FIXTURE_MODULES}
-        content = drill.build_context(b'echo example\n', modules)
+        executables = dict.fromkeys(drill.HTTP_EXECUTABLES, b'ELF fixture')
+        content = drill.build_context(b'echo example\n', modules, executables)
         with tarfile.open(fileobj=io.BytesIO(content)) as archive:
             self.assertEqual(archive.getnames(),
                              ['Dockerfile', 'drill.sh'] +
-                             ['modules/' + name for name in drill.FIXTURE_MODULES])
+                             ['modules/' + name for name in drill.FIXTURE_MODULES] +
+                             ['bin/' + name for name in drill.HTTP_EXECUTABLES])
             self.assertEqual(archive.extractfile('drill.sh').read(), b'echo example\n')
             self.assertTrue(all(member.isfile() for member in archive.getmembers()))
             self.assertIn(b'USER postgres', archive.extractfile('Dockerfile').read())
@@ -189,7 +195,7 @@ class Isolation(unittest.TestCase):
                         {name: data for name, data in modules.items()
                          if name != 'tor_recovery_pg_config_verify.py'}):
             with self.assertRaises(ValueError):
-                drill.build_context(b'echo example\n', changed)
+                drill.build_context(b'echo example\n', changed, executables)
 
     def test_no_docker_invocation_outside_ci(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'argv', ['drill', '--fixture-dump', '/invalid', '--finance-sha256', 'a' * 64]), \
@@ -210,6 +216,7 @@ class Isolation(unittest.TestCase):
             archive = self.fixture_dump(Path(tmp))
             failure = subprocess.TimeoutExpired('docker', 600)
             with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['drill', '--fixture-dump', str(archive), '--finance-sha256', 'a' * 64]), \
+                    patch.object(drill, 'load_http_executables', return_value=dict.fromkeys(drill.HTTP_EXECUTABLES, b'ELF fixture')), \
                     patch.object(drill.subprocess, 'run', side_effect=[failure, None, None]) as run, \
                     patch('sys.stderr', new_callable=io.StringIO) as stderr:
                 self.assertEqual(drill.main(), 1)
@@ -237,7 +244,10 @@ class Isolation(unittest.TestCase):
         self.assertIn('base_snapshot,before_target', content)
         self.assertIn('permission denied for table i11_recovery_markers', content)
         self.assertIn('recovery ended before configured recovery target was reached', content)
-        self.assertEqual(content.count('-c hot_standby=off'), 2)
+        earlier, app = content.split('# RECOVERY-10e-a:', 1)
+        self.assertEqual(earlier.count('-c hot_standby=off'), 2)
+        self.assertEqual(app.count('-c hot_standby=off'), 1)
+        self.assertIn('wait_for_primary 30 "$app_dir" app_sql', app)
 
     def test_utc_replay_requires_real_pause_and_transaction_boundaries(self):
         content = (ROOT / 'tools/i11_pitr_container.sh').read_text()
@@ -400,7 +410,7 @@ class Isolation(unittest.TestCase):
         self.assertIn('printf \'%s\' "$source_finance" | sha256sum', helper)
         self.assertIn("WHERE reference='ci:recovery10b:after-target'", shell)
         self.assertIn("e.balance_after_minor=850 AND a.balance_minor=850", shell)
-        self.assertIn('head -c 67108865 >"$work/fixture.dump"', shell)
+        self.assertIn('head -c 70254593 >"$work/runtime.tar"', shell)
 
     def test_fixture_bytes_streamed_only_to_runtime_not_image(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -415,16 +425,40 @@ class Isolation(unittest.TestCase):
                 if 'run' in command:
                     self.assertIn('--interactive', command)
                     self.assertIn('TOR_I11_FINANCE_SHA256=' + 'a' * 64, command)
-                    inputs.append(kwargs['stdin'].read())
+                    with tarfile.open(fileobj=kwargs['stdin'], mode='r:') as bundle:
+                        self.assertEqual(bundle.getnames(), ['fixture.dump', *drill.HTTP_FIXTURE_LIMITS])
+                        inputs.append(bundle.extractfile('fixture.dump').read())
                     return subprocess.CompletedProcess(command, 0, json.dumps(valid_report()), '')
                 return subprocess.CompletedProcess(command, 0)
             with patch.dict(os.environ, env, clear=True), \
                  patch.object(sys, 'argv', ['drill', '--fixture-dump', str(archive), '--finance-sha256', 'a' * 64]), \
+                 patch.object(drill, 'load_http_executables', return_value=dict.fromkeys(drill.HTTP_EXECUTABLES, b'ELF fixture')), \
                  patch.object(drill.subprocess, 'run', side_effect=fake_run), \
                  patch.object(drill.subprocess, 'check_output', return_value='sha256:' + 'b' * 64), \
                  patch('sys.stdout', new_callable=io.StringIO):
                 self.assertEqual(drill.main(), 0)
             self.assertEqual(inputs, [b'PGDMPsynthetic fixture'])
+
+    def test_physical_http_uses_independent_promoted_copy_and_exact_recovered_bytes(self):
+        shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        host = (ROOT / 'tools/tor_dr_s3_backup_smoke.sh').read_text()
+        http = (ROOT / 'tools/i11_pitr_http.sh').read_text()
+        rust = (ROOT / 'crates/web/tests/fnd05_restored_free_rights_pg_s3.rs').read_text()
+        section = shell[shell.index('# RECOVERY-10e-a:'):]
+        for witness in ('--pg1-path="$app_dir"', '--target-exclusive --target-action=promote',
+                        'pg_is_in_recovery()', 'after_target,base_snapshot,before_target,time_before',
+                        'ci:recovery10b:after-target', '"$app_finance" == "$source_finance"',
+                        'i11_pitr_http.sh'):
+            self.assertIn(witness, section)
+        self.assertLess(shell.index('pg-paused-replay-receipt.json'), shell.index('# RECOVERY-10e-a:'))
+        self.assertLess(host.index('drop07_verify_restored_pack'), host.index('install -m 600'))
+        self.assertIn('drop_verify_restore_receipts.py', host)
+        self.assertIn('verify_physical_free_archive', http)
+        self.assertIn('FND05_PHYSICAL_FREE_LAYER_HTTP_OK', http)
+        self.assertIn('tokio::net::TcpListener::bind("127.0.0.1:0")', rust)
+        self.assertIn('axum::serve(listener, app)', rust)
+        self.assertIn('physical_free_layer_pack_http_verified', drill.CHECKS)
+        subprocess.run(['bash', '-n', str(ROOT / 'tools/i11_pitr_http.sh')], check=True)
 
 
 if __name__ == '__main__':

@@ -254,6 +254,31 @@ private_code="$(curl --silent --max-time 5 --output /dev/null \
 }
 echo 'I11_S3_PG18_RESTORED_AXUM_ACL_OK'
 
+# Re-fetch backup objects after the existing destructive negative PACK test.
+# Recheck against the retained independent manifest and restored SQL receipts.
+for key in "$drop07_stem.zst" "$drop07_stem.manifest.json"; do
+  s3 --output "$work/pack-fixture/restored/$key" "$endpoint/$bucket/objects/$key"
+done
+python3 tools/drop_verify_restore_receipts.py \
+  --manifest "$work/pack-fixture/retained.json" \
+  --expected-manifest-sha256 "$(cat "$work/pack-fixture/manifest-digest")" \
+  --restored-pack-root "$work/pack-fixture/restored" <"$work/pack-fixture/receipts.csv"
+install -m 600 "$work/pack-fixture/restored/$drop07_stem.zst" "$work/pack.zst"
+install -m 600 "$work/pack-fixture/restored/$drop07_stem.manifest.json" "$work/pack.manifest.json"
+install -m 600 "$work/pack-fixture/rights.json" "$work/rights.json"
+# The exact Cargo test target used for logical restore, stripped for transport.
+reader_test="$(cargo test -p tor-web --features s3-free --test fnd05_restored_free_rights_pg_s3 \
+  --no-run --message-format=json | python3 -c '
+import json, sys
+paths = [event["executable"] for event in map(json.loads, sys.stdin)
+         if event.get("reason") == "compiler-artifact"
+         and event.get("target", {}).get("name") == "fnd05_restored_free_rights_pg_s3"
+         and event.get("executable")]
+assert len(paths) == 1
+print(paths[0])
+')"
+strip --strip-debug -o "$work/http-reader-test" "$reader_test"
+chmod 700 "$work/http-reader-test"
 # The existing sealed-remote-copy job also proves WAL replay, not only pg_dump.
 # This independent sandbox has no ports, host bind mounts or runtime network.
 finance_sha256="$(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1)"
