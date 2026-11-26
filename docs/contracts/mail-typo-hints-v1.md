@@ -1,0 +1,7 @@
+# MAIL-01e — advisory typo detection
+
+The domain helper in accounts reuses MAIL-01a syntax and IDNA normalization and returns only an optional static replacement domain. Its small manually reviewed table covers 24 examples involving Gmail, Yandex, Mail.ru, Outlook, Hotmail, iCloud, Proton and Rambler. These are plausible typo examples, not claims about frequency or actual DNS ownership. No generic edit distance or inferred correction for private domains, country-specific provider domains, subdomains or unknown providers. The local part, user identity, alias and original address are not rewritten.
+
+The helper is advisory only: a match is not proof of invalidity, nonownership, abuse or a nonexisting domain. It must not suppress or redirect mail by itself. Future registration UI should show an explicit optional correction; the user must actively select it or edit the address. Continuing with the original address remains possible subject to the independent syntax, DNS and quota policies. Never apply hints silently at login, delivery, account recovery or existing-account lookup. No real emails, SMTP, network lookups or new dependencies.
+
+Unit tests cover exact domain matches, case normalization, legitimate alternative provider domains, IDNA, suffix boundaries, malformed addresses and identity preservation. Registration UI wiring and full acceptance remain pending. This branch is stacked on the disposable policy branch to preserve the shared email module; the typo helper itself does not depend on the disposable list.

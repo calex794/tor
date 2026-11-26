@@ -3,6 +3,7 @@
 use super::normalize_email;
 
 pub mod disposable;
+pub mod typo;
 
 const INVALID: &str = "Некорректный адрес почты";
 
