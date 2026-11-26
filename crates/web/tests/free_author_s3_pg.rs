@@ -263,6 +263,25 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
             .as_u16(),
         403
     );
+    // An anonymous signed grant has no reader_open_intent. Its exact
+    // SINGLE must nevertheless receive a durable delivery hold.
+    let hold_sql = format!(
+        "SELECT count(*) FROM d001_free_single_delivery_holds
+         WHERE chapter_id={chapter} AND version_id={version}
+           AND protected_until>clock_timestamp()+interval '4 minutes'"
+    );
+    assert_eq!(pg(&url, &hold_sql), "0");
+    assert_eq!(
+        http.get(format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        200
+    );
+    assert_eq!(pg(&url, &hold_sql), "1");
+    println!("D001_ANONYMOUS_SINGLE_DELIVERY_HOLD_OK");
     let read = browser(json!({
         "mode": "read", "origin": ORIGIN, "storage_origin": ENDPOINT,
         "chapter": chapter, "markdown": MARKDOWN, "marker": MARKER,
