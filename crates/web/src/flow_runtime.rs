@@ -1,4 +1,5 @@
 //! HTTP owns the stop witness: collectors retire only after the listener and requests drain.
+pub mod scanner_guard;
 use axum::Router;
 use std::{net::SocketAddr, time::Duration};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};

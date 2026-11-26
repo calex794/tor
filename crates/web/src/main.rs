@@ -587,6 +587,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .into_iter()
             .flatten(),
     );
+    // Current VPS releases replace the TOR binary, not Nginx configuration.
+    // Apply the cheap scanner guard after all routes and FLOW wrappers merge.
+    let app = tor_web::flow_runtime::scanner_guard::protect(app);
     tor_web::flow_runtime::serve(listener, app, html_collector, observations, backgrounds).await?;
     Ok(())
 }
