@@ -8,7 +8,13 @@ use tor_mail::{
     repositories::postbox_feedback::{PgPostboxFeedback, PostboxDecision},
 };
 
-fn complaint(event_id: &str, identity: &str, message: &str, marker: &str, email: &str) -> PostboxEvent {
+fn complaint(
+    event_id: &str,
+    identity: &str,
+    message: &str,
+    marker: &str,
+    email: &str,
+) -> PostboxEvent {
     let payload = json!({
         "eventType":"Complaint",
         "eventId":event_id,
@@ -22,7 +28,9 @@ fn complaint(event_id: &str, identity: &str, message: &str, marker: &str, email:
             "complainedRecipients":[{"emailAddress":email}]
         }
     });
-    PostboxEvent::parse(&serde_json::to_vec(&payload).unwrap()).unwrap().unwrap()
+    PostboxEvent::parse(&serde_json::to_vec(&payload).unwrap())
+        .unwrap()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -37,7 +45,10 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
     let quota = PgMailQuota::new(pool.clone());
     let feedback = PgPostboxFeedback::new(pool.clone());
     clear(&pool).await;
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let address = format!("mail-g2-{nonce}@example.invalid");
     let user: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash) \
@@ -54,11 +65,17 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
     let identity = format!("identity-{nonce}");
     let message = format!("message-{nonce}");
     assert!(feedback.prepare(first, &identity).await.unwrap().is_none());
-    assert_eq!(quota.reserve(first, key).await.unwrap(), QuotaDecision::Reserved);
+    assert_eq!(
+        quota.reserve(first, key).await.unwrap(),
+        QuotaDecision::Reserved
+    );
     let marker = feedback.prepare(first, &identity).await.unwrap().unwrap();
     assert!(feedback.prepare(first, &identity).await.unwrap().is_none());
     assert!(queue.finish(first, MailOutcome::Uncertain).await.unwrap());
-    let attempt = AttemptRef { outbox_id: first.id, generation: first.generation };
+    let attempt = AttemptRef {
+        outbox_id: first.id,
+        generation: first.generation,
+    };
     sqlx::query("UPDATE mail_feedback_attempts SET reserved_at=clock_timestamp()-interval '10 days' WHERE outbox_id=$1")
         .bind(first.id)
         .execute(&pool)
@@ -86,8 +103,14 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
         restarted.record_verified_event(&good, &signer).await.unwrap(),
         PostboxDecision::Duplicate
     );
-    assert!(feedback.bind_accepted_message(attempt, &identity, &message).await.unwrap());
-    assert!(!feedback.bind_accepted_message(attempt, &identity, "conflict").await.unwrap());
+    assert!(feedback
+        .bind_accepted_message(attempt, &identity, &message)
+        .await
+        .unwrap());
+    assert!(!feedback
+        .bind_accepted_message(attempt, &identity, "conflict")
+        .await
+        .unwrap());
     let wrong_message = complaint("event-2", &identity, "conflict", &marker, &address);
     assert_eq!(
         feedback.record_verified_event(&wrong_message, &signer).await.unwrap(),

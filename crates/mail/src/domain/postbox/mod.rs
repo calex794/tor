@@ -57,9 +57,10 @@ impl PostboxEvent {
         if payload.len() > MAX_EVENT_BYTES {
             return Err("Postbox event exceeds size limit");
         }
-        let event: Value =
-            serde_json::from_slice(payload).map_err(|_| "invalid Postbox JSON")?;
-        let kind = event["eventType"].as_str().ok_or("missing Postbox event type")?;
+        let event: Value = serde_json::from_slice(payload).map_err(|_| "invalid Postbox JSON")?;
+        let kind = event["eventType"]
+            .as_str()
+            .ok_or("missing Postbox event type")?;
         let (recipient, feedback) = match kind {
             "Bounce" => {
                 let bounce = &event["bounce"];

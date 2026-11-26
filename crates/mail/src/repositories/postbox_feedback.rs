@@ -63,6 +63,11 @@ impl PgPostboxFeedback {
                AND m.recipient_user_id=$5 AND m.status='leased' \
                AND m.lease_until>clock_timestamp() \
                AND r.reserved_at>clock_timestamp()-interval '120 seconds' \
+               AND r.reserved_at<=clock_timestamp() \
+               AND NOT EXISTS (SELECT 1 FROM mail_recipient_suppression s \
+                 WHERE s.recipient_key=r.recipient_key \
+                 AND (s.suppressed_until IS NULL OR s.suppressed_until>clock_timestamp())) \
+             FOR UPDATE OF m \
              ON CONFLICT(outbox_id,generation) DO NOTHING",
         )
         .bind(claim.id)
@@ -197,6 +202,8 @@ impl PgPostboxFeedback {
 
     /// Delete at most 100 expired correlations and their event-ID fences.
     pub async fn prune_expired(&self) -> Result<u64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let _binding = guard(&mut tx).await?;
         let count = sqlx::query(
             "WITH batch AS (SELECT outbox_id,generation FROM mail_feedback_attempts \
              WHERE reserved_at<=clock_timestamp()-interval '90 days' \
@@ -204,9 +211,10 @@ impl PgPostboxFeedback {
              DELETE FROM mail_feedback_attempts f USING batch b \
              WHERE f.outbox_id=b.outbox_id AND f.generation=b.generation",
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         Ok(count)
     }
 }

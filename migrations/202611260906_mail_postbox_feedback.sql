@@ -21,3 +21,4 @@ CREATE TABLE mail_feedback_events (
     FOREIGN KEY(outbox_id,generation) REFERENCES mail_feedback_attempts(outbox_id,generation)
         ON DELETE CASCADE
 );
+CREATE INDEX mail_feedback_events_attempt ON mail_feedback_events(outbox_id,generation);
