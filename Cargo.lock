@@ -3592,6 +3592,7 @@ dependencies = [
  "tor-contracts",
  "zeroize",
 ]
+
 [[package]]
 name = "tor-observability"
 version = "0.1.0"
