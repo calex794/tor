@@ -21,8 +21,8 @@ impl PgFreeS3Ref {
         Self { pool }
     }
 
-    /// Register a conservative delivery deadline for the already verified
-    /// exact SINGLE. The caller still owns authentication and ACL rechecks.
+    /// Register a conservative delivery deadline for a verified SINGLE
+    /// capability or source response. The caller owns authentication and ACL rechecks.
     pub async fn record_single_delivery(&self, edition: &FreeS3Ref) -> Result<bool, sqlx::Error> {
         let size = i64::try_from(edition.size_bytes)
             .map_err(|_| sqlx::Error::Protocol("invalid FREE SINGLE size".into()))?;
@@ -55,6 +55,9 @@ impl PgFreeS3Ref {
              FROM free_chapter_storage_objects f
              JOIN chapter_versions v ON v.id=f.version_id
                AND v.chapter_id=f.chapter_id AND v.content_sha256=f.sha256
+             JOIN d001_free_single_admission_gates gate
+               ON gate.chapter_id=f.chapter_id AND gate.version_id=f.version_id
+               AND gate.sealed_at IS NULL
              WHERE f.chapter_id=$1 AND f.version_id=$2
                AND NOT EXISTS (
                     SELECT 1 FROM free_edition_active_storage a
@@ -125,6 +128,9 @@ impl PgFreeS3Ref {
             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3
               AND s.revoked_at IS NULL AND s.expires_at>now()
             JOIN account_roles r ON r.user_id=u.id AND r.role='administrator' AND r.is_active
+            JOIN d001_free_single_admission_gates gate
+              ON gate.chapter_id=f.chapter_id AND gate.version_id=f.version_id
+              AND gate.sealed_at IS NULL
             WHERE f.chapter_id=$1 AND f.version_id=$2 LIMIT 1",
         )
         .bind(chapter)
@@ -154,6 +160,9 @@ impl PgFreeS3Ref {
             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=pin.version_id
             JOIN free_chapter_storage_objects f ON f.chapter_id=c.id AND f.version_id=v.id
               AND f.sha256=v.content_sha256
+            JOIN d001_free_single_admission_gates gate
+              ON gate.chapter_id=f.chapter_id AND gate.version_id=f.version_id
+              AND gate.sealed_at IS NULL
             WHERE pin.chapter_id=$1 AND pin.version_id=$2 AND c.visibility='public'
               AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
               AND NOT c.admin_hold AND NOT c.is_deleted
@@ -185,6 +194,9 @@ impl PgFreeS3Ref {
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
              JOIN free_chapter_storage_objects f
                ON f.chapter_id=v.chapter_id AND f.version_id=v.id
+             JOIN d001_free_single_admission_gates gate
+               ON gate.chapter_id=f.chapter_id AND gate.version_id=f.version_id
+               AND gate.sealed_at IS NULL
              WHERE c.id=$1
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted

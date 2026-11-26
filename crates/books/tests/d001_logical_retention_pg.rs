@@ -687,3 +687,6 @@ async fn d001_single_retirement_queue_rechecks_new_reader_obligations() {
 
 #[path = "d001_logical_retention_pg/single_delivery_fence.rs"]
 mod single_delivery_fence;
+
+#[path = "d001_logical_retention_pg/single_admission_gate.rs"]
+mod single_admission_gate;

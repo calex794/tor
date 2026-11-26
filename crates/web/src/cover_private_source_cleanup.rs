@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tor_books::repositories::cover_source_cleanup::PgPrivateCoverSourceRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
 
-use crate::cover_private_removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
+use crate::cover_private_cleanup::removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct PrivateSourceCleanupResult {

@@ -3,12 +3,12 @@
 use std::{future::Future, time::Duration};
 use tor_ingest::domain::cover::CoverError;
 
-pub(super) const PRIVATE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(12);
+pub(crate) const PRIVATE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Poll exactly one fenced ledger update after the bounded storage operation.
 /// A timeout or storage error schedules retry, never successful removal.
 /// Return true only after a successful removal has been acknowledged by the ledger.
-pub(super) async fn finish_private_removal<E>(
+pub(crate) async fn finish_private_removal<E>(
     timeout: Duration,
     operation: impl Future<Output = Result<(), CoverError>>,
     mark_removed: impl Future<Output = Result<bool, E>>,

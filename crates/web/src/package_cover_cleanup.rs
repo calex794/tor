@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tor_commerce::repositories::layer_cover_cleanup::PgPackageCoverVariantRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
 
-use crate::cover_private_removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
+use crate::cover_private_cleanup::removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PackageCoverCleanupResult {
