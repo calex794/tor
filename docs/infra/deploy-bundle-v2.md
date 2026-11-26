@@ -65,3 +65,8 @@ DEPLOY-05a: два существующих скрипта go-live и SQLx вх�
 бинарника и также подписывается; при verify сверяется его содержание.
 Ветка v2 выполняет локальный подписанный migration script, legacy v1
 процедура сохранена. Формат v2 ещё не активирован.
+
+DEPLOY-06a adds three signed clean-host-only configuration templates:
+a dedicated loopback Nginx vhost, full tor-web unit and PG20 drop-in
+(20 is the file ordering, not the PostgreSQL major version). These are
+never installed by the normal update or recovery path.

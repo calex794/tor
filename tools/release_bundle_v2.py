@@ -36,7 +36,12 @@ SCRIPTS = {
     "go-live-postgres-vps.sh": "ops/go-live-postgres-vps.sh",
     "apply-tor-migrations-vps.sh": "ops/apply-tor-migrations-vps.sh",
 }
-CONFIGS = {**EDGE, **SYSTEMD, **SCRIPTS}
+INSTALL = {
+    "install-nginx.conf": "ops/install/pandaolate.conf",
+    "install-tor-web.service": "ops/tor-web.service.example",
+    "install-postgres.conf": "ops/install/20-postgres.conf",
+}
+CONFIGS = {**EDGE, **SYSTEMD, **SCRIPTS, **INSTALL}
 MIGRATOR_CHECKSUM = "tor-migrate.sha256"
 PAYLOAD = (*BINARIES, *CONFIGS, MIGRATOR_CHECKSUM)
 FILES = frozenset((*PAYLOAD, MANIFEST, SIGNATURE))
