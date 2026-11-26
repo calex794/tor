@@ -1,9 +1,11 @@
 //! MOD-COVER-01: opt-in cleanup of unused PRIVATE original uploads.
 //! A source may be shared by multiple recipes, so B must retire the entire
 //! job graph before this worker is allowed to delete its exact S3 object.
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tor_books::repositories::cover_source_cleanup::PgPrivateCoverSourceRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
+
+use crate::cover_private_cleanup::removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct PrivateSourceCleanupResult {
@@ -40,31 +42,17 @@ impl PrivateCoverSourceCleanup {
         };
         // Two 12s S3 operations fit well inside the 60s fenced DB lease.
         for item in claims {
-            let operation = tokio::time::timeout(
-                Duration::from_secs(12),
+            if finish_private_removal(
+                PRIVATE_REMOVAL_TIMEOUT,
                 self.storage
                     .remove_private_staging_source(&item.storage_key),
+                self.ledger.removed(item.id, item.lease_epoch),
+                self.ledger.retry(item.id, item.lease_epoch),
             )
-            .await;
-            if matches!(operation, Ok(Ok(()))) {
-                if !self
-                    .ledger
-                    .removed(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
+            .await?
+            {
                 result.removed += 1;
             } else {
-                if !self
-                    .ledger
-                    .retry(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
                 result.deferred += 1;
             }
         }
