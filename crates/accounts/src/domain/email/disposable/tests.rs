@@ -49,8 +49,14 @@ fn matches_canonical_idna_labels_and_respects_exact_exceptions() {
         rules.classify("reader@real.mailinator.com").unwrap(),
         DisposableStatus::Exception
     );
-    for address in ["reader@notmailinator.com", "reader@mailinator.com.example.org"] {
-        assert_eq!(rules.classify(address).unwrap(), DisposableStatus::NotListed);
+    for address in [
+        "reader@notmailinator.com",
+        "reader@mailinator.com.example.org",
+    ] {
+        assert_eq!(
+            rules.classify(address).unwrap(),
+            DisposableStatus::NotListed
+        );
     }
     assert!(rules.classify("reader@@mailinator.com").is_err());
 }
