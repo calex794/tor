@@ -7,7 +7,7 @@ use crate::{
 use axum::{
     extract::{ConnectInfo, Form, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
@@ -70,6 +70,34 @@ pub(super) async fn show_login(
     private_response(
         pages::login_form_with_next(&token, next.as_deref()),
         &[cookie],
+    )
+}
+
+/// The dialog uses the exact same POST endpoints and security checks as the
+/// standalone forms. Only the successful response representation differs.
+fn auth_success(headers: &HeaderMap, next: Option<&str>, cookies: &[String]) -> Response {
+    if headers
+        .get("x-tor-auth-dialog")
+        .is_some_and(|value| value == "1")
+    {
+        let mut response = private_response(StatusCode::NO_CONTENT, cookies);
+        response
+            .headers_mut()
+            .insert("x-tor-auth-dialog", HeaderValue::from_static("success"));
+        response
+    } else {
+        private_response(Redirect::to(next.unwrap_or("/me")), cookies)
+    }
+}
+
+pub(super) async fn dialog_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        include_str!("../../assets/tor-auth-dialog.js"),
     )
 }
 
@@ -316,8 +344,9 @@ pub(super) async fn register(
             tokio::spawn(async move {
                 let _ = referrals.finalize_one(user_id).await;
             });
-            private_response(
-                Redirect::to(next.as_deref().unwrap_or("/me")),
+            auth_success(
+                &headers,
+                next.as_deref(),
                 &[
                     state.cookies.session_cookie(&token),
                     state.cookies.cleared_guest_cookie(),
@@ -513,8 +542,9 @@ pub(super) async fn login(
     // Only an explicitly allowed local destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
-    private_response(
-        Redirect::to(next.as_deref().unwrap_or("/me")),
+    auth_success(
+        &headers,
+        next.as_deref(),
         &[state.cookies.session_cookie(&token)],
     )
 }
@@ -523,6 +553,22 @@ pub(super) async fn login(
 mod login_error_tests {
     use super::*;
     use axum::body::to_bytes;
+
+    #[test]
+    fn successful_dialog_and_standalone_responses_keep_private_cookies() {
+        let cookie = String::from("session=test; HttpOnly; SameSite=Strict");
+        let mut headers = HeaderMap::new();
+        let plain = auth_success(&headers, Some("/reader/42"), &[cookie.clone()]);
+        assert_eq!(plain.status(), StatusCode::SEE_OTHER);
+        assert_eq!(plain.headers()[header::LOCATION], "/reader/42");
+        headers.insert("x-tor-auth-dialog", HeaderValue::from_static("1"));
+        let dialog = auth_success(&headers, Some("/reader/42"), &[cookie]);
+        assert_eq!(dialog.status(), StatusCode::NO_CONTENT);
+        assert_eq!(dialog.headers()["x-tor-auth-dialog"], "success");
+        assert_eq!(dialog.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(dialog.headers().contains_key(header::SET_COOKIE));
+        assert!(!dialog.headers().contains_key(header::LOCATION));
+    }
 
     #[tokio::test]
     async fn too_many_login_attempts_has_clear_429_and_retry_after() {

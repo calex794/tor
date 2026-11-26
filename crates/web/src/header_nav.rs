@@ -15,6 +15,7 @@ use crate::auth_cookies::CookiePolicy;
 struct Visitor {
     authenticated: bool,
     csrf: Option<String>,
+    auth_dialog: bool,
 }
 
 tokio::task_local! {
@@ -63,6 +64,19 @@ fn html_route(method: &Method, path: &str) -> bool {
             "/site.webmanifest",
         ]
         .contains(&path)
+}
+
+// Only public browsing pages can open the progressive-enhancement dialog.
+// Private account, admin and standalone authentication pages keep their CSP.
+fn auth_dialog_route(path: &str) -> bool {
+    matches!(path, "/" | "/catalog")
+        || ["/books/", "/read/", "/reader/"]
+            .into_iter()
+            .any(|prefix| {
+                path.strip_prefix(prefix).is_some_and(|id| {
+                    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            })
 }
 
 // Read-only administrative reports must neither issue CSRF cookies nor expose
@@ -150,6 +164,7 @@ async fn with_visitor(
     let visitor = Visitor {
         authenticated,
         csrf,
+        auth_dialog: !authenticated && auth_dialog_route(request.uri().path()),
     };
     let mut response = VISITOR.scope(visitor, next.run(request)).await;
     let is_html = response
@@ -224,11 +239,9 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
         )
     } else {
         (
-            r#"<a class="site-mobile-nav__link" href="/login">Войти</a>
-<a class="site-mobile-nav__link" href="/register">Регистрация</a>"#
+            r#"<a class="site-mobile-nav__link" href="/login">Войти</a>"#
                 .to_owned(),
-            r#"<a class="site-nav__link" href="/login">Войти</a>
-<a class="button button--small" href="/register">Регистрация</a>"#
+            r#"<a class="button button--small" href="/login">Войти</a>"#
                 .to_owned(),
             "",
         )
@@ -236,6 +249,14 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
     html.replace("<!--HEADER_MOBILE_AUTH-->", &mobile)
         .replace("<!--HEADER_DESKTOP_MEMBER_NAV-->", member_nav)
         .replace("<!--HEADER_DESKTOP_AUTH-->", &desktop)
+        .replace(
+            "<!--HEADER_AUTH_DIALOG-->",
+            if visitor.auth_dialog && !visitor.authenticated {
+                include_str!("../templates/auth_dialog.html")
+            } else {
+                ""
+            },
+        )
 }
 
 #[cfg(test)]
@@ -262,6 +283,7 @@ mod tests {
             &Visitor {
                 authenticated: true,
                 csrf: None,
+                auth_dialog: false,
             },
         );
         assert!(html.contains("href=\"/me/books\">Мои книги</a>"));
@@ -291,11 +313,41 @@ mod tests {
     }
 
     #[test]
+    fn dialog_is_guest_public_only() {
+        for path in ["/", "/catalog", "/books/1", "/reader/101", "/read/101"] {
+            assert!(auth_dialog_route(path), "{path}");
+        }
+        for path in ["/login", "/register", "/me", "/odmen", "/read/odmen/1"] {
+            assert!(!auth_dialog_route(path), "{path}");
+        }
+        let template = include_str!("../templates/layout.html");
+        let guest = render_for(
+            template,
+            &Visitor {
+                auth_dialog: true,
+                ..Visitor::default()
+            },
+        );
+        assert_eq!(guest.matches("id=\"tor-auth-dialog\"").count(), 1);
+        assert!(guest.contains("/assets/tor-auth-dialog.js"));
+        let signed_in = render_for(
+            template,
+            &Visitor {
+                authenticated: true,
+                auth_dialog: true,
+                ..Visitor::default()
+            },
+        );
+        assert!(!signed_in.contains("id=\"tor-auth-dialog\""));
+        assert!(!signed_in.contains("/assets/tor-auth-dialog.js"));
+    }
+
+    #[test]
     fn guest_and_verified_headers_are_mutually_exclusive() {
         let template = include_str!("../templates/layout.html");
         let guest = render_for(template, &Visitor::default());
         assert!(guest.contains("href=\"/login\">Войти</a>"));
-        assert!(guest.contains("href=\"/register\">Регистрация</a>"));
+        assert!(!guest.contains("href=\"/register\">Регистрация</a>"));
         assert!(!guest.contains("action=\"/logout\""));
         let guest_header = guest.split("</header>").next().unwrap();
         assert!(!guest_header.contains("href=\"/me/books/new\""));
@@ -308,6 +360,7 @@ mod tests {
             &Visitor {
                 authenticated: true,
                 csrf: Some("csrf-token".to_owned()),
+                auth_dialog: false,
             },
         );
         assert!(!signed_in.contains("href=\"/login\">Войти</a>"));
