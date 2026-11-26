@@ -5,7 +5,10 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use tor_accounts::services::security::generate_session_token;
+use tor_accounts::{
+    repositories::PgAccounts,
+    services::security::{generate_session_token, session_token_digest},
+};
 
 pub(crate) use tor_accounts::services::security::SESSION_AGE_SECONDS as SESSION_AGE;
 const CSRF_AGE: u32 = 60 * 60;
@@ -86,6 +89,20 @@ impl CookiePolicy {
     /// Never advertise a lifetime beyond the current server-side session.
     pub(crate) fn session_cookie_with_age(&self, token: &str, age: u32) -> String {
         self.cookie(self.session_name(), token, age.min(SESSION_AGE), "Strict")
+    }
+
+    /// Best effort after accepted activity; a failed renewal never changes
+    /// the result of a reading command that has already committed.
+    pub(crate) async fn activity_cookie(
+        &self,
+        accounts: &PgAccounts,
+        token: &str,
+    ) -> Option<String> {
+        let age = accounts
+            .renew_session_on_activity(&session_token_digest(token))
+            .await
+            .ok()??;
+        Some(self.session_cookie_with_age(token, age))
     }
 
     pub(crate) fn cleared_cookies(&self) -> [String; 2] {

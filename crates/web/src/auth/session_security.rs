@@ -18,6 +18,20 @@ pub(super) struct RevokeForm {
     csrf_token: Option<String>,
 }
 
+/// Called only after an authenticated and CSRF-checked reading command
+/// has committed. Retrieval and background grant issuance never call this.
+pub(super) async fn activity_cookies(state: &AuthState, headers: &HeaderMap) -> Vec<String> {
+    let Some(token) = state.cookies.session_token(headers) else {
+        return Vec::new();
+    };
+    state
+        .cookies
+        .activity_cookie(&state.accounts, &token)
+        .await
+        .into_iter()
+        .collect()
+}
+
 pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let user = match super::session_user(&state, &headers).await {
         Ok(Some(user)) => user,

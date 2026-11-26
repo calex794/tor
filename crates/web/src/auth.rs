@@ -588,7 +588,7 @@ async fn save_place(
     {
         Ok(()) => private_response(
             Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
-            &[],
+            &session_security::activity_cookies(&state, &headers).await,
         ),
         Err(ProgressError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(ProgressError::NotFound) => deny(StatusCode::NOT_FOUND),

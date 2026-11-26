@@ -17,15 +17,25 @@ cross-site navigation and administrative report responses do not renew.
 Browser cookie age is synchronized to remaining server expiry even if a
 previous response was lost. No schema migration or secret rotation is needed.
 
+AUTH-02b also counts accepted free/archived-free/purchased position saves,
+manual position saves and explicit successful chapter completion as activity.
+No new endpoints or browser heartbeat; successful progress commands retain
+their own ACL, Origin, CSRF and revision validation. GET polling, S3 grants,
+conflicts and denied commands do not extend the session. A failed renewal
+does not invalidate an already committed reading command. Real browser
+gesture coverage remains required.
+
 This slice does not introduce a maximum absolute lifetime, an administrator
-session policy or a client-side activity endpoint. Reader AJAX/scroll
-activity, full session/device management, administrator revocation with audit,
-load testing and release/restore continuity remain subsequent slices.
+session policy or a client-side activity endpoint. Full session/device
+management, administrator revocation with audit, load testing and
+release/restore continuity remain subsequent slices.
 No production rollout is authorized by this PR.
 
 Acceptance: the existing Integration CI accounts and
 `account_sessions_http_pg a_03_` suites cover 30-day issuance, live legacy
 upgrade, background/cross-site exclusion, no repeat expiry writes,
 concurrency of fresh reads, and refusal to revive revoked/expired sessions.
+Existing C06/C08/C11 HTTP PostgreSQL cases also verify renewal on successful
+progress writes, without renewal on read-only or denied requests.
 Real browser reader coverage and restart/rollback evidence are still required
 before declaring the full program complete.

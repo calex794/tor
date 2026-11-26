@@ -198,12 +198,7 @@ async fn with_visitor(
                 .iter()
                 .any(|v| v.to_str().is_ok_and(|v| v.starts_with(&prefix)));
             if !already_set {
-                if let Ok(Some(age)) = state
-                    .accounts
-                    .renew_session_on_activity(&session_token_digest(token))
-                    .await
-                {
-                    let cookie = state.cookies.session_cookie_with_age(token, age);
+                if let Some(cookie) = state.cookies.activity_cookie(&state.accounts, token).await {
                     if let Ok(mut value) = HeaderValue::from_str(&cookie) {
                         value.set_sensitive(true);
                         response.headers_mut().append(header::SET_COOKIE, value);
