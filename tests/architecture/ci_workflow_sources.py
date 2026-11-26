@@ -137,5 +137,82 @@ def expand_rec_browser(text, action=None):
     return text.replace(REC_ACTION_CALL, rec_browser_steps(action), 1)
 
 
+COVER_ACTION_PATH = ROOT / ".github/actions/pg-cover-browser/action.yml"
+COVER_ACTION_REF = "        uses: ./.github/actions/pg-cover-browser\n"
+COVER_ACTION_CALL = ("      - name: Run shared PostgreSQL cover browser acceptance\n"
+                     + COVER_ACTION_REF)
+COVER_ACTION_HEADER = (
+    "name: PostgreSQL cover browser acceptance\n"
+    "description: Shared isolated owner account and private S3 cover browser checks\n"
+    "runs:\n"
+    "  using: composite\n"
+    "  steps:\n"
+)
+COVER_STEP_NAMES = (
+    "Create disposable PostgreSQL roles and apply canonical migrations",
+    "Start checksum-verified MinIO on loopback",
+    "Prepare isolated reset test mailbox",
+    "Create private test bucket using existing verified S3 provider test",
+    "Build real Rust server with private S3 enabled",
+    "Install Chromium",
+    "Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP",
+)
+COVER_BROWSER_ENV = (
+    "      env:\n"
+    "        TOR_COVER_S3_BUCKET: tor-private-cover-ci\n"
+    "        TOR_COVER_WORKER_ENABLED: '1'\n"
+    "        TOR_COVER_EXPECT_LOSSY_WEBP: '1'\n"
+    "        TOR_AUTH_ENABLED: '1'\n"
+    "        TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098\n"
+    "        TOR_LISTEN_ADDR: 127.0.0.1:3098\n"
+    "        DATABASE_URL: ${{ env.APP_URL }}\n"
+    "        AWS_REGION: us-east-1\n"
+    "        AWS_ACCESS_KEY_ID: tor-cover-ci-user\n"
+    "        AWS_SECRET_ACCESS_KEY: tor-cover-ci-secret-only\n"
+    "        AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000\n"
+    "        AWS_EC2_METADATA_DISABLED: 'true'\n"
+    "        TOR_COVER_BROWSER_SHOTS: ${{ runner.temp }}/cover-browser-shots\n"
+    "        TOR_PASSWORD_RESET_ENABLED: '1'\n"
+    "        TOR_RESET_SENDMAIL: ${{ runner.temp }}/account-reset-sendmail\n"
+    "        TOR_RESET_MAIL_FROM: no-reply@example.invalid\n"
+    "        TOR_RESET_TEST_MAIL_DIR: ${{ runner.temp }}/account-reset-mail\n"
+)
+
+
+def cover_browser_steps(action):
+    if not action.startswith(COVER_ACTION_HEADER):
+        raise ValueError("unexpected cover browser action metadata")
+    chunks = re.split(r"(?m)(?=^    - name: )", action[len(COVER_ACTION_HEADER):])
+    if chunks[0] or len(chunks) != len(COVER_STEP_NAMES) + 1:
+        raise ValueError("unexpected cover browser step count")
+    result = []
+    for index, (name, chunk) in enumerate(zip(COVER_STEP_NAMES, chunks[1:])):
+        lines = chunk.splitlines(keepends=True)
+        fields = [f"    - name: {name}\n", SHELL]
+        if index == len(COVER_STEP_NAMES) - 1:
+            fields.extend(COVER_BROWSER_ENV.splitlines(keepends=True))
+        n = len(fields)
+        if (lines[:n] != fields or len(lines) <= n
+                or not lines[n].startswith("      run: ")):
+            raise ValueError("unexpected cover browser step shape or environment")
+        if lines[n] == "      run: |\n":
+            if len(lines) <= n + 1 or any(not line.startswith("        ") for line in lines[n + 1:]):
+                raise ValueError("invalid cover browser run block")
+        elif len(lines) != n + 1:
+            raise ValueError("unexpected cover browser step fields")
+        result.extend("  " + line for line in (lines[0], *lines[2:]))
+    return "".join(result)
+
+
+def expand_cover_browser(text, action=None):
+    if COVER_ACTION_REF not in text:
+        return text
+    if text.count(COVER_ACTION_REF) != 1 or text.count(COVER_ACTION_CALL) != 1:
+        raise ValueError("unexpected cover browser action call")
+    if action is None:
+        action = COVER_ACTION_PATH.read_text(encoding="utf-8")
+    return text.replace(COVER_ACTION_CALL, cover_browser_steps(action), 1)
+
+
 def expand_ci_actions(text):
-    return expand_rec_browser(expand_analytics(text))
+    return expand_cover_browser(expand_rec_browser(expand_analytics(text)))
