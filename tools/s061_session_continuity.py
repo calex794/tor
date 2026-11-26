@@ -194,9 +194,13 @@ def assert_stale_restore_invalidation(sql, source, witness):
     revoke_restored = invalidation_sql()
     restored_before = session_snapshot(sql, RESTORE_URL, witness)
 
-    def expect_refusal(statement, marker):
+    def expect_refusal(statement, marker, superuser=False):
+        # The superuser case uses the existing disposable CI identity so
+        # access to pg_control_system cannot mask the actual guard check.
+        target = (["--host=127.0.0.1", "--port=5432", "--username=postgres",
+                   "--dbname=tor_restore_ci"] if superuser else [RESTORE_URL])
         result = subprocess.run(
-            ["psql", RESTORE_URL, "-X", "-A", "-t", "-q",
+            ["psql", *target, "-X", "-A", "-t", "-q",
              "-v", "ON_ERROR_STOP=1"],
             input=statement, text=True, capture_output=True, timeout=25,
         )
@@ -208,10 +212,10 @@ def assert_stale_restore_invalidation(sql, source, witness):
                 "AUTH08C refused operation invalidated a live session")
 
     # Execute the real operator guard against this deliberately wrong target:
-    # ordinary application role, TCP and unapproved cluster identity.
+    # TCP, the ordinary CI port and unapproved cluster identity.
     expect_refusal(
         invalidation_sql(operator_guard("tor_restore_ci", "1", 15432)),
-        "AUTH08C isolated promoted database guard failed",
+        "AUTH08C isolated promoted database guard failed", superuser=True,
     )
     print("AUTH08C_WRONG_TARGET_REFUSED")
 
