@@ -16,6 +16,7 @@ async fn mail_01_g1_suppression_is_durable_correlated_and_precedes_quota() {
     assert_eq!(options.get_host(), "127.0.0.1");
     assert_eq!(options.get_database(), Some("tor_ci"));
     let pool = PgPool::connect(&url).await.unwrap();
+    configure_cost_fixture(&pool).await;
     let queue = PgMailQueue::new(pool.clone());
     let quota = PgMailQuota::new(pool.clone());
     let suppression = PgMailSuppression::new(pool.clone());

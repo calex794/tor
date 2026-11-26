@@ -63,6 +63,28 @@ async fn clear(pool: &PgPool) {
         .unwrap();
 }
 
+// Disposable CI only. Never implicitly reset the production month.
+async fn configure_cost_fixture(pool: &PgPool) {
+    sqlx::query("DELETE FROM mail_cost_months")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE mail_cost_policy SET enabled=true,warning_1=10000,warning_2=30000, \
+         news_pause=40000,monthly_limit=50000 WHERE singleton",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO mail_cost_months(month_start,free_allowance,baseline_kopecks,rate_per_thousand) \
+         VALUES(date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date,2000,0,8032)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 // Seed controlled ledger history without waiting 24h or sending mail.
 async fn seed(pool: &PgPool, count: i64, purpose: MailPurpose, keys: QuotaKeys, age_seconds: i64) {
     sqlx::query(
@@ -92,6 +114,7 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     assert_eq!(options.get_host(), "127.0.0.1");
     assert_eq!(options.get_database(), Some("tor_ci"));
     let pool = PgPool::connect(&url).await.unwrap();
+    configure_cost_fixture(&pool).await;
     let queue = PgMailQueue::new(pool.clone());
     let quota = PgMailQuota::new(pool.clone());
     clear(&pool).await;
@@ -262,3 +285,5 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     assert_eq!(recent, 1);
     clear(&pool).await;
 }
+
+mod cost;

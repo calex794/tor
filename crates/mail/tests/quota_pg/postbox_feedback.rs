@@ -41,6 +41,7 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
     assert_eq!(options.get_host(), "127.0.0.1");
     assert_eq!(options.get_database(), Some("tor_ci"));
     let pool = PgPool::connect(&url).await.unwrap();
+    configure_cost_fixture(&pool).await;
     let queue = PgMailQueue::new(pool.clone());
     let quota = PgMailQuota::new(pool.clone());
     let feedback = PgPostboxFeedback::new(pool.clone());
