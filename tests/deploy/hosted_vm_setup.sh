@@ -134,6 +134,33 @@ chmod 0600 /etc/letsencrypt/live/pandaolate.ru/privkey.pem
 install -m 0644 /etc/letsencrypt/live/pandaolate.ru/fullchain.pem \
   /usr/local/share/ca-certificates/tor-deploy-lab.crt
 update-ca-certificates >/dev/null
+# Hosted runner images may make /opt writable by the runner account.
+# This disposable VM is now dedicated to the installation fixture. Normalize
+# only the directory itself (never its contents or another live host).
+# Do this after the host/existing-install guards and after package setup.
+[[ -d /opt && ! -L /opt && $(readlink -f /opt) == /opt ]] || {
+  echo 'REFUSE: unexpected /opt path' >&2; exit 2;
+}
+stat -c 'fixture before: %n uid=%u gid=%g mode=%a' /opt
+chown root:root /opt
+chmod 0755 /opt
+# Check all parents used by the actual prepare/activation preflight. Do not
+# silently repair other paths or weaken the production edge.trusted guard.
+for directory in /opt /srv /etc /var/lib /etc/systemd/system \
+  /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d; do
+  [[ -d "$directory" && ! -L "$directory" &&
+     $(readlink -f "$directory") == "$directory" ]] || {
+    echo 'REFUSE: unexpected fixture directory type' >&2; exit 2;
+  }
+  stat -c 'fixture parent: %n uid=%u gid=%g mode=%a' "$directory"
+  owner=$(stat -c %u "$directory")
+  mode=$(stat -c %a "$directory")
+  [[ "$owner" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] &&
+    (( (8#$mode & 022) == 0 )) || {
+      echo 'REFUSE: unsafe fixture directory permissions' >&2; exit 2;
+    }
+done
+echo 'DEPLOY08A_TRUSTED_FIXTURE_PARENTS_OK'
 # Real localhost TLS verification uses normal trust, never curl -k.
 printf '%s\n' "$GITHUB_SHA" > /root/tor-deploy-lab/approved-checkout
 echo 'DEPLOY08A_HOSTED_VM_FIXTURE_READY'

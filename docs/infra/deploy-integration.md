@@ -47,3 +47,12 @@ No production configuration or migration policy is changed.
 
 Synchronize main b88c734a25d36ce018be34ecc9e08b5f3f822c91 using exact non-overlapping blobs; preserve
 REUSE-12A/B audience browser helper changes unchanged.
+
+Run 45854126440 confirms PostgreSQL 18 setup and all live settings:
+DEPLOY08A_PG_CONFIG_PARSED_OK, DEPLOY08A_REAL_PG18_ACTIVE_OK,
+DEPLOY08A_HOSTED_VM_FIXTURE_READY. The actual first-start preflight then
+refused the hosted runner's /opt owner/mode. Normalize only /opt itself
+inside the guarded disposable fixture, report directory owner/mode and
+check every activation parent before starting the acceptance test. Do not
+change descendants or relax the production trust guard. First-start and
+rollback acceptance remain pending until the next VM job completes.

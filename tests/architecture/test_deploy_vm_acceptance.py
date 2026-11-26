@@ -43,6 +43,23 @@ class DeploymentVMTests(unittest.TestCase):
         self.assertLess(setup.index("if ! systemctl start postgresql@18-main.service"),
                         setup.index("DEPLOY08A_REAL_PG18_ACTIVE_OK"))
 
+    def test_runner_opt_normalization_is_fixture_only(self):
+        setup = (ROOT / "tests/deploy/hosted_vm_setup.sh").read_text()
+        self.assertIn('[[ -d /opt && ! -L /opt && $(readlink -f /opt) == /opt ]]', setup)
+        self.assertLess(setup.index("REFUSE: disposable GitHub-hosted VM only"),
+                        setup.index("chown root:root /opt"))
+        self.assertLess(setup.index("REFUSE: existing TOR/fixture path"),
+                        setup.index("chown root:root /opt"))
+        self.assertLess(setup.index("chown root:root /opt"),
+                        setup.index("DEPLOY08A_TRUSTED_FIXTURE_PARENTS_OK"))
+        self.assertLess(setup.index("DEPLOY08A_TRUSTED_FIXTURE_PARENTS_OK"),
+                        setup.index("DEPLOY08A_HOSTED_VM_FIXTURE_READY"))
+        self.assertEqual([line for line in setup.splitlines() if line.startswith("chown ")],
+                         ["chown root:root /opt"])
+        self.assertIn("chmod 0755 /opt", setup)
+        self.assertIn("(( (8#$mode & 022) == 0 ))", setup)
+        self.assertIn("/etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d", setup)
+
     def test_fixture_syntax_and_real_boundaries(self):
         setup = ROOT / "tests/deploy/hosted_vm_setup.sh"
         subprocess.run(["bash", "-n", str(setup)], check=True)
