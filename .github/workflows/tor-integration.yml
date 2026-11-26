@@ -191,13 +191,7 @@ jobs:
         run: |
           # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
           # Fall back to apt if a future runner image removes either binary.
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
       - name: Create isolated roles and database
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -1001,13 +995,7 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -1227,13 +1215,7 @@ jobs:
           node-version: '22'
       - name: Create disposable PostgreSQL roles and apply canonical migrations
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-cover-browser-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-cover-browser-ci-app';
@@ -1533,13 +1515,7 @@ jobs:
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
@@ -1746,13 +1722,7 @@ jobs:
           node-version: '22'
       - name: Install PostgreSQL client
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
       - name: Prepare disposable tor_ci with separate app/migrator privileges
         run: |
           set -euo pipefail
@@ -1950,13 +1920,7 @@ jobs:
       - name: Create disposable PostgreSQL roles, database and SQLx schema
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
@@ -2042,13 +2006,7 @@ jobs:
       - name: Prepare isolated PostgreSQL roles and SQLx schema
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
