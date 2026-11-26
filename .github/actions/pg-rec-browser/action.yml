@@ -1,0 +1,49 @@
+name: PostgreSQL REC13 browser acceptance
+description: Shared isolated current and historical REC browser checks
+inputs:
+  lane:
+    description: Current or historical test lane
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate REC matrix lane
+      shell: bash -e {0}
+      env:
+        TOR_REC13_LANE: ${{ inputs.lane }}
+      run: |
+        case "$TOR_REC13_LANE" in
+          current|historical) ;;
+          *) echo 'Unsupported REC matrix lane' >&2; exit 2 ;;
+        esac
+    - name: Feature boundary checks
+      shell: bash -e {0}
+      run: python3 tools/check_feature_layout.py
+    - name: Prepare isolated database
+      shell: bash -e {0}
+      run: bash tools/ci_prepare_isolated_pg.sh
+    - name: Apply real SQLx migrations twice
+      shell: bash -e {0}
+      run: |
+        DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+        DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+    - name: Prepare explicit legacy and installed-upgrade analytics databases
+      shell: bash -e {0}
+      if: ${{ inputs.lane == 'historical' }}
+      run: |
+        bash tools/ci_prepare_legacy_analytics.sh
+        cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+        cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+    - name: Installed 190 to current analytics retirement with canonical and preference preservation
+      shell: bash -e {0}
+      if: ${{ inputs.lane == 'historical' }}
+      run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+    - name: REC13 real Chromium and historical HTTP acceptance
+      shell: bash -e {0}
+      env:
+        TOR_REC13_LANE: ${{ inputs.lane }}
+      run: bash tools/rec13_browser_acceptance.sh
+    - name: 100k catalogue contextual model PostgreSQL acceptance
+      shell: bash -e {0}
+      if: ${{ inputs.lane == 'current' }}
+      run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1 --nocapture

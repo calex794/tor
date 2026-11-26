@@ -21,6 +21,21 @@ impl PgFreeS3Ref {
         Self { pool }
     }
 
+    /// Register a conservative delivery deadline for the already verified
+    /// exact SINGLE. The caller still owns authentication and ACL rechecks.
+    pub async fn record_single_delivery(&self, edition: &FreeS3Ref) -> Result<bool, sqlx::Error> {
+        let size = i64::try_from(edition.size_bytes)
+            .map_err(|_| sqlx::Error::Protocol("invalid FREE SINGLE size".into()))?;
+        sqlx::query_scalar("SELECT d001_record_free_single_delivery($1,$2,$3,$4,$5)")
+            .bind(edition.chapter_id)
+            .bind(edition.version_id)
+            .bind(&edition.bucket)
+            .bind(edition.sha256.as_slice())
+            .bind(size)
+            .fetch_one(&self.pool)
+            .await
+    }
+
     /// D-05: a read-only physical SINGLE identity for a frozen FREE edition.
     /// CAUTION: this is NOT a reader authorization. HTTP callers must first
     /// require D's actor-owned historic Layer term, then repeat both D and
