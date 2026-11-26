@@ -56,7 +56,10 @@ async fn expect_public(client: &Client, origin: &str, chapter: i64, expected: &s
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.bytes().await.unwrap().as_ref(), expected.as_bytes());
+    assert_eq!(
+        response.bytes().await.unwrap().as_ref(),
+        expected.as_bytes()
+    );
 }
 
 async fn observed_pid(url: &str, sql: &str, failure: &str) -> i32 {
@@ -275,9 +278,8 @@ async fn d001_free_author_process_crash_keeps_v1_until_same_command_replays() {
          FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
          WHERE c.id={chapter}"
     );
-    let state = || -> (i64, i64, i64, i64) {
-        serde_json::from_str(&pg(url, &state_query)).unwrap()
-    };
+    let state =
+        || -> (i64, i64, i64, i64) { serde_json::from_str(&pg(url, &state_query)).unwrap() };
     assert_eq!(state(), (v1, revision, 0, 2));
     assert_eq!(pg(url, &find_reserved), v2.to_string());
     assert_eq!(f.count("free_chapter_storage_objects"), 1);
