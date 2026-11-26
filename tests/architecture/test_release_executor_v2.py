@@ -203,8 +203,8 @@ class ExecutorTests(unittest.TestCase):
                     executor.require_stopped_web()
 
     def test_outage_verification_requires_real_offline_edge(self):
-        with patch.object(executor, "trace_inactive"), \\
-             patch.object(executor, "require_stopped_web") as stopped, \\
+        with patch.object(executor, "trace_inactive"), \
+             patch.object(executor, "require_stopped_web") as stopped, \
              patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, b"502")):
             executor.Application(self.store, self.root / "signers", 9).verify_outage(A)
             self.assertEqual(stopped.call_count, 2)
@@ -215,8 +215,8 @@ class ExecutorTests(unittest.TestCase):
     def test_outage_restore_stops_and_never_restarts_previous_binary(self):
         self.store.switch(B, A)
         app = executor.Application(self.store, self.root / "signers", 9)
-        with patch.object(executor, "trace_inactive"), \\
-             patch.object(executor, "require_stopped_web") as stopped, \\
+        with patch.object(executor, "trace_inactive"), \
+             patch.object(executor, "require_stopped_web") as stopped, \
              patch.object(executor, "command") as cmd:
             app.restore_outage(A, B)
             cmd.assert_called_once_with("systemctl", "stop", executor.APP, timeout=90)
@@ -225,9 +225,9 @@ class ExecutorTests(unittest.TestCase):
 
     def test_outage_activation_uses_signed_recovery_shell_and_lock(self):
         app = executor.Application(self.store, self.root / "signers", 9)
-        with patch.object(app, "verify_outage"), patch.object(app, "verify"), \\
-             patch.object(executor, "require_forward"), patch.object(executor, "trace_inactive"), \\
-             patch.object(executor.bundle, "verify"), \\
+        with patch.object(app, "verify_outage"), patch.object(app, "verify"), \
+             patch.object(executor, "require_forward"), patch.object(executor, "trace_inactive"), \
+             patch.object(executor.bundle, "verify"), \
              patch.object(executor.subprocess, "Popen") as popen:
             popen.return_value.wait.return_value = 0
             app.activate_outage(B)
