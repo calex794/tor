@@ -124,7 +124,8 @@ def fixture_release(label, sha, signers, key, *, broken=False, late_failure=Fals
         policy.write_bytes(policy.read_bytes().replace(b"RestartSec=2s",
                            {"B": b"RestartSec=3s", "C": b"RestartSec=4s",
                             "D": b"RestartSec=5s", "E": b"RestartSec=6s",
-                            "F": b"RestartSec=7s", "G": b"RestartSec=8s"}[label]))
+                            "F": b"RestartSec=7s", "G": b"RestartSec=8s",
+                            "H": b"RestartSec=9s"}[label]))
     if broken:
         # Deliberately signed startup failure, not a production Rust build.
         shutil.copyfile("/usr/bin/false", source / "tor-web")
@@ -239,10 +240,12 @@ def approve_outage(previous, candidate):
                    (previous + "\n" + candidate + "\n").encode("ascii"), 0o600)
 
 
-def repair_witness(db, credentials, book, *, stopped, previous, candidate=None):
+def repair_witness(db, credentials, book, *, stopped, previous, candidate=None,
+                   previous_edge=None):
     app = executor.AppStore()
     need(app.current() == previous, "unexpected outage app pointer")
-    need(edge.EdgeStore(edge.ROOT).active_sha() == previous, "unexpected outage edge pointer")
+    need(edge.EdgeStore(edge.ROOT).active_sha() == (previous_edge or previous),
+         "unexpected outage edge pointer")
     need(database_witness() == db and secrets_witness() == credentials,
          "outage repair changed database or credentials")
     need(not os.path.lexists(executor.OUTAGE_APPROVAL), "outage approval was not consumed")
@@ -261,10 +264,174 @@ def repair_witness(db, credentials, book, *, stopped, previous, candidate=None):
         need(b"DEPLOY08A retained book" in http("/books/" + book), "repair lost retained book")
 
 
-def real_outage_acceptance(source, shas, db, credentials, book):
-    # The guarded disposable first-install lab has no legacy wrapper. Install
-    # the reviewed private modules (only the ancestry HTTP Request adapter
-    # is fixture-specific) and marker, NOT the actual v1 adoption/bootstrap.
+def sudo_release(*args):
+    return subprocess.run(
+        ["runuser", "-u", "tor-deploy", "--", "sudo", "-n", str(transition.WRAPPER), *args],
+        env=executor.SAFE_ENV, capture_output=True, timeout=240)
+
+
+def make_legacy_fixture(sha, key):
+    # The first-install/normal rollback fixture is already healthy. Rebuild
+    # only its lab metadata into the real v1 layout, without replacing the
+    # live executable, and preserve the removed v2 metadata privately.
+    app = executor.AppStore()
+    release = app.release(sha)
+    preserve = LAB / "pre-adoption-v2-metadata"
+    preserve.mkdir(mode=0o700)
+    for item in release.iterdir():
+        if item.name not in bundle.BINARIES:
+            item.rename(preserve / item.name)
+    manifest = ("TOR_RELEASE_SHA " + sha + "\n").encode()
+    for name in bundle.BINARIES:
+        with (release / name).open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        entry = (digest + "  " + name + "\n").encode()
+        first.new_file(release / (name + ".sha256"), entry)
+        manifest += entry
+    path = release / "tor-release-manifest"
+    first.new_file(path, manifest)
+    executor.command("ssh-keygen", "-Y", "sign", "-f", str(key), "-n",
+                     "tor-release", str(path))
+    (release / "tor-release-manifest.sig").chmod(0o644)
+    executor.command("bash", "-c",
+                     'ssh-keygen -Y verify -f "$1" -I tor-release -n tor-release -s "$2" < "$3"',
+                     "verify", str(edge.SIGNERS), str(release / "tor-release-manifest.sig"),
+                     str(path))
+    need(not os.path.lexists(release / bundle.MANIFEST), "legacy v2 manifest still present")
+
+    # Convert the known fixture vhost to a real unmanaged proxy. Preserve
+    # the old managed directory in the private disposable lab, only after
+    # nginx has reloaded and no longer includes its contents.
+    nginx = transition.adoption.ProductionAdoption()
+    vhost = first.VHOST
+    info, old = transition.adoption.checked_vhost(vhost)
+    includes = {b"include /var/lib/tor-edge/current/" + name.encode() + b";"
+                for name in edge.SNIPPETS}
+    removed = [line.strip() for line in old.splitlines() if line.strip() in includes]
+    need(len(removed) == 3 and set(removed) == includes, "unexpected fixture vhost")
+    legacy = b"\n".join(line for line in old.splitlines() if line.strip() not in includes) + b"\n"
+    transition.adoption.atomic_replace(vhost, old, legacy, info)
+    nginx.test()
+    nginx.reload()
+    nginx.loaded(vhost)
+    need(nginx.snapshot("/catalog").status == 200 and
+         not nginx.snapshot("/_tor-fallback/game.js").headers.get(edge.MARKER.lower()),
+         "legacy vhost not actually active")
+    shutil.move(str(edge.ROOT), str(LAB / "pre-adoption-managed-edge"))
+    wrapper = (ROOT / "ops/one-click-release-vps.sh").read_bytes()
+    need(transition.V1_MARKER not in wrapper.splitlines(), "unexpected fixture wrapper marker")
+    wrapper = wrapper.rstrip(b"\n") + b"\n" + transition.V1_MARKER + b"\n"
+    first.new_file(transition.WRAPPER, wrapper, 0o755)
+    sudoers = Path("/etc/sudoers.d/tor-one-click-release")
+    rule = b"tor-deploy ALL=(root) NOPASSWD: /usr/local/sbin/tor-one-click-release *\n"
+    first.new_file(sudoers, rule, 0o440)
+    executor.command("visudo", "-c")
+    return legacy, wrapper, sudoers, rule
+
+
+def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
+                                db, credentials, book):
+    app = executor.Application(executor.AppStore(), edge.SIGNERS, -1)
+    baseline = shas["B"]
+    # Pin the actual live main head, not a synthetic allowlist. A main
+    # advance during bootstrap is a legitimate refusal. Only authenticated
+    # HTTP transport is fixture-specific; exact equality remains required.
+    head_ref = executor.ancestry.public_get("/repos/calex794/tor/git/ref/heads/main")
+    head = head_ref.get("object", {}).get("sha")
+    need(executor.ancestry.valid_sha(head), "invalid live bootstrap head")
+    need(head not in shas.values(), "bootstrap identity must be distinct")
+    shas["H"] = head
+    executor.require_forward(head, shas["G"])
+    source["H"] = fixture_release("H", head, signers, key)
+    deploy = pwd.getpwnam("tor-deploy")
+    target = inbox / head
+    shutil.copytree(source["H"], target)
+    for item in (target, *target.iterdir()):
+        os.chown(item, deploy.pw_uid, deploy.pw_gid)
+
+    legacy, wrapper, sudoers, rule = make_legacy_fixture(baseline, key)
+    key.unlink()
+    key.with_suffix(".pub").unlink()
+    vhost = first.VHOST
+    pin = transition.adoption.hash_bytes(legacy)
+    approved = LAB / "approved-v2-sources"
+    approved.mkdir(mode=0o700)
+    files = dict(files)
+    files["wrapper.sh"] = (ROOT / "ops/one-click-release-v2-wrapper.sh").read_bytes()
+    for name, data in files.items():
+        first.new_file(approved / name, data, 0o600)
+
+    def exact_live_main(sha):
+        if executor.ancestry.require_on_main(executor.ancestry.public_get, sha) != sha:
+            raise executor.ExecutorError("candidate is no longer GitHub main")
+
+    def assert_old():
+        need(edge.read_small(transition.WRAPPER, 1024 * 1024) == wrapper and
+             edge.read_small(vhost, transition.adoption.MAX_CONFIG) == legacy and
+             edge.read_small(sudoers, 8192) == rule and
+             not os.path.lexists(transition.MARKER) and
+             not os.path.lexists(transition.BACKUP) and
+             not os.path.lexists(transition.HELPERS) and
+             app.current() == baseline, "refused bootstrap modified legacy state")
+
+    with patch.object(executor, "require_main", exact_live_main):
+        executor.command("systemctl", "stop", executor.APP)
+        try:
+            transition.bootstrap(approved, head, vhost, pin)
+        except (executor.ExecutorError, subprocess.CalledProcessError):
+            assert_old()
+            need(not os.path.lexists(executor.STATE / "bootstrap-bundles"),
+                 "unhealthy bootstrap staged candidate")
+        else:
+            raise AssertionError("unhealthy legacy site allowed bootstrap")
+        print("DEPLOY08E_REAL_V1_OUTAGE_REFUSED", flush=True)
+        executor.command("systemctl", "start", executor.APP)
+        wait_app(app, baseline)
+        # Wrong vhost hash must not replace the legacy sudo route, even
+        # after the signed candidate has been copied and checked.
+        try:
+            transition.bootstrap(approved, head, vhost, "0" * 64)
+        except (transition.InstallError, edge.EdgeError):
+            assert_old()
+        else:
+            raise AssertionError("unapproved legacy vhost accepted")
+        print("DEPLOY08E_REAL_VHOST_PIN_REFUSED", flush=True)
+        pid = executor.service_pid()
+        before = transition.adoption.ProductionAdoption().snapshot("/catalog")
+        transition.bootstrap(approved, head, vhost, pin)
+        executor.require_v2_marker()
+        app.verify(baseline)
+        need(executor.service_pid() == pid, "bootstrap restarted Rust")
+        need(edge.read_small(transition.BACKUP, 1024 * 1024) == wrapper and
+             stat.S_IMODE(transition.BACKUP.stat().st_mode) == 0o600 and
+             edge.read_small(transition.WRAPPER, 1024 * 1024) == files["wrapper.sh"] and
+             edge.read_small(sudoers, 8192) == rule, "legacy backup or sudo route differs")
+        store = edge.EdgeStore(edge.ROOT)
+        need(store.active_sha() == head, "adopted edge identity differs")
+        nginx = transition.adoption.ProductionAdoption()
+        nginx.probe(head, store.releases / head)
+        transition.adoption.compare_catalog(before, nginx.snapshot("/catalog"))
+        need(edge.read_small(store.root / "adoption-backups" / (pin + ".conf"),
+                             transition.adoption.MAX_CONFIG) == legacy,
+             "original vhost backup differs")
+        need(database_witness() == db and secrets_witness() == credentials and
+             b"DEPLOY08A retained book" in http("/books/" + book),
+             "bootstrap changed retained state")
+        try:
+            transition.bootstrap(approved, head, vhost, pin)
+        except transition.InstallError as exc:
+            need("already configured" in str(exc), "unexpected repeat bootstrap refusal")
+        else:
+            raise AssertionError("completed bootstrap could be repeated")
+
+    refused = sudo_release("--recover")
+    need(refused.returncode == 2 and b"TOR_V2_REFUSED: one full commit SHA required" in refused.stderr,
+         "installed sudo wrapper exposed root recovery")
+    print("DEPLOY08E_REAL_V1_V2_BOOTSTRAP_OK", flush=True)
+    return head
+
+
+def real_outage_acceptance(source, shas, db, credentials, book, key, signers):
     need(executor.AppStore().current() == shas["B"], "unexpected real-chain baseline")
     for prev, candidate in zip("BEF", "EFG"):
         executor.require_forward(shas[candidate], shas[prev])
@@ -279,9 +446,6 @@ def real_outage_acceptance(source, shas, db, credentials, book):
     adapter = inspect.getsource(vm_authenticated_request).encode()
     files["release_ancestry.py"] = original.replace(
         anchor, b"\n" + adapter + b"\nRequest = vm_authenticated_request\n" + anchor)
-    transition.install_helpers(transition.HELPERS, files)
-    transition.publish_marker(transition.MARKER)
-    executor.require_v2_marker()
     # Real staging from a deployment-user-owned inbox.
     deploy = pwd.getpwnam("tor-deploy")
     incoming = executor.TOR / "incoming"
@@ -295,6 +459,9 @@ def real_outage_acceptance(source, shas, db, credentials, book):
         shutil.copytree(source[label], target)
         for item in (target, *target.iterdir()):
             os.chown(item, deploy.pw_uid, deploy.pw_gid)
+
+    adopted_edge = legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
+                                               db, credentials, book)
 
     # A valid approval never authorizes taking a healthy site offline.
     approve_outage(shas["B"], shas["E"])
@@ -324,7 +491,7 @@ def real_outage_acceptance(source, shas, db, credentials, book):
          "wrong exact SHA approval accepted")
     need(coordinated.Journal().load() == before and
          executor.AppStore().current() == shas["B"] and
-         edge.EdgeStore(edge.ROOT).active_sha() == shas["B"], "refusal changed live state")
+         edge.EdgeStore(edge.ROOT).active_sha() == adopted_edge, "refusal changed live state")
     executor.OUTAGE_APPROVAL.unlink()
     edge.sync_dir(executor.OUTAGE_APPROVAL.parent)
     print("DEPLOY08D_REAL_UNAPPROVED_REFUSED", flush=True)
@@ -341,7 +508,7 @@ def real_outage_acceptance(source, shas, db, credentials, book):
     need(len(new_backups) == 1, "missing actual pre-migration backup")
     executor.command("pg_restore", "-l", str(next(iter(new_backups))))
     repair_witness(db, credentials, book, stopped=True,
-                   previous=shas["B"], candidate=shas["E"])
+                   previous=shas["B"], candidate=shas["E"], previous_edge=adopted_edge)
     need(unit.Systemd().snapshot()["RestartUSec"] == "3s", "old unit policy not restored")
     result = installed_executor("--repair-outage", shas["E"])
     need(result.returncode != 0, "consumed outage approval was replayed")
@@ -398,6 +565,27 @@ def real_outage_acceptance(source, shas, db, credentials, book):
     repair_witness(db, credentials, book, stopped=False, previous=shas["G"])
     print("DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED", flush=True)
 
+    # The actual deploy account can now update through the installed sudo
+    # wrapper, using the same signed bundle/production shell as the button.
+    # H was staged for adoption only; it has never been the active app.
+    result = sudo_release(shas["H"])
+    need(result.returncode == 0 and
+         ("TOR_ONE_CLICK_RELEASE_V2_OK " + shas["H"]).encode() in result.stdout,
+         "installed sudo wrapper did not complete signed normal release")
+    record = coordinated.Journal().load()
+    need(record.mode == "normal" and record.state == "committed" and
+         record.candidate == shas["H"], "normal sudo release not committed")
+    executor.Application(executor.AppStore(), edge.SIGNERS, -1).verify(shas["H"])
+    need(edge.EdgeStore(edge.ROOT).active_sha() == shas["H"] and
+         database_witness() == db and secrets_witness() == credentials and
+         b"DEPLOY08A retained book" in http("/books/" + book),
+         "normal sudo release changed retained state")
+    repeated = sudo_release(shas["H"])
+    need(repeated.returncode == 0 and
+         ("TOR_V2_ALREADY_ACTIVE " + shas["H"]).encode() in repeated.stdout,
+         "same signed sudo release not idempotent")
+    print("DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK", flush=True)
+
 
 def run():
     checkout = hosted_guard()
@@ -421,8 +609,8 @@ def run():
     source = {label: fixture_release(label, sha, signers, key,
                                      broken=label == "C", late_failure=label == "E")
               for label, sha in shas.items()}
-    key.unlink()  # no later signing during test
-    key.with_suffix(".pub").unlink()
+    # Keep only the private ephemeral lab key for the later live-main
+    # adoption identity and authentic v1 manifest. Delete after signing.
     pin = hashlib.sha256((source["A"] / bundle.MANIFEST).read_bytes()).hexdigest()
     machine = Path("/etc/machine-id").read_text().strip()
     record = clean.plan(shas["A"], machine, pin)
@@ -572,8 +760,10 @@ def run():
     del token
     try:
         with patch.object(executor.ancestry, "Request", vm_authenticated_request):
-            real_outage_acceptance(source, shas, db, credentials, book)
+            real_outage_acceptance(source, shas, db, credentials, book, key, signers)
     finally:
+        key.unlink(missing_ok=True)
+        key.with_suffix(".pub").unlink(missing_ok=True)
         token_path.unlink(missing_ok=True)
         edge.sync_dir(LAB)
     print("DEPLOY08A_VM_ACCEPTANCE_OK", flush=True)

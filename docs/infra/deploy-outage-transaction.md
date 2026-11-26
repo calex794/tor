@@ -91,3 +91,27 @@ exported variable before invoking sudo, and accept bounded opaque RFC 6750
 bearer syntax (including dots). Distinguish missing input from invalid syntax
 without printing any credential data. The private adapter applies the same
 bound and syntax checks. No production module or signed shell changes.
+
+## DEPLOY-08e: real v1-to-v2 adoption and sudo executor acceptance
+
+The guarded disposable VM reconstructs an authentic signed v1 release layout,
+legacy fixed wrapper, actual restricted sudoers rule and unmanaged Nginx vhost
+on the healthy fixture, preserving its live Rust executable and data. It uses
+real bootstrap(), not direct helper/marker installation. It verifies stopped
+baseline refusal without staging, wrong vhost pin refusal without wrapper
+replacement, successful adoption without changing the running Rust PID,
+original vhost and wrapper backups, unchanged sudoers and retained witnesses.
+The bootstrap candidate H is an alias of the live main head with checkout
+binaries and a temporary lab signature. Exact main equality is checked by the
+live authenticated lab HTTP adapter at the actual bootstrap guard points;
+no fixture allowlist substitutes for the main equality rule. A concurrent
+main advance legitimately refuses the pinned bootstrap. The earlier normal
+release fixture remains synthetic; the outage phase retains live ancestry
+and real signed shell. An initial edge H with app B is intentional; failure
+restores that distinct edge, then the actual tor-deploy sudo route eventually
+activates H via the normal signed shell and repeats idempotently. The lab key
+is retained root-private until signing H and the v1 manifest, then removed.
+This verifies bootstrap logic and installed wrapper on the disposable host;
+remote bootstrap source downloads, GitHub Actions-to-VPS SSH transport, and
+independent off-server restore still require separate acceptance. No VPS
+credentials or real production mutation.
