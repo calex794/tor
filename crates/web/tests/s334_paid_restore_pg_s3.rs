@@ -55,8 +55,9 @@ const ID_V2: &str = "f0c0e034-2026-4034-8034-000000000234";
 const MARKDOWN_V2: &str = "S334 вторая купленная редакция под ключом V2";
 const SOURCE: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci";
 const RESTORED: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_restore_ci";
+const PHYSICAL_RESTORED: &str = "postgresql://tor_app@127.0.0.1:15436/tor_ci";
 
-fn require_ci(restored: bool) -> &'static str {
+fn require_disposable_ci() {
     assert_eq!(env::var("GITHUB_ACTIONS").unwrap(), "true");
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").unwrap(), ENDPOINT);
     assert_eq!(
@@ -67,6 +68,10 @@ fn require_ci(restored: bool) -> &'static str {
         env::var("TOR_TEST_S3_SECRET_KEY").unwrap(),
         "tor-chapter-ci-secret-only"
     );
+}
+
+fn require_ci(restored: bool) -> &'static str {
+    require_disposable_ci();
     let url = env::var(if restored {
         "S334_RESTORED_DATABASE_URL"
     } else {
@@ -76,6 +81,30 @@ fn require_ci(restored: bool) -> &'static str {
     let expected = if restored { RESTORED } else { SOURCE };
     assert_eq!(url, expected, "forbid production database in recovery test");
     expected
+}
+
+fn require_physical_ci() -> &'static str {
+    require_disposable_ci();
+    assert_eq!(
+        env::var("TOR_I11_DISPOSABLE_CONTAINER").as_deref(),
+        Ok("yes")
+    );
+    assert!(std::path::Path::new("/.dockerenv").is_file());
+    let work = PathBuf::from(env::var("RUNNER_TEMP").unwrap());
+    assert_eq!(work.parent(), Some(std::path::Path::new("/tmp")));
+    let suffix = work
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("tor-i11-pitr."))
+        .unwrap();
+    assert_eq!(suffix.len(), 8);
+    assert!(suffix.bytes().all(|c| c.is_ascii_alphanumeric()));
+    assert!(work.is_dir());
+    assert_eq!(
+        env::var("S334_PHYSICAL_DATABASE_URL").as_deref(),
+        Ok(PHYSICAL_RESTORED)
+    );
+    PHYSICAL_RESTORED
 }
 
 fn ci_file(name: &str) -> PathBuf {
@@ -246,7 +275,11 @@ fn state() -> Value {
 }
 
 fn pg(url: &str, sql: &str) -> String {
-    assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
+    if url == PHYSICAL_RESTORED {
+        assert_eq!(url, require_physical_ci());
+    } else {
+        assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
+    }
     let output = Command::new("psql")
         .args([
             "-X",
@@ -517,7 +550,34 @@ async fn restore_object(url: &str, c: &Client, id: &str, digest: &str) {
 #[tokio::test]
 #[ignore = "isolated GitHub Actions restored DB and MinIO only"]
 async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
-    let url = require_ci(true);
+    verify_restored_paid(require_ci(true)).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the isolated promoted I-11 physical PITR fixture"]
+async fn s3_34_verify_physical_paid_v1_and_rejected_keys() {
+    let url = require_physical_ci();
+    // Reject any other server or any paused review copy before writes.
+    let expected = PathBuf::from(env::var("RUNNER_TEMP").unwrap()).join("app-restored");
+    assert_eq!(
+        pg(url, "SELECT current_setting('data_directory')"),
+        expected.to_str().unwrap()
+    );
+    assert_eq!(
+        pg(
+            url,
+            "SELECT current_user='tor_app' AND NOT pg_is_in_recovery() \
+             AND current_setting('archive_mode')='off' \
+             AND current_setting('listen_addresses')='127.0.0.1' \
+             AND current_setting('port')='15436'"
+        ),
+        "t"
+    );
+    verify_restored_paid(url).await;
+    println!("I11_S334_PHYSICAL_PAID_HTTP_OK");
+}
+
+async fn verify_restored_paid(url: &str) {
     let snapshot = state();
     let chapter = snapshot["chapter_id"].as_i64().unwrap();
     let v1 = snapshot["v1_id"].as_i64().unwrap();
@@ -569,6 +629,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
+    drop(missing);
+
     let reader_keys = ContentKeyring::with_v2(kek.clone(), key_v2()).unwrap();
     let missing_v2 = app_with_keyring(url, c.clone(), reader_keys).await;
     assert_eq!(
@@ -577,6 +639,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    drop(missing_v2);
     restore_object(url, &c, ID, digest).await;
     restore_object(url, &c, ID_V2, digest_v2).await;
     let missing_key_v2 = app(url, c.clone(), kek.clone()).await;
@@ -594,6 +657,9 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         assert_eq!(old.status(), StatusCode::OK);
         assert_eq!(decoded(old).await["version_id"], v1.to_string());
     }
+
+    drop(missing_key_v2);
+    drop(wrong_key_v2);
 
     // RET-02c: simulate a transport-level S3 outage *after* restoring the
     // exact purchased V1. A live purchase and intact KEK must not bypass HEAD;
@@ -622,6 +688,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         "provider outage does not revoke or refund a durable purchase"
     );
 
+    drop(unavailable);
+
     // The external recovery KEK must be supplied independently of the DB
     // and S3 data. Missing/wrong KEK fails closed, never exposes a V1 grant.
     assert!(matches!(
@@ -641,6 +709,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
+    drop(wrong);
     let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
     let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
