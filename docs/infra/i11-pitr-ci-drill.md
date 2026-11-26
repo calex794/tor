@@ -178,3 +178,28 @@ cluster. The paid fixture uses existing direct synthetic purchase facts;
 no real funding or additional payment claim. Schema 6 requires
  tor_historical_paid_free_layer_rows_replayed_from_wal; schema 5 is historical
 finance/refund evidence only. No credentials/session hashes in the snapshots.
+
+## RECOVERY-10e-a: actual FREE/PACK and Layer HTTP on a physical copy
+
+Keep the first two UTC paused-review restores and all existing schema-6 evidence.
+A third disposable restore of the same exclusive target is promoted only for
+application testing. The later wallet transaction must remain absent and the
+original finance/rights digest must match before and after HTTP. Enable LOGIN
+only for the restricted restored tor_app role on this disposable copy.
+
+Re-download and verify the exact archived PACK and manifest against the retained
+inventory and restored SQL receipts. Stream only the bounded synthetic dump,
+PACK/manifest and test sessions at runtime; the build context contains only
+allowlisted source and Linux executables (the pinned checksum-verified MinIO
+and exact Cargo test target). The read-only container retains network=none,
+no host mounts, no published ports, no production environment. PostgreSQL,
+MinIO and the real Axum FREE/PACK router communicate only on internal loopback.
+The shared Rust test now exercises actual TCP HTTP for both logical and physical
+restore: saved FREE and historical Layer return exact V1 bytes/hash/no-store;
+anonymous, unrelated, revoked and inappropriate readers must get the same
+explicit denials. No fallback to database markdown is possible for this fixture.
+
+Schema 7 requires physical_http_primary_cutoff_verified and
+physical_free_layer_pack_http_verified. It does not assert full production ACL,
+paid V1 HTTP/WebCrypto, real offsite recovery, RPO/RTO or release approval.
+Protected paid object restore/decryption on the physical copy remains 10e-b.

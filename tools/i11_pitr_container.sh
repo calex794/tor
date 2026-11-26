@@ -11,6 +11,7 @@ export PATH="/usr/lib/postgresql/18/bin:$PATH"
 work=$(mktemp -d /tmp/tor-i11-pitr.XXXXXXXX)
 source_dir="$work/source"
 restore_dir="$work/restored"
+app_dir="$work/app-restored"
 mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket}
 time_root="$work/time-recovery"
 time_dir="$time_root/pgdata"
@@ -41,7 +42,7 @@ CONFIG
 cleanup() {
   local status=$?
   trap - EXIT
-  for dir in "$source_dir" "$restore_dir" "$work/bad-target" "$time_dir"; do
+  for dir in "$source_dir" "$restore_dir" "$work/bad-target" "$time_dir" "$app_dir"; do
     if [[ -f "$dir/postmaster.pid" ]]; then
       pg_ctl -D "$dir" -m immediate -w -t 10 stop >/dev/null 2>&1 || status=1
     fi
@@ -105,13 +106,14 @@ PY
 # code nor an open socket proves that WAL replay has finished and SQL works.
 wait_for_primary() {
   local deadline=$((SECONDS + ${1:-30})) state
+  local data_dir=${2:-$restore_dir} sql_function=${3:-restored_sql}
   while ((SECONDS < deadline)); do
-    if ! pg_ctl -D "$restore_dir" status >/dev/null 2>&1; then
+    if ! pg_ctl -D "$data_dir" status >/dev/null 2>&1; then
       echo 'FAIL: restored PostgreSQL exited before primary readiness' >&2
       return 1
     fi
     if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' \
-        restored_sql -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
+        "$sql_function" -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
       case "$state" in
         f) return 0 ;;
         t) ;; # A readable standby is still not the requested promoted database.
@@ -141,17 +143,11 @@ trap cleanup EXIT
 trap 'report_failure "$LINENO"' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# The only runtime input is the disposable archive already verified by the
-# sealed restore job. Bound it independently inside the private tmpfs.
-head -c 67108865 >"$work/fixture.dump"
-python3 - "$work/fixture.dump" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-assert 5 <= p.stat().st_size <= 64 * 1024 * 1024
-with p.open('rb') as archive:
-    assert archive.read(5) == b'PGDMP'
-PY
+# Bounded allowlisted synthetic dump, PACK bytes and session tokens are
+# runtime-only. No fixture data is copied to the image or a host mount.
+head -c 70254593 >"$work/runtime.tar"
+python3 /opt/tor-i11-tools/i11_pitr_http_fixture.py "$work"
+rm -- "$work/runtime.tar"
 # LC_ALL=C controls test output, not the database encoding. Real TOR
 # migrations require Unicode normalization, so never inherit SQL_ASCII.
 initdb -D "$source_dir" -U postgres --auth=trust --locale=C --encoding=UTF8 >"$work/log/initdb.log"
@@ -276,6 +272,7 @@ if restored_sql -c 'SET ROLE i11_reader; SELECT * FROM public.i11_recovery_marke
   exit 1
 fi
 grep -q 'permission denied for table i11_recovery_markers' "$work/log/acl.log"
+pg_ctl -D "$restore_dir" -m fast -w -t 30 stop >/dev/null
 # Keep hot standby off, then observe the eventual process exit and exact fatal.
 # pg_ctl may return success in STANDBY before the unreachable target is detected.
 backrest --pg1-path="$work/bad-target" --set="$label" --type=name \
@@ -373,10 +370,34 @@ stage_time_target
 python3 /opt/tor-i11-tools/i11_pitr_run_paused.py "$work" "$label" "$time_target" "$timeline"
 [[ -s "$time_root/evidence/pg-paused-replay-receipt.json" ]]
 [[ ! -e "$time_dir/postmaster.pid" && -f "$time_dir/recovery.signal" ]]
+# RECOVERY-10e-a: a third fresh restore at the same exclusive UTC cutoff.
+# The earlier paused-review copies are not promoted or used for app writes.
+mkdir -p "$work/app-socket"
+pgbackrest --config="$conf" --stanza=tor --pg1-path="$app_dir" \
+  --set="$label" --type=time --target="$time_target" --target-timeline="$timeline" \
+  --target-exclusive --target-action=promote restore >"$work/log/app-restore.log" 2>&1
+pg_ctl -D "$app_dir" -l "$work/log/app-start.log" -w -t 30 \
+  -o "-c listen_addresses=127.0.0.1 -c port=15436 -c unix_socket_directories=$work/app-socket -c archive_mode=off -c hot_standby=off" start >/dev/null
+app_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/app-socket" -p 15436 -U postgres -d postgres "$@"; }
+wait_for_primary 30 "$app_dir" app_sql
+[[ $(app_sql -c 'SELECT pg_is_in_recovery()') == f ]]
+[[ $(app_sql -c "SELECT current_setting('data_directory')='$app_dir' AND current_setting('listen_addresses')='127.0.0.1' AND current_setting('archive_mode')='off'") == t ]]
+[[ $(app_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
+[[ $(app_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+[[ -n "$app_finance" && "$app_finance" == "$source_finance" ]]
+# Only the isolated promoted app copy enables LOGIN. Actual restored grants
+# are retained; source and pause copies stay unchanged.
+app_sql -c 'ALTER ROLE tor_app LOGIN' >/dev/null
+[[ $(app_sql -c "SELECT NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication FROM pg_roles WHERE rolname='tor_app'") == t ]]
+bash /opt/tor-i11-tools/i11_pitr_http.sh "$work"
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+[[ "$app_finance" == "$source_finance" ]]
+pg_ctl -D "$app_dir" -m fast -w -t 30 stop >/dev/null
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
-    'schema_version': 6, 'scope': 'isolated_container_fixture',
+    'schema_version': 7, 'scope': 'isolated_container_fixture',
     'postgres_version': sys.argv[2], 'pgbackrest_version': sys.argv[3],
     'backup_label': sys.argv[4], 'source_removed': True,
     'base_marker_restored': True, 'post_backup_wal_marker_restored': True,
@@ -393,6 +414,8 @@ print(json.dumps({
     'tor_refund_finance_and_revocation_replayed_from_wal': True,
     'tor_historical_paid_free_layer_rows_replayed_from_wal': True,
     'post_target_wallet_change_excluded': True,
+    'physical_http_primary_cutoff_verified': True,
+    'physical_free_layer_pack_http_verified': True,
     'drill_elapsed_seconds': round(time.monotonic() - float(sys.argv[1]), 3),
     'production_tested': False, 'offsite_tested': False,
     'application_acl_tested': False, 'rpo_slo_proven': False,
