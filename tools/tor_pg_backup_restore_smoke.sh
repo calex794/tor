@@ -38,6 +38,8 @@ cleanup() {
   fi
   # The temporary dump must not be uploaded as an artifact or retained.
   rm -f -- "$work_dir/tor-ci.dump" "$work_dir/backup-contents.txt" "$work_dir/tor-web.log"
+  # This exact child is created only inside our disposable mktemp workspace.
+  rm -rf -- "$work_dir/recovered-runtime"
   rmdir -- "$work_dir" || result=1
   exit "$result"
 }
@@ -149,9 +151,18 @@ private_id="$(psql "$app_url" -X -At -v ON_ERROR_STOP=1 \
   exit 1
 }
 
-TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
+# Simulate loss of the installed release as well as the database. Build a
+# signed v2 fixture from the real already-built executables, stage with
+# RECOVERY-01 and reinstall into a new private runtime directory.
+python3 tools/stage_recovery_ci_release.py --work-dir "$work_dir" --web-binary "$web_binary"
+web_binary="$work_dir/recovered-runtime/tor-web"
+test -x "$web_binary"
+# No inherited application/cloud/mail/provider credentials or worker flags.
+env -i PATH=/usr/bin:/bin LANG=C.UTF-8 HOME="$work_dir" \
+  TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3096 \
-  TOR_COVER_WORKER_ENABLED=0 DATABASE_URL="$app_url" \
+  TOR_COVER_WORKER_ENABLED=0 TOR_CDN_COVER_LIFECYCLE_WORKER_ENABLED=0 \
+  TOR_SCHEDULED_RELEASE_WORKER_ENABLED=0 DATABASE_URL="$app_url" \
   "$web_binary" > "$work_dir/tor-web.log" 2>&1 &
 web_pid=$!
 
@@ -171,6 +182,10 @@ if [[ "$ready" != 1 ]]; then
   tail -n 35 "$work_dir/tor-web.log" >&2
   exit 1
 fi
+[[ "/proc/$web_pid/exe" -ef "$web_binary" ]] || {
+  echo 'FAIL: HTTP readiness was not served by the restored release binary' >&2
+  exit 1
+}
 public_page="$(curl -fsS --max-time 5 "$base/books/$public_id")"
 [[ "$public_page" == *'TOR Backup Restore Canary'* ]] || {
   echo 'FAIL: restored public book not delivered via HTTP' >&2
@@ -182,6 +197,15 @@ private_code="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "$base/book
   exit 1
 }
 echo 'I11_PG18_RESTORE_HTTP_ACL_OK'
+
+# Check that runtime startup did not implicitly migrate the restored database.
+post_start_history="$(psql "$app_url" -X -At -v ON_ERROR_STOP=1 \
+  -c "SELECT count(*) || ':' || max(version) FROM _sqlx_migrations WHERE success=true")"
+[[ "$post_start_history" == "$source_history" && "/proc/$web_pid/exe" -ef "$web_binary" ]] || {
+  echo 'FAIL: restored SQLx history or actual running executable changed' >&2
+  exit 1
+}
+echo 'DEPLOY07B_SIGNED_V2_RESTORED_PG_HTTP_OK'
 
 # Also check that the source remains intact after the independent restore.
 source_id="$(psql "$TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 \

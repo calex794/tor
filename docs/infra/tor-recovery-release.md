@@ -121,3 +121,32 @@ The export_v2 artifact evidence now also records the public signer digest.
 Retain independent trust and approved checkpoint metadata BEFORE loss,
 not only evidence alongside the GitHub artifact. This step only verifies
 and stages release bytes, not data recovery or production readiness.
+
+## DEPLOY-07b — real recovered-release HTTP on disposable PG18
+
+Extend the existing mandatory foundation restore drill, not a second DB
+backup system or separate CI workflow. It restores a real pg_dump/pg_restore
+archive into a new disposable tor_restore_ci database, builds the remaining
+real trace-store binary without starting it, signs all three compiled
+executables (debug-stripped copies) and exact v2 config/script payload with
+an ephemeral fixture key. It stages through RECOVERY-01 --format v2 and
+explicitly imports that inert stage into a new private runtime directory.
+The actual web process must be the recovered executable by /proc inode,
+not the original build or a stale process. Startup uses an empty environment
+plus fixed fixture PG URL and loopback auth/HTTP settings. Verify readiness,
+restored public book, private draft denial, unchanged SQLx history and
+source paid purchase facts. Cleanup deletes only the disposable test
+runtime/database and temporary fixture material. The trace writer is never
+started; real executable payload and signatures are checked.
+
+DEPLOY07B_SIGNED_V2_RESTORED_PG_HTTP_OK is required within the existing
+fixture step. This is logical PG18 restore + signed release + real HTTP in
+CI, NOT actual physical PITR app activation or independent operational DR.
+No production credentials or routes are configured; CI host networking is
+not an independently enforced production egress sandbox. The current
+physical recovery tool deliberately stops a paused, socket-only cluster,
+without promotion. Do not point this fixture at that cluster or a real VPS.
+An operational app launch still requires independently reviewed exact
+checkpoint/business witnesses, approved promotion on a separate target,
+restricted fresh roles and runtime configuration, preserved KEKs/objects,
+blocked external side effects and the accepted compatible S3 build profile.
