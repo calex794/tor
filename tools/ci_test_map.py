@@ -177,6 +177,7 @@ TEST_SUITES = {
     "tools/stage_recovery_ci_release.py": {"postgres"},
     "tools/s061_cutover_pg_smoke.py": {"postgres"},
     "tools/s061_session_continuity.py": {"postgres"},
+    "tools/tor_recovery_auth.py": {"postgres"},
     "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/drop07_pack_restore_ci.sh": {"backup_recovery"},
