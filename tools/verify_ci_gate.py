@@ -36,10 +36,18 @@ FOUNDATION_MARKERS = {
         "encrypted backup": r"I11_PRIVATE_S3_ENCRYPTED_BACKUP_VERIFIED",
         "restored PACK": r"DROP07_RESTORED_PACK_HISTORICAL_V1_OK",
         "restored saved and Layer access": r"FND05_RESTORED_FREE_ARCHIVE_HTTP_OK",
+        "saved FREE and revoked denial": r"DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK",
+        "corrupt restored PACK denial": r"DEPLOY07C_CORRUPT_RESTORED_PACK_DENIED",
         "WAL recovery": r"I11_PITR_ISOLATED_DRILL_OK report=\S+",
     },
     "purchased-v1-recovery": {
         "purchased V1 and KEK": r"S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS",
+        "exact V1/V2 database facts": r"DEPLOY07C_PAID_V1_V2_DB_EXACT_OK",
+        "missing/wrong keys and outage": r"DEPLOY07C_MISSING_WRONG_KEYS_AND_PROVIDER_DENIED",
+        "cross-purchase and anonymous denial": r"DEPLOY07C_CROSS_PURCHASE_AND_ANONYMOUS_DENIED",
+        "both restored refunds denied": r"DEPLOY07C_BOTH_RESTORED_REFUNDS_DENIED",
+        "source unchanged": r"DEPLOY07C_PAID_SOURCE_UNCHANGED_OK",
+        "both historical KEK decryptions": r"S334_HISTORICAL_KEK_V1_V2_RESTORE_PASS",
     },
 }
 

@@ -83,7 +83,12 @@ mod tests {
     #[test]
     fn registration_rejects_invalid_email_without_changing_legacy_login() {
         let password = "мой_надежный_пароль";
-        for invalid in ["a@b", "user@gmail..com", "user@-gmail.com", "a..b@example.com"] {
+        for invalid in [
+            "a@b",
+            "user@gmail..com",
+            "user@-gmail.com",
+            "a..b@example.com",
+        ] {
             assert!(registration(invalid, "Reader", password).is_err());
             assert!(login(invalid, password).is_ok());
         }

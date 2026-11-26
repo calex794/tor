@@ -48,7 +48,9 @@ pub fn delivery_address(address: &str) -> Result<String, &'static str> {
                 || label.len() > 63
                 || label.starts_with('-')
                 || label.ends_with('-')
-                || !label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                || !label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         })
         || local.len() + 1 + ascii.len() > 254
     {
