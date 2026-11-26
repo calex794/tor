@@ -66,7 +66,12 @@ fn negative<T>(domain: &str, error: NetError) -> DnsAnswer<T> {
         // alias is absent. Do not cache it as a definitive original-domain
         // rejection without the complete chain and its expiry.
         let requested = format!("{domain}.");
-        if !records.query.name.to_string().eq_ignore_ascii_case(&requested) {
+        if !records
+            .query
+            .name
+            .to_string()
+            .eq_ignore_ascii_case(&requested)
+        {
             return DnsAnswer::TemporaryFailure;
         }
         if records.soa.is_some() {
