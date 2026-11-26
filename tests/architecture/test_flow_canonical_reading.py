@@ -1,5 +1,6 @@
 """Canonical reading is a bounded read-only projection, not reactivated tracking."""
 import hashlib
+from ci_workflow_sources import expand_analytics
 import pathlib
 import unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2]
@@ -52,7 +53,7 @@ class FlowCanonicalReading(unittest.TestCase):
         for file,needle in [('crates/reading/tests/audience_pg.rs','audience_pg/canonical.rs'),('crates/web/tests/audience_http_pg.rs','canonical::check'),('tools/audience_pg_browser.cjs','await canonical.check')]:
             self.assertIn(needle,read(file))
         for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-reading-analytics.yml']:
-            text=read(file)
+            text=expand_analytics(read(file))
             for needle in ['cargo test -p tor-reading --test audience_pg',
                            'cargo test -p tor-web --test audience_http_pg']:
                 self.assertIn(needle,text)

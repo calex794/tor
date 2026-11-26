@@ -1,5 +1,6 @@
 """Keep lock diagnostics confined to the disposable analytics database."""
 from pathlib import Path
+from ci_workflow_sources import expand_analytics
 import re
 import unittest
 
@@ -19,7 +20,7 @@ class PgLockDiagnosticsWiring(unittest.TestCase):
     def test_scoped_and_paired_ci_diagnostics(self):
         steps = []
         for filename in ("tor-integration.yml", "tor-pg-reading-analytics.yml"):
-            content = (WORKFLOWS / filename).read_text()
+            content = expand_analytics((WORKFLOWS / filename).read_text())
             with self.subTest(filename=filename):
                 self.assertEqual(content.count(STEP), 1)
                 job = re.split(r"\n  [a-z][a-z0-9-]+:\n",

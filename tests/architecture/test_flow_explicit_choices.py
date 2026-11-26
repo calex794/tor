@@ -1,5 +1,6 @@
 """C-owned explicit state stays read-only and never revives optional tracking."""
 import pathlib
+from ci_workflow_sources import expand_analytics
 import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 def read(path):
@@ -42,7 +43,7 @@ class FlowExplicitChoices(unittest.TestCase):
         )
         for file in (".github/workflows/tor-integration.yml",
                      ".github/workflows/tor-pg-reading-analytics.yml"):
-            ci = read(file)
+            ci = expand_analytics(read(file))
             for required in commands:
                 with self.subTest(workflow=file, command=required):
                     self.assertIn(required, ci)
