@@ -1,6 +1,11 @@
 name: "TOR — Обновить сайт"
 on:
   workflow_dispatch:
+    inputs:
+      prepare_v2:
+        description: "Только подготовить подписанный комплект v2 для первичной настройки"
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -17,6 +22,8 @@ jobs:
     timeout-minutes: 80
     env:
       TARGET_SHA: ${{ github.sha }}
+      PREPARE_V2: ${{ inputs.prepare_v2 }}
+      REQUIRE_V2: ${{ vars.TOR_REQUIRE_RELEASE_V2 }}
       TOR_DEPLOY_HOST: ${{ vars.TOR_DEPLOY_HOST }}
       TOR_DEPLOY_USER: ${{ vars.TOR_DEPLOY_USER }}
       TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
@@ -55,21 +62,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: "Собрать сайт, миграции и писатель трасс на GitHub"
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/check_feature_layout.py
-          cargo build --release -p tor-web
-          cargo build --release -p tor-migrations --bin tor-migrate
-          cargo build --release -p tor-observability --bin tor-trace-store
-          sha256sum target/release/tor-web | sed 's#target/release/##' \
-            > "$RUNNER_TEMP/tor-web.sha256"
-          sha256sum target/release/tor-migrate | sed 's#target/release/##' \
-            > "$RUNNER_TEMP/tor-migrate.sha256"
-          sha256sum target/release/tor-trace-store | sed 's#target/release/##' \
-            > "$RUNNER_TEMP/tor-trace-store.sha256"
-
       - name: "Установить SSH с проверкой ключа сервера"
         shell: bash
         run: |
@@ -80,7 +72,58 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
 
+      - name: "Определить установленный протокол выпуска"
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          protocol=$(ssh "${opts[@]}" "$destination" '
+            set -eu
+            marker=/var/lib/tor-release/release-format
+            test -x /usr/local/sbin/tor-one-click-release
+            if test -e "$marker" || test -L "$marker"; then
+              test -f "$marker" && test ! -L "$marker"
+              test "$(stat -c "%U:%G:%a:%h" "$marker")" = root:root:644:1
+              test "$(cat "$marker")" = 2
+              printf "v2\n"
+            else
+              printf "v1\n"
+            fi
+          ')
+          case "$PREPARE_V2" in true|false) ;; *) exit 1;; esac
+          case "$REQUIRE_V2" in ""|0|1) ;; *) exit 1;; esac
+          case "$protocol" in v1|v2) ;; *) exit 1;; esac
+          if [[ "$PREPARE_V2" == true ]]; then
+            protocol=v2
+          elif [[ "$REQUIRE_V2" == 1 && "$protocol" != v2 ]]; then
+            echo "TOR_V2_SETUP_REQUIRED: no downgrade to v1" >&2
+            exit 1
+          fi
+          echo "TOR_RELEASE_PROTOCOL=$protocol" >> "$GITHUB_ENV"
+          echo "TOR_RELEASE_PROTOCOL $protocol"
+
+      - name: "Собрать сайт, миграции и писатель трасс на GitHub"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/check_feature_layout.py
+          if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
+            cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers,s3-paid"
+          else
+            cargo build --release -p tor-web
+          fi
+          cargo build --release -p tor-migrations --bin tor-migrate
+          cargo build --release -p tor-observability --bin tor-trace-store
+          sha256sum target/release/tor-web | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-web.sha256"
+          sha256sum target/release/tor-migrate | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-migrate.sha256"
+          sha256sum target/release/tor-trace-store | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-trace-store.sha256"
+
       - name: "Подписать сборку существующим ключом GitHub"
+        if: env.TOR_RELEASE_PROTOCOL == 'v1'
         shell: bash
         run: |
           set -euo pipefail
@@ -95,6 +138,7 @@ jobs:
           test -s "$RUNNER_TEMP/tor-release-manifest.sig"
 
       - name: "Передать проверенную сборку на VPS без остановки сайта"
+        if: env.TOR_RELEASE_PROTOCOL == 'v1'
         shell: bash
         run: |
           set -euo pipefail
@@ -118,6 +162,29 @@ jobs:
             "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256 && sha256sum -c --status tor-trace-store.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
 
+      - name: "Собрать и подписать весь комплект v2"
+        if: env.TOR_RELEASE_PROTOCOL == 'v2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/release_bundle_v2.py build --repo . --binaries target/release --directory "$RUNNER_TEMP/tor-v2" --sha "$TARGET_SHA"
+          ssh-keygen -Y sign -f "$RUNNER_TEMP/tor_id_ed25519" -n tor-release-v2 "$RUNNER_TEMP/tor-v2/tor-release-manifest-v2" >/dev/null
+          printf 'tor-release ' > "$RUNNER_TEMP/tor-v2-signers"
+          ssh-keygen -y -f "$RUNNER_TEMP/tor_id_ed25519" >> "$RUNNER_TEMP/tor-v2-signers"
+          python3 tools/release_bundle_v2.py verify --sha "$TARGET_SHA" --signers "$RUNNER_TEMP/tor-v2-signers" --directory "$RUNNER_TEMP/tor-v2"
+
+      - name: "Передать подписанный комплект v2"
+        if: env.TOR_RELEASE_PROTOCOL == 'v2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          inbox="/opt/tor/incoming/v2/$TARGET_SHA"
+          ssh "${opts[@]}" "$destination" "umask 077; test -d /opt/tor/incoming && test -w /opt/tor/incoming && mkdir -p '$inbox' && test ! -L '$inbox' && chmod 0700 '$inbox'"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-v2/"* "$destination:$inbox/"
+          echo "TOR_V2_STAGED $TARGET_SHA"
+
       - name: "Запретить установку устаревшего коммита"
         shell: bash
         run: |
@@ -128,6 +195,7 @@ jobs:
           }
 
       - name: "Резервная копия PostgreSQL, миграции, обновление и откат при ошибке"
+        if: inputs.prepare_v2 == false
         shell: bash
         run: |
           set -euo pipefail
@@ -137,6 +205,7 @@ jobs:
             "test -x /usr/local/sbin/tor-one-click-release || { echo TOR_ONE_CLICK_SETUP_REQUIRED; exit 2; }; sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'"
 
       - name: "Проверить установленный SHA, службу и HTTPS"
+        if: inputs.prepare_v2 == false
         shell: bash
         run: |
           set -euo pipefail
@@ -147,7 +216,14 @@ jobs:
              systemctl is-active --quiet tor-web.service &&
              test \"\$(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz)\" = ok &&
              test \"\$(cat /var/lib/tor-release/pg-activated)\" = PG_ACTIVATED"
+          if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
+            ssh "${opts[@]}" "$destination" "test \"\$(readlink -f /var/lib/tor-edge/current)\" = '/var/lib/tor-edge/releases/$TARGET_SHA'"
+          fi
           echo "TOR_DEPLOYED_OK $TARGET_SHA"
+
+      - name: "Подготовка v2 завершена без обновления"
+        if: inputs.prepare_v2 == true
+        run: echo "TOR_V2_PREPARED_ONLY $TARGET_SHA"
 
       - name: "Сохранить контрольные суммы выпуска"
         if: always()
@@ -158,5 +234,7 @@ jobs:
             ${{ runner.temp }}/tor-web.sha256
             ${{ runner.temp }}/tor-migrate.sha256
             ${{ runner.temp }}/tor-trace-store.sha256
+            ${{ runner.temp }}/tor-v2/tor-release-manifest-v2
+            ${{ runner.temp }}/tor-v2/tor-release-manifest-v2.sig
           if-no-files-found: warn
           retention-days: 14
