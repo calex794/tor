@@ -7,6 +7,8 @@ use axum::{
     response::Response,
     Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use sha2::{Digest, Sha256};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 
 use crate::auth_cookies::CookiePolicy;
@@ -70,10 +72,45 @@ fn html_route(method: &Method, path: &str) -> bool {
 // Private account, admin and standalone authentication pages keep their CSP.
 fn auth_dialog_route(path: &str) -> bool {
     matches!(path, "/" | "/catalog")
-        || ["/books/", "/read/", "/reader/"].into_iter().any(|prefix| {
+        || ["/books/", "/reader/"].into_iter().any(|prefix| {
             path.strip_prefix(prefix)
                 .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
         })
+}
+
+// Bind the script's integrity to the exact bytes served by this executable.
+// The hash in the URL also prevents a previously cached version being reused.
+fn dialog_integrity() -> &'static str {
+    static INTEGRITY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        let bytes = include_bytes!("../assets/tor-auth-dialog.js");
+        format!("sha256-{}", STANDARD.encode(Sha256::digest(bytes)))
+    });
+    INTEGRITY.as_str()
+}
+
+/// Public guest book and paywall documents otherwise use the strict, script-free
+/// policy. Allow only the exact SRI-pinned dialog, never general inline scripts,
+/// arbitrary same-origin scripts or third-party connections. The caller checks
+/// the guest route, HTML content type and successful status before applying it.
+fn allow_pinned_dialog(response: &mut Response) {
+    let name = "content-security-policy";
+    if response.headers().get_all(name).iter().count() != 1 {
+        return;
+    }
+    let Some(policy) = response.headers().get(name).and_then(|v| v.to_str().ok()) else {
+        return;
+    };
+    if !policy.contains("script-src 'none';") || policy.contains("connect-src") {
+        return;
+    }
+    let updated = policy.replacen(
+        "script-src 'none';",
+        &format!("script-src '{}'; connect-src 'self';", dialog_integrity()),
+        1,
+    );
+    if let Ok(value) = HeaderValue::from_str(&updated) {
+        response.headers_mut().insert(name, value);
+    }
 }
 
 // Read-only administrative reports must neither issue CSRF cookies nor expose
@@ -158,10 +195,11 @@ async fn with_visitor(
     } else {
         (None, Vec::new())
     };
+    let auth_dialog = !authenticated && auth_dialog_route(request.uri().path());
     let visitor = Visitor {
         authenticated,
         csrf,
-        auth_dialog: !authenticated && auth_dialog_route(request.uri().path()),
+        auth_dialog,
     };
     let mut response = VISITOR.scope(visitor, next.run(request)).await;
     let is_html = response
@@ -170,6 +208,9 @@ async fn with_visitor(
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/html"));
     if is_html {
+        if auth_dialog && response.status() == StatusCode::OK {
+            allow_pinned_dialog(&mut response);
+        }
         // Personalized pages must never be shared through a public HTML cache.
         response
             .headers_mut()
@@ -241,17 +282,16 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
             "",
         )
     };
+    let dialog = if visitor.auth_dialog && !visitor.authenticated {
+        include_str!("../templates/auth_dialog.html")
+            .replace("<!--AUTH_DIALOG_INTEGRITY-->", dialog_integrity())
+    } else {
+        String::new()
+    };
     html.replace("<!--HEADER_MOBILE_AUTH-->", &mobile)
         .replace("<!--HEADER_DESKTOP_MEMBER_NAV-->", member_nav)
         .replace("<!--HEADER_DESKTOP_AUTH-->", &desktop)
-        .replace(
-            "<!--HEADER_AUTH_DIALOG-->",
-            if visitor.auth_dialog && !visitor.authenticated {
-                include_str!("../templates/auth_dialog.html")
-            } else {
-                ""
-            },
-        )
+        .replace("<!--HEADER_AUTH_DIALOG-->", &dialog)
 }
 
 #[cfg(test)]
@@ -309,10 +349,10 @@ mod tests {
 
     #[test]
     fn dialog_is_guest_public_only() {
-        for path in ["/", "/catalog", "/books/1", "/reader/101", "/read/101"] {
+        for path in ["/", "/catalog", "/books/1", "/reader/101"] {
             assert!(auth_dialog_route(path), "{path}");
         }
-        for path in ["/login", "/register", "/me", "/odmen", "/read/odmen/1"] {
+        for path in ["/login", "/register", "/me", "/odmen", "/read/101"] {
             assert!(!auth_dialog_route(path), "{path}");
         }
         let template = include_str!("../templates/layout.html");
@@ -325,6 +365,8 @@ mod tests {
         );
         assert_eq!(guest.matches("id=\"tor-auth-dialog\"").count(), 1);
         assert!(guest.contains("/assets/tor-auth-dialog.js"));
+        assert!(guest.contains(&format!("integrity=\"{}\"", dialog_integrity())));
+        assert!(!guest.contains("<!--AUTH_DIALOG_INTEGRITY-->"));
         let signed_in = render_for(
             template,
             &Visitor {
@@ -335,6 +377,33 @@ mod tests {
         );
         assert!(!signed_in.contains("id=\"tor-auth-dialog\""));
         assert!(!signed_in.contains("/assets/tor-auth-dialog.js"));
+    }
+
+    #[test]
+    fn strict_guest_policy_allows_only_the_integrity_pinned_dialog() {
+        let mut reply = crate::auth_cookies::private_response("guest", &[]);
+        let before = reply.headers()["content-security-policy"].clone();
+        allow_pinned_dialog(&mut reply);
+        let policy = reply.headers()["content-security-policy"].to_str().unwrap();
+        let expected = before.to_str().unwrap().replacen(
+            "script-src 'none';",
+            &format!("script-src '{}'; connect-src 'self';", dialog_integrity()),
+            1,
+        );
+        assert_eq!(policy, expected);
+        assert!(!policy.contains("script-src 'self'"));
+        assert!(!policy.contains("unsafe-inline"));
+        assert!(!policy.contains("unsafe-eval"));
+        assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+        let pinned = reply.headers()["content-security-policy"].clone();
+        allow_pinned_dialog(&mut reply);
+        assert_eq!(reply.headers()["content-security-policy"], pinned);
+        let mut free = crate::auth_cookies::private_response("free", &[]);
+        let existing = HeaderValue::from_static("script-src 'self'; connect-src 'self';");
+        free.headers_mut()
+            .insert("content-security-policy", existing.clone());
+        allow_pinned_dialog(&mut free);
+        assert_eq!(free.headers()["content-security-policy"], existing);
     }
 
     #[test]

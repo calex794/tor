@@ -26,7 +26,13 @@ async function openDialog(page, mobile = false) {
   try {
     const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const destination = base + '/books/1?dialog-test=1#main';
-    await desktop.goto(destination);
+    const bookResponse = await desktop.goto(destination);
+    const integrity = await desktop.locator('script[src^="/assets/tor-auth-dialog.js"]').getAttribute('integrity');
+    assert.match(integrity, /^sha256-[A-Za-z0-9+/]{43}=$/);
+    const bookCsp = bookResponse.headers()['content-security-policy'];
+    assert.ok(bookCsp.includes("script-src '" + integrity + "';"));
+    assert.ok(bookCsp.includes("connect-src 'self';"));
+    assert.ok(!bookCsp.includes("script-src 'self'"));
     const dialog = await openDialog(desktop);
     await desktop.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
@@ -52,7 +58,31 @@ async function openDialog(page, mobile = false) {
     await desktop.locator('.site-header__auth a[href="/me"]').waitFor();
     assert.equal(desktop.url(), destination);
     assert.equal(await desktop.locator('#tor-auth-dialog').count(), 0);
+    const signedBook = await desktop.reload();
+    assert.ok(signedBook.headers()['content-security-policy'].includes("script-src 'none'"));
     await desktop.close();
+
+    const paywall = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const locked = base + '/reader/103#main';
+    const lockedResponse = await paywall.goto(locked);
+    assert.ok(lockedResponse.headers()['content-security-policy'].includes("script-src '" + integrity + "';"));
+    await paywall.locator('.reader-access-page a[href="/login"]').click();
+    const paywallDialog = paywall.locator('#tor-auth-dialog');
+    await paywallDialog.locator('form[action="/login"]').waitFor();
+    assert.equal(paywall.url(), locked);
+    assert.ok(!(await paywall.content()).includes('PRIVATE-PAID-MARKER'));
+    await paywallDialog.getByLabel('Электронная почта').fill(email);
+    await paywallDialog.getByLabel('Пароль', { exact: true }).fill(password);
+    const lockedLogin = paywall.waitForResponse(r => r.url() === base + '/login' && r.request().method() === 'POST');
+    await paywallDialog.getByRole('button', { name: 'Войти', exact: true }).click();
+    assert.equal((await lockedLogin).status(), 204);
+    await paywall.locator('.site-header__auth a[href="/me"]').waitFor();
+    assert.equal(paywall.url(), locked);
+    assert.ok(!(await paywall.content()).includes('PRIVATE-PAID-MARKER'));
+    const signedLocked = await paywall.reload();
+    assert.ok(signedLocked.headers()['content-security-policy'].includes("script-src 'none'"));
+    assert.equal(await paywall.locator('#tor-auth-dialog').count(), 0);
+    await paywall.close();
 
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const reader = base + '/reader/101?dialog-test=1#main';
