@@ -105,12 +105,10 @@ jobs:
           fi
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
-          npm install --no-save playwright@1.56.1
           # ubuntu-24.04 has the shared libraries required by default headless
           # Chromium. Avoid retrying optional fonts over apt mirrors.
-          npx playwright install --only-shell chromium
           # Fail closed if the real browser cannot launch on this runner.
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         id: foundation
         env:

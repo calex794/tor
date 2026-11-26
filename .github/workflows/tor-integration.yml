@@ -182,11 +182,10 @@ jobs:
           node-version: '22'
       - name: Chromium for S037 swap acceptance
         run: |
-          npm install --no-save playwright@1.56.1
           # PG jobs use the default headless browser; unlike pixel-layout jobs,
           # they do not install headed Chromium or fetch optional font packs.
           # The full PostgreSQL/HTTP/Chromium regression still runs below.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
       - name: PostgreSQL client
         run: |
           # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
@@ -1044,11 +1043,10 @@ jobs:
       - name: Install Chromium
         run: |
           ci_chromium_setup_started=$SECONDS
-          npm install --no-save playwright@1.56.1
           # Prefer the same lean headless-shell installation as REC13.
           # Validate a real Chromium launch; missing OS libraries trigger the
           # existing dependency-install path rather than a skipped browser test.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
           chromium_probe() {
             node -e 'const p=require("playwright"); if(require("playwright/package.json").version !== "1.56.1") process.exit(1); p.chromium.launch({headless:true}).then(browser=>browser.close()).catch(error=>{console.error(error);process.exit(1)})'
           }
@@ -1140,11 +1138,9 @@ jobs:
           cargo build -p tor-observability --bin tor-trace-store
       - name: Install headless browser
         run: |
-          npm install --no-save playwright@1.56.1
           # Ubuntu 24.04 already has the runtime libraries. Optional fonts can
           # disappear from apt mirrors and are not a browser acceptance test.
-          npx playwright install --only-shell chromium
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Browser layout checks and screenshots
         run: |
           set -euo pipefail
@@ -1284,9 +1280,7 @@ jobs:
         run: cargo build -p tor-web --features s3-covers
       - name: Install Chromium
         run: |
-          npm install --no-save playwright@1.56.1
-          npx playwright install --only-shell chromium
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
@@ -1779,12 +1773,10 @@ jobs:
           fi
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
-          npm install --no-save playwright@1.56.1
           # ubuntu-24.04 has the shared libraries required by default headless
           # Chromium. Avoid retrying optional fonts over apt mirrors.
-          npx playwright install --only-shell chromium
           # Fail closed if the real browser cannot launch on this runner.
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         id: foundation
         env:

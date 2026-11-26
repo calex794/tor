@@ -76,11 +76,10 @@ jobs:
           node-version: '22'
       - name: Chromium for S037 swap acceptance
         run: |
-          npm install --no-save playwright@1.56.1
           # PG jobs use the default headless browser; unlike pixel-layout jobs,
           # they do not install headed Chromium or fetch optional font packs.
           # The full PostgreSQL/HTTP/Chromium regression still runs below.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
       - name: PostgreSQL client
         run: |
           # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
