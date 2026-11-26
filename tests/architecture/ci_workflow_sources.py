@@ -214,5 +214,78 @@ def expand_cover_browser(text, action=None):
     return text.replace(COVER_ACTION_CALL, cover_browser_steps(action), 1)
 
 
+S3_COVER_ACTION_PATH = ROOT / ".github/actions/pg-cover-s3/action.yml"
+S3_COVER_ACTION_REF = "        uses: ./.github/actions/pg-cover-s3\n"
+S3_COVER_ACTION_CALL = ("      - name: Run shared private S3 cover acceptance\n"
+                        + S3_COVER_ACTION_REF)
+S3_COVER_ACTION_HEADER = (
+    "name: Private S3 cover acceptance\n"
+    "description: Shared isolated MinIO and PostgreSQL cover checks\n"
+    "runs:\n"
+    "  using: composite\n"
+    "  steps:\n"
+)
+S3_COVER_STEP_NAMES = (
+    "Compile private S3 cover adapter without provider credentials",
+    "Start upstream release of MinIO on loopback with SHA-256 verification",
+    "Test signed S3 PUT HEAD GET, integrity and strict size bounds",
+    "Prepare isolated PostgreSQL schema and owner 950 for OBS-09",
+    "Run signed MinIO and restricted PG whole-cover user scenario",
+    "MOD-COVER private GC read-only preview (disposable PG, no S3 deletes)",
+    "Read-only cover-size inventory against disposable PG",
+    "Deny anonymous S3 access to actual PG-attached WebP cover",
+    "Assert direct anonymous URL cannot read the private cover",
+)
+S3_COVER_MINIO_ENV = (
+    "      env:\n"
+    "        TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000\n"
+    "        TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user\n"
+    "        TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only\n"
+)
+S3_COVER_READONLY_ENV = (
+    "      env:\n"
+    "        PGUSER: tor_app\n"
+    "        PGPASSWORD: tor-obs09-app\n"
+    "        PGDATABASE: tor_ci\n"
+)
+
+
+def s3_cover_steps(action):
+    if not action.startswith(S3_COVER_ACTION_HEADER):
+        raise ValueError("unexpected S3 cover action metadata")
+    chunks = re.split(r"(?m)(?=^    - name: )", action[len(S3_COVER_ACTION_HEADER):])
+    if chunks[0] or len(chunks) != len(S3_COVER_STEP_NAMES) + 1:
+        raise ValueError("unexpected S3 cover step count")
+    result = []
+    for index, (name, chunk) in enumerate(zip(S3_COVER_STEP_NAMES, chunks[1:])):
+        lines = chunk.splitlines(keepends=True)
+        fields = [f"    - name: {name}\n", SHELL]
+        if index in (2, 4):
+            fields.extend(S3_COVER_MINIO_ENV.splitlines(keepends=True))
+        if index in (5, 6):
+            fields.extend(S3_COVER_READONLY_ENV.splitlines(keepends=True))
+        n = len(fields)
+        if (lines[:n] != fields or len(lines) <= n
+                or not lines[n].startswith("      run: ")):
+            raise ValueError("unexpected S3 cover step shape or environment")
+        if lines[n] == "      run: |\n":
+            if len(lines) <= n + 1 or any(not line.startswith("        ") for line in lines[n + 1:]):
+                raise ValueError("invalid S3 cover run block")
+        elif len(lines) != n + 1:
+            raise ValueError("unexpected S3 cover step fields")
+        result.extend("  " + line for line in (lines[0], *lines[2:]))
+    return "".join(result)
+
+
+def expand_s3_cover(text, action=None):
+    if S3_COVER_ACTION_REF not in text:
+        return text
+    if text.count(S3_COVER_ACTION_REF) != 1 or text.count(S3_COVER_ACTION_CALL) != 1:
+        raise ValueError("unexpected S3 cover action call")
+    if action is None:
+        action = S3_COVER_ACTION_PATH.read_text(encoding="utf-8")
+    return text.replace(S3_COVER_ACTION_CALL, s3_cover_steps(action), 1)
+
+
 def expand_ci_actions(text):
-    return expand_cover_browser(expand_rec_browser(expand_analytics(text)))
+    return expand_s3_cover(expand_cover_browser(expand_rec_browser(expand_analytics(text))))
