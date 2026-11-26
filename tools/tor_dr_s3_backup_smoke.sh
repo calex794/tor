@@ -20,6 +20,7 @@ fi
 : "${RUNNER_TEMP:?missing disposable CI work directory}"
 : "${GITHUB_SHA:?missing exact CI source SHA}"
 source tools/drop07_pack_restore_ci.sh
+source tools/d001_single_restore_ci.sh
 
 binary="${TOR_DR_WEB_BINARY:-./target/debug/tor-web}"
 bucket=tor-private-backup-ci
@@ -51,7 +52,7 @@ cleanup() {
     admin -c "DROP DATABASE $restore_db WITH (FORCE)" >/dev/null || status=1
   fi
   # No artifact uploads: all plaintext and ciphertext are CI fixture only.
-  rm -rf -- "$work/pack-fixture"
+  rm -rf -- "$work/pack-fixture" "$work/single-fixture"
   rm -f -- "$work"/*
   rmdir -- "$work" || status=1
   exit "$status"
@@ -84,6 +85,12 @@ VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 drop07_seed_pack "$work/pack-fixture"
+d001_single_seed "$work/single-fixture"
+# Archive and verify the exact historical file before sealing the fixture.
+# The encrypted database dump below must contain the committed closure.
+s3 --request PUT --output /dev/null "$endpoint/$bucket"
+d001_single_archive "$work/single-fixture" "$endpoint/$bucket"
+d001_single_seal_fixture "$work/single-fixture" "$endpoint/$bucket"
 # Reuse the existing I-11 historical paid V1/V2 fixture in this separate
 # disposable sealed-restore lane (no real purchase or payment claimed here).
 psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
@@ -133,7 +140,6 @@ node tools/tor_dr_archive_crypto.cjs seal "$work/offline.key" \
   "$work/source.dump" "$work/archive.enc"
 digest="$(sha256sum "$work/archive.enc" | cut -d ' ' -f 1)"
 [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
-s3 --request PUT --output /dev/null "$endpoint/$bucket"
 drop07_archive_pack "$work/pack-fixture" "$endpoint/$bucket"
 s3 --upload-file "$work/archive.enc" \
   --header 'If-None-Match: *' \
@@ -217,6 +223,7 @@ echo 'I11_RESTORED_CHECKOUT_FINANCE_OK'
 echo 'I11_RESTORED_REFUND_FINANCE_REVOCATION_OK'
 echo 'I11_RESTORED_HISTORICAL_RIGHTS_DB_OK'
 drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
+d001_single_verify_restore "$work/single-fixture" "$endpoint/$bucket" "$restored_url"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3095 \
