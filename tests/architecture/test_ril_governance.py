@@ -905,5 +905,40 @@ class RilGovernanceTests(unittest.TestCase):
                 finally:
                     target.write_text(original, encoding="utf-8")
 
+    def test_admin_sessions_require_live_role(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "if !actor.administrator", "if false",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_sessions_require_csrf_on_write(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)", "true",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_revoke_requires_password_proof(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "verify_password_for_step_up(&password, &hash)", "unchecked_proof(&password, &hash)",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_lookup_revalidates_database_role(self):
+        self.mutate(
+            "crates/accounts/src/repositories/admin_sessions.rs",
+            "role.role='administrator'", "role.role='author'",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_mutation_requires_atomic_audit(self):
+        self.mutate(
+            "crates/accounts/src/repositories/admin_sessions.rs",
+            "INSERT INTO account_admin_session_revocation_events", "SELECT 1",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
 if __name__ == "__main__":
     unittest.main()

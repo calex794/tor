@@ -742,6 +742,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let state_url = format!("{archived_url}?chapter_id={chapter}&version_id={v1}");
     let first_state = call(&app, "GET", &state_url, &new_reader_cookie, "").await;
     assert_eq!(first_state.status(), StatusCode::OK);
+    assert!(!first_state.headers().contains_key(header::SET_COOKIE));
     let value: serde_json::Value = serde_json::from_str(&html(first_state).await).unwrap();
     let revision = value["revision"].as_i64().unwrap();
     assert_eq!(value["version_id"].as_str(), Some(v1.to_string().as_str()));
@@ -764,6 +765,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     )
     .await;
     assert_eq!(advanced.status(), StatusCode::OK);
+    assert!(new_reader_cookie.starts_with(&auth_cookie(&advanced, "tor-dev-session=")));
     let receipt: serde_json::Value = serde_json::from_str(&html(advanced).await).unwrap();
     assert!(receipt["revision"].as_i64().unwrap() > revision);
     assert_eq!(

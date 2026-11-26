@@ -237,7 +237,7 @@ fn router_inner(
         Router::new()
     };
     let app = Router::new()
-        .merge(admin_entry::storage_routes())
+        .merge(admin_entry::routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())
@@ -588,7 +588,7 @@ async fn save_place(
     {
         Ok(()) => private_response(
             Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
-            &[],
+            &session_security::activity_cookies(&state, &headers).await,
         ),
         Err(ProgressError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(ProgressError::NotFound) => deny(StatusCode::NOT_FOUND),
