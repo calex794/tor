@@ -44,3 +44,7 @@ schema or database contents, no automatic pruning, no VPS changes.
 Seven architecture tests use the real durable journal and simulate
 component failure, abrupt process interruption and retry; not proof
 of physical power-loss durability or full live Rust/systemd/PG recovery.
+
+The real Nginx lab now additionally exercises both directions of an
+interrupted disk-pointer/live-worker mismatch. Two component regressions
+cover receipt drift and edge recovery; stage permissions are asserted.

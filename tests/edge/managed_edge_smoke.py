@@ -269,6 +269,19 @@ def main():
                 assert_live(store, nginx, A)
                 print("PASS: real syntax, post-reload and explicit rollback", flush=True)
 
+                # Simulate crash after pointer swap but before signal, then
+                # crash after pointer restoration while new workers serve.
+                store.switch_link(B)
+                nginx.probe(A, store.releases / A)
+                store.recover(A, B, nginx)
+                assert_live(store, nginx, A)
+                store.activate(B, nginx)
+                store.switch_link(A)
+                nginx.probe(B, store.releases / B)
+                store.recover(A, B, nginx)
+                assert_live(store, nginx, A)
+                print("PASS: real recovery from disk/live generation mismatch", flush=True)
+
             backend = start_backend(3000)
             assert wait_status("/catalog", 200)[2] == b"catalog fixture"
             status, headers, body = request("/api/v1/books", "application/json")

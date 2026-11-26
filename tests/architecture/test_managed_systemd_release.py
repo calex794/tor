@@ -111,6 +111,14 @@ class ManagedUnitTests(unittest.TestCase):
         with self.assertRaisesRegex(unit.UnitError, "UNIT_ROLLBACK_UNVERIFIED"):
             self.apply(FixtureSystemd(self.directory, "rollback"))
 
+    def test_prepared_receipt_rejects_operator_drift(self):
+        systemd = FixtureSystemd(self.directory)
+        receipt = self.managed.plan(self.source, SHA, self.signers, systemd)
+        systemd.effective["MemoryMax"] = "operator modified"
+        with self.assertRaisesRegex(unit.UnitError, "changed after preflight"):
+            self.managed.apply_receipt(receipt, systemd)
+        self.assertFalse((self.directory / unit.NAME).exists())
+
     def test_same_policy_retry_no_reload(self):
         systemd = FixtureSystemd(self.directory)
         self.apply(systemd)

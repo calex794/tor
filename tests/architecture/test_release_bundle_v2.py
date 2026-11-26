@@ -64,6 +64,7 @@ class ReleaseBundleTests(unittest.TestCase):
 
     def test_signed_bundle_covers_every_file_and_copies_independently(self):
         target = self.stage()
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
         self.assertEqual(set(p.name for p in target.iterdir()), bundle.FILES)
         self.assertNotIn("secrets.env", bundle.FILES)
         self.assertNotIn("config.json", bundle.FILES)

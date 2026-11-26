@@ -165,6 +165,21 @@ class ManagedEdgeTests(unittest.TestCase):
                     self.assertEqual(nginx.running, A)
                     self.assertEqual(nginx.calls[-1], ("probe", A))
 
+    def test_crash_recovery_accepts_disk_live_generation_mismatch(self):
+        with self.store.locked():
+            self.prepare()
+            self.store.switch_link(B)
+            nginx = NginxFixture(self.store)
+            self.assertEqual(nginx.running, A)
+            self.store.recover(A, B, nginx)
+            self.assertEqual(self.store.active_sha(), A)
+            self.assertEqual(nginx.calls[-1], ("probe", A))
+            # The old disk pointer may already be restored while new
+            # workers are still serving. Recovery must reload regardless.
+            nginx.running = B
+            self.store.recover(A, B, nginx)
+            self.assertEqual(nginx.running, A)
+
     def test_rollback_failure_is_not_reported_as_success(self):
         with self.store.locked():
             self.prepare()
