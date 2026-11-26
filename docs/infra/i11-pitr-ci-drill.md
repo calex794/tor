@@ -98,3 +98,83 @@ Report schema 3 additionally requires
 `operator_paused_replay_helpers_verified=true`; schema 2 is not proof of
 this new lifecycle test. The external host, S3, package authenticity,
 network isolation and disaster-recovery SLO remain separate gates.
+
+## RECOVERY-10b: real TOR checkout rows through physical WAL/PITR
+
+The sealed logical recovery test has already executed the real D-08
+checkout and verified the exact restored encrypted archive. Stream only
+that disposable custom-format dump into the existing network-free,
+mount-free container at runtime, never into its image or artifact
+storage. The launcher requires an exact private CI-owned fixture path,
+regular single-link file and a 64 MiB bound; the container independently
+bounds and checks the input. No live or operator backup is accepted.
+
+The source physical cluster has an empty tor_ci database and the
+two expected disposable roles at base-backup time. After the earlier
+named target, import the actual migrated TOR schema and synthetic
+checkout rows in a single committed pg_restore transaction. Run the
+existing read-only financial witness as tor_app. After the exclusive UTC
+target, commit a separate synthetic +100 minor-unit wallet/journal
+adjustment and prove that the source balance is now 850. Destroy source
+PGDATA. The earlier named recovery must still lack the wallet table;
+the paused UTC recovery must yield the exact earlier snapshot (750
+remaining, 250 purchase, 50 platform, 200 creator) and no later credit.
+Retain the prior operator-helper lifecycle and negative controls.
+Schema 4 requires both tor_checkout_finance_replayed_from_wal and
+post_target_wallet_change_excluded.
+
+This demonstrates WAL replay of actual TOR financial rows and schema,
+not that a second real Rust checkout or funding-provider operation ran
+inside the physical source. The import and later adjustment are
+synthetic fixture operations. HTTP delivery from that physically
+restored database, refunds, Layer and other finance paths, real offsite
+custody and RPO/RTO remain separate acceptance gates.
+
+The host also computes SHA-256 over the exact original pre-backup synthetic
+finance snapshot, passes only that digest (not the row contents) to the
+container, and requires it to match both the post-import and paused-replay
+snapshots. Schema 4 additionally requires original_finance_snapshot_digest_matched.
+This connects the physical WAL witness to the original actual checkout rather
+than accepting an internally consistent but substituted fixture. The digest is
+not a signature and the host/CI trust boundary is unchanged. No production
+archive, credentials or raw financial rows may be printed or uploaded.
+
+First combined real replay attempt exposed SQL_ASCII inherited from LC_ALL=C
+when initdb did not receive an explicit encoding. Initialize the disposable
+cluster with --locale=C --encoding=UTF8; require actual Unicode normalization
+of decomposed e + combining accent to composed e before the base backup and
+after paused WAL replay. The locale controls deterministic fixture ordering;
+the change does not alter production database collation or runtime migrations.
+Retain every existing financial witness and recovery gate.
+
+## RECOVERY-10c: approved refund and revoked paid entitlement through WAL
+
+Extend the same original finance snapshot and digest with a distinct real D-06
+checkout and approved refund. Existing Rust test proves approval idempotency,
+300 minor-unit refund, 60 platform and 240 creator reversal, old paid right
+revoked, and no duplicate credit. The read-only snapshot checks original and
+reversed postings, exact wallet journal, approved decision, revocation and
+actual tor_purchase_version_readable=false in the original source, restored
+sealed dump, post-import source and paused physical restore. Synthetic wallet
+starts and ends at 1000; this is not evidence of a funding-provider journal.
+Schema 5 requires tor_refund_finance_and_revocation_replayed_from_wal; schema 4
+cannot attest this additional scenario. No new CI workflow or financial rules.
+The check is database-level, not actual HTTP/WebCrypto on the physical copy.
+
+## RECOVERY-10d: historical reading and Layer database evidence
+
+Reuse the existing I-11 paid V1/V2/position fixture and the DROP-07 real saved
+FREE and Layer checkout/approved ordinary deletion fixture. Include their
+read-only database witnesses in the same original snapshot digest covering the
+sealed logical restore and physical WAL replay. Verify actual paid entitlement
+function allows the pinned V1, refuses V2 and an unrelated account; preserve
+reader position, saved FREE identity, archive/deletion records, exact active
+PACK generation/receipts, historical Layer membership/terms/debit/command and
+revoked term. Do not copy or replace the full Rust FREE/Layer entitlement
+policy: the additional witness verifies the selected database facts. The
+existing logical restore separately exercises real FREE/Layer HTTP and PACK
+bytes. This is not direct HTTP/WebCrypto proof on the physically restored
+cluster. The paid fixture uses existing direct synthetic purchase facts;
+no real funding or additional payment claim. Schema 6 requires
+ tor_historical_paid_free_layer_rows_replayed_from_wal; schema 5 is historical
+finance/refund evidence only. No credentials/session hashes in the snapshots.
