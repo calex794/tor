@@ -201,13 +201,12 @@ async fn auth_04_admin_session_revocation_rechecks_authority_and_audits_pg() {
     .execute(&pool)
     .await
     .unwrap();
-    let selected: String = sqlx::query_scalar(
-        "SELECT session_id::text FROM sessions WHERE token_hash=$1",
-    )
-    .bind(victim.as_slice())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let selected: String =
+        sqlx::query_scalar("SELECT session_id::text FROM sessions WHERE token_hash=$1")
+            .bind(victim.as_slice())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         accounts
             .revoke_administrator_target_sessions(&admin, admin_id, None, &proof)
@@ -277,7 +276,10 @@ async fn auth_04_admin_session_revocation_rechecks_authority_and_audits_pg() {
     .await
     .is_err());
     let new_target = session_token_digest(&format!("new-target-{nonce}"));
-    accounts.insert_session(target, &new_target, ttl).await.unwrap();
+    accounts
+        .insert_session(target, &new_target, ttl)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE account_roles SET is_active=FALSE
          WHERE user_id=$1 AND role='administrator'",

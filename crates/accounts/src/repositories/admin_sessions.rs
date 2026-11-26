@@ -164,13 +164,12 @@ impl PgAccounts {
                 .fetch_optional(&mut *tx)
                 .await?;
         let actor = actor.ok_or(AdminSessionRevokeError::Denied)?;
-        let locked: Vec<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 OR id=$2 ORDER BY id FOR UPDATE",
-        )
-        .bind(actor)
-        .bind(target_user_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let locked: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 OR id=$2 ORDER BY id FOR UPDATE")
+                .bind(actor)
+                .bind(target_user_id)
+                .fetch_all(&mut *tx)
+                .await?;
         let hash: Option<String> = sqlx::query_scalar(
             "SELECT password_hash FROM users WHERE id=$1 AND account_state='active'",
         )
@@ -242,7 +241,11 @@ mod tests {
     #[test]
     fn rejects_noncanonical_or_injected_identifiers() {
         assert!(canonical_session_id("3f6bce1a-65d6-4c3f-9001-2390c70cf711"));
-        assert!(!canonical_session_id("3f6bce1a-65d6-4c3f-9001-2390c70cf71z"));
-        assert!(!canonical_session_id("3f6bce1a-65d6-4c3f-9001-2390c70cf711' OR true"));
+        assert!(!canonical_session_id(
+            "3f6bce1a-65d6-4c3f-9001-2390c70cf71z"
+        ));
+        assert!(!canonical_session_id(
+            "3f6bce1a-65d6-4c3f-9001-2390c70cf711' OR true"
+        ));
     }
 }

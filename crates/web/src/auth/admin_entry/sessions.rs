@@ -40,10 +40,7 @@ pub(super) fn router() -> Router<AuthState> {
     )
 }
 
-async fn operator(
-    state: &AuthState,
-    headers: &HeaderMap,
-) -> Result<([u8; 32], i64), StatusCode> {
+async fn operator(state: &AuthState, headers: &HeaderMap) -> Result<([u8; 32], i64), StatusCode> {
     let token = state
         .cookies
         .session_token(headers)
@@ -109,7 +106,12 @@ fn render_target(target: i64, overview: &AdminSessionOverview, csrf: &str) -> St
         return body;
     }
     body.push_str("<p>Показано до 50 сеансов. Массовый отзыв охватывает все устройства. Новый вход остаётся возможен, если аккаунт не заблокирован.</p>");
-    body.push_str(&form(target, "all", csrf, "Завершить все сеансы пользователя"));
+    body.push_str(&form(
+        target,
+        "all",
+        csrf,
+        "Завершить все сеансы пользователя",
+    ));
     for session in &overview.sessions {
         let _ = write!(
             body,
@@ -170,8 +172,7 @@ async fn revoke(
         Ok(value) => value,
         Err(status) => return deny(status),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }

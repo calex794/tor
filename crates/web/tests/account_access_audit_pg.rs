@@ -298,10 +298,7 @@ async fn auth_04_admin_session_revoke_http_pg() {
         ("", StatusCode::UNAUTHORIZED),
         (first_cookie.as_str(), StatusCode::FORBIDDEN),
     ] {
-        assert_eq!(
-            send(&app, get(&target_path, jar)).await.status(),
-            status
-        );
+        assert_eq!(send(&app, get(&target_path, jar)).await.status(), status);
     }
     let page = send(&app, get(&target_path, &admin_cookie)).await;
     assert_eq!(page.status(), StatusCode::OK);
@@ -326,9 +323,7 @@ async fn auth_04_admin_session_revoke_http_pg() {
     assert!(html.contains(&selected));
     let cookies = format!("{admin_cookie}; {csrf_cookie}");
     let command = |user: i64, session: &str, password: &str| {
-        format!(
-            "user_id={user}&session_id={session}&current_password={password}&csrf_token={csrf}"
-        )
+        format!("user_id={user}&session_id={session}&current_password={password}&csrf_token={csrf}")
     };
     let submit = |form: &str, jar: &str| request("POST", PATH, form, jar, [192, 0, 2, 7], "Test/1");
     let single = command(target, &selected, PASSWORD);
