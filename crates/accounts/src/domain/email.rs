@@ -132,7 +132,7 @@ mod tests {
         assert!(delivery_address(&format!("{local}@{label}.com")).is_ok());
         assert!(delivery_address(&format!("{local}a@example.com")).is_err());
         assert!(delivery_address(&format!("a@{label}b.com")).is_err());
-        let longest = format!("{local}@{label}.{label}.{}.com", "c".repeat(58));
+        let longest = format!("{local}@{label}.{label}.{}.com", "c".repeat(57));
         assert_eq!(longest.len(), 254);
         assert!(delivery_address(&longest).is_ok());
         assert!(delivery_address(&format!("{longest}m")).is_err());
