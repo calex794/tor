@@ -186,13 +186,11 @@ def assert_stale_restore_invalidation(sql, source, witness):
             "AUTH08B expected stale restored cookie before invalidation")
     print("AUTH08B_STALE_BACKUP_REVOCATION_GAP_REPRODUCED")
 
-    revoke_restored = """
-        WITH ended AS (
-            UPDATE sessions SET revoked_at=clock_timestamp()
-            WHERE revoked_at IS NULL AND expires_at>now()
-            RETURNING 1
-        ) SELECT count(*) FROM ended
-    """
+    # Use the exact same atomic mutation as the offline operator step.
+    # The production-only target/host guard is never bypassed by that CLI.
+    from tor_recovery_auth import invalidation_sql
+
+    revoke_restored = invalidation_sql()
     active_count = """
         SELECT count(*) FROM sessions
         WHERE revoked_at IS NULL AND expires_at>now()
