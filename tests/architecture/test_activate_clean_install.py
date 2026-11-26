@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -139,6 +140,45 @@ class ActivationTests(unittest.TestCase):
         self.assertIn("clean install requires empty schema", migration)
         self.assertIn("pg_dump -Fc", migration)
         self.assertIn("REVOKE INSERT, UPDATE, DELETE ON TABLE public._sqlx_migrations", migration)
+
+    def test_database_failure_exposes_only_fixed_step_and_exit(self):
+        journal, ops = self.fixture()
+        def fail():
+            raise activation.DatabaseStepRefused("init-tor-database.sh", 17)
+        ops.database = fail
+        with self.assertRaisesRegex(activation.Refused,
+                                    "FIRST_START_INCOMPLETE: database;.*database_step=init:app_tcp_acl exit=17"):
+            activation.run(RECORD, journal, ops)
+        self.assertEqual(json.loads(journal.path.read_bytes())["state"], "incomplete")
+        self.assertNotIn("secret-password", str(activation.DatabaseStepRefused("secret-password", 1)))
+        self.assertIn("database_step=migrate exit=1",
+                      str(activation.DatabaseStepRefused("apply-tor-migrations-vps.sh", 1)))
+
+    def test_signed_script_discards_secret_output_and_reports_exit(self):
+        ops = activation.Operations(self.root, RECORD, self.root / "signers", 9)
+        with patch.object(activation.bundle, "verify"), \
+             patch.object(activation.subprocess, "Popen") as popen:
+            popen.return_value.wait.return_value = 18
+            with self.assertRaisesRegex(activation.DatabaseStepRefused, "init:migrator_tcp_acl exit=18"):
+                ops.signed_script("init-tor-database.sh", "--install-empty")
+            kwargs = popen.call_args.kwargs
+            self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["pass_fds"], (9,))
+
+    def test_init_acl_queries_do_not_coerce_boolean_to_text(self):
+        source = (ROOT / bundle.SCRIPTS["init-tor-database.sh"]).read_text()
+        self.assertEqual(source.count("SELECT current_user, current_database(), has_schema_privilege"), 2)
+        self.assertEqual(source.count("psql -X -w -Atq -F ':' -v ON_ERROR_STOP=1 -c"), 2)
+        self.assertNotIn("current_database() || ':'", source)
+        for marker in ("grep -Fxq 'tor_app:tor:f'", "grep -Fxq 'tor_migrator:tor:t'"):
+            self.assertIn(marker, source)
+        for number, label in activation.INIT_FAILURES.items():
+            self.assertIn("init_step=" + str(number), source)
+            self.assertIn(label, str(activation.DatabaseStepRefused("init-tor-database.sh", number)))
+        self.assertIn("trap 'exit \"$init_step\"' ERR", source)
+        self.assertIn("exit \"$init_step\"", source)
+        self.assertIn("fail_init()", source)
 
     def test_initial_vhost_never_binds_public_interfaces(self):
         nginx = (ROOT / bundle.INSTALL["install-nginx.conf"]).read_text()

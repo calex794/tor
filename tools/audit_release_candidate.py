@@ -16,6 +16,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from release_ancestry import AncestryError, require_on_main
+
 from ci_test_map import (
     CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS,
     SUITE_JOB_MATRICES, suite_api_job_names,
@@ -240,17 +242,31 @@ def require_current_main(api: GitHub, sha: str) -> None:
         raise EvidenceError("candidate is not the current main SHA")
 
 
-def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
+def require_pinned_main(api: GitHub, sha: str) -> None:
+    try:
+        require_on_main(api.get, sha)
+    except AncestryError as exc:
+        raise EvidenceError(str(exc)) from exc
+
+
+def collect(api: GitHub, sha: str, root: Path = ROOT, *, pinned_main=False) -> dict:
     if not SHA.fullmatch(sha):
         raise EvidenceError("invalid release candidate SHA")
-    # A frequently updated main can move while required job evidence is fetched.
-    require_current_main(api, sha)
-    payload = api.get(f"/repos/{REPO}/actions/runs",
-                      {"head_sha": sha, "event": "push", "per_page": 100})
+    # Standalone audits stay strict. The one-click release may pin a main
+    # ancestor, but must prove main membership before AND after collection.
+    guard = require_pinned_main if pinned_main else require_current_main
+    guard(api, sha)
+    params = {"head_sha": sha, "event": "push", "per_page": 100}
+    if pinned_main:
+        params["branch"] = "main"
+    payload = api.get(f"/repos/{REPO}/actions/runs", params)
     runs = payload.get("workflow_runs")
     if (not isinstance(runs, list) or not isinstance(payload.get("total_count"), int)
             or payload["total_count"] != len(runs) or len(runs) > 100):
         raise EvidenceError("incomplete GitHub workflow pagination")
+    if pinned_main and any(not isinstance(row, dict) or row.get("head_branch") != "main"
+                           for row in runs):
+        raise EvidenceError("pinned release requires main push workflow evidence")
     expected = workflow_names(root)
     latest = latest_push_runs(runs, sha)
     jobs: dict[int, list[dict]] = {}
@@ -265,7 +281,7 @@ def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
                 or response["total_count"] != len(values) or len(values) > 100):
             raise EvidenceError("incomplete GitHub job pagination")
         jobs[record["id"]] = values
-    require_current_main(api, sha)
+    guard(api, sha)
     return evaluate_ci(runs, jobs, sha, expected)
 
 

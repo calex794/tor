@@ -38,6 +38,27 @@ PHASES = ("stage", "database", "edge", "application", "verify", "publish")
 class Refused(ValueError):
     pass
 
+# Only fixed stage labels and a numeric exit status can cross the database
+# subprocess boundary. Never include its stdout, stderr, command or env.
+INIT_FAILURES = {
+    10: "activation_guard", 11: "postgres_policy", 12: "empty_cluster",
+    13: "credential_files", 14: "create_roles", 15: "create_database",
+    16: "grants", 17: "app_tcp_acl", 18: "migrator_tcp_acl",
+    19: "final_checks",
+}
+
+
+class DatabaseStepRefused(Refused):
+    def __init__(self, name, code):
+        if name == "init-tor-database.sh":
+            stage = INIT_FAILURES.get(code, "unknown")
+            step = "init:" + stage
+        elif name == "apply-tor-migrations-vps.sh":
+            step = "migrate"
+        else:
+            step = "unknown"
+        super().__init__("database_step=" + step + " exit=" + str(int(code)))
+
 
 def record_bytes(record, phase, state):
     return (json.dumps({
@@ -86,9 +107,11 @@ def run(record, journal, ops):
         except Exception:
             cleanup_ok = False
         journal.save(record, phase, "incomplete")
+        detail = ("; " + str(failure)
+                  if isinstance(failure, DatabaseStepRefused) else "")
         raise Refused("FIRST_START_INCOMPLETE: " + phase +
                       ("; web stopped or not started" if cleanup_ok
-                       else "; service stop unverified")) from failure
+                       else "; service stop unverified") + detail) from failure
 
 
 def new_file(path, data, mode=0o644):
@@ -238,7 +261,7 @@ class Operations:
             child.wait()
             raise
         if code:
-            raise Refused("signed empty-install database step refused")
+            raise DatabaseStepRefused(name, code)
 
     def database(self):
         check_empty_cluster()

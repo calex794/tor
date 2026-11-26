@@ -56,3 +56,22 @@ inside the guarded disposable fixture, report directory owner/mode and
 check every activation parent before starting the acceptance test. Do not
 change descendants or relax the production trust guard. First-start and
 rollback acceptance remain pending until the next VM job completes.
+
+The 45859640232 VM run confirmed trusted fixture parents and passed first
+start preflight/staging including the compiled production profile. It then
+refused init-tor-database.sh. Its raw output was intentionally discarded,
+so the exact failure was not proven. Source review found the ACL boolean
+format mismatch, fixed by native psql boolean columns. Fixed non-secret
+stage exits expose future failures without forwarding credential-bearing
+output. New main 85768a7b includes the separate forward-only release
+policy (#1292); reconcile that policy before final integration, rather
+than replacing its workflow and shell guards with old exact-main code.
+
+Synchronize main 85768a7b08e9fb12b5bc71943b9db17fceaf817d including #1292. Preserve all nine
+nonoverlapping files as exact main blobs. Reconcile the common workflow
+and go-live shell: pinned-main CI evidence, immutable ancestry (active ->
+candidate -> main) in both ordinary protocols, and signed v2 shell checks
+using a private installed copy of the same shared module. Legacy v1 helper
+and guard are unchanged from main; manual first activation remains strict
+exact-main. The hosted VM substitutes only fixture release identities,
+not production ancestry behavior. No deployment or merge to main.

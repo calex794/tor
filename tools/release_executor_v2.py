@@ -18,6 +18,7 @@ import coordinated_release as coordinated
 import managed_edge_release as edge
 import managed_systemd_release as unit
 import release_bundle_v2 as bundle
+import release_ancestry as ancestry
 
 TOR = Path("/opt/tor")
 LOCK = Path("/run/lock/tor-one-click-release.lock")
@@ -51,6 +52,11 @@ def require_main(sha):
         raise ExecutorError("invalid GitHub main metadata")
     if body.get("ref") != "refs/heads/main" or body["object"].get("sha") != sha:
         raise ExecutorError("candidate is no longer GitHub main")
+
+
+def require_forward(sha, active):
+    """Use the common immutable ancestry contract under the release lock."""
+    return ancestry.verify_forward(ancestry.public_get, sha, active)
 
 
 @contextmanager
@@ -194,7 +200,7 @@ class Application:
             raise ExecutorError("web process changed during verification")
 
     def preflight(self, sha):
-        require_main(sha)
+        require_forward(sha, self.current())
         path = self.store.release(sha)
         for name in bundle.FILES:
             edge.trusted(path / name)
@@ -205,14 +211,14 @@ class Application:
         command("bash", str(path / "go-live-postgres-vps.sh"), "--check-runtime")
 
     def activate(self, sha):
-        require_main(sha)
+        require_forward(sha, self.current())
         trace_inactive()
         path = self.store.release(sha)
         bundle.verify(path, sha, self.signers)
         # Descendants inherit the overall lock, so a surviving migration
         # cannot race a new update if the coordinator is interrupted.
         child = subprocess.Popen(
-            ["bash", str(path / "go-live-postgres-vps.sh"), sha],
+            ["bash", str(path / "go-live-postgres-vps.sh"), sha, "--forward"],
             env=SAFE_ENV, pass_fds=(self.lock_fd,),
         )
         try:
@@ -275,7 +281,7 @@ def main(argv=None):
                 previous = journal.load()
                 if previous is not None and previous.state not in coordinated.TERMINAL:
                     raise ExecutorError("unfinished release; root recovery required")
-                require_main(sha)
+                require_forward(sha, app.current())
                 app.verify(app.current())
                 target = app_store.stage(TOR / "incoming" / "v2" / sha, sha, edge.SIGNERS)
                 if previous is not None and previous.state == "committed" and previous.candidate == sha:

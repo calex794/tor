@@ -20,7 +20,7 @@ import release_executor_v2 as executor
 MODULES = (
     "release_bundle_v2.py", "managed_edge_release.py", "managed_systemd_release.py",
     "coordinated_release.py", "release_executor_v2.py", "adopt_edge_vhost.py",
-    "install_release_v2.py",
+    "install_release_v2.py", "release_ancestry.py",
 )
 HELPERS = Path("/usr/local/lib/tor-release-v2")
 WRAPPER = Path("/usr/local/sbin/tor-one-click-release")

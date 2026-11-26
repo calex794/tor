@@ -5,48 +5,61 @@ set -Eeuo pipefail
 umask 077
 [[ $(id -u) == 0 ]] || { echo 'Run as root' >&2; exit 1; }
 empty_install=0
+# Stable, non-secret exit codes for the signed first-install controller.
+# Legacy standalone invocation retains its original error exit behavior.
+init_step=10
+fail_init() {
+  if [[ $empty_install == 1 ]]; then
+    exit "$init_step"
+  fi
+  exit 1
+}
 if [[ $# == 1 && $1 == --install-empty ]]; then
   empty_install=1
+  trap 'exit "$init_step"' ERR
   # First activation only, from a root-private prepared installation.
   [[ ! -L /srv/tor-install/activation.json &&
      $(stat -c '%U:%G:%a:%h' /srv/tor-install/activation.json) == root:root:600:1 &&
      ! -e /opt/tor/current && ! -L /opt/tor/current &&
      ! -e /var/lib/tor-release/pg-activated && ! -L /var/lib/tor-release/pg-activated ]] ||
-    { echo 'Refusing: clean-install activation guard missing' >&2; exit 1; }
+    { echo 'Refusing: clean-install activation guard missing' >&2; fail_init; }
   if systemctl is-active --quiet tor-web.service; then
-    echo 'Refusing: existing web service' >&2; exit 1
+    echo 'Refusing: existing web service' >&2; fail_init
   fi
 elif [[ $# != 0 ]]; then
   echo 'Usage: init-tor-database.sh [--install-empty]' >&2; exit 2
 fi
-systemctl is-active --quiet postgresql@18-main.service || { echo 'PG18 is not active' >&2; exit 1; }
+init_step=11
+systemctl is-active --quiet postgresql@18-main.service || { echo 'PG18 is not active' >&2; fail_init; }
 version=$(runuser -u postgres -- psql -X -Atqc 'SHOW server_version_num')
-[[ $version =~ ^18[0-9]{4}$ ]] || { echo "Expected PG18, got $version" >&2; exit 1; }
+[[ $version =~ ^18[0-9]{4}$ ]] || { echo "Expected PG18, got $version" >&2; fail_init; }
 listen=$(runuser -u postgres -- psql -X -Atqc 'SHOW listen_addresses')
-[[ $listen == 127.0.0.1 ]] || { echo "PG must listen only on 127.0.0.1" >&2; exit 1; }
+[[ $listen == 127.0.0.1 ]] || { echo "PG must listen only on 127.0.0.1" >&2; fail_init; }
 [[ $(runuser -u postgres -- psql -X -Atqc 'SHOW password_encryption') == scram-sha-256 ]] || {
-  echo 'Require scram-sha-256 authentication' >&2; exit 1;
+  echo 'Require scram-sha-256 authentication' >&2; fail_init;
 }
 
+init_step=12
 if [[ $empty_install == 1 ]]; then
   [[ $(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres','template0','template1')") == 0 &&
      $(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_roles WHERE rolname IN ('tor_app','tor_migrator')") == 0 ]] ||
-    { echo 'Refusing: existing database or TOR roles; use recovery' >&2; exit 1; }
+    { echo 'Refusing: existing database or TOR roles; use recovery' >&2; fail_init; }
   for path in /etc/tor/tor-app.env /etc/tor/tor-migrator.env /etc/tor/tor-runtime.env; do
     [[ ! -e "$path" && ! -L "$path" ]] ||
-      { echo 'Refusing: existing credentials' >&2; exit 1; }
+      { echo 'Refusing: existing credentials' >&2; fail_init; }
   done
 fi
 
+init_step=13
 dir=/etc/tor
-[[ ! -L $dir ]] || { echo "Unexpected symlink: $dir" >&2; exit 1; }
+[[ ! -L $dir ]] || { echo "Unexpected symlink: $dir" >&2; fail_init; }
 install -d -m 0700 -o root -g root "$dir"
 app_config="$dir/tor-app.env"
 migrator_config="$dir/tor-migrator.env"
 
 create_credential_file() {
   local role=$1 dest=$2 pass tmp
-  [[ ! -L $dest ]] || { echo "Unexpected symlink: $dest" >&2; exit 1; }
+  [[ ! -L $dest ]] || { echo "Unexpected symlink: $dest" >&2; fail_init; }
   if [[ ! -e $dest ]]; then
     pass=$(openssl rand -hex 32)
     tmp=$(mktemp "$dir/.credentials.XXXXXXXX")
@@ -63,7 +76,7 @@ get_password() {
   local role=$1 file=$2 uri re
   uri=$(cat "$file")
   re="^DATABASE_URL=postgresql://$role:([0-9a-f]{64})@127[.]0[.]0[.]1:5432/tor[?]sslmode=disable$"
-  [[ $uri =~ $re ]] || { echo "Unexpected credential contents: $file" >&2; exit 1; }
+  [[ $uri =~ $re ]] || { echo "Unexpected credential contents: $file" >&2; fail_init; }
   REPLY=$(printf '%s' "$uri" | cut -d: -f3 | cut -d@ -f1)
 }
 
@@ -72,6 +85,7 @@ create_credential_file tor_migrator "$migrator_config"
 get_password tor_app "$app_config"; app_password=$REPLY
 get_password tor_migrator "$migrator_config"; migrator_password=$REPLY
 
+init_step=14
 # Values are 64 lowercase hex characters; no SQL injection or process arguments.
 runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 <<SQL
 DO \$new_roles\$
@@ -88,16 +102,18 @@ ALTER ROLE tor_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION 
 ALTER ROLE tor_migrator WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT 3 PASSWORD '$migrator_password';
 SQL
 
+init_step=15
 owner=$(runuser -u postgres -- psql -X -Atqc \
   "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='tor'")
 [[ -z $owner || $owner == tor_migrator ]] || {
   echo "Database tor is already owned by $owner; refusing to alter it" >&2
-  exit 1
+  fail_init
 }
 if [[ -z $owner ]]; then
   runuser -u postgres -- createdb -O tor_migrator --encoding=UTF8 --template=template0 tor
 fi
 
+init_step=16
 runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d tor <<'SQL'
 REVOKE ALL ON DATABASE tor FROM PUBLIC;
 GRANT CONNECT ON DATABASE tor TO tor_app;
@@ -112,16 +128,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
 SQL
 
 # Check TCP/SCRAM authentication and rights without showing passwords.
+# Unaligned psql output of a boolean column is t/f. Concatenating a
+# boolean with text instead coerces it to true/false and breaks the gate.
+init_step=17
 PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=tor PGUSER=tor_app \
- PGPASSWORD="$app_password" psql -X -Atqc \
- "SELECT current_user || ':' || current_database() || ':' ||
-    has_schema_privilege(current_user,'public','CREATE')" |
- grep -qx 'tor_app:tor:f'
+ PGPASSWORD="$app_password" psql -X -w -Atq -F ':' -v ON_ERROR_STOP=1 -c \
+ "SELECT current_user, current_database(), has_schema_privilege(current_user,'public','CREATE')" |
+ grep -Fxq 'tor_app:tor:f'
+init_step=18
 PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=tor PGUSER=tor_migrator \
- PGPASSWORD="$migrator_password" psql -X -Atqc \
- "SELECT current_user || ':' || current_database() || ':' ||
-    has_schema_privilege(current_user,'public','CREATE')" |
- grep -qx 'tor_migrator:tor:t'
+ PGPASSWORD="$migrator_password" psql -X -w -Atq -F ':' -v ON_ERROR_STOP=1 -c \
+ "SELECT current_user, current_database(), has_schema_privilege(current_user,'public','CREATE')" |
+ grep -Fxq 'tor_migrator:tor:t'
+init_step=19
 
 echo '=== Role permissions (no secrets) ==='
 runuser -u postgres -- psql -X -Atqc \
