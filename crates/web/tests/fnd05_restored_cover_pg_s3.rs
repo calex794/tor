@@ -37,8 +37,7 @@ use tor_web::cover_worker::{CoverRunner, CoverRunnerMonitor};
 use tower::ServiceExt;
 
 const SOURCE_DB: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci";
-const RESTORED_DB: &str =
-    "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_offsite_restore_ci";
+const RESTORED_DB: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_offsite_restore_ci";
 const ENDPOINT: &str = "http://127.0.0.1:9010";
 const SOURCE: &str = "tor-fnd05-cover-source-ci";
 const VAULT: &str = "tor-fnd05-cover-vault-ci";
@@ -100,13 +99,19 @@ fn isolated(db_env: &str, expected: &str) -> Client {
 async fn pg(url: &'static str, sql: String) -> String {
     tokio::task::spawn_blocking(move || {
         let output = Command::new("psql")
-            .args(["-XAtq", "--no-password", "-v", "ON_ERROR_STOP=1", "-d", url, "-c", &sql])
+            .args([
+                "-XAtq",
+                "--no-password",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-d",
+                url,
+                "-c",
+                &sql,
+            ])
             .output()
             .unwrap();
-        assert!(
-            output.status.success(),
-            "isolated cover fixture SQL failed"
-        );
+        assert!(output.status.success(), "isolated cover fixture SQL failed");
         String::from_utf8(output.stdout).unwrap().trim().into()
     })
     .await
@@ -115,7 +120,10 @@ async fn pg(url: &'static str, sql: String) -> String {
 
 async fn inventory(slots: &PgCoverSlots, book: i64) -> Vec<Variant> {
     let mut result = Vec::new();
-    for (kind, name) in [(PublicCoverKind::Card, "card"), (PublicCoverKind::Main, "main")] {
+    for (kind, name) in [
+        (PublicCoverKind::Card, "card"),
+        (PublicCoverKind::Main, "main"),
+    ] {
         let variant = slots.public_variant(book, kind).await.unwrap().unwrap();
         let size = usize::try_from(variant.size_bytes).unwrap();
         assert!((1..=MAX).contains(&size));
@@ -141,13 +149,7 @@ async fn get_verified(store: &S3CoverStore, variant: &Variant) -> Vec<u8> {
     bytes
 }
 
-async fn put(
-    client: &Client,
-    bucket: &str,
-    key: &str,
-    mime: &str,
-    bytes: Vec<u8>,
-) {
+async fn put(client: &Client, bucket: &str, key: &str, mime: &str, bytes: Vec<u8>) {
     let digest = hex::encode(sha(&bytes));
     client
         .put_object()
@@ -173,7 +175,10 @@ async fn get_http(app: &Router, path: &str) -> (StatusCode, Vec<u8>) {
         assert_eq!(response.headers()[header::CONTENT_TYPE], "image/webp");
         assert!(!response.headers().contains_key(header::LOCATION));
     }
-    (status, to_bytes(response.into_body(), MAX).await.unwrap().to_vec())
+    (
+        status,
+        to_bytes(response.into_body(), MAX).await.unwrap().to_vec(),
+    )
 }
 
 #[tokio::test]
@@ -212,7 +217,9 @@ async fn seed_active_cover_backup() {
         .unwrap();
     pg(
         SOURCE_DB,
-        format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({moderator},'moderator',true)"),
+        format!(
+            "INSERT INTO account_roles(user_id,role,is_active) VALUES({moderator},'moderator',true)"
+        ),
     )
     .await;
     let book: i64 = pg(
@@ -240,7 +247,14 @@ async fn seed_active_cover_backup() {
         .unwrap();
     let jobs = PgCoverJobs::new(pool.clone());
     let source = jobs
-        .register_verified_source(book, owner, SOURCE_KEY, "image/png", bytes.len() as i64, &digest)
+        .register_verified_source(
+            book,
+            owner,
+            SOURCE_KEY,
+            "image/png",
+            bytes.len() as i64,
+            &digest,
+        )
         .await
         .unwrap();
     let job = jobs
@@ -272,7 +286,10 @@ async fn seed_active_cover_backup() {
         .into_iter()
         .find(|r| r.job_id == job)
         .unwrap();
-    reviews.decide(&moderator_digest, review.id, 0, true, "").await.unwrap();
+    reviews
+        .decide(&moderator_digest, review.id, 0, true, "")
+        .await
+        .unwrap();
     assert_eq!(slots.current_slot(book).await.unwrap(), Some((job, 1)));
 
     let variants = inventory(&slots, book).await;
@@ -301,9 +318,21 @@ async fn seed_active_cover_backup() {
 #[ignore = "verify only after isolated sealed-remote-copy pg_restore"]
 async fn verify_restored_active_cover() {
     let client = isolated("FND05_RESTORED_DATABASE_URL", RESTORED_DB);
-    let output = client.get_object().bucket(VAULT).key(MANIFEST_KEY).send().await.unwrap();
+    let output = client
+        .get_object()
+        .bucket(VAULT)
+        .key(MANIFEST_KEY)
+        .send()
+        .await
+        .unwrap();
     let mut manifest_bytes = Vec::new();
-    output.body.into_async_read().take(8193).read_to_end(&mut manifest_bytes).await.unwrap();
+    output
+        .body
+        .into_async_read()
+        .take(8193)
+        .read_to_end(&mut manifest_bytes)
+        .await
+        .unwrap();
     assert!(manifest_bytes.len() <= 8192);
     assert_eq!(
         hex::encode(sha(&manifest_bytes)),
@@ -315,7 +344,10 @@ async fn verify_restored_active_cover() {
     let catalog = PgCatalog::connect(RESTORED_DB).await.unwrap();
     let pool = catalog.pool();
     let slots = PgCoverSlots::new(pool.clone());
-    assert_eq!(slots.current_slot(manifest.book).await.unwrap(), Some((manifest.job, 1)));
+    assert_eq!(
+        slots.current_slot(manifest.book).await.unwrap(),
+        Some((manifest.job, 1))
+    );
     assert_eq!(inventory(&slots, manifest.book).await, manifest.variants);
 
     // The restored app uses a fresh bucket. The source still exists but
