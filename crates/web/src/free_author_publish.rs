@@ -228,6 +228,14 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
             .get_verified(&object)
             .await
             .map_err(map_storage)?;
+        if !self
+            .references
+            .record_single_delivery(&record)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?
+        {
+            return Err(AuthorError::Unavailable);
+        }
         let current = self
             .references
             .for_session(chapter, digest)
