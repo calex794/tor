@@ -500,3 +500,208 @@ async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
         Some(actor)
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::{Duration, Instant};
+
+    const SESSION_COUNT: usize = 48;
+    const WORKERS: usize = 6;
+    const ROUNDS: usize = 4;
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let setup = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&url)
+        .await
+        .unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'AUTH-07 load fixture','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("auth-load-{nonce}@example.invalid"))
+    .fetch_one(&setup)
+    .await
+    .unwrap();
+    // One intentionally skewed synthetic account. The hot-path lookup must
+    // stay bounded by token_hash even with a large existing session history.
+    // This is not a model of 100,000 concurrently connected readers.
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,created_at,expires_at)
+         SELECT $1,decode(md5($2||i::text)||md5($2||':'||i::text),'hex'),
+                now()-INTERVAL '40 days',
+                CASE WHEN i%2=0 THEN now()-INTERVAL '10 days'
+                     ELSE now()+INTERVAL '2 days' END
+         FROM generate_series(1,99952) i",
+    )
+    .bind(actor)
+    .bind(format!("auth-load-background-{nonce}-"))
+    .execute(&setup)
+    .await
+    .unwrap();
+    let mut digests = Vec::new();
+    for i in 0..SESSION_COUNT {
+        let digest = session_token_digest(&format!("auth-load-selected-{nonce}-{i}"));
+        let ttl = if i % 2 == 0 { 3600 } else { 2_592_000 };
+        accounts
+            .insert_session(actor, &digest, NonZeroU32::new(ttl).unwrap())
+            .await
+            .unwrap();
+        digests.push(digest);
+    }
+    async fn snapshot(pool: &sqlx::PgPool, digests: &[[u8; 32]]) -> Vec<(f64, String)> {
+        let mut rows = Vec::new();
+        for digest in digests {
+            rows.push(
+                sqlx::query_as(
+                    "SELECT extract(epoch FROM expires_at)::double precision,xmin::text
+                     FROM sessions WHERE token_hash=$1",
+                )
+                .bind(digest.as_slice())
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            );
+        }
+        rows
+    }
+
+    let before = snapshot(&setup, &digests).await;
+    let mut first_renewal = None;
+    // Measure the existing authority read separately from the renewal path,
+    // on the same pool, fixture and concurrency. No adaptive timeout changes.
+    for (phase, renew, rounds) in [
+        ("authority", false, ROUNDS),
+        ("mixed_first_renewal", true, 1),
+        ("fresh_renewal", true, ROUNDS),
+    ] {
+        let mut tasks = Vec::new();
+        let started = Instant::now();
+        for worker in 0..WORKERS {
+            let accounts = accounts.clone();
+            let assigned = digests[worker..]
+                .iter()
+                .step_by(WORKERS)
+                .copied()
+                .collect::<Vec<_>>();
+            tasks.push(tokio::spawn(async move {
+                let mut timings = Vec::new();
+                let mut failures = 0;
+                for _ in 0..rounds {
+                    for digest in &assigned {
+                        let now = Instant::now();
+                        let ok = if renew {
+                            matches!(
+                                accounts.renew_session_on_activity(digest).await,
+                                Ok(Some(age)) if age > 2_505_000
+                            )
+                        } else {
+                            matches!(
+                                accounts.active_session_user(digest).await,
+                                Ok(Some(user)) if user == actor
+                            )
+                        };
+                        timings.push(now.elapsed().as_micros());
+                        failures += usize::from(!ok);
+                    }
+                }
+                (timings, failures)
+            }));
+        }
+        let mut timings = Vec::new();
+        let mut failures = 0;
+        for task in tasks {
+            let (mut elapsed, failed) = task.await.unwrap();
+            timings.append(&mut elapsed);
+            failures += failed;
+        }
+        timings.sort_unstable();
+        let percentile = |p: usize| timings[(timings.len() - 1) * p / 100];
+        println!(
+            "AUTH07 phase={phase} fixture_sessions=100000 pool=3 workers={WORKERS} \
+             requests={} failures={failures} p50_us={} p95_us={} max_us={} elapsed_ms={}",
+            timings.len(),
+            percentile(50),
+            percentile(95),
+            timings.last().unwrap(),
+            started.elapsed().as_millis()
+        );
+        assert_eq!(failures, 0, "{phase}");
+        assert_eq!(timings.len(), SESSION_COUNT * rounds);
+        let after = snapshot(&setup, &digests).await;
+        if phase == "authority" {
+            assert_eq!(before, after, "authority read must not mutate sessions");
+        } else if phase == "mixed_first_renewal" {
+            for (i, (old, new)) in before.iter().zip(&after).enumerate() {
+                if i % 2 == 0 {
+                    assert!(new.0 > old.0);
+                    assert_ne!(new.1, old.1, "eligible session was not updated");
+                } else {
+                    assert_eq!(old, new, "fresh session was physically rewritten");
+                }
+            }
+            first_renewal = Some(after);
+        } else {
+            assert_eq!(
+                first_renewal.as_ref().unwrap(),
+                &after,
+                "fresh renewal must not change expiry or row version"
+            );
+        }
+    }
+
+    // Hold a row eligible for renewal and verify bounded failure without
+    // blocking unrelated reads. The runtime still owns only three connections.
+    sqlx::query("UPDATE sessions SET expires_at=now()+INTERVAL '1 hour' WHERE token_hash=$1")
+        .bind(digests[0].as_slice())
+        .execute(&setup)
+        .await
+        .unwrap();
+    let mut blocker = setup.begin().await.unwrap();
+    sqlx::query("SELECT user_id FROM sessions WHERE token_hash=$1 FOR UPDATE")
+        .bind(digests[0].as_slice())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let blocked_at = Instant::now();
+    let (blocked, independent) = tokio::join!(
+        accounts.renew_session_on_activity(&digests[0]),
+        accounts.active_session_user(&digests[1])
+    );
+    println!(
+        "AUTH07 locked_renewal_failed={} independent_authority_ok={} elapsed_ms={}",
+        blocked.is_err(),
+        matches!(&independent, Ok(Some(user)) if *user == actor),
+        blocked_at.elapsed().as_millis()
+    );
+    assert!(blocked.is_err(), "locked renewal must fail within the budget");
+    assert_eq!(independent.unwrap(), Some(actor));
+    assert!(blocked_at.elapsed() < Duration::from_secs(1));
+    blocker.rollback().await.unwrap();
+
+    assert!(accounts
+        .renew_session_on_activity(&digests[0])
+        .await
+        .unwrap()
+        .is_some());
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(actor)
+        .execute(&setup)
+        .await
+        .unwrap();
+    pool.close().await;
+    setup.close().await;
+}
