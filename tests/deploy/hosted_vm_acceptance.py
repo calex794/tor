@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import activate_clean_install as first
 import coordinated_release as coordinated
+import install_release_v2 as transition
 import managed_edge_release as edge
 import managed_systemd_release as unit
 import prepare_clean_install as clean
@@ -198,6 +199,17 @@ def run():
             app.verify(shas["A"])
             need(http("/catalog"), "missing first catalog")
             print("DEPLOY08A_REAL_FIRST_START_OK", flush=True)
+            # The production transition guard is read-only and must accept
+            # the healthy real app. This is not a wrapper installation.
+            need(transition.require_healthy_baseline(fd) == shas["A"],
+                 "healthy real baseline was not accepted")
+            try:
+                transition.require_healthy_baseline(fd, shas["B"])
+            except transition.InstallError as exc:
+                need("release changed" in str(exc), "wrong transition refusal")
+            else:
+                raise AssertionError("unexpected legacy release accepted")
+            print("DEPLOY08C_REAL_HEALTHY_BASELINE_OK", flush=True)
             first.query("INSERT INTO books(source_identity,target_language,title,visibility,access_level) VALUES ('ci:deploy08a:retained','ru','DEPLOY08A retained book','public','basic')", "tor")
             book = first.query("SELECT id FROM books WHERE source_identity='ci:deploy08a:retained'", "tor").decode()
             need(book.isdigit(), "fixture book not inserted")
@@ -210,8 +222,22 @@ def run():
             need(http("/catalog", fail=False) == b"502", "edge did not retain 502")
             need(http("/_tor-fallback/game.js"), "offline fallback asset unavailable")
             nginx.probe(shas["A"], edge_store.releases / shas["A"])
+            # No mocked service status, process identity or readiness.
+            # The stopped app must fail the real baseline preflight.
+            try:
+                transition.require_healthy_baseline(fd, shas["A"])
+            except (executor.ExecutorError, subprocess.CalledProcessError):
+                need(app.current() == shas["A"], "refusal changed active release")
+                need(not os.path.lexists(transition.MARKER),
+                     "refusal published protocol marker")
+            else:
+                raise AssertionError("stopped real app passed v2 transition guard")
+            print("DEPLOY08C_REAL_OUTAGE_REFUSED", flush=True)
             executor.command("systemctl", "start", executor.APP)
             wait_app(app, shas["A"])
+            need(transition.require_healthy_baseline(fd, shas["A"]) == shas["A"],
+                 "recovered real baseline was not accepted")
+            print("DEPLOY08C_REAL_RECOVERED_BASELINE_OK", flush=True)
             print("DEPLOY08A_REAL_BACKEND_OUTAGE_OK", flush=True)
 
             for label in "BCD":

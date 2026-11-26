@@ -55,6 +55,9 @@ jobs:
           set -euo pipefail
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08A_VM_ACCEPTANCE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_RECOVERED_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
       - name: Retain sanitized fixture evidence
         if: always()
         uses: actions/upload-artifact@v4
