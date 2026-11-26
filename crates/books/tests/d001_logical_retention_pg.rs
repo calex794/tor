@@ -684,3 +684,6 @@ async fn d001_single_retirement_queue_rechecks_new_reader_obligations() {
     assert_eq!(published(&pool, chapter).await, editions[3]);
     pool.close().await;
 }
+
+#[path = "d001_logical_retention_pg/single_delivery_fence.rs"]
+mod single_delivery_fence;

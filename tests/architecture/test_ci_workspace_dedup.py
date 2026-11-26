@@ -1,5 +1,6 @@
 """Keep workspace Rust gates single-owned without weakening PostgreSQL acceptance."""
 from pathlib import Path
+from ci_workflow_sources import expand_pg_runtime
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -9,7 +10,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 class WorkspaceDedupTests(unittest.TestCase):
     def test_rust_suite_owns_automatic_workspace_checks(self):
         rust = (WORKFLOWS / "rust-demo.yml").read_text()
-        postgres = (WORKFLOWS / "tor-pg-runtime.yml").read_text()
+        postgres = expand_pg_runtime((WORKFLOWS / "tor-pg-runtime.yml").read_text())
         for command in (
             "cargo fmt --all -- --check",
             "cargo test --workspace --all-targets",
@@ -29,7 +30,7 @@ class WorkspaceDedupTests(unittest.TestCase):
         )
 
     def test_postgres_keeps_feature_lints_and_database_acceptance(self):
-        postgres = (WORKFLOWS / "tor-pg-runtime.yml").read_text()
+        postgres = expand_pg_runtime((WORKFLOWS / "tor-pg-runtime.yml").read_text())
         self.assertIn("        image: postgres:18", postgres)
         self.assertIn("run: python3 tools/check_feature_layout.py", postgres)
         self.assertIn(
