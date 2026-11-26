@@ -113,11 +113,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/check_feature_layout.py
-          if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
-            cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers,s3-paid"
-          else
-            cargo build --release -p tor-web
-          fi
+          # Deployment transport is independent of S3 provider acceptance.
+          cargo build --release -p tor-web
           cargo build --release -p tor-migrations --bin tor-migrate
           cargo build --release -p tor-observability --bin tor-trace-store
           sha256sum target/release/tor-web | sed 's#target/release/##' \

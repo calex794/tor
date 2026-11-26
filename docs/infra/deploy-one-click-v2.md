@@ -10,11 +10,13 @@ closed if the marker is absent. Invalid marker/SSH output refuses release.
 New prepare_v2 input is false by default. True signs and transfers v2
 to /opt/tor/incoming/v2/<sha>, but never invokes the sudo executor,
 performs migrations or checks a newly installed release. It is for
-one-time operator bootstrap. The v2 build includes the four S3 Cargo
-features (not test-cdn-loopback); compiled support alone does not enable
-runtime flags or prove external provider acceptance. Legacy v1 build
-remains unchanged here. The already configured S3 runtime must not be
-served with an incompatible build.
+one-time operator bootstrap. Both v1 and v2 use the previously approved default Cargo profile.
+Changing deployment transport is not permission to activate S3. The
+separate S3 candidate workflow stays build-only until the external
+provider gate and a reviewed production feature-profile PR. An existing
+S3-configured VPS cannot be updated with this default profile; leave it
+in recovery/preparation mode until a compatible production profile is
+approved. Do not unset S3 settings to bypass this restriction.
 
 Both release modes preserve the original current-main and CI gates.
 V2 signs every file using the distinct namespace, verifies before
