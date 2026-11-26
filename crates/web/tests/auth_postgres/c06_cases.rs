@@ -114,7 +114,10 @@ pub(super) async fn purchased_version_http_journey(
         "paid V1 leaked through public paywall"
     );
     assert!(!html.contains("C06-PRIVATE-V2-MARKER"), "paid V2 leaked");
-    assert!(!html.contains("<script>"), "paywall must not run inline scripts");
+    assert!(
+        !html.contains("<script>"),
+        "paywall must not run inline scripts"
+    );
     assert!(html.contains(&format!("integrity=\"{integrity}\"")));
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
     assert!(anonymous.is_empty());
