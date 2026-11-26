@@ -18,6 +18,7 @@ pub use credentials::{PasswordRotation, SessionLoginAudit};
 pub mod book_step_up;
 mod password_reset;
 pub mod profile;
+pub mod security_history;
 mod security_retention;
 pub mod sessions;
 pub mod step_up;

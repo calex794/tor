@@ -65,16 +65,29 @@ impl PgAccounts {
         if current_hash.as_deref() != Some(expected_password_hash) {
             return Ok(None);
         }
+        // Serialize against logout of the requesting session as well.
+        let requester: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions WHERE user_id=$1 AND token_hash=$2
+               AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(current_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if requester.is_none() {
+            return Ok(None);
+        }
         let revoked = sqlx::query_scalar(
-            r#"UPDATE sessions AS target SET revoked_at = now()
-               WHERE target.user_id = $1 AND target.session_id::text = $2
-                 AND target.revoked_at IS NULL AND target.expires_at > now()
-                 AND EXISTS (
-                   SELECT 1 FROM sessions requester
-                   WHERE requester.user_id = $1 AND requester.token_hash = $3
-                     AND requester.revoked_at IS NULL AND requester.expires_at > now()
-                 )
-               RETURNING (target.token_hash = $3)"#,
+            r#"WITH ended AS (
+                UPDATE sessions AS target SET revoked_at = now()
+                WHERE target.user_id = $1 AND target.session_id::text = $2
+                  AND target.revoked_at IS NULL AND target.expires_at > clock_timestamp()
+                RETURNING target.session_id,(target.token_hash = $3) AS is_current
+               ), logged AS (
+                INSERT INTO account_security_events(user_id,event_kind,session_id,revoked_count)
+                SELECT $1,'owner_revoke',session_id,1 FROM ended RETURNING session_id
+               )
+               SELECT ended.is_current FROM ended JOIN logged USING(session_id)"#,
         )
         .bind(user_id)
         .bind(selected_id)
