@@ -35,6 +35,7 @@ SYSTEMD = {"systemd-web-release.conf": "ops/systemd/40-tor-release.conf"}
 SCRIPTS = {
     "go-live-postgres-vps.sh": "ops/go-live-postgres-vps.sh",
     "apply-tor-migrations-vps.sh": "ops/apply-tor-migrations-vps.sh",
+    "init-tor-database.sh": "ops/init-tor-database.sh",
 }
 INSTALL = {
     "install-nginx.conf": "ops/install/pandaolate.conf",

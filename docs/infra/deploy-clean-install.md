@@ -45,3 +45,9 @@ Never create a temporary public demo server to satisfy the old script.
 Existing update scripts assume healthy old application and are not
 called by this preparation. Real clean-machine and failure acceptance
 are still required. No operational install or S3 provider activation.
+
+DEPLOY-06b: first vhost listens on 127.0.0.1 only. Public bind and firewall
+admission require a separate operator decision. The empty install controller
+requires the independently prepared workspace, trusted OS packages and an
+empty loopback PostgreSQL 18/main. It deliberately does not provision apt,
+DNS, certificates or a deployment account. See deploy-empty-first-start.md.
