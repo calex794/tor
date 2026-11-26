@@ -153,6 +153,76 @@ def assert_restored_renewal(sql, witness):
             "AUTH08 rejected activity mutated session facts")
 
 
+
+def assert_stale_restore_invalidation(sql, source, witness):
+    """AUTH-08b: prove the safety policy on an isolated, stale archive.
+
+    The original continuity assertions run first. Only then revoke the
+    synthetic live cookie on the source, making the restored copy stale.
+    Never apply the bulk update to the source or to a deployed database.
+    The operational recovery gate is separate from this CI experiment.
+    """
+    require(source == "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
+            "AUTH08B refuses non-fixture source")
+    token = witness["tokens"]["live"]
+    original = session_snapshot(sql, source, witness)
+    require(original == witness["snapshot"],
+            "AUTH08B source changed before deliberate fixture revocation")
+    changed = sql(f"""
+        WITH ended AS (
+            UPDATE sessions SET revoked_at=clock_timestamp()
+            WHERE token_hash=decode('{digest(token)}','hex') AND revoked_at IS NULL
+            RETURNING 1
+        ) SELECT count(*) FROM ended
+    """, source)
+    require(changed == "1", "AUTH08B expected exactly one post-backup revocation")
+    source_after = session_snapshot(sql, source, witness)
+    require(source_after["live"][4] is not None
+            and all(source_after[kind] == original[kind] for kind in ("revoked", "expired")),
+            "AUTH08B source revocation witness differs")
+    # The isolated restore intentionally accepts the now-revoked source
+    # cookie. This is the exact risk when recovery loses security events.
+    require(request(3096, token)[0] == 200,
+            "AUTH08B expected stale restored cookie before invalidation")
+    print("AUTH08B_STALE_BACKUP_REVOCATION_GAP_REPRODUCED")
+
+    revoke_restored = """
+        WITH ended AS (
+            UPDATE sessions SET revoked_at=clock_timestamp()
+            WHERE revoked_at IS NULL AND expires_at>now()
+            RETURNING 1
+        ) SELECT count(*) FROM ended
+    """
+    active_count = """
+        SELECT count(*) FROM sessions
+        WHERE revoked_at IS NULL AND expires_at>now()
+    """
+    before_count = int(sql(active_count, RESTORE_URL))
+    require(before_count > 0, "AUTH08B missing restored live sessions")
+    require(int(sql(revoke_restored, RESTORE_URL)) == before_count,
+            "AUTH08B invalidation did not revoke every live restored session")
+    require(sql(active_count, RESTORE_URL) == "0"
+            and sql(revoke_restored, RESTORE_URL) == "0",
+            "AUTH08B invalidation is not complete and idempotent")
+
+    def assert_old_denied():
+        for kind in KINDS:
+            for active in (False, True):
+                status, location, cookies = request(3096, witness["tokens"][kind], active)
+                require(status == 303 and location == "/login"
+                        and not any(value.startswith(COOKIE_NAME + "=") for value in cookies),
+                        f"AUTH08B {kind} cookie survived invalidation")
+
+    assert_old_denied()
+    # New synthetic sessions can be established after invalidation.
+    fresh = seed_sessions(sql, RESTORE_URL, "i11-restored-buyer@example.invalid")
+    assert_sessions(3096, fresh)
+    assert_old_denied()
+    require(session_snapshot(sql, source, witness) == source_after,
+            "AUTH08B restored invalidation mutated source sessions")
+    print("AUTH08B_STALE_RESTORE_SESSION_INVALIDATION_OK")
+
+
 def main():
     # Import only for the standalone I-11 command, after module initialization.
     # S061 imports the seed/check functions directly inside its guarded drill.
@@ -181,6 +251,7 @@ def main():
         assert_restored_renewal(sql, witness)
         require(session_snapshot(sql, source, witness) == witness["snapshot"],
                 "AUTH08 restored activity changed original database")
+        assert_stale_restore_invalidation(sql, source, witness)
 
 
 if __name__ == "__main__":
