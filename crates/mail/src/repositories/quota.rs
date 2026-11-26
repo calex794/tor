@@ -1,8 +1,8 @@
 //! PostgreSQL serialization point for all outbound quota reservations.
 use crate::domain::{
     quota::{
-        QuotaDecision, QuotaKeys, DAILY_LIMIT, REGISTRATION_IP_DAILY,
-        REGISTRATION_RECIPIENT_DAILY, TRANSACTIONAL_RESERVE,
+        QuotaDecision, QuotaKeys, DAILY_LIMIT, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
+        TRANSACTIONAL_RESERVE,
     },
     MailClaim,
 };
