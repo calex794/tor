@@ -1,3 +1,5 @@
+pub mod quota;
+
 use crate::domain::{MailClaim, MailOutcome};
 use sqlx::{PgPool, Row};
 use tor_contracts::{
