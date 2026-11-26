@@ -31,24 +31,6 @@ pub(super) async fn actor(
         .ok_or(BookShareError::Forbidden)
 }
 
-pub(super) async fn administrator(
-    tx: &mut Transaction<'_, Postgres>,
-    digest: &[u8; 32],
-) -> Result<i64, BookShareError> {
-    sqlx::query_scalar(
-        "SELECT u.id FROM sessions s
-         JOIN users u ON u.id=s.user_id
-         JOIN account_roles r ON r.user_id=u.id
-         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-           AND u.account_state='active' AND r.role='administrator' AND r.is_active
-         FOR SHARE OF s,u,r",
-    )
-    .bind(digest.as_slice())
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BookShareError::Forbidden)
-}
-
 pub(super) fn validate_limit(limit: u16) -> Result<(), BookShareError> {
     if !(1..=50).contains(&limit) {
         return Err(BookShareError::Invalid);
@@ -96,7 +78,10 @@ mod tests {
     #[test]
     fn history_and_queue_limits_are_bounded() {
         for limit in [0, 51, u16::MAX] {
-            assert!(matches!(validate_limit(limit), Err(BookShareError::Invalid)));
+            assert!(matches!(
+                validate_limit(limit),
+                Err(BookShareError::Invalid)
+            ));
         }
         for limit in [1, 50] {
             assert!(validate_limit(limit).is_ok());

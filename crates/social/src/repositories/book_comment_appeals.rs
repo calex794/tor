@@ -3,9 +3,9 @@
 #![forbid(unsafe_code)]
 use super::{
     book_shares::BookShareError,
-    comment_appeal_common::{actor, administrator, decision_note, submission_reason, validate_limit},
+    comment_appeal_common::{actor, decision_note, submission_reason, validate_limit},
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 #[derive(Clone)]
 pub struct PgBookCommentAppeals {
@@ -30,6 +30,24 @@ pub struct PendingAppeal {
     pub author_id: i64,
     pub original_reviewer_id: i64,
     pub reason: String,
+}
+
+async fn administrator(
+    tx: &mut Transaction<'_, Postgres>,
+    digest: &[u8; 32],
+) -> Result<i64, BookShareError> {
+    sqlx::query_scalar(
+        "SELECT u.id FROM sessions s
+         JOIN users u ON u.id=s.user_id
+         JOIN account_roles r ON r.user_id=u.id
+         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
+           AND u.account_state='active' AND r.role='administrator' AND r.is_active
+         FOR SHARE OF s,u,r",
+    )
+    .bind(digest.as_slice())
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(BookShareError::Forbidden)
 }
 
 impl PgBookCommentAppeals {
