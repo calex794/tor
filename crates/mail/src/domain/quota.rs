@@ -1,16 +1,33 @@
 //! MAIL-01f1: conservative initial budget for the shared outbound provider.
+pub mod identity;
+
 pub const DAILY_LIMIT: i64 = 200;
 pub const TRANSACTIONAL_RESERVE: i64 = 50;
 pub const REGISTRATION_RECIPIENT_DAILY: i64 = 3;
 pub const REGISTRATION_IP_DAILY: i64 = 10;
 
-/// Opaque keyed digests, not raw mailbox or IP. The future trusted caller
-/// derives these using stable, separate HMAC namespaces and a recovery key.
+/// Opaque keyed digests, not raw mailbox or IP. Construct only through
+/// the versioned signer; do not deserialize from untrusted inputs.
 /// Unknown registration IPs share one restricted bucket; they never bypass it.
 #[derive(Clone, Copy)]
 pub struct QuotaKeys {
-    pub recipient: [u8; 32],
-    pub registration_ip: Option<[u8; 32]>,
+    recipient: [u8; 32],
+    registration_ip: Option<[u8; 32]>,
+    key_binding: [u8; 32],
+}
+
+impl QuotaKeys {
+    pub fn recipient(&self) -> &[u8; 32] {
+        &self.recipient
+    }
+
+    pub fn registration_ip(&self) -> Option<&[u8; 32]> {
+        self.registration_ip.as_ref()
+    }
+
+    pub(crate) fn key_binding(&self) -> &[u8; 32] {
+        &self.key_binding
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,6 +36,7 @@ pub enum QuotaDecision {
     Reserved,
     AlreadyReserved,
     StaleClaim,
+    KeyMismatch,
     GlobalDailyLimit,
     TransactionalReserve,
     GlobalPace,

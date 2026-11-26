@@ -3281,9 +3281,12 @@ dependencies = [
 name = "tor-mail"
 version = "0.1.0"
 dependencies = [
+ "hmac 0.12.1",
+ "sha2 0.10.9",
  "sqlx",
  "tokio",
  "tor-contracts",
+ "zeroize",
 ]
 
 [[package]]
