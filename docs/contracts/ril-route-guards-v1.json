@@ -313,8 +313,8 @@
     {
       "method": "GET",
       "template": "/login",
-      "source": "crates/web/src/auth.rs",
-      "handler": "account_form_http::show_login",
+      "source": "crates/web/src/auth/account_form_http.rs",
+      "handler": "show_login",
       "policy": "public"
     },
     {
@@ -614,8 +614,8 @@
     {
       "method": "GET",
       "template": "/register",
-      "source": "crates/web/src/auth.rs",
-      "handler": "account_form_http::show_registration",
+      "source": "crates/web/src/auth/account_form_http.rs",
+      "handler": "show_registration",
       "policy": "public"
     },
     {
@@ -782,8 +782,8 @@
     {
       "method": "POST",
       "template": "/login",
-      "source": "crates/web/src/auth.rs",
-      "handler": "account_form_http::login",
+      "source": "crates/web/src/auth/account_form_http.rs",
+      "handler": "login",
       "policy": "entry"
     },
     {
@@ -1083,8 +1083,8 @@
     {
       "method": "POST",
       "template": "/register",
-      "source": "crates/web/src/auth.rs",
-      "handler": "account_form_http::register",
+      "source": "crates/web/src/auth/account_form_http.rs",
+      "handler": "register",
       "policy": "entry"
     },
     {
@@ -3172,6 +3172,13 @@
       "source": "crates/web/src/auth/admin_s3.rs",
       "handler": "save",
       "policy": "admin_s3_connection"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/tor-auth-dialog.js",
+      "source": "crates/web/src/auth/account_form_http.rs",
+      "handler": "dialog_script",
+      "policy": "public"
     }
   ]
 }
