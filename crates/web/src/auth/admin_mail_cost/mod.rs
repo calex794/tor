@@ -92,9 +92,10 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         ),
         &cookies,
     );
-    response
-        .headers_mut()
-        .insert("x-robots-tag", HeaderValue::from_static("noindex, nofollow"));
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
     response
 }
 

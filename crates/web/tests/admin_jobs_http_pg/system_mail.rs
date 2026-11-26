@@ -79,11 +79,15 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
     );
     let token = Some(session.as_str());
     assert_eq!(
-        http(&app, "GET", PAGE, None, &csrf, ORIGIN, String::new()).await.0,
+        http(&app, "GET", PAGE, None, &csrf, ORIGIN, String::new())
+            .await
+            .0,
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        http(&app, "GET", PAGE, token, &csrf, ORIGIN, String::new()).await.0,
+        http(&app, "GET", PAGE, token, &csrf, ORIGIN, String::new())
+            .await
+            .0,
         StatusCode::NOT_FOUND
     );
     pg(
@@ -105,9 +109,12 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
          ON CONFLICT(month_start) DO UPDATE SET free_allowance=2000,baseline_kopecks=0,
                 rate_per_thousand=8032,reserved_attempts=5000",
     );
-    let revision: i64 = pg(&url, "SELECT revision FROM mail_cost_policy WHERE singleton")
-        .parse()
-        .unwrap();
+    let revision: i64 = pg(
+        &url,
+        "SELECT revision FROM mail_cost_policy WHERE singleton",
+    )
+    .parse()
+    .unwrap();
     let (status, html) = http(&app, "GET", PAGE, token, &csrf, ORIGIN, String::new()).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("240.96 ₽"));
@@ -121,68 +128,137 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
         (form(&csrf, revision, 600), "https://evil.invalid"),
     ] {
         assert_eq!(
-            http(&app, "POST", PAGE, token, &csrf, origin, posted).await.0,
+            http(&app, "POST", PAGE, token, &csrf, origin, posted)
+                .await
+                .0,
             StatusCode::FORBIDDEN
         );
     }
     assert_eq!(
-        http(&app, "POST", PAGE, token, &csrf, ORIGIN, form(&csrf, revision, 300))
-            .await.0,
+        http(
+            &app,
+            "POST",
+            PAGE,
+            token,
+            &csrf,
+            ORIGIN,
+            form(&csrf, revision, 300)
+        )
+        .await
+        .0,
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
         http(
-            &app, "POST", PAGE, token, &csrf, ORIGIN,
+            &app,
+            "POST",
+            PAGE,
+            token,
+            &csrf,
+            ORIGIN,
             format!("{}&enabled=true", form(&csrf, revision, 600)),
-        ).await.0,
+        )
+        .await
+        .0,
         StatusCode::UNPROCESSABLE_ENTITY
     );
     // Concurrent changes with one expected revision cannot overwrite each other.
-    let (a,b) = tokio::join!(
-        http(&app,"POST",PAGE,token,&csrf,ORIGIN,form(&csrf,revision,600)),
-        http(&app,"POST",PAGE,token,&csrf,ORIGIN,form(&csrf,revision,700)),
+    let (a, b) = tokio::join!(
+        http(
+            &app,
+            "POST",
+            PAGE,
+            token,
+            &csrf,
+            ORIGIN,
+            form(&csrf, revision, 600)
+        ),
+        http(
+            &app,
+            "POST",
+            PAGE,
+            token,
+            &csrf,
+            ORIGIN,
+            form(&csrf, revision, 700)
+        ),
     );
-    assert!(
-        matches!((a.0,b.0),
-            (StatusCode::SEE_OTHER,StatusCode::CONFLICT)
-            | (StatusCode::CONFLICT,StatusCode::SEE_OTHER))
-    );
+    assert!(matches!(
+        (a.0, b.0),
+        (StatusCode::SEE_OTHER, StatusCode::CONFLICT)
+            | (StatusCode::CONFLICT, StatusCode::SEE_OTHER)
+    ));
     assert_eq!(
         pg(&url, "SELECT enabled FROM mail_cost_policy WHERE singleton"),
         "f",
         "saving limits must never enable sending"
     );
     // A stop request does not depend on a stale browser revision.
-    pg(&url,"UPDATE mail_cost_policy SET enabled=true WHERE singleton");
+    pg(
+        &url,
+        "UPDATE mail_cost_policy SET enabled=true WHERE singleton",
+    );
     let stop = format!("{PAGE}/stop");
     for _ in 0..2 {
         assert_eq!(
-            http(&app,"POST",&stop,token,&csrf,ORIGIN,format!("csrf_token={csrf}"))
-                .await.0,
+            http(
+                &app,
+                "POST",
+                &stop,
+                token,
+                &csrf,
+                ORIGIN,
+                format!("csrf_token={csrf}")
+            )
+            .await
+            .0,
             StatusCode::SEE_OTHER
         );
     }
     assert_eq!(
-        pg(&url,"SELECT enabled FROM mail_cost_policy WHERE singleton"),
+        pg(&url, "SELECT enabled FROM mail_cost_policy WHERE singleton"),
         "f"
     );
     assert_eq!(
-        pg(&url,&format!("SELECT count(*) FROM mail_cost_admin_audit WHERE actor_user_id={actor}")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM mail_cost_admin_audit WHERE actor_user_id={actor}")
+        ),
         "2"
     );
-    pg_audit_mutation_rejected(&url,&format!(
-        "UPDATE mail_cost_admin_audit SET new_monthly_limit=1 WHERE actor_user_id={actor}"
-    ));
-    pg_audit_mutation_rejected(&url,&format!(
-        "DELETE FROM mail_cost_admin_audit WHERE actor_user_id={actor}"
-    ));
-    pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={actor}"));
+    pg_audit_mutation_rejected(
+        &url,
+        &format!(
+            "UPDATE mail_cost_admin_audit SET new_monthly_limit=1 WHERE actor_user_id={actor}"
+        ),
+    );
+    pg_audit_mutation_rejected(
+        &url,
+        &format!("DELETE FROM mail_cost_admin_audit WHERE actor_user_id={actor}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=false WHERE user_id={actor}"),
+    );
     assert_eq!(
-        http(&app,"POST",&stop,token,&csrf,ORIGIN,format!("csrf_token={csrf}")).await.0,
+        http(
+            &app,
+            "POST",
+            &stop,
+            token,
+            &csrf,
+            ORIGIN,
+            format!("csrf_token={csrf}")
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND
     );
     // Leave subsequent suites a disabled, empty month with default limits.
-    pg(&url,"UPDATE mail_cost_policy SET enabled=false,warning_1=10000,warning_2=30000,
-        news_pause=40000,monthly_limit=50000 WHERE singleton; DELETE FROM mail_cost_months");
-    pg(&url,&format!("DELETE FROM users WHERE id={actor}"));
+    pg(
+        &url,
+        "UPDATE mail_cost_policy SET enabled=false,warning_1=10000,warning_2=30000,
+        news_pause=40000,monthly_limit=50000 WHERE singleton; DELETE FROM mail_cost_months",
+    );
+    pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }

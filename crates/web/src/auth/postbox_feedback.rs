@@ -22,7 +22,6 @@ use tor_mail::{
 };
 use zeroize::Zeroizing;
 
-const PATH: &str = "/internal/mail/postbox-feedback";
 const MAX_BODY: usize = 65536;
 const DATABASE_BUDGET: Duration = Duration::from_secs(5);
 
@@ -83,7 +82,7 @@ pub(super) fn router_from_env(
 
 fn router(state: Arc<RelayState>) -> Router {
     Router::new()
-        .route(PATH, post(receive))
+        .route("/internal/mail/postbox-feedback", post(receive))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(state)
 }
@@ -99,7 +98,11 @@ fn response(status: StatusCode) -> Response {
     (status, [(header::CACHE_CONTROL, "no-store")]).into_response()
 }
 
-async fn receive(State(state): State<Arc<RelayState>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn receive(
+    State(state): State<Arc<RelayState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let (Some(timestamp), Some(signature)) = (
         single_header(&headers, "x-tor-mail-timestamp"),
         single_header(&headers, "x-tor-mail-signature"),
@@ -109,7 +112,10 @@ async fn receive(State(state): State<Arc<RelayState>>, headers: HeaderMap, body:
     let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
         return response(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let event = match state.auth.authenticate(timestamp, signature, &body, now.as_secs()) {
+    let event = match state
+        .auth
+        .authenticate(timestamp, signature, &body, now.as_secs())
+    {
         Ok(Some(event)) => event,
         Ok(None) => return response(StatusCode::NO_CONTENT),
         Err(RelayError::Unauthorized) => return response(StatusCode::UNAUTHORIZED),

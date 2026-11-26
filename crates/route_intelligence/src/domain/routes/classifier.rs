@@ -462,6 +462,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/odmen"), "GET") => Some(447),
         (Some("/odmen/storage/s3"), "GET") => Some(448),
         (Some("/odmen/storage/s3"), "POST") => Some(449),
+        (Some("/internal/mail/postbox-feedback"), "POST") => Some(450),
+        (Some("/odmen/system-mail"), "GET") => Some(451),
+        (Some("/odmen/system-mail"), "POST") => Some(452),
+        (Some("/odmen/system-mail/stop"), "POST") => Some(453),
         _ => None,
     };
     index

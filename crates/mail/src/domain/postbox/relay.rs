@@ -147,12 +147,7 @@ mod tests {
             .is_some());
         let foreign = serde_json::to_vec(&event).unwrap();
         assert!(matches!(
-            auth.authenticate(
-                timestamp,
-                &sign(&foreign, timestamp),
-                &foreign,
-                1700000000
-            ),
+            auth.authenticate(timestamp, &sign(&foreign, timestamp), &foreign, 1700000000),
             Err(RelayError::ForeignIdentity)
         ));
         let invalid = b"not json";

@@ -186,9 +186,11 @@ async fn lock_guard(tx: &mut Transaction<'_, Postgres>) -> Result<(), CostAdminE
 }
 
 async fn revision(tx: &mut Transaction<'_, Postgres>) -> Result<i64, CostAdminError> {
-    Ok(sqlx::query_scalar("SELECT revision FROM mail_cost_policy WHERE singleton")
-        .fetch_one(&mut **tx)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT revision FROM mail_cost_policy WHERE singleton")
+            .fetch_one(&mut **tx)
+            .await?,
+    )
 }
 
 #[cfg(test)]
