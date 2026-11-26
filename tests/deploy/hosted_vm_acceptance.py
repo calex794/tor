@@ -9,6 +9,7 @@ other components are used unchanged.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import inspect
 import os
@@ -16,6 +17,7 @@ from pathlib import Path
 import pwd
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -270,6 +272,123 @@ def sudo_release(*args):
         env=executor.SAFE_ENV, capture_output=True, timeout=240)
 
 
+class LabSSH:
+    """Loopback-only transport with a pinned, ephemeral fixture host key."""
+    HOST = "127.0.0.1"
+    PORT = 22222
+    DEST = "tor-deploy@127.0.0.1"
+
+    def __init__(self, key, known_hosts, wrong_hosts):
+        self.key = key
+        self.known_hosts = known_hosts
+        self.wrong_hosts = wrong_hosts
+
+    def options(self, *, wrong=False):
+        hosts = self.wrong_hosts if wrong else self.known_hosts
+        return ["-F", "/dev/null", "-i", str(self.key),
+                "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                "-o", "StrictHostKeyChecking=yes", "-o", "GlobalKnownHostsFile=/dev/null",
+                "-o", "UserKnownHostsFile=" + str(hosts), "-o", "ConnectTimeout=5"]
+
+    def run(self, remote, *, wrong=False, timeout=240):
+        return subprocess.run(["ssh", "-p", str(self.PORT), *self.options(wrong=wrong),
+                               self.DEST, remote], env=executor.SAFE_ENV,
+                              capture_output=True, timeout=timeout)
+
+    def stage(self, source, sha):
+        bundle.validate_sha(sha)
+        inbox = "/opt/tor/incoming/v2/" + sha
+        # Same mkdir/permission and scp -p contract as the production workflow.
+        result = self.run("umask 077; test -d /opt/tor/incoming && "
+                          "test -w /opt/tor/incoming && mkdir -p '" + inbox +
+                          "' && test ! -L '" + inbox + "' && chmod 0700 '" + inbox + "'")
+        need(result.returncode == 0, "SSH inbox preparation failed")
+        result = subprocess.run(
+            ["scp", "-p", "-P", str(self.PORT), *self.options(),
+             *(str(source / name) for name in sorted(bundle.FILES)), self.DEST + ":" + inbox + "/"],
+            env=executor.SAFE_ENV, capture_output=True, timeout=240)
+        need(result.returncode == 0, "SCP signed bundle transfer failed")
+
+    def activate(self, sha):
+        bundle.validate_sha(sha)
+        return self.run("grep -Fxq '# TOR RELEASE PROTOCOL 2' /usr/local/sbin/tor-one-click-release"
+                        ' && test "$(cat /var/lib/tor-release/release-format)" = 2'
+                        " && sudo -n /usr/local/sbin/tor-one-click-release '" + sha + "'")
+
+
+@contextmanager
+def lab_ssh(key):
+    # Called only after the hosted_guard in run(). No production account,
+    # key, sshd configuration, remote destination or host service is used.
+    directory = LAB / "ssh"
+    directory.mkdir(mode=0o700)
+    deploy = pwd.getpwnam("tor-deploy")
+    home = Path(deploy.pw_dir)
+    need(home == Path("/home/tor-deploy") and home.resolve() == home
+         and home.stat().st_uid == deploy.pw_uid, "unexpected fixture deploy home")
+    # SSH needs a valid command shell; password login remains impossible.
+    executor.command("usermod", "--shell", "/bin/bash", "--password", "*", "tor-deploy")
+    sshdir = home / ".ssh"
+    sshdir.mkdir(mode=0o700)
+    client_pub = key.with_suffix(".pub").read_bytes().strip()
+    authorized = sshdir / "authorized_keys"
+    authorized.write_bytes(b"restrict " + client_pub + b"\n")
+    authorized.chmod(0o600)
+    for item in (sshdir, authorized):
+        os.chown(item, deploy.pw_uid, deploy.pw_gid)
+    hostkey = directory / "host"
+    executor.command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(hostkey))
+    host_pub = hostkey.with_suffix(".pub").read_bytes().split()[:2]
+    client_fields = client_pub.split()[:2]
+    host_alias = b"[127.0.0.1]:22222 "
+    known_hosts = directory / "known_hosts"
+    wrong_hosts = directory / "wrong_hosts"
+    first.new_file(known_hosts, host_alias + b" ".join(host_pub) + b"\n", 0o600)
+    first.new_file(wrong_hosts, host_alias + b" ".join(client_fields) + b"\n", 0o600)
+    executor.command("ssh-keygen", "-F", "[127.0.0.1]:22222", "-f", str(known_hosts))
+    config = directory / "sshd_config"
+    first.new_file(config, (
+        "Port 22222\nListenAddress 127.0.0.1\nAddressFamily inet\n"
+        "HostKey " + str(hostkey) + "\nPidFile " + str(directory / "sshd.pid") + "\n"
+        "AuthorizedKeysFile .ssh/authorized_keys\n"
+        "AllowUsers tor-deploy\nPermitRootLogin no\nAuthenticationMethods publickey\n"
+        "PubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n"
+        "PermitEmptyPasswords no\nUsePAM no\nStrictModes yes\n"
+        "DisableForwarding yes\nPermitTTY no\nPermitUserEnvironment no\n"
+        "PrintMotd no\nPrintLastLog no\nUseDNS no\nLogLevel ERROR\n"
+        "Subsystem sftp internal-sftp\n").encode(), 0o600)
+    executor.command("/usr/sbin/sshd", "-t", "-f", str(config))
+    with (directory / "sshd.log").open("wb") as log:
+        daemon = subprocess.Popen(["/usr/sbin/sshd", "-D", "-e", "-f", str(config)],
+                                  env=executor.SAFE_ENV, stdout=log, stderr=log)
+        try:
+            for _ in range(40):
+                need(daemon.poll() is None, "loopback sshd exited")
+                try:
+                    with socket.create_connection(("127.0.0.1", 22222), timeout=0.5):
+                        break
+                except OSError:
+                    time.sleep(0.25)
+            else:
+                raise RuntimeError("loopback sshd did not start")
+            listeners = executor.command("ss", "-H", "-ltn", "sport = :22222").stdout.splitlines()
+            need(len(listeners) == 1 and b"127.0.0.1:22222" in listeners[0],
+                 "fixture SSH not exclusively loopback")
+            transport = LabSSH(key, known_hosts, wrong_hosts)
+            need(transport.run("id -un").stdout == b"tor-deploy\n", "fixture SSH identity differs")
+            print("DEPLOY08F_LOOPBACK_SSH_READY", flush=True)
+            yield transport
+        finally:
+            daemon.terminate()
+            try:
+                daemon.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                daemon.kill()
+                daemon.wait(timeout=10)
+            authorized.unlink(missing_ok=True)
+            hostkey.unlink(missing_ok=True)
+
+
 def visudo_diagnostic(stage, result):
     # The VM has only disposable OS sudoers and fixture rules. Bound and
     # escape the diagnostic, never print an environment or a secret file.
@@ -396,7 +515,7 @@ def make_legacy_fixture(sha, key):
 
 
 def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
-                                db, credentials, book):
+                                db, credentials, book, transport):
     app = executor.Application(executor.AppStore(), edge.SIGNERS, -1)
     baseline = shas["B"]
     # Pin the actual live main head, not a synthetic allowlist. A main
@@ -409,15 +528,25 @@ def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
     shas["H"] = head
     executor.require_forward(head, shas["G"])
     source["H"] = fixture_release("H", head, signers, key)
-    deploy = pwd.getpwnam("tor-deploy")
     target = inbox / head
-    shutil.copytree(source["H"], target)
-    for item in (target, *target.iterdir()):
-        os.chown(item, deploy.pw_uid, deploy.pw_gid)
-
     legacy, wrapper, sudoers, rule = make_legacy_fixture(baseline, key)
-    key.unlink()
-    key.with_suffix(".pub").unlink()
+    # A wrong pinned host key must refuse before even creating the inbox.
+    pid = executor.service_pid()
+    before = coordinated.Journal().load()
+    wrong = transport.run("mkdir -p '" + str(target) + "'", wrong=True)
+    need(wrong.returncode == 255 and b"Host key verification failed" in wrong.stderr
+         and not os.path.lexists(target), "incorrect host key did not block transfer")
+    print("DEPLOY08F_WRONG_HOST_KEY_REFUSED", flush=True)
+    transport.stage(source["H"], head)
+    bundle.verify(target, head, edge.SIGNERS)
+    need(stat.S_IMODE(target.stat().st_mode) == 0o700 and
+         target.stat().st_uid == pwd.getpwnam("tor-deploy").pw_uid and
+         app.current() == baseline and executor.service_pid() == pid and
+         coordinated.Journal().load() == before and
+         database_witness() == db and secrets_witness() == credentials,
+         "SSH stage-only changed live state")
+    app.verify(baseline)
+    print("DEPLOY08F_SSH_STAGE_ONLY_OK", flush=True)
     vhost = first.VHOST
     pin = transition.adoption.hash_bytes(legacy)
     approved = LAB / "approved-v2-sources"
@@ -500,7 +629,7 @@ def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
     return head
 
 
-def real_outage_acceptance(source, shas, db, credentials, book, key, signers):
+def real_outage_acceptance(source, shas, db, credentials, book, key, signers, transport):
     need(executor.AppStore().current() == shas["B"], "unexpected real-chain baseline")
     for prev, candidate in zip("BEF", "EFG"):
         executor.require_forward(shas[candidate], shas[prev])
@@ -530,7 +659,7 @@ def real_outage_acceptance(source, shas, db, credentials, book, key, signers):
             os.chown(item, deploy.pw_uid, deploy.pw_gid)
 
     adopted_edge = legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
-                                               db, credentials, book)
+                                               db, credentials, book, transport)
 
     # A valid approval never authorizes taking a healthy site offline.
     approve_outage(shas["B"], shas["E"])
@@ -634,10 +763,31 @@ def real_outage_acceptance(source, shas, db, credentials, book, key, signers):
     repair_witness(db, credentials, book, stopped=False, previous=shas["G"])
     print("DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED", flush=True)
 
-    # The actual deploy account can now update through the installed sudo
-    # wrapper, using the same signed bundle/production shell as the button.
     # H was staged for adoption only; it has never been the active app.
-    result = sudo_release(shas["H"])
+    # A modified writable inbox must not become a root-owned release.
+    candidate = shas["H"]
+    target = inbox / candidate
+    active = shas["G"]
+    pid = executor.service_pid()
+    previous = coordinated.Journal().load()
+    need(not os.path.lexists(executor.TOR / "releases" / candidate),
+         "fixture candidate already published")
+    tamper = transport.run("printf '\\n# tampered fixture\\n' >> '" +
+                           str(target / "fallback-game.js") + "'")
+    need(tamper.returncode == 0, "fixture tamper did not execute")
+    refused = transport.activate(candidate)
+    need(refused.returncode != 0 and b"TOR_V2_REFUSED: BundleError" in refused.stderr and
+         not os.path.lexists(executor.TOR / "releases" / candidate) and
+         executor.AppStore().current() == active and executor.service_pid() == pid and
+         edge.EdgeStore(edge.ROOT).active_sha() == active and
+         coordinated.Journal().load() == previous and
+         database_witness() == db and secrets_witness() == credentials,
+         "tampered SSH inbox was not refused without cutover")
+    print("DEPLOY08F_TAMPERED_INBOX_REFUSED", flush=True)
+    # Restore the approved bundle over SCP, then execute the exact wrapper
+    # command over the actual SSH connection as the deployment account.
+    transport.stage(source["H"], candidate)
+    result = transport.activate(candidate)
     need(result.returncode == 0 and
          ("TOR_ONE_CLICK_RELEASE_V2_OK " + shas["H"]).encode() in result.stdout,
          "installed sudo wrapper did not complete signed normal release")
@@ -649,11 +799,13 @@ def real_outage_acceptance(source, shas, db, credentials, book, key, signers):
          database_witness() == db and secrets_witness() == credentials and
          b"DEPLOY08A retained book" in http("/books/" + book),
          "normal sudo release changed retained state")
-    repeated = sudo_release(shas["H"])
+    pid = executor.service_pid()
+    repeated = transport.activate(shas["H"])
     need(repeated.returncode == 0 and
-         ("TOR_V2_ALREADY_ACTIVE " + shas["H"]).encode() in repeated.stdout,
-         "same signed sudo release not idempotent")
+         ("TOR_V2_ALREADY_ACTIVE " + shas["H"]).encode() in repeated.stdout and
+         executor.service_pid() == pid, "same signed SSH release not idempotent")
     print("DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK", flush=True)
+    print("DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK", flush=True)
 
 
 def run():
@@ -681,8 +833,9 @@ def run():
     source = {label: fixture_release(label, sha, signers, key,
                                      broken=label == "C", late_failure=label == "E")
               for label, sha in shas.items()}
-    # Keep only the private ephemeral lab key for the later live-main
-    # adoption identity and authentic v1 manifest. Delete after signing.
+    # Keep the ephemeral root-private lab key for later signing and loopback
+    # SSH authentication, as the workflow uses the same key for both. The
+    # final cleanup removes it; no production key is involved.
     pin = hashlib.sha256((source["A"] / bundle.MANIFEST).read_bytes()).hexdigest()
     machine = Path("/etc/machine-id").read_text().strip()
     record = clean.plan(shas["A"], machine, pin)
@@ -831,8 +984,8 @@ def run():
     first.new_file(token_path, token, 0o600)
     del token
     try:
-        with patch.object(executor.ancestry, "Request", vm_authenticated_request):
-            real_outage_acceptance(source, shas, db, credentials, book, key, signers)
+        with patch.object(executor.ancestry, "Request", vm_authenticated_request), lab_ssh(key) as transport:
+            real_outage_acceptance(source, shas, db, credentials, book, key, signers, transport)
     finally:
         key.unlink(missing_ok=True)
         key.with_suffix(".pub").unlink(missing_ok=True)

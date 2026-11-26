@@ -81,6 +81,11 @@ jobs:
           grep -Fxq 'DEPLOY08E_REAL_VHOST_PIN_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08E_REAL_V1_V2_BOOTSTRAP_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_LOOPBACK_SSH_READY' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_WRONG_HOST_KEY_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_SSH_STAGE_ONLY_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_TAMPERED_INBOX_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
       - name: Retain sanitized fixture evidence
         if: always()
         uses: actions/upload-artifact@v4

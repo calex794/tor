@@ -130,3 +130,23 @@ fixture rule uses the actual v1 bootstrap comment and exact permission line,
 is independently checked with visudo -c -f before installation, then its
 ownership/mode and the full global configuration are checked. Production
 bootstrap continues to require unmodified global visudo -c.
+
+## DEPLOY-08f: loopback SSH/SCP transport acceptance
+
+Separate stacked VM changes replace the direct H inbox copy with a real
+SCP transfer and the final local sudo invocation with actual SSH -> sudo
+on a dedicated 127.0.0.1:22222 sshd. The ephemeral lab signing key is also
+the restricted authentication key, as in the existing workflow. The server
+has an independent temporary host key; client pins known_hosts and disables
+other known-host sources, passwords, root login, forwarding and TTY. The
+fixture account gets a valid command shell but no usable password. All
+changes are scoped to the guarded disposable runner. If sshd is absent,
+package auto-start is blocked; the separate process is stopped in finally.
+
+Five required markers cover loopback SSH, wrong host-key refusal before
+staging, correct stage-only transfer with unchanged service PID/data/journal,
+tampered signed inbox refusal before publication, real SSH activation and
+idempotent repeat without restarting. The same workflow inbox and wrapper
+contracts are exercised; this does not execute the actual production
+workflow or access its protected environment or secrets. Remote download
+bootstrap and independent off-server recovery are still separate tests.
