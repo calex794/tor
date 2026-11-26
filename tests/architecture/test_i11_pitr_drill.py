@@ -18,7 +18,7 @@ spec.loader.exec_module(drill)
 
 
 def valid_report():
-    return {'schema_version': 2, 'scope': 'isolated_container_fixture',
+    return {'schema_version': 3, 'scope': 'isolated_container_fixture',
             'postgres_version': 'postgres (PostgreSQL) 18.1',
             'pgbackrest_version': 'pgBackRest 2.57.0',
             'backup_label': '20261111-120000F', 'drill_elapsed_seconds': 2.5,
@@ -60,7 +60,7 @@ class RecoveryContract(unittest.TestCase):
         report['secret'] = 'must not appear in output'
         with self.assertRaises(ValueError):
             drill.validate_report(json.dumps(report))
-        for version in (True, 1, 3, '2'):
+        for version in (True, 1, 2, 4, '3'):
             report = valid_report()
             report['schema_version'] = version
             with self.assertRaises(ValueError):
@@ -218,7 +218,8 @@ class Isolation(unittest.TestCase):
             self.assertIn(required, section)
         for flag in ('utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
                      'utc_target_no_promotion_verified',
-                     'generated_startup_config_verified_and_used'):
+                     'generated_startup_config_verified_and_used',
+                     'operator_paused_replay_helpers_verified'):
             self.assertIn(flag, drill.CHECKS)
             self.assertIn("'" + flag + "': True", section)
 
@@ -245,6 +246,35 @@ class Isolation(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn('I11_PITR_GENERATED_CONFIG_REFUSED', result.stderr)
+
+    def test_operator_helpers_use_second_fresh_restore_and_real_commands(self):
+        shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        adapter = (ROOT / 'tools/i11_pitr_run_paused.py').read_text()
+        self.assertIn('tor_recovery_pg_run.py', drill.FIXTURE_MODULES)
+        self.assertIn('i11_pitr_run_paused.py', drill.FIXTURE_MODULES)
+        section = shell[shell.index('# RECOVERY-09c:'):]
+        self.assertLess(section.index('mv -- "$time_root"'),
+                        section.index('stage_time_target'))
+        self.assertLess(section.index('stage_time_target'),
+                        section.index('i11_pitr_run_paused.py'))
+        self.assertLess(section.index('pg-paused-replay-receipt.json'),
+                        section.index("'operator_paused_replay_helpers_verified': True"))
+        self.assertIn('actual_invoke(command[4:], timeout, capture=capture)', adapter)
+        self.assertIn('command not in expected_commands', adapter)
+        self.assertIn('replay.run_paused(root, args, uid, gid, uid, gid)', adapter)
+        self.assertIn('verify_stage_receipt(root, selection', adapter)
+        self.assertIn('verify_prepared_files(root, args', adapter)
+        self.assertIn('with stage_lock(root, uid, gid)', adapter)
+        self.assertNotIn('replay.execute(', adapter)
+        self.assertNotIn('replay.main(', adapter)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / 'tools/i11_pitr_run_paused.py'),
+             '/srv/tor-recovery', '20261111-120000F', '2026-11-11 12:00:01+00', '1'],
+            env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True,
+            timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('I11_PITR_OPERATOR_HELPERS_REFUSED', result.stderr)
 
 
 if __name__ == '__main__':

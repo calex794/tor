@@ -46,7 +46,7 @@ def prepare(work, label, target, timeline):
         timeline=timeline, pg_port=15435,
         max_connections=16, max_prepared_transactions=0,
         max_locks_per_transaction=64, max_wal_senders=10,
-        max_worker_processes=8, shared_buffers_mb=32,
+        max_worker_processes=8, shared_buffers_mb=32, replay_timeout_seconds=60,
     )
     root = work / "time-recovery"
     checked_directory(root, uid, gid, 0o700)
@@ -78,6 +78,7 @@ def prepare(work, label, target, timeline):
         verify_data_tree(root / "pgdata", uid, gid)
         verify_stage_receipt(root, selection, uid, gid, gid)
         verify_prepared_files(root, args, uid, gid, uid, gid)
+    return root, args, selection, uid, gid
 
 
 def main():

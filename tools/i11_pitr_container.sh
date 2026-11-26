@@ -66,8 +66,9 @@ for name in ('wrong-key', 'restore', 'bad-restore', 'time-restore'):
             print(f'I11_PITR_DIAGNOSTIC {name} {match[1]} {text}')
             break
 # Synthetic fixture only. Publish bounded startup diagnostics, never raw logs.
-for name in ('time-start', 'time-pgctl', 'time-readiness'):
-    path = root / 'log' / (name + '.log')
+for name in ('time-start', 'time-pgctl', 'time-readiness', 'operator-replay'):
+    path = (Path(root) / 'time-recovery/pglog/pg-paused-replay.log'
+            if name == 'operator-replay' else Path(root) / 'log' / (name + '.log'))
     if not path.is_file():
         continue
     emitted = 0
@@ -224,6 +225,7 @@ wait_for_target_failure 30
 # The staged backup deliberately uses shutdown as the safe initial action;
 # build fresh trusted startup settings instead of inheriting the source config.
 # Local POSIX fixture only. Keep the operational S3/host gate unchanged.
+stage_time_target() {
 mkdir -p "$time_root"/{config/pgbackrest-empty,evidence,pgsocket,pglog,pgbackrest-lock,pgbackrest-spool,tablespaces}
 chmod 0750 "$time_root/config" "$time_root/config/pgbackrest-empty"
 time_conf="$time_root/config/pgbackrest-recovery.conf"
@@ -252,6 +254,8 @@ pgbackrest --config="$time_conf" --config-include-path="$time_root/config/pgback
   --target="$time_target" --target-timeline="$timeline" \
   --target-exclusive --target-action=shutdown restore >"$work/log/time-restore.log" 2>&1
 [[ -f "$time_dir/recovery.signal" && ! -e "$time_dir/standby.signal" ]]
+}
+stage_time_target
 # Exercise actual RECOVERY-07/08/09a filesystem helpers, not a second
 # handwritten startup configuration. This adapter is CI-only and does
 # not invoke or bypass any operator entrypoint.
@@ -287,10 +291,18 @@ done
 [[ $(time_sql -c "SELECT pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'") == t ]]
 pg_ctl -D "$time_dir" -m fast -w -t 30 stop >/dev/null
 [[ -f "$time_dir/recovery.signal" ]]
+[[ ! -e "$time_dir/postmaster.pid" ]]
+# RECOVERY-09c: independent fresh restore, not another start of the used PGDATA.
+# Retain the first stopped fixture and its transaction-boundary witness.
+mv -- "$time_root" "$work/time-review-complete"
+stage_time_target
+python3 /opt/tor-i11-tools/i11_pitr_run_paused.py "$work" "$label" "$time_target" "$timeline"
+[[ -s "$time_root/evidence/pg-paused-replay-receipt.json" ]]
+[[ ! -e "$time_dir/postmaster.pid" && -f "$time_dir/recovery.signal" ]]
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
-    'schema_version': 2, 'scope': 'isolated_container_fixture',
+    'schema_version': 3, 'scope': 'isolated_container_fixture',
     'postgres_version': sys.argv[2], 'pgbackrest_version': sys.argv[3],
     'backup_label': sys.argv[4], 'source_removed': True,
     'base_marker_restored': True, 'post_backup_wal_marker_restored': True,
@@ -301,6 +313,7 @@ print(json.dumps({
     'utc_target_transaction_boundary_verified': True,
     'utc_target_no_promotion_verified': True,
     'generated_startup_config_verified_and_used': True,
+    'operator_paused_replay_helpers_verified': True,
     'drill_elapsed_seconds': round(time.monotonic() - float(sys.argv[1]), 3),
     'production_tested': False, 'offsite_tested': False,
     'application_acl_tested': False, 'rpo_slo_proven': False,
