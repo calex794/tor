@@ -237,7 +237,7 @@ fn router_inner(
         Router::new()
     };
     let app = Router::new()
-        .merge(admin_entry::storage_routes())
+        .merge(admin_entry::routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())

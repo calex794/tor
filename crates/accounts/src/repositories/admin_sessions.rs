@@ -27,7 +27,111 @@ fn canonical_session_id(value: &str) -> bool {
         })
 }
 
+pub struct AdminTargetSession {
+    pub id: String,
+    pub opened_utc: String,
+    pub expires_utc: String,
+    pub browser_family: String,
+}
+
+pub struct AdminSessionOverview {
+    pub display_name: String,
+    pub account_state: String,
+    pub sessions: Vec<AdminTargetSession>,
+}
+
+type OverviewRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 impl PgAccounts {
+    /// Exact target lookup, bounded to 50 live sessions, with the current
+    /// administrator's session and role checked in the same SQL snapshot.
+    pub async fn administrator_session_overview(
+        &self,
+        digest: &[u8; 32],
+        target: i64,
+    ) -> Result<Option<AdminSessionOverview>, sqlx::Error> {
+        let rows = tokio::time::timeout(
+            std::time::Duration::from_millis(950),
+            self.read_administrator_session_overview(digest, target),
+        )
+        .await
+        .map_err(|_| sqlx::Error::PoolTimedOut)??;
+        let Some(first) = rows.first() else {
+            return Ok(None);
+        };
+        let display_name = first.0.clone();
+        let account_state = first.1.clone();
+        let sessions = rows
+            .into_iter()
+            .filter_map(|(_, _, id, opened, expires, browser)| {
+                Some(AdminTargetSession {
+                    id: id?,
+                    opened_utc: opened?,
+                    expires_utc: expires?,
+                    browser_family: browser?,
+                })
+            })
+            .collect();
+        Ok(Some(AdminSessionOverview {
+            display_name,
+            account_state,
+            sessions,
+        }))
+    }
+
+    async fn read_administrator_session_overview(
+        &self,
+        digest: &[u8; 32],
+        target: i64,
+    ) -> Result<Vec<OverviewRow>, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "SELECT set_config('statement_timeout','500ms',true),
+                    set_config('lock_timeout','25ms',true)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        let rows = sqlx::query_as(
+            "SELECT target.display_name,target.account_state,
+                    live.id,live.opened,live.expires,live.browser
+             FROM users target
+             JOIN sessions requester ON requester.token_hash=$1
+             JOIN users administrator ON administrator.id=requester.user_id
+             JOIN account_roles role ON role.user_id=administrator.id
+             LEFT JOIN LATERAL (
+                 SELECT s.session_id::text AS id,
+                     to_char(s.created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI') AS opened,
+                     to_char(s.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI') AS expires,
+                     COALESCE(e.agent_family,'unknown') AS browser
+                 FROM sessions s
+                 LEFT JOIN account_login_events e ON e.session_id=s.session_id
+                     AND e.user_id=s.user_id
+                 WHERE s.user_id=target.id AND s.revoked_at IS NULL AND s.expires_at>now()
+                 ORDER BY s.created_at DESC,s.session_id DESC LIMIT 50
+             ) live ON TRUE
+             WHERE target.id=$2 AND target.id<>administrator.id
+               AND requester.revoked_at IS NULL AND requester.expires_at>now()
+               AND administrator.account_state='active'
+               AND role.role='administrator' AND role.is_active",
+        )
+        .bind(digest.as_slice())
+        .bind(target)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(rows)
+    }
+
     /// Revoke one exact owned session or every live session of a different
     /// account. Actor is always derived from a live administrator cookie.
     /// The verified password capability must still match the locked account.

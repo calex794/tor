@@ -212,3 +212,178 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn auth_04_admin_session_revoke_http_pg() {
+    use std::num::NonZeroU32;
+    use tor_accounts::services::security::{generate_session_token, hash_password};
+
+    const PATH: &str = "/odmen/security/sessions";
+    const PASSWORD: &str = "AdminSessionPassword2026";
+    let url = std::env::var("TEST_DATABASE_URL").expect("CI PostgreSQL URL");
+    assert!(url.ends_with("/tor_ci"), "never use production database");
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog.clone(),
+        PgReader::new(catalog.pool().clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let admin_token = generate_session_token();
+    let first_token = generate_session_token();
+    let second_token = generate_session_token();
+    let foreign_token = generate_session_token();
+    let admin = session_token_digest(&admin_token);
+    let first = session_token_digest(&first_token);
+    let second = session_token_digest(&second_token);
+    let foreign = session_token_digest(&foreign_token);
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let hash = hash_password(PASSWORD).unwrap();
+    let admin_id = accounts
+        .register_with_session(
+            &format!("admin-http-{nonce}@example.invalid"),
+            "Administrator",
+            &hash,
+            &admin,
+            ttl,
+        )
+        .await
+        .unwrap();
+    let target = accounts
+        .register_with_session(
+            &format!("target-http-{nonce}@example.invalid"),
+            "Target <unsafe>",
+            "$argon2id$fixture",
+            &first,
+            ttl,
+        )
+        .await
+        .unwrap();
+    accounts.insert_session(target, &second, ttl).await.unwrap();
+    let foreign_id = accounts
+        .register_with_session(
+            &format!("foreign-http-{nonce}@example.invalid"),
+            "Foreign",
+            "$argon2id$fixture",
+            &foreign,
+            ttl,
+        )
+        .await
+        .unwrap();
+    let set_role = |enabled: bool| {
+        let sql = format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({admin_id},'administrator',{enabled})
+             ON CONFLICT(user_id,role) DO UPDATE SET is_active=EXCLUDED.is_active"
+        );
+        let result = std::process::Command::new("psql")
+            .args(["-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", &url, "-c", &sql])
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "isolated role fixture failed");
+    };
+    set_role(true);
+    let admin_cookie = format!("tor-dev-session={admin_token}");
+    let first_cookie = format!("tor-dev-session={first_token}");
+    let target_path = format!("{PATH}?user_id={target}");
+    let get = |path: &str, jar: &str| request("GET", path, "", jar, [192, 0, 2, 7], "Test/1");
+    for (jar, status) in [
+        ("", StatusCode::UNAUTHORIZED),
+        (first_cookie.as_str(), StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(
+            send(&app, get(&target_path, jar)).await.status(),
+            status
+        );
+    }
+    let page = send(&app, get(&target_path, &admin_cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let csrf = csrf_cookie.split_once('=').unwrap().1.to_owned();
+    let html = to_bytes(page.into_body(), 128_000).await.unwrap();
+    let html = String::from_utf8(html.to_vec()).unwrap();
+    assert!(html.contains("Target &lt;unsafe&gt;"));
+    assert!(html.contains("Завершить все сеансы пользователя"));
+    assert!(html.contains("Действует до (UTC)"));
+    assert!(!html.contains(&first_token));
+    assert!(!html.contains(&second_token));
+    let selected = accounts
+        .list_active_sessions(target, &first)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|s| s.current)
+        .unwrap()
+        .id;
+    assert!(html.contains(&selected));
+    let cookies = format!("{admin_cookie}; {csrf_cookie}");
+    let command = |user: i64, session: &str, password: &str| {
+        format!(
+            "user_id={user}&session_id={session}&current_password={password}&csrf_token={csrf}"
+        )
+    };
+    let submit = |form: &str, jar: &str| request("POST", PATH, form, jar, [192, 0, 2, 7], "Test/1");
+    let single = command(target, &selected, PASSWORD);
+    let wrong = command(target, &selected, "wrong");
+    let denied = send(&app, submit(&single, &admin_cookie)).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let mut cross = submit(&single, &cookies);
+    cross
+        .headers_mut()
+        .insert(header::ORIGIN, "https://evil.invalid".parse().unwrap());
+    assert_eq!(send(&app, cross).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        send(&app, submit(&wrong, &cookies)).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        accounts.active_session_user(&first).await.unwrap(),
+        Some(target)
+    );
+    let wrong_target = command(foreign_id, &selected, PASSWORD);
+    let zero = send(&app, submit(&wrong_target, &cookies)).await;
+    assert_eq!(zero.status(), StatusCode::OK);
+    assert_eq!(
+        accounts.active_session_user(&first).await.unwrap(),
+        Some(target)
+    );
+    let revoked = send(&app, submit(&single, &cookies)).await;
+    assert_eq!(revoked.status(), StatusCode::OK);
+    assert_eq!(revoked.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(accounts.active_session_user(&first).await.unwrap(), None);
+    assert_eq!(
+        accounts.active_session_user(&second).await.unwrap(),
+        Some(target)
+    );
+    let bulk = command(target, "all", PASSWORD);
+    assert_eq!(
+        send(&app, submit(&bulk, &cookies)).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(accounts.active_session_user(&second).await.unwrap(), None);
+    assert_eq!(
+        accounts.active_session_user(&foreign).await.unwrap(),
+        Some(foreign_id)
+    );
+    assert_eq!(
+        accounts.active_session_user(&admin).await.unwrap(),
+        Some(admin_id)
+    );
+    set_role(false);
+    assert_eq!(
+        send(&app, submit(&bulk, &cookies)).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(&app, get(&target_path, &admin_cookie)).await.status(),
+        StatusCode::FORBIDDEN
+    );
+}
