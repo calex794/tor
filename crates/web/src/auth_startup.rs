@@ -74,7 +74,8 @@ impl AuthInputs {
                 .as_ref()
                 .map(|publisher| {
                     let (store, bucket) = publisher.reader_store();
-                    let s3_origin = env::var("TOR_FREE_S3_PUBLIC_ORIGIN")?;
+                    let s3_origin = env::var("TOR_FREE_S3_PUBLIC_ORIGIN")
+                        .map_err(|_| "Missing or invalid TOR_FREE_S3_PUBLIC_ORIGIN")?;
                     tor_web::free_reader_http::router(
                         self.accounts.clone(),
                         self.secure,
@@ -114,7 +115,8 @@ impl AuthInputs {
         let origin = self.origin;
         let covers = self.covers.map(|store| (store, self.cover_worker_enabled));
         if let Some(paid) = self.paid_storage {
-            let s3_origin = env::var("TOR_PAID_S3_PUBLIC_ORIGIN")?;
+            let s3_origin = env::var("TOR_PAID_S3_PUBLIC_ORIGIN")
+                .map_err(|_| "Missing or invalid TOR_PAID_S3_PUBLIC_ORIGIN")?;
             #[cfg(all(feature = "s3-paid", feature = "s3-free"))]
             {
                 let result = match (self.paid_author, self.free_author) {

@@ -60,7 +60,44 @@ by the release workflow, which previously checked only GET /login.
 [**TOR — Обновить сайт**](https://github.com/calex794/tor/actions/workflows/tor-one-click-release.yml)
 on GitHub Actions, choose branch `main`, press **Run workflow**. No commit
 SHA, VPS terminal, `install=true`, SQL commands, or second confirmation are
-needed on subsequent updates. GitHub push and PR checks never deploy.
+needed on subsequent healthy-site updates. GitHub push and PR checks never deploy.
+
+### 26 November 2026: production capabilities and recovery
+
+The failed deployment of `412ebf80` proved that validating environment syntax
+and successfully applying SQLx are insufficient: a default-feature binary
+refused `TOR_COVER_S3_BUCKET`, and rollback to the previous default-feature
+binary could not start either. The ordinary release and required S3 CI now
+use the same full compiled profile (covers, free, paid, chapter import) and
+verify the executable's capability output. Compiling these adapters does not
+modify runtime flags, credentials, worker permissions or S3 provider acceptance.
+The required S3 CI also launches the actual production-profile release
+against disposable PostgreSQL/MinIO with bucket settings present.
+
+For an existing broken production site, do **not** rerun the initial bootstrap
+or temporarily remove bucket settings. First obtain successful PR and push CI
+on the approved exact main SHA. The existing root helper must be explicitly
+upgraded by the VPS operator from that reviewed SHA (keep the installed marker,
+signers and sudoers unchanged). Use the one-click workflow's `stage_only`
+input to deliver the signed candidate without activation. Only after
+`TOR_STAGE_ONLY_OK`, the operator may create a root-only 0600 regular file
+`/etc/tor/tor-release-recovery.sha` containing that exact full SHA and one LF.
+The installed helper accepts only its normal single SHA argument; the approval
+file cannot be created by the deploy account and is consumed only after signed
+artifact verification. Invoke `/usr/local/sbin/tor-one-click-release FULL_SHA`
+as root to perform the approved recovery. Do not use an obsolete SHA.
+
+Recovery requires healthy PostgreSQL and the prior verified activation
+marker, validates configuration, compiled capabilities, actual DB login,
+backup and canonical SQLx history. Only the requirement for the previously
+broken web process to be healthy is waived. The old crash loop is stopped
+before migrations. Normal updates remain fail-closed on an unhealthy site.
+If recovery fails, restore the previous binary pointer, preserve the SQLx
+history and leave the service stopped rather than restart a known-broken
+binary forever. Do not create a new approval until the cause is understood.
+A successful recovery requires real local and HTTPS readiness. No automatic
+database restore or credential rotation is performed.
+
 
 ### One-time setup on the dedicated VPS
 
