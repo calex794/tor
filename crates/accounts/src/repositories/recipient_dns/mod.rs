@@ -48,18 +48,27 @@ fn configure(options: &mut ResolverOpts) {
     options.timeout = Duration::from_millis(1500);
     options.attempts = 1;
     options.num_concurrent_reqs = 1;
-    // Bound the resolver's own cache; application-level policy is separate.
-    options.cache_size = 64;
+    // Hickory 0.26.4 can reuse a cached CNAME target without retaining the
+    // shorter alias TTL. Keep one cache at the application decision boundary.
+    options.cache_size = 0;
+    options.preserve_intermediates = true;
     options.positive_min_ttl = Some(Duration::ZERO);
     options.negative_min_ttl = Some(Duration::ZERO);
     options.positive_max_ttl = Some(Duration::from_secs(86400));
     options.negative_max_ttl = Some(Duration::from_secs(3600));
 }
 
-fn negative<T>(error: NetError) -> DnsAnswer<T> {
+fn negative<T>(domain: &str, error: NetError) -> DnsAnswer<T> {
     // A recursive resolver's bare RCODE without SOA/negative TTL is not
     // enough evidence to reject an address permanently.
     if let NetError::Dns(DnsError::NoRecordsFound(records)) = error {
+        // A CNAME target's negative answer does not prove the original
+        // alias is absent. Do not cache it as a definitive original-domain
+        // rejection without the complete chain and its expiry.
+        let requested = format!("{domain}.");
+        if !records.query.name.to_string().eq_ignore_ascii_case(&requested) {
+            return DnsAnswer::TemporaryFailure;
+        }
         if records.soa.is_some() {
             if let Some(ttl) = records.negative_ttl {
                 return match records.response_code {
@@ -78,7 +87,13 @@ fn remaining_ttl(lookup: &HickoryLookup) -> u32 {
         .valid_until()
         .saturating_duration_since(Instant::now())
         .as_secs();
-    u32::try_from(seconds).unwrap_or(u32::MAX)
+    let answer_ttl = lookup
+        .answers()
+        .iter()
+        .map(|record| record.ttl)
+        .min()
+        .unwrap_or(0);
+    u32::try_from(seconds).unwrap_or(u32::MAX).min(answer_ttl)
 }
 
 impl MailDnsResolver for SystemMailDns {
@@ -86,7 +101,7 @@ impl MailDnsResolver for SystemMailDns {
         Box::pin(async move {
             let answer = match self.lookup(domain, RecordType::MX).await {
                 Ok(answer) => answer,
-                Err(error) => return negative(error),
+                Err(error) => return negative(domain, error),
             };
             let value: Vec<_> = answer
                 .answers()
@@ -122,7 +137,7 @@ impl SystemMailDns {
     async fn address(&self, domain: &str, record_type: RecordType) -> DnsAnswer<()> {
         let answer = match self.lookup(domain, record_type).await {
             Ok(answer) => answer,
-            Err(error) => return negative(error),
+            Err(error) => return negative(domain, error),
         };
         if !answer
             .answers()

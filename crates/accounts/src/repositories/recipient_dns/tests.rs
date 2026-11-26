@@ -138,10 +138,11 @@ async fn mail_01b2_wire_dns_accepts_mx_cname_null_and_implicit_routes() {
         check_mail_domain(&resolver, "mx.fixture.test").await,
         MailRoute::ExplicitMx { ttl: 1..=120 }
     ));
-    assert!(matches!(
-        check_mail_domain(&resolver, "alias.fixture.test").await,
-        MailRoute::ExplicitMx { ttl: 1..=60 }
-    ));
+    let alias = check_mail_domain(&resolver, "alias.fixture.test").await;
+    assert!(
+        matches!(alias, MailRoute::ExplicitMx { ttl: 1..=60 }),
+        "CNAME lifetime must not exceed the alias TTL: {alias:?}"
+    );
     assert!(matches!(
         check_mail_domain(&resolver, "null.fixture.test").await,
         MailRoute::NullMx { ttl: 1..=90 }
