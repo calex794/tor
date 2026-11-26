@@ -43,13 +43,7 @@ async fn clear(pool: &PgPool) {
 }
 
 // Seed controlled ledger history without waiting 24h or sending mail.
-async fn seed(
-    pool: &PgPool,
-    count: i64,
-    purpose: MailPurpose,
-    keys: QuotaKeys,
-    age_seconds: i64,
-) {
+async fn seed(pool: &PgPool, count: i64, purpose: MailPurpose, keys: QuotaKeys, age_seconds: i64) {
     sqlx::query(
         "INSERT INTO mail_send_reservations \
          (outbox_id,generation,purpose,recipient_key,registration_ip_key,reserved_at) \
@@ -101,7 +95,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         quota.reserve(b, keys(2, Some(2)))
     );
     let (ra, rb) = (ra.unwrap(), rb.unwrap());
-    assert!(matches!((ra, rb), (Reserved, GlobalPace) | (GlobalPace, Reserved)));
+    assert!(matches!(
+        (ra, rb),
+        (Reserved, GlobalPace) | (GlobalPace, Reserved)
+    ));
     let (winner, winner_keys) = if ra == Reserved {
         (a, keys(1, Some(1)))
     } else {
@@ -166,7 +163,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         quota.reserve(news, keys(7, None)).await.unwrap(),
         TransactionalReserve
     );
-    assert_eq!(quota.reserve(support, keys(7, None)).await.unwrap(), Reserved);
+    assert_eq!(
+        quota.reserve(support, keys(7, None)).await.unwrap(),
+        Reserved
+    );
 
     clear(&pool).await;
     seed(&pool, 200, ProjectNews, keys(7, None), 180).await;
@@ -174,10 +174,12 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         quota.reserve(registration, keys(3, Some(3))).await.unwrap(),
         GlobalDailyLimit
     );
-    sqlx::query("UPDATE mail_send_reservations SET reserved_at=clock_timestamp()-interval '25 hours'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE mail_send_reservations SET reserved_at=clock_timestamp()-interval '25 hours'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         quota.reserve(registration, keys(3, Some(3))).await.unwrap(),
         Reserved
