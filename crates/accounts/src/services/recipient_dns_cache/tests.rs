@@ -76,7 +76,9 @@ fn ttl_caps_expiry_and_zero_ttl_are_respected() {
     for (route, expected) in routes {
         let entry = CachedRoute::new(route, now).unwrap();
         assert_eq!(entry.until, now + Duration::from_secs(expected));
-        assert!(entry.current(now + Duration::from_secs(expected - 1)).is_some());
+        assert!(entry
+            .current(now + Duration::from_secs(expected - 1))
+            .is_some());
         assert_eq!(entry.current(entry.until), None);
     }
     let entry = CachedRoute::new(MailRoute::ExplicitMx { ttl: 120 }, now).unwrap();
@@ -134,10 +136,7 @@ async fn bounded_index_and_busy_slot_are_not_evicted() {
     assert_eq!(cache.domains.lock().unwrap().len(), 1);
     dns.release.notify_one();
     for task in [leader, follower] {
-        assert!(matches!(
-            task.await.unwrap(),
-            MailRoute::ExplicitMx { .. }
-        ));
+        assert!(matches!(task.await.unwrap(), MailRoute::ExplicitMx { .. }));
     }
     assert_eq!(dns.count(), 1);
     let second = {

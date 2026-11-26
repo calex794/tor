@@ -40,9 +40,7 @@ struct CachedRoute {
 impl CachedRoute {
     fn new(route: MailRoute, now: Instant) -> Option<Self> {
         let seconds = match route {
-            MailRoute::ExplicitMx { ttl } | MailRoute::ImplicitMx { ttl } => {
-                ttl.min(POSITIVE_CAP)
-            }
+            MailRoute::ExplicitMx { ttl } | MailRoute::ImplicitMx { ttl } => ttl.min(POSITIVE_CAP),
             MailRoute::NullMx { ttl }
             | MailRoute::DomainNotFound { ttl }
             | MailRoute::NoRoute { ttl } => ttl.min(NEGATIVE_CAP),
@@ -151,9 +149,7 @@ impl MailDnsCache {
         let route = check_mail_domain(self.resolver.as_ref(), &domain).await;
         let now = Instant::now();
         *state = CachedRoute::new(route, now);
-        state
-            .and_then(|entry| entry.current(now))
-            .unwrap_or(route)
+        state.and_then(|entry| entry.current(now)).unwrap_or(route)
     }
 }
 
