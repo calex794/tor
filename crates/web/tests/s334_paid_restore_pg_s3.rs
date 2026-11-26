@@ -550,41 +550,60 @@ async fn restore_object(url: &str, c: &Client, id: &str, digest: &str) {
 #[tokio::test]
 #[ignore = "isolated GitHub Actions restored DB and MinIO only"]
 async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
-    verify_restored_paid(require_ci(true)).await;
+    verify_restored_paid(require_ci(true), true).await;
+}
+
+fn verified_physical_target() -> &'static str {
+    let url = require_physical_ci();
+    // The parent PITR script checks data_directory, archive_mode and
+    // listen_addresses as postgres. Do not give tor_app read-all-settings.
+    // Independently bind the app-role connection to the local restored
+    // postmaster using its PID file and the actual TCP/database identity.
+    let expected = PathBuf::from(env::var("RUNNER_TEMP").unwrap()).join("app-restored");
+    let pid_file = fs::read_to_string(expected.join("postmaster.pid")).unwrap();
+    let mut fields = pid_file.lines();
+    assert!(fields.next().unwrap().parse::<u32>().unwrap() > 0);
+    assert_eq!(fields.next(), expected.to_str());
+    assert!(fields.next().unwrap().parse::<u64>().unwrap() > 0);
+    assert_eq!(fields.next(), Some("15436"));
+    assert_eq!(
+        pg(
+            url,
+            "SELECT current_user='tor_app' AND current_database()='tor_ci' \
+             AND NOT pg_is_in_recovery() \
+             AND inet_server_addr()='127.0.0.1'::inet AND inet_server_port()=15436 \
+             AND current_setting('is_superuser')='off' \
+             AND NOT pg_has_role(current_user,'pg_read_all_settings','MEMBER')"
+        ),
+        "t"
+    );
+    url
 }
 
 #[tokio::test]
 #[ignore = "requires the isolated promoted I-11 physical PITR fixture"]
 async fn s3_34_verify_physical_paid_v1_and_rejected_keys() {
-    let url = require_physical_ci();
-    // Reject any other server or any paused review copy before writes.
-    let expected = PathBuf::from(env::var("RUNNER_TEMP").unwrap()).join("app-restored");
-    assert_eq!(
-        pg(url, "SELECT current_setting('data_directory')"),
-        expected.to_str().unwrap()
-    );
-    assert_eq!(
-        pg(
-            url,
-            "SELECT current_user='tor_app' AND NOT pg_is_in_recovery() \
-             AND current_setting('archive_mode')='off' \
-             AND current_setting('listen_addresses')='127.0.0.1' \
-             AND current_setting('port')='15436'"
-        ),
-        "t"
-    );
-    verify_restored_paid(url).await;
+    verify_restored_paid(verified_physical_target(), false).await;
     println!("I11_S334_PHYSICAL_PAID_HTTP_OK");
 }
 
-async fn verify_restored_paid(url: &str) {
+#[tokio::test]
+#[ignore = "only after physical WebCrypto and unchanged-ledger acceptance"]
+async fn s3_34_verify_physical_paid_revocations_after_witness() {
+    let url = verified_physical_target();
+    let keyring = ContentKeyring::with_v2(key(), key_v2()).unwrap();
+    let server = app_with_keyring(url, client(), keyring).await;
+    verify_post_restore_revocations(url, &server).await;
+    println!("I11_S334_PHYSICAL_PAID_REVOCATIONS_OK");
+}
+
+async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
     let snapshot = state();
     let chapter = snapshot["chapter_id"].as_i64().unwrap();
     let v1 = snapshot["v1_id"].as_i64().unwrap();
     let v2 = snapshot["v2_id"].as_i64().unwrap();
     let buyer = snapshot["buyer_cookie"].as_str().unwrap();
     let buyer_v2 = snapshot["buyer_v2_cookie"].as_str().unwrap();
-    let purchase_v2_id = snapshot["purchase_v2_id"].as_i64().unwrap();
     let digest_v2 = snapshot["sha256_ciphertext_v2"].as_str().unwrap();
     let stranger = snapshot["stranger_cookie"].as_str().unwrap();
     let csrf = snapshot["csrf"].as_str().unwrap();
@@ -773,6 +792,29 @@ async fn verify_restored_paid(url: &str) {
         }),
     );
 
+    if revoke_after_grants {
+        verify_post_restore_revocations(url, &correct).await;
+    }
+}
+
+async fn verify_post_restore_revocations(url: &str, correct: &GrantServer) {
+    let snapshot = state();
+    let chapter = snapshot["chapter_id"].as_i64().unwrap();
+    let buyer = snapshot["buyer_cookie"].as_str().unwrap();
+    let buyer_v2 = snapshot["buyer_v2_cookie"].as_str().unwrap();
+    let csrf = snapshot["csrf"].as_str().unwrap();
+    let purchase_id = snapshot["purchase_id"].as_i64().unwrap();
+    let purchase_v2_id = snapshot["purchase_v2_id"].as_i64().unwrap();
+    // Check that both rights are live immediately before the negative control.
+    // This prevents an unrelated provider failure from masquerading as revocation.
+    for session in [buyer, buyer_v2] {
+        assert_eq!(
+            grant(correct, chapter, Some(session), Some(csrf), "{}")
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
     // A refund in the restored database must reject further signed grants.
     pg(
         url,
@@ -783,13 +825,13 @@ async fn verify_restored_paid(url: &str) {
         ),
     );
     assert_eq!(
-        grant(&correct, chapter, Some(buyer), Some(csrf), "{}")
+        grant(correct, chapter, Some(buyer), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        grant(&correct, chapter, Some(buyer_v2), Some(csrf), "{}")
+        grant(correct, chapter, Some(buyer_v2), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN
