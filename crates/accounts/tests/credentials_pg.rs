@@ -499,6 +499,20 @@ async fn auth_06_renewal_does_not_refresh_or_rearm_step_up_proofs() {
         accounts.active_session_user(&other).await.unwrap(),
         Some(actor)
     );
+    // Retire only this fixture's administrator grant. The subsequent
+    // authority suite must be able to exercise the last-administrator guard.
+    assert_eq!(
+        sqlx::query(
+            "UPDATE account_roles SET is_active=FALSE
+             WHERE user_id=$1 AND role='administrator' AND is_active"
+        )
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .rows_affected(),
+        1
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
