@@ -18,12 +18,9 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Option<u32>, sqlx::Error> {
-        tokio::time::timeout(
-            Duration::from_millis(300),
-            self.renew_session_inner(digest),
-        )
-        .await
-        .map_err(|_| sqlx::Error::PoolTimedOut)?
+        tokio::time::timeout(Duration::from_millis(300), self.renew_session_inner(digest))
+            .await
+            .map_err(|_| sqlx::Error::PoolTimedOut)?
     }
 
     async fn renew_session_inner(&self, digest: &[u8; 32]) -> Result<Option<u32>, sqlx::Error> {
@@ -41,7 +38,9 @@ impl PgAccounts {
         )
         .bind(digest.as_slice())
         .bind(f64::from(SESSION_AGE_SECONDS))
-        .bind(f64::from(SESSION_AGE_SECONDS - SESSION_RENEWAL_INTERVAL_SECONDS))
+        .bind(f64::from(
+            SESSION_AGE_SECONDS - SESSION_RENEWAL_INTERVAL_SECONDS,
+        ))
         .execute(&mut *tx)
         .await?;
         // A separate read-committed statement sees a concurrent renewal rather

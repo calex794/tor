@@ -83,9 +83,14 @@ async fn register(app: &Router, email: &str, display_name: &str) -> String {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    assert!(created.headers().get_all(header::SET_COOKIE).iter().any(|v| {
-        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
-    }));
+    assert!(created
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| {
+            v.to_str()
+                .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+        }));
     cookie(&created, "tor-dev-session=")
 }
 
@@ -100,7 +105,8 @@ async fn login(app: &Router, email: &str) -> String {
     let login = send(app, request("POST", "/login", &form, &csrf_cookie, ORIGIN)).await;
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
     assert!(login.headers().get_all(header::SET_COOKIE).iter().any(|v| {
-        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+        v.to_str()
+            .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
     }));
     cookie(&login, "tor-dev-session=")
 }
@@ -352,7 +358,12 @@ async fn a_03_rolling_session_browser_navigation_pg() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let signed_in = register(&app, &format!("rolling-{nonce}%40example.invalid"), "Rolling").await;
+    let signed_in = register(
+        &app,
+        &format!("rolling-{nonce}%40example.invalid"),
+        "Rolling",
+    )
+    .await;
     let actor = accounts
         .active_session_user(&session_token_digest(signed_in.split_once('=').unwrap().1))
         .await
@@ -372,7 +383,8 @@ async fn a_03_rolling_session_browser_navigation_pg() {
         navigation("/odmen", &legacy),
         {
             let mut req = navigation("/me", &legacy);
-            req.headers_mut().insert("sec-fetch-site", "cross-site".parse().unwrap());
+            req.headers_mut()
+                .insert("sec-fetch-site", "cross-site".parse().unwrap());
             req
         },
     ] {
@@ -382,9 +394,14 @@ async fn a_03_rolling_session_browser_navigation_pg() {
     assert_eq!(renewed.status(), StatusCode::OK);
     assert_eq!(cookie(&renewed, "tor-dev-session="), legacy);
     assert_eq!(renewed.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(renewed.headers().get_all(header::SET_COOKIE).iter().any(|v| {
-        v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
-    }));
+    assert!(renewed
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| {
+            v.to_str()
+                .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+        }));
     // A second qualifying request also repairs a missed Set-Cookie without
     // issuing a second token or extending the database lifetime again.
     let again = send(&app, navigation("/me", &legacy)).await;

@@ -291,7 +291,10 @@ async fn a_03_rolling_session_renewal_is_bounded_and_never_resurrects() {
     // Expired rows retain their original lifetime; a valid-shaped token
     // cannot restore a session that is already dead.
     let expired = session_token_digest(&format!("expired-{nonce}"));
-    accounts.insert_session(actor, &expired, NonZeroU32::new(60).unwrap()).await.unwrap();
+    accounts
+        .insert_session(actor, &expired, NonZeroU32::new(60).unwrap())
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE sessions SET created_at=now()-INTERVAL '2 days',
          expires_at=now()-INTERVAL '1 day' WHERE token_hash=$1",
@@ -300,8 +303,14 @@ async fn a_03_rolling_session_renewal_is_bounded_and_never_resurrects() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(accounts.renew_session_on_activity(&expired).await.unwrap(), None);
+    assert_eq!(
+        accounts.renew_session_on_activity(&expired).await.unwrap(),
+        None
+    );
     assert!(accounts.revoke_session(&digest).await.unwrap());
-    assert_eq!(accounts.renew_session_on_activity(&digest).await.unwrap(), None);
+    assert_eq!(
+        accounts.renew_session_on_activity(&digest).await.unwrap(),
+        None
+    );
     assert_eq!(expiry(&pool, &digest).await, after);
 }
