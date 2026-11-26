@@ -5,6 +5,7 @@ and the server-side age gates remain wired into required CI. It does not replace
 the tests themselves or authorize enabling the 18+/21+ editor in production.
 """
 from pathlib import Path
+from ci_workflow_sources import expand_pg_runtime
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +34,7 @@ class S020CrossSurfaceCoverage(unittest.TestCase):
             ".github/workflows/tor-integration.yml",
             ".github/workflows/tor-pg-runtime.yml",
         ):
-            source = self.read(workflow)
+            source = expand_pg_runtime(self.read(workflow))
             for command in commands:
                 with self.subTest(workflow=workflow, command=command):
                     self.assertEqual(source.count(command), 1)

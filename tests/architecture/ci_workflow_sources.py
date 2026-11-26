@@ -287,5 +287,40 @@ def expand_s3_cover(text, action=None):
     return text.replace(S3_COVER_ACTION_CALL, s3_cover_steps(action), 1)
 
 
+PG_RUNTIME_PATH = ROOT / "tools/ci_pg_runtime_acceptance.sh"
+PG_RUNTIME_STEP = "      - name: Database and HTTP integration\n"
+PG_RUNTIME_REF = "        run: bash tools/ci_pg_runtime_acceptance.sh\n"
+PG_RUNTIME_CALL = PG_RUNTIME_STEP + PG_RUNTIME_REF + "\n"
+PG_RUNTIME_PREFIX = (
+    "#!/usr/bin/env bash\n"
+    "# Shared PostgreSQL runtime acceptance. Preserve the original shell-local\n"
+    "# Cargo instrumentation and per-command feature flags in all three shards.\n"
+    "set -e\n"
+    "case \"${CI_PG_SHARD:-}\" in\n"
+    "  foundation|reading|commerce) ;;\n"
+    "  *) echo 'Unsupported PostgreSQL CI shard' >&2; exit 2 ;;\n"
+    "esac\n"
+)
+
+
+def expand_pg_runtime(text, script=None):
+    """Resolve only the exact reviewed PG runtime step for existing assertions."""
+    if PG_RUNTIME_REF not in text:
+        return text
+    if text.count(PG_RUNTIME_REF) != 1 or text.count(PG_RUNTIME_CALL) != 1:
+        raise ValueError("unexpected PostgreSQL runtime script call")
+    if script is None:
+        script = PG_RUNTIME_PATH.read_text(encoding="utf-8")
+    if not script.startswith(PG_RUNTIME_PREFIX) or not script.endswith("\n"):
+        raise ValueError("missing PostgreSQL runtime shell guard")
+    body = script[len(PG_RUNTIME_PREFIX):]
+    if not body or "set +e" in body:
+        raise ValueError("invalid PostgreSQL runtime body")
+    expanded = PG_RUNTIME_STEP + "        run: |\n" + "".join(
+        "          " + line for line in body.splitlines(keepends=True)) + "\n"
+    return text.replace(PG_RUNTIME_CALL, expanded, 1)
+
+
 def expand_ci_actions(text):
-    return expand_s3_cover(expand_cover_browser(expand_rec_browser(expand_analytics(text))))
+    return expand_pg_runtime(expand_s3_cover(expand_cover_browser(
+        expand_rec_browser(expand_analytics(text)))))

@@ -58,7 +58,7 @@ class FlowCanonicalReading(unittest.TestCase):
                            'cargo test -p tor-web --test audience_http_pg']:
                 self.assertIn(needle,text)
         for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-runtime.yml']:
-            text=read(file)
+            text=expand_ci_actions(read(file))
             self.assertNotIn('TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh',text)
         for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-rec-browser.yml']:
             text=expand_ci_actions(read(file))
