@@ -7,17 +7,20 @@ use tor_contracts::{
 };
 use tor_mail::{
     domain::{
-        quota::{QuotaDecision, QuotaKeys},
+        quota::{identity::QuotaKeySigner, QuotaDecision, QuotaKeys},
         MailClaim, MailOutcome,
     },
     repositories::{quota::PgMailQuota, PgMailQueue},
 };
 
 fn keys(recipient: u8, ip: Option<u8>) -> QuotaKeys {
-    QuotaKeys {
-        recipient: [recipient; 32],
-        registration_ip: ip.map(|value| [value; 32]),
-    }
+    QuotaKeySigner::from_hex(&"4f".repeat(32))
+        .unwrap()
+        .keys(
+            &format!("mail-quota-fixture-{recipient}@example.invalid"),
+            ip.map(|value| std::net::Ipv4Addr::new(192, 0, 2, value).into()),
+        )
+        .unwrap()
 }
 
 async fn claim(queue: &PgMailQueue, user: UserId, event: i64, purpose: MailPurpose) -> MailClaim {
@@ -55,8 +58,8 @@ async fn seed(
     )
     .bind(count)
     .bind(purpose.as_str())
-    .bind(keys.recipient.as_slice())
-    .bind(keys.registration_ip.as_ref().map(|key| key.as_slice()))
+    .bind(keys.recipient().as_slice())
+    .bind(keys.registration_ip().map(|key| key.as_slice()))
     .bind(age_seconds)
     .execute(pool)
     .await
@@ -105,6 +108,15 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         (b, keys(2, Some(2)))
     };
     let restarted = PgMailQuota::new(PgPool::connect(&url).await.unwrap());
+    assert_eq!(
+        restarted.reserve(winner, winner_keys).await.unwrap(),
+        AlreadyReserved
+    );
+    let wrong_key = QuotaKeySigner::from_hex(&"5a".repeat(32))
+        .unwrap()
+        .keys("reader@example.invalid", None)
+        .unwrap();
+    assert_eq!(quota.reserve(winner, wrong_key).await.unwrap(), KeyMismatch);
     assert_eq!(
         restarted.reserve(winner, winner_keys).await.unwrap(),
         AlreadyReserved

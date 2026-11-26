@@ -30,8 +30,8 @@ impl PgMailQuota {
         let mut tx = self.pool.begin().await?;
         // Serialize all providers/credentials/workers against the same initial
         // budget. Do not use transaction-start time after waiting for this lock.
-        sqlx::query_scalar::<_, bool>(
-            "SELECT singleton FROM mail_send_budget_guard WHERE singleton FOR UPDATE",
+        let key_binding = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+            "SELECT key_binding FROM mail_send_budget_guard WHERE singleton FOR UPDATE",
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -51,6 +51,32 @@ impl PgMailQuota {
         if active.is_none() {
             tx.rollback().await?;
             return Ok(QuotaDecision::StaleClaim);
+        }
+
+        // Never silently replace the key and start fresh recipient/IP buckets.
+        // An unbound database with pre-existing reservations also needs an
+        // explicit recovery decision; the old digests cannot be translated.
+        match key_binding {
+            Some(binding) if binding.as_slice() != keys.key_binding() => {
+                tx.rollback().await?;
+                return Ok(QuotaDecision::KeyMismatch);
+            }
+            Some(_) => {}
+            None => {
+                let has_history = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM mail_send_reservations)",
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+                if has_history {
+                    tx.rollback().await?;
+                    return Ok(QuotaDecision::KeyMismatch);
+                }
+                sqlx::query("UPDATE mail_send_budget_guard SET key_binding=$1 WHERE singleton")
+                    .bind(keys.key_binding().as_slice())
+                    .execute(&mut *tx)
+                    .await?;
+            }
         }
 
         let duplicate = sqlx::query_scalar::<_, bool>(
@@ -75,7 +101,7 @@ impl PgMailQuota {
         .await?;
 
         let ip = if claim.intent.purpose == MailPurpose::RegistrationConfirmation {
-            keys.registration_ip.as_ref().map(|key| key.as_slice())
+            keys.registration_ip().map(|key| key.as_slice())
         } else {
             None
         };
@@ -83,7 +109,7 @@ impl PgMailQuota {
             .bind(claim.id)
             .bind(claim.generation)
             .bind(claim.intent.purpose.as_str())
-            .bind(keys.recipient.as_slice())
+            .bind(keys.recipient().as_slice())
             .bind(ip)
             .bind(DAILY_LIMIT)
             .bind(DAILY_LIMIT - TRANSACTIONAL_RESERVE)

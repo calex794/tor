@@ -6,6 +6,9 @@ publish.workspace = true
 license-file.workspace = true
 
 [dependencies]
+hmac = "0.12"
+sha2 = "0.10"
+zeroize = "1.9"
 sqlx.workspace = true
 tor-contracts = { path = "../contracts", version = "=0.1.0" }
 
