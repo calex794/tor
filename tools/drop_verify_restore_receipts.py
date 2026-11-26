@@ -91,13 +91,16 @@ def compare_restored_single(manifest, expected_digest, receipts, restored_root):
     rows = list(islice(receipt_rows(receipts), 2))
     if len(rows) != 1:
         raise Refused("expected exactly one SINGLE receipt")
-    key, size, _ = rows[0]
-    if (not re.fullmatch(r"private/free-chapters/[1-9][0-9]{0,18}/[1-9][0-9]{0,18}[.]md", key)
-            or not 1 <= size <= 200_000):
-        raise Refused("invalid FREE SINGLE receipt")
+    validate_single_receipt(*rows[0][:2])
     return compare_restored_selection(
         manifest, expected_digest, rows, restored_root, "SINGLE",
     )
+
+
+def validate_single_receipt(key, size):
+    if (not re.fullmatch(r"private/free-chapters/[1-9][0-9]{0,18}/[1-9][0-9]{0,18}[.]md", key)
+            or not 1 <= size <= 200_000):
+        raise Refused("invalid FREE SINGLE receipt")
 
 
 def compare_restored_selection(manifest, expected_digest, rows, restored_root, label):
