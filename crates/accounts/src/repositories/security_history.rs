@@ -18,9 +18,12 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Vec<SecurityEvent>, sqlx::Error> {
-        tokio::time::timeout(Duration::from_millis(950), self.read_security_history(digest))
-            .await
-            .map_err(|_| sqlx::Error::PoolTimedOut)?
+        tokio::time::timeout(
+            Duration::from_millis(950),
+            self.read_security_history(digest),
+        )
+        .await
+        .map_err(|_| sqlx::Error::PoolTimedOut)?
     }
 
     async fn read_security_history(

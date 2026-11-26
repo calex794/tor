@@ -34,3 +34,17 @@ Acceptance: existing slices_pg suite covers audited login, single owner
 revoke, logout, repeated/failed commands, reset, revoked-cookie rejection,
 foreign isolation, bounded retention and update rejection. Integration CI
 and browser/recovery acceptance are still required.
+
+## AUTH-05b — owner security history presentation
+
+The existing authenticated /me/security/sessions page now displays the
+owner's 50 latest confirmed security events. It uses allowlisted localized
+event and browser labels, UTC time and actual affected session counts.
+It never renders historical session UUIDs, account identifiers, raw IPs or
+token values. An unavailable history is explicitly distinguished from an
+empty history, and does not block the existing device revocation controls.
+No route or browser polling is added. The existing A-03 HTTP test verifies
+registration/login, single revoke, rejected actions not creating duplicate
+success events, no-store responses, foreign account isolation and no secret
+disclosure. Bulk and administrator history still require combined acceptance
+with AUTH-03/04. 

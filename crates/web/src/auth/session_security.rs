@@ -32,8 +32,14 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Ok(sessions) => sessions,
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
+    // History is independently owner-scoped. An unavailable history must
+    // not prevent the owner from using the device revocation controls.
+    let history = state.accounts.security_history(&digest).await.ok();
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::active_sessions(&csrf, &sessions), &cookies)
+    private_response(
+        pages::active_sessions(&csrf, &sessions, history.as_deref()),
+        &cookies,
+    )
 }
 
 pub(super) async fn revoke(

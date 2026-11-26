@@ -169,6 +169,11 @@ async fn run_case() {
     let csrf_cookie = cookie(&shown, "tor-dev-csrf=");
     let html = body_of(shown).await;
     assert!(html.contains("Активные сеансы"));
+    assert!(html.contains("История безопасности"));
+    assert!(html.contains("Регистрация аккаунта"));
+    assert!(html.contains("Вход в аккаунт"));
+    assert!(!html.contains("Отзыв сеанса"));
+    assert!(!html.contains("127.0.0.1"), "never display audit IP");
     assert!(html.contains(&first_id));
     assert!(html.contains(&second_id));
     assert!(!html.contains(&foreign_id), "cannot view foreign sessions");
@@ -275,6 +280,29 @@ async fn run_case() {
         StatusCode::OK,
         "owner's current session remains valid"
     );
+
+    let history = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &first, ORIGIN),
+    )
+    .await;
+    assert_eq!(history.status(), StatusCode::OK);
+    assert_eq!(history.headers()[header::CACHE_CONTROL], "no-store");
+    let history = body_of(history).await;
+    assert_eq!(history.matches("Отзыв сеанса").count(), 1);
+    assert!(history.contains("Завершено сеансов: 1"));
+    assert!(!history.contains(&second_id));
+    assert!(!history.contains(&foreign_id));
+    assert!(!history.contains(&second));
+    let other_history = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &foreign, ORIGIN),
+    )
+    .await;
+    assert_eq!(other_history.status(), StatusCode::OK);
+    let other_history = body_of(other_history).await;
+    assert!(!other_history.contains("Отзыв сеанса"));
+    assert!(!other_history.contains(&first_id));
 
     let revoke_self =
         format!("session_id={first_id}&current_password=LongSecurePassword2026&csrf_token={token}");

@@ -580,8 +580,16 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
             1
         );
     }
-    assert!(accounts.security_history(&foreign).await.unwrap().is_empty());
-    assert!(accounts.security_history(&[0; 32]).await.unwrap().is_empty());
+    assert!(accounts
+        .security_history(&foreign)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(accounts
+        .security_history(&[0; 32])
+        .await
+        .unwrap()
+        .is_empty());
     assert!(accounts
         .issue_password_reset(user, "$argon2id$fixture", &reset)
         .await
@@ -594,7 +602,11 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
         .consume_password_reset(&reset, "$argon2id$replayed")
         .await
         .unwrap());
-    assert!(accounts.security_history(&current).await.unwrap().is_empty());
+    assert!(accounts
+        .security_history(&current)
+        .await
+        .unwrap()
+        .is_empty());
     assert!(accounts
         .insert_verified_session(user, "$argon2id$reset-hash", &after_reset, ttl, audit)
         .await
@@ -623,14 +635,17 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
     .execute(accounts.pool())
     .await
     .unwrap();
-    assert_eq!(accounts.security_history(&after_reset).await.unwrap().len(), 5);
-    assert!(sqlx::query(
-        "UPDATE account_security_events SET revoked_count=9 WHERE user_id=$1"
-    )
-    .bind(user)
-    .execute(accounts.pool())
-    .await
-    .is_err());
+    assert_eq!(
+        accounts.security_history(&after_reset).await.unwrap().len(),
+        5
+    );
+    assert!(
+        sqlx::query("UPDATE account_security_events SET revoked_count=9 WHERE user_id=$1")
+            .bind(user)
+            .execute(accounts.pool())
+            .await
+            .is_err()
+    );
     accounts.prune_security_data().await.unwrap();
     let old: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM account_security_events
@@ -649,6 +664,13 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
     .execute(accounts.pool())
     .await
     .unwrap();
-    assert_eq!(accounts.security_history(&after_reset).await.unwrap().len(), 50);
-    assert!(accounts.security_history(&foreign).await.unwrap().is_empty());
+    assert_eq!(
+        accounts.security_history(&after_reset).await.unwrap().len(),
+        50
+    );
+    assert!(accounts
+        .security_history(&foreign)
+        .await
+        .unwrap()
+        .is_empty());
 }
