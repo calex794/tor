@@ -72,7 +72,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: "Установить SSH с проверкой ключа сервера и определить установленный протокол выпуска"
+      - name: "Установить SSH с проверкой ключа сервера / Определить установленный протокол выпуска"
         if: inputs.export_v2 == false
         env:
           TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}

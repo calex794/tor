@@ -1,7 +1,6 @@
 """Offline export must never connect to a VPS; import uses independent pins."""
 import hashlib
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
