@@ -16,6 +16,10 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 
+#[cfg(unix)]
+#[path = "publication_crash.rs"]
+mod publication_crash;
+
 const STAGING: &str = "tor-fnd00-candidate-staging";
 const CANONICAL: &str = "tor-fnd00-candidate-canonical";
 const S3_ENDPOINT: &str = "http://127.0.0.1:9000";
@@ -60,6 +64,25 @@ fn command(fixture: &Fixture) -> (Command, String) {
         )
         .stdout(Stdio::null());
     (command, origin)
+}
+
+async fn wait_ready(server: &mut Server, client: &Client, origin: &str) {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            assert!(server.0.try_wait().unwrap().is_none(), "server exited");
+            if client
+                .get(format!("{origin}/readyz"))
+                .send()
+                .await
+                .is_ok_and(|response| response.status() == StatusCode::OK)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("candidate TOR must be ready");
 }
 
 async fn post(client: &Client, origin: &str, route: &str, cookie: &str, input: Value) -> Value {
@@ -145,22 +168,7 @@ async fn fnd00_free_candidate_runtime_uses_bodyless_s023() {
         .timeout(Duration::from_secs(3))
         .build()
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            assert!(server.0.try_wait().unwrap().is_none(), "server exited");
-            if client
-                .get(format!("{origin}/readyz"))
-                .send()
-                .await
-                .is_ok_and(|response| response.status() == StatusCode::OK)
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("candidate TOR must be ready");
+    wait_ready(&mut server, &client, &origin).await;
     let route = format!("/me/books/{}/chapters/import", fixture.book);
     let input = json!({
         "filename": "chapter.txt",

@@ -50,3 +50,51 @@ verifies both transaction boundaries and shuts down without promoting.
 Three additional mandatory Boolean checks cover replay, transaction boundary
 and no promotion. These are new acceptance requirements, not yet evidence
 of a passed run or external restore.
+
+## RECOVERY-09b: generated config replay in the existing disposable fixture
+
+The UTC replay case now uses the actual RECOVERY-07 file-tree/receipt
+checks, RECOVERY-08 configuration generator and RECOVERY-09a verification
+helpers instead of maintaining a handwritten startup configuration.
+The container build receives only the fixed allowlisted source modules.
+It retains its original network-free, unprivileged, bounded runtime and
+the original named-target, wrong-key and unreachable-target controls.
+The adapter accepts only the random fixture workspace after source
+removal. It creates a synthetic local POSIX repository receipt; it is
+not an operator entrypoint and cannot establish independent S3 custody,
+root-owned operational layout or real host isolation. The actual
+operator host gate remains unchanged.
+
+After staging the selected physical PG18 backup, prepare and verify the
+configuration under the same local lock, preserve the original auto.conf,
+require an empty active auto.conf, and start with explicit config_file.
+SQL must confirm the actual config_file, data_directory and port as well
+as the existing exclusive UTC/timeline pause and before/after marker
+witnesses. The process shuts down without promotion. Schema 2 requires
+the additional Boolean generated_startup_config_verified_and_used;
+old reports are not silently accepted as proof of this new behavior.
+The real test and its marker must pass on the exact accepted CI head.
+No operational recovery, SLO or release claim is added.
+
+## RECOVERY-09c: real paused-replay helper execution
+
+After the existing UTC transaction-boundary witness and clean shutdown,
+retain the completed fixture and restore the same full backup into a
+fresh time-target workspace. The separate CI adapter uses the real
+RECOVERY-08/09a preparation and verification helpers and runs
+`tor_recovery_pg_run.run_paused` under the existing stage lock.
+The container is already the unprivileged postgres OS account: the
+adapter removes only the exact runuser prefix from the three allowlisted
+generated commands. It does not mock PostgreSQL processes, SQL results,
+wait/timeout logic, shutdown or receipt generation, nor invoke or relax
+the operator entrypoint or its independent host checks.
+
+The real test requires the private paused-replay receipt with matching
+stage/config receipt digests, two stable SQL witnesses, confirmed
+shutdown and preserved recovery signal. The receipt must still deny
+promotion, exact transaction-boundary proof and operational acceptance.
+The independent first UTC case retains its actual before/after witness.
+Report schema 3 additionally requires
+`operator_paused_replay_helpers_verified=true`; schema 2 is not proof of
+this new lifecycle test. The external host, S3, package authenticity,
+network isolation and disaster-recovery SLO remain separate gates.

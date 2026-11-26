@@ -18,7 +18,7 @@ spec.loader.exec_module(drill)
 
 
 def valid_report():
-    return {'schema_version': 1, 'scope': 'isolated_container_fixture',
+    return {'schema_version': 3, 'scope': 'isolated_container_fixture',
             'postgres_version': 'postgres (PostgreSQL) 18.1',
             'pgbackrest_version': 'pgBackRest 2.57.0',
             'backup_label': '20261111-120000F', 'drill_elapsed_seconds': 2.5,
@@ -60,7 +60,7 @@ class RecoveryContract(unittest.TestCase):
         report['secret'] = 'must not appear in output'
         with self.assertRaises(ValueError):
             drill.validate_report(json.dumps(report))
-        for version in (True, 2, '1'):
+        for version in (True, 1, 2, 4, '3'):
             report = valid_report()
             report['schema_version'] = version
             with self.assertRaises(ValueError):
@@ -127,13 +127,23 @@ class Isolation(unittest.TestCase):
         self.assertEqual(command.count('--env'), 1)
         self.assertEqual(command[command.index('--env') + 1], 'TOR_I11_DISPOSABLE_CONTAINER=yes')
 
-    def test_build_context_has_only_two_fixed_files(self):
-        content = drill.build_context(b'echo example\n')
+    def test_build_context_has_only_fixed_recovery_fixture_files(self):
+        modules = {name: (ROOT / 'tools' / name).read_bytes() for name in drill.FIXTURE_MODULES}
+        content = drill.build_context(b'echo example\n', modules)
         with tarfile.open(fileobj=io.BytesIO(content)) as archive:
-            self.assertEqual(archive.getnames(), ['Dockerfile', 'drill.sh'])
+            self.assertEqual(archive.getnames(),
+                             ['Dockerfile', 'drill.sh'] +
+                             ['modules/' + name for name in drill.FIXTURE_MODULES])
             self.assertEqual(archive.extractfile('drill.sh').read(), b'echo example\n')
             self.assertTrue(all(member.isfile() for member in archive.getmembers()))
             self.assertIn(b'USER postgres', archive.extractfile('Dockerfile').read())
+            for name in drill.FIXTURE_MODULES:
+                self.assertEqual(archive.extractfile('modules/' + name).read(), modules[name])
+        for changed in ({**modules, 'secret.env': b'private'},
+                        {name: data for name, data in modules.items()
+                         if name != 'tor_recovery_pg_config_verify.py'}):
+            with self.assertRaises(ValueError):
+                drill.build_context(b'echo example\n', changed)
 
     def test_no_docker_invocation_outside_ci(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'argv', ['drill']), \
@@ -191,25 +201,80 @@ class Isolation(unittest.TestCase):
         for required in (
             '--target="$time_target" --target-timeline="$timeline"',
             '--target-exclusive --target-action=shutdown',
-            'recovery_target_action = \'pause\'',
-            'recovery_target_inclusive = off',
-            'hot_standby = on',
+            'python3 /opt/tor-i11-tools/i11_pitr_prepare_config.py',
+            'pg-config-receipt.json',
+            'pg-original-auto.conf',
             "pg_get_wal_replay_pause_state()='paused'",
             "after_target,base_snapshot,before_target,time_before",
             'pg_last_xact_replay_timestamp()',
-            'archive_mode = off',
-            "primary_conninfo = ''",
-            '-c config_file=$work/time-config/postgresql.conf',
-            '--pg1-path=$time_dir archive-get',
+            "current_setting('archive_mode')='off'",
+            "current_setting('primary_conninfo')=''",
+            '-c config_file=$time_root/config/pg-startup/postgresql.conf',
+            "current_setting('config_file')='$time_root/config/pg-startup/postgresql.conf'",
             'start >"$work/log/time-pgctl.log" 2>&1',
-            'mv -- "$time_dir/postgresql.auto.conf"',
+            '! -s "$time_dir/postgresql.auto.conf"',
             '[[ -f "$time_dir/recovery.signal" ]]',
         ):
             self.assertIn(required, section)
         for flag in ('utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
-                     'utc_target_no_promotion_verified'):
+                     'utc_target_no_promotion_verified',
+                     'generated_startup_config_verified_and_used',
+                     'operator_paused_replay_helpers_verified'):
             self.assertIn(flag, drill.CHECKS)
             self.assertIn("'" + flag + "': True", section)
+
+
+    def test_generated_config_fixture_uses_real_helpers_before_pg_ctl(self):
+        shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        fixture = (ROOT / 'tools/i11_pitr_prepare_config.py').read_text()
+        section = shell[shell.index('# RECOVERY-03b:'):]
+        self.assertLess(section.index('i11_pitr_prepare_config.py'),
+                        section.index('pg_ctl -D "$time_dir"'))
+        self.assertNotIn('cat >"$time_root/config/pg-startup/postgresql.conf"', section)
+        for name in ('verify_data_tree', 'verify_stage_receipt', 'prepare_files',
+                     'verify_prepared_files', 'stage_lock'):
+            self.assertIn(name + '(', fixture)
+        self.assertIn('isolated_container_fixture_only', fixture)
+        self.assertIn('uid == 0 or gid == 0', fixture)
+        self.assertIn('TOR_I11_DISPOSABLE_CONTAINER', fixture)
+        self.assertNotIn('subprocess', fixture)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / 'tools/i11_pitr_prepare_config.py'),
+             '/srv/tor-recovery', '20261111-120000F', '2026-11-11 12:00:01+00', '1'],
+            env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True,
+            timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('I11_PITR_GENERATED_CONFIG_REFUSED', result.stderr)
+
+    def test_operator_helpers_use_second_fresh_restore_and_real_commands(self):
+        shell = (ROOT / 'tools/i11_pitr_container.sh').read_text()
+        adapter = (ROOT / 'tools/i11_pitr_run_paused.py').read_text()
+        self.assertIn('tor_recovery_pg_run.py', drill.FIXTURE_MODULES)
+        self.assertIn('i11_pitr_run_paused.py', drill.FIXTURE_MODULES)
+        section = shell[shell.index('# RECOVERY-09c:'):]
+        self.assertLess(section.index('mv -- "$time_root"'),
+                        section.index('stage_time_target'))
+        self.assertLess(section.index('stage_time_target'),
+                        section.index('i11_pitr_run_paused.py'))
+        self.assertLess(section.index('pg-paused-replay-receipt.json'),
+                        section.index("'operator_paused_replay_helpers_verified': True"))
+        self.assertIn('actual_invoke(command[4:], timeout, capture=capture)', adapter)
+        self.assertIn('command not in expected_commands', adapter)
+        self.assertIn('replay.run_paused(root, args, uid, gid, uid, gid)', adapter)
+        self.assertIn('verify_stage_receipt(root, selection', adapter)
+        self.assertIn('verify_prepared_files(root, args', adapter)
+        self.assertIn('with stage_lock(root, uid, gid)', adapter)
+        self.assertNotIn('replay.execute(', adapter)
+        self.assertNotIn('replay.main(', adapter)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / 'tools/i11_pitr_run_paused.py'),
+             '/srv/tor-recovery', '20261111-120000F', '2026-11-11 12:00:01+00', '1'],
+            env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True,
+            timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('I11_PITR_OPERATOR_HELPERS_REFUSED', result.stderr)
 
 
 if __name__ == '__main__':

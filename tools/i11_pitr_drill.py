@@ -22,15 +22,28 @@ CHECKS = (
     'role_denial_preserved', 'recovery_promoted',
     'utc_target_replay_paused', 'utc_target_transaction_boundary_verified',
     'utc_target_no_promotion_verified',
+    'generated_startup_config_verified_and_used',
+    'operator_paused_replay_helpers_verified',
 )
 LIMITATIONS = (
     'production_tested', 'offsite_tested', 'application_acl_tested',
     'rpo_slo_proven', 'rto_slo_proven', 'release_approved',
 )
+FIXTURE_MODULES = (
+    'tor_recovery_host.py',
+    'tor_recovery_pg.py',
+    'tor_recovery_pg_prestart.py',
+    'tor_recovery_pg_startup_config.py',
+    'tor_recovery_pg_config_verify.py',
+    'i11_pitr_prepare_config.py',
+    'tor_recovery_pg_run.py',
+    'i11_pitr_run_paused.py',
+)
 DOCKERFILE = b'''FROM postgres:18
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest python3 \\\n    && rm -rf /var/lib/apt/lists/*
 COPY drill.sh /opt/tor-i11-drill.sh
+COPY modules/ /opt/tor-i11-tools/
 USER postgres
 ENTRYPOINT ["/bin/bash", "/opt/tor-i11-drill.sh"]
 '''
@@ -53,10 +66,14 @@ def validate_environment(env: dict[str, str]) -> tuple[str, Path]:
     return sha, path.resolve()
 
 
-def build_context(script: bytes) -> bytes:
+def build_context(script: bytes, modules: dict[str, bytes]) -> bytes:
+    if set(modules) != set(FIXTURE_MODULES):
+        raise ValueError('exact allowlisted recovery fixture modules required')
     archive = io.BytesIO()
+    entries = [('Dockerfile', DOCKERFILE), ('drill.sh', script)]
+    entries.extend(('modules/' + name, modules[name]) for name in FIXTURE_MODULES)
     with tarfile.open(fileobj=archive, mode='w') as tar:
-        for name, content in (('Dockerfile', DOCKERFILE), ('drill.sh', script)):
+        for name, content in entries:
             item = tarfile.TarInfo(name)
             item.size, item.mode = len(content), 0o644
             tar.addfile(item, io.BytesIO(content))
@@ -81,7 +98,7 @@ def validate_report(raw: str) -> dict:
                 'backup_label', 'drill_elapsed_seconds', *CHECKS, *LIMITATIONS}
     if set(report) != expected:
         raise ValueError('incomplete or unexpected report fields')
-    if type(report['schema_version']) is not int or report['schema_version'] != 1:
+    if type(report['schema_version']) is not int or report['schema_version'] != 3:
         raise ValueError('unsupported report schema')
     if report['scope'] != 'isolated_container_fixture':
         raise ValueError('invalid evidence scope')
@@ -132,7 +149,7 @@ def client_diagnostics(stderr: str) -> list[str]:
 def time_start_diagnostics(stderr: str) -> list[str]:
     """Bound synthetic fixture startup diagnostics; no raw PostgreSQL log."""
     rows = re.findall(
-        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness) '
+        r'^I11_PITR_TIME_START (?:time-start|time-pgctl|time-readiness|operator-replay) '
         r'[\x20-\x7e]{1,360}$', stderr[-32768:], re.M,
     )
     result = []
@@ -161,8 +178,12 @@ def main() -> int:
     image = name + ':ci'
     env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
            'HOME': str(destination), 'LC_ALL': 'C'}
-    context = build_context((ROOT / 'tools/i11_pitr_container.sh').read_bytes())
     try:
+        context = build_context(
+            (ROOT / 'tools/i11_pitr_container.sh').read_bytes(),
+            {name: (ROOT / 'tools' / name).read_bytes()
+             for name in FIXTURE_MODULES},
+        )
         subprocess.run([*DOCKER, 'build', '--tag', image, '-'], input=context,
                        env=env, check=True, timeout=600, stdout=subprocess.DEVNULL)
         result = subprocess.run(run_command(image, name), env=env, check=True,

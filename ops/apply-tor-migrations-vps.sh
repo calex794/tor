@@ -5,15 +5,28 @@ set -Eeuo pipefail
 umask 077
 
 release_sha=${1:-}
-if [[ $(id -u) -ne 0 || ! $release_sha =~ ^[0-9a-f]{40}$ || $# -ne 1 ]]; then
-  echo "Usage (as root): bash ops/apply-tor-migrations-vps.sh <STAGED_GIT_SHA>" >&2
+recovery=0
+if [[ $# == 2 && $2 == --recover ]]; then
+  recovery=1
+elif [[ $# != 1 ]]; then
+  echo "Usage (as root): bash ops/apply-tor-migrations-vps.sh <STAGED_GIT_SHA> [--recover]" >&2
+  exit 2
+fi
+if [[ $(id -u) -ne 0 || ! $release_sha =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Refusing: root and a full SHA required" >&2
   exit 2
 fi
 if ! systemctl is-active --quiet postgresql@18-main.service; then
   echo "Refusing: PostgreSQL 18/main is inactive" >&2
   exit 1
 fi
-if ! systemctl is-active --quiet tor-web.service; then
+if [[ "$recovery" == 1 ]]; then
+  [[ $(systemctl show tor-web.service -p ActiveState --value) == inactive &&
+     $(cat /var/lib/tor-release/pg-activated) == PG_ACTIVATED ]] || {
+    echo "Refusing recovery migration: prior PostgreSQL activation and stopped web required" >&2
+    exit 1
+  }
+elif ! systemctl is-active --quiet tor-web.service; then
   echo "Refusing: current TOR web service is inactive" >&2
   exit 1
 fi
@@ -133,9 +146,14 @@ echo "MIGRATIONS_OK: $versions/$expected SQLx versions, $tables domain tables"
 echo "BACKUP_OK: $backup (local only; off-server backup still required)"
 echo "=== PostgreSQL and Rust service ==="
 systemctl is-active postgresql@18-main.service
-systemctl is-active tor-web.service
-curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/readyz >/dev/null
-echo "TOR_DEMO_HEALTH_OK"
+if [[ "$recovery" == 1 ]]; then
+  [[ $(systemctl show tor-web.service -p ActiveState --value) == inactive ]]
+  echo "TOR_RECOVERY_SCHEMA_READY: web remains stopped; activation still required"
+else
+  systemctl is-active tor-web.service
+  curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/readyz >/dev/null
+  echo "TOR_DEMO_HEALTH_OK"
+fi
 echo "=== Memory ==="
 free -h
-echo "Current TOR web remains RAM demo; database is prepared for separate runtime cutover"
+echo "Database is prepared; successful HTTP/HTTPS activation still required"
