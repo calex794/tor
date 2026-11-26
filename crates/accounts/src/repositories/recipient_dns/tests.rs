@@ -172,10 +172,7 @@ async fn mail_01b2_wire_dns_distinguishes_authoritative_negatives_and_failures()
         "unproven.fixture.test",
         "timeout.fixture.test",
     ] {
-        assert_eq!(
-            check_mail_domain(&resolver, domain).await,
-            MailRoute::Retry
-        );
+        assert_eq!(check_mail_domain(&resolver, domain).await, MailRoute::Retry);
     }
     server.abort();
 }
