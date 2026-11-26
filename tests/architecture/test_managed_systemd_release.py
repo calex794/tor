@@ -1,9 +1,11 @@
 """DEPLOY-04: signed policy and injected systemd transaction failures."""
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -47,6 +49,54 @@ class FixtureSystemd:
     def snapshot(self):
         self.calls.append("snapshot")
         return self.effective.copy()
+
+
+class SystemdSnapshotTests(unittest.TestCase):
+    FIRST = "/etc/tor/tor-app.env (ignore_errors=no)"
+    SECOND = "/etc/tor/operator.env (ignore_errors=yes)"
+
+    def snapshot(self, entries, extra=(), omit=()):
+        rows = [name + "=value" for name in unit.PROPERTIES
+                if name != "EnvironmentFiles" and name not in omit]
+        rows += ["EnvironmentFiles=" + entry for entry in entries]
+        rows += list(extra)
+        systemd = unit.Systemd()
+        response = subprocess.CompletedProcess([], 0, ("\n".join(rows) + "\n").encode())
+        with patch.object(systemd, "command", return_value=response) as command:
+            result = systemd.snapshot()
+        command.assert_called_once_with(
+            "systemctl", "show", "tor-web.service",
+            *("--property=" + name for name in unit.PROPERTIES))
+        return result
+
+    def test_environment_files_preserve_duplicates_and_order(self):
+        snapshot = self.snapshot([self.FIRST, self.SECOND, self.FIRST])
+        self.assertEqual(json.loads(snapshot["EnvironmentFiles"]),
+                         [self.FIRST, self.SECOND, self.FIRST])
+        self.assertEqual(set(snapshot), set(unit.PROPERTIES))
+        self.assertNotIn("\n", snapshot["EnvironmentFiles"])
+
+    def test_environment_files_order_and_option_changes_are_not_equal(self):
+        original = self.snapshot([self.FIRST, self.SECOND])
+        self.assertNotEqual(original, self.snapshot([self.SECOND, self.FIRST]))
+        self.assertNotEqual(original, self.snapshot([self.FIRST, self.SECOND, self.FIRST]))
+        self.assertNotEqual(original, self.snapshot([self.FIRST,
+                            self.SECOND.replace("=yes)", "=no)")]))
+
+    def test_single_environment_file(self):
+        self.assertEqual(json.loads(self.snapshot([self.FIRST])["EnvironmentFiles"]),
+                         [self.FIRST])
+
+    def test_missing_or_malformed_property_is_refused(self):
+        for entries, extra, omit in (
+            ([], (), ()), ([self.FIRST], (), ("User",)),
+            ([self.FIRST], ("Unexpected=value",), ()),
+            ([self.FIRST], ("User=another",), ()),
+            (["invalid"], (), ()),
+            (["/" + "x" * 4096 + " (ignore_errors=no)"], (), ()),
+        ):
+            with self.subTest(extra=extra, omit=omit), self.assertRaises(unit.UnitError):
+                self.snapshot(entries, extra, omit)
 
 
 class ManagedUnitTests(unittest.TestCase):
