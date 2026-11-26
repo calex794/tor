@@ -2,6 +2,9 @@
 //! This is syntax validation only; no network or claim of mailbox existence.
 use super::normalize_email;
 
+pub mod disposable;
+pub mod typo;
+
 const INVALID: &str = "Некорректный адрес почты";
 
 /// Keep the historic normalized account key. Convert only the transport
