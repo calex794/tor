@@ -4,6 +4,9 @@ on:
     paths:
       - 'ops/fallback/**'
       - 'ops/systemd/**'
+      - 'ops/install/**'
+      - 'tools/admit_clean_install.py'
+      - 'tools/connect_clean_release.py'
       - 'tests/edge/**'
       - 'tools/release_bundle_v2.py'
       - 'tools/managed_edge_release.py'

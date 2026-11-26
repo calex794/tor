@@ -52,3 +52,10 @@ without an existing deployment host, real combined systemd/PG/Rust VM
 acceptance, external DNS/TLS/firewall proof, operator approval.
 Local install remains non-S3 until the independent provider/profile gate.
 No VPS changes in this PR.
+
+The isolated Nginx lab now adds an extra IPv4 to its private loopback
+namespace, exercises the signed clean vhost render with temporary TLS/edge
+paths, checks actual route status/HSTS/redirect/asset, and proves the
+extra listener disappears on restoration. No external traffic. Fourteen
+new architecture tests cover admission journal/failures, address guards,
+SSH signer and sudo/file restrictions. CI results are not yet confirmed.

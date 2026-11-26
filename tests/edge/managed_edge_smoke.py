@@ -14,6 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
+import admit_clean_install as admission
 import adopt_edge_vhost as adoption
 import managed_edge_release as edge
 import release_bundle_v2 as bundle
@@ -53,12 +54,12 @@ class LabNginx(adoption.ProductionAdoption):
         self.command(self.nginx_command("-s", "reload"))
 
 
-def request(route, accept="text/html", method="GET"):
+def request(route, accept="text/html", method="GET", *, ipv4="127.0.0.1", port=443):
     result = run("curl", "--disable", "--silent", "--show-error", "--http1.1",
                  "--max-time", "5", "--max-filesize", "2097152", "--noproxy", "*",
-                 "--resolve", HOST + ":443:127.0.0.1", "--include",
+                 "--interface", ipv4, "--resolve", f"{HOST}:{port}:{ipv4}", "--include",
                  "--request", method, "--header", "Accept: " + accept,
-                 "https://" + HOST + route)
+                 ("https://" if port == 443 else "http://") + HOST + route)
     head, sep, body = result.stdout.partition(b"\r\n\r\n")
     assert sep
     first, *lines = head.split(b"\r\n")
@@ -205,6 +206,59 @@ def assert_live(store, nginx, sha):
         assert b"service temporarily unavailable" in body
 
 
+def interface_admission(root, vhost, store, nginx, staged):
+    """Use the signed install template with only isolated lab path substitutions."""
+    original = vhost.read_bytes()
+    local = (staged / A / "install-nginx.conf").read_bytes()
+    local = local.replace(b"/var/lib/tor-edge", str(store.root).encode())
+    local = local.replace(b"/etc/letsencrypt/live/pandaolate.ru/fullchain.pem",
+                          str(root / "tls.crt").encode())
+    local = local.replace(b"/etc/letsencrypt/live/pandaolate.ru/privkey.pem",
+                          str(root / "tls.key").encode())
+    local = local.replace(b"max-age=31536000", HSTS.encode())
+    ipv4 = "192.0.2.10"
+    run("ip", "address", "add", ipv4 + "/32", "dev", "lo")
+    try:
+        vhost.write_bytes(local)
+        nginx.test()
+        nginx.reload()
+        assert request("/catalog")[0] == 200
+        vhost.write_bytes(admission.render(local, ipv4))
+        nginx.test()
+        nginx.reload()
+        for route, expected in (("/catalog", 200), ("/readyz", 403),
+                                ("/healthz", 403), ("/metrics", 404),
+                                ("/internal/metrics", 404),
+                                ("/_tor-fallback/index.html", 404),
+                                ("/_tor-fallback/game.js", 200)):
+            status, headers, body = request(route, ipv4=ipv4)
+            assert status == expected, (route, status, expected)
+            assert headers.get("strict-transport-security") == HSTS, route
+            if route == "/catalog":
+                assert "noindex" in headers.get("x-robots-tag", "")
+            if route.endswith("game.js"):
+                assert headers[edge.MARKER.lower()] == A
+                assert body == (store.releases / A / "site/game.js").read_bytes()
+        status, headers, _ = request("/catalog", ipv4=ipv4, port=80)
+        assert status == 308 and headers["location"] == "https://pandaolate.ru/catalog"
+        vhost.write_bytes(local)
+        nginx.test()
+        nginx.reload()
+        assert request("/catalog")[0] == 200
+        try:
+            request("/catalog", ipv4=ipv4)
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("removed public listener remained reachable")
+        print("PASS: real IPv4 admission, diagnostics denial and local-only restoration", flush=True)
+    finally:
+        vhost.write_bytes(original)
+        nginx.test()
+        nginx.reload()
+        run("ip", "address", "del", ipv4 + "/32", "dev", "lo")
+
+
 def main():
     isolated_network()
     os.umask(0o077)
@@ -290,6 +344,8 @@ def main():
             assert (root / "nginx.pid").read_text() == master
             assert process.poll() is None
             print("PASS: backend recovery, upstream API pass-through, same Nginx master", flush=True)
+            interface_admission(root, vhost, store, nginx, staged)
+            assert (root / "nginx.pid").read_text() == master
             print("DEPLOY-02b REAL TLS NGINX ACCEPTANCE PASSED", flush=True)
         except Exception:
             log = root / "error.log"
