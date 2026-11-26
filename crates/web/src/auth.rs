@@ -248,14 +248,7 @@ fn router_inner(
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
-        .route(
-            "/register",
-            get(account_form_http::show_registration).post(account_form_http::register),
-        )
-        .route(
-            "/login",
-            get(account_form_http::show_login).post(account_form_http::login),
-        )
+        .merge(account_form_http::router())
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(account_home::show))
         .route("/odmen", get(admin_entry::page))
@@ -304,10 +297,6 @@ fn router_inner(
             get(mail_api::get).post(mail_api::post),
         )
         .route("/assets/mail.js", get(mail::script))
-        .route(
-            "/assets/tor-auth-dialog.js",
-            get(account_form_http::dialog_script),
-        )
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
