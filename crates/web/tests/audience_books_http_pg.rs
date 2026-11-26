@@ -449,15 +449,16 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
     // This intentionally frozen pre-retirement fixture has no new A audit
     // schema. Seed revocation directly; current A tests exercise its audit.
     assert_eq!(
-        sqlx::query(
-            "UPDATE sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL"
-        )
-        .bind(session_token_digest(&tokens[0]).as_slice())
-        .execute(accounts.pool())
-        .await
-        .unwrap()
-        .rows_affected(),
-        1
+        pg(
+            &url,
+            &format!(
+                "WITH revoked AS (UPDATE sessions SET revoked_at=now() \
+                 WHERE token_hash=decode('{}','hex') AND revoked_at IS NULL \
+                 RETURNING 1) SELECT count(*) FROM revoked",
+                hex::encode(session_token_digest(&tokens[0]))
+            )
+        ),
+        "1"
     );
     private(
         &call(&app, &path, &cookies[0]).await,
