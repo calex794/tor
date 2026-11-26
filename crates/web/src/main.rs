@@ -18,6 +18,17 @@ use tor_reading::repositories::PgReader;
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Read the actual compiled profile without loading credentials or services.
+    if env::args().nth(1).as_deref() == Some("--release-capabilities") {
+        println!(
+            "TOR_RELEASE_CAPABILITIES s3-covers={} s3-free={} s3-paid={} s3-chapter-import={}",
+            cfg!(feature = "s3-covers"),
+            cfg!(feature = "s3-free"),
+            cfg!(feature = "s3-paid"),
+            cfg!(feature = "s3-chapter-import"),
+        );
+        return Ok(());
+    }
     let bind = env::var("TOR_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let address: SocketAddr = bind.parse()?;
     if !address.ip().is_loopback() {
@@ -287,7 +298,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             println!("TOR PostgreSQL catalogue and public reading on {address}");
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                let origin = env::var("TOR_PUBLIC_ORIGIN")?;
+                let origin = env::var("TOR_PUBLIC_ORIGIN")
+                    .map_err(|_| "Missing or invalid TOR_PUBLIC_ORIGIN")?;
                 let secure = origin.starts_with("https://");
                 let uri: axum::http::Uri = origin.parse()?;
                 let host = uri.host().unwrap_or("");
@@ -401,7 +413,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         >,
                     >,
                 ) = if paid_grants_enabled {
-                    let bucket = env::var("TOR_PAID_S3_BUCKET")?;
+                    let bucket = env::var("TOR_PAID_S3_BUCKET")
+                        .map_err(|_| "Missing or invalid TOR_PAID_S3_BUCKET")?;
                     let keyring = Arc::new(
                         tor_storage::services::crypto::ContentKeyring::from_environment()
                             .map_err(|_| "Invalid private content KEK V1/V2 configuration")?,

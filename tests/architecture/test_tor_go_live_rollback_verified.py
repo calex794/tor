@@ -24,7 +24,7 @@ def executable(path, content):
 
 
 class OneClickGoLiveRollbackTests(unittest.TestCase):
-    def exercise(self, mode):
+    def exercise(self, mode, recovery=False):
         with tempfile.TemporaryDirectory(prefix="tor-go-live-rollback-") as tmp:
             root = Path(tmp) / "opt/tor"
             old = root / "releases" / OLD_SHA
@@ -40,8 +40,9 @@ class OneClickGoLiveRollbackTests(unittest.TestCase):
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
             executable(bin_dir / "systemctl", """#!/usr/bin/env bash
+printf 'SYSTEMCTL %s\n' "$*" >&2
 if [[ "$1" == is-active ]]; then
-  [[ "$TOR_TEST_MODE" == success ]]
+  [[ "$TOR_TEST_MODE" == success ]] || exit 1
 elif [[ "$1" == show ]]; then
   echo 'ActiveState=failed'
 fi
@@ -62,6 +63,7 @@ printf 'ok\n'
                 "dropin=" + str(dropin),
                 'backup_dropin=""',
                 "switched=1",
+                "recovery=" + ("1" if recovery else "0"),
                 undo,
                 "undo",
             ]) + "\n")
@@ -89,6 +91,17 @@ printf 'ok\n'
         result, active, old = self.exercise("dead")
         self.assertEqual(active, old)
         self.assertIn("ROLLBACK_UNVERIFIED:", result.stderr)
+        self.assertNotIn("ROLLBACK_VERIFIED:", result.stderr)
+        self.assertIn("TOR_ROLLBACK_SERVICE_STOPPED", result.stderr)
+        self.assertIn("SYSTEMCTL stop tor-web.service", result.stderr)
+
+    def test_failed_outage_recovery_restores_pointer_without_restarting_broken_old_binary(self):
+        result, active, old = self.exercise("dead", recovery=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(active, old)
+        self.assertIn("ROLLBACK_UNVERIFIED:", result.stderr)
+        self.assertIn("SYSTEMCTL stop tor-web.service", result.stderr)
+        self.assertNotIn("SYSTEMCTL restart tor-web.service", result.stderr)
         self.assertNotIn("ROLLBACK_VERIFIED:", result.stderr)
 
 

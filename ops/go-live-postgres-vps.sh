@@ -193,8 +193,20 @@ def validate(values, locations):
         required = ("TOR_CONTENT_KEK_V2" if values["TOR_CONTENT_ACTIVE_KEK_ID"] == "content-kek-v2"
                     else "TOR_CONTENT_KEK_V1")
         setting(required in values, "TOR_CONTENT_ACTIVE_KEK_ID", "missing-active-kek")
+    # The authenticated startup wires FREE grants whenever a FREE bucket is
+    # configured; its browser origin must be provided, never guessed.
+    if "TOR_FREE_S3_BUCKET" in values:
+        setting("TOR_FREE_S3_PUBLIC_ORIGIN" in values, "TOR_FREE_S3_BUCKET",
+                "missing-TOR_FREE_S3_PUBLIC_ORIGIN")
     if values.get("TOR_PAID_GRANTS_ENABLED") == "1":
-        setting("TOR_CONTENT_KEK_V1" in values, "TOR_PAID_GRANTS_ENABLED", "missing-kek-v1")
+        for required in ("TOR_CONTENT_KEK_V1", "TOR_PAID_S3_BUCKET", "TOR_PAID_S3_PUBLIC_ORIGIN"):
+            setting(required in values, "TOR_PAID_GRANTS_ENABLED", "missing-" + required)
+    if values.get("TOR_PAID_AUTHOR_PUBLISH_ENABLED") == "1":
+        setting(values.get("TOR_PAID_GRANTS_ENABLED") == "1",
+                "TOR_PAID_AUTHOR_PUBLISH_ENABLED", "paid-grants-not-enabled")
+    if values.get("TOR_PAID_AUTHOR_S3_ONLY_ENABLED") == "1":
+        setting(values.get("TOR_PAID_AUTHOR_PUBLISH_ENABLED") == "1",
+                "TOR_PAID_AUTHOR_S3_ONLY_ENABLED", "paid-author-not-enabled")
 
 
 try:
@@ -245,8 +257,15 @@ fi
 # TOR_RUNTIME_ENV_DIAGNOSTIC_END
 
 sha=${1:-}
-if [[ $(id -u) -ne 0 || $# -ne 1 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA> | --check-runtime" >&2
+recovery=0
+if [[ $# == 2 && $2 == --recover ]]; then
+  recovery=1
+elif [[ $# != 1 ]]; then
+  echo "Usage: root bash go-live-postgres-vps.sh <STAGED_MAIN_SHA> [--recover] | --check-runtime" >&2
+  exit 2
+fi
+if [[ $(id -u) -ne 0 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Refusing: root and a full SHA required" >&2
   exit 2
 fi
 
@@ -294,7 +313,34 @@ fi
   exit 1
 }
 systemctl is-active --quiet postgresql@18-main.service
-systemctl is-active --quiet tor-web.service
+if [[ "$recovery" == 1 ]]; then
+  [[ $(cat /var/lib/tor-release/pg-activated) == PG_ACTIVATED ]] || {
+    echo "Refusing recovery without verified previous PostgreSQL activation" >&2
+    exit 1
+  }
+  if systemctl is-active --quiet tor-web.service &&
+     [[ $(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz 2>/dev/null || true) == ok ]]; then
+    echo "Refusing recovery: existing website is healthy" >&2
+    exit 1
+  fi
+else
+  systemctl is-active --quiet tor-web.service
+fi
+
+# Verify the actual staged executable's compiled profile before any SQLx
+# migration, not just the workflow command or a string in the manifest.
+# Run without credentials and without root privileges.
+expected_profile='TOR_RELEASE_CAPABILITIES s3-covers=true s3-free=true s3-paid=true s3-chapter-import=true'
+actual_profile=$(runuser -u tor-deploy -- env -i PATH=/usr/bin:/bin \
+  timeout 10s "$release/tor-web" --release-capabilities 2>/dev/null) || {
+  echo "REFUSE_RELEASE_PROFILE: cannot read staged binary capabilities" >&2
+  exit 1
+}
+[[ "$actual_profile" == "$expected_profile" ]] || {
+  echo "REFUSE_RELEASE_PROFILE: incomplete production S3 capabilities" >&2
+  exit 1
+}
+printf '%s\n' "$actual_profile"
 
 secret_dir=/etc/tor
 app_secret=$secret_dir/tor-app.env
@@ -330,7 +376,13 @@ curl --fail --silent --show-error --location --retry 3 \
   "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
   -o "$migration_script"
 bash -n "$migration_script"
-bash "$migration_script" "$sha"
+if [[ "$recovery" == 1 ]]; then
+  # Stop the known-broken service's restart loop only after validation.
+  systemctl stop tor-web.service
+  bash "$migration_script" "$sha" --recover
+else
+  bash "$migration_script" "$sha"
+fi
 rm -f "$migration_script"
 trap - EXIT
 
@@ -415,6 +467,13 @@ undo() {
     mv -Tf "$back" /opt/tor/current
   fi
   systemctl daemon-reload || true
+  if [[ "$recovery" == 1 ]]; then
+    # The previous binary was already broken at entry. Never restart it
+    # indefinitely or advertise a restored service during recovery.
+    systemctl stop tor-web.service || true
+    echo "ROLLBACK_UNVERIFIED: previous binary pointer restored; recovery failed, service stopped; SQLx migrations are preserved." >&2
+    return 0
+  fi
   systemctl restart tor-web.service || true
   # A restored symlink alone is NOT proof that the previous binary works with
   # the new additive SQLx schema. Never claim rollback success without HTTP.
@@ -433,6 +492,10 @@ undo() {
   else
     echo "ROLLBACK_UNVERIFIED: previous binary restored but real HTTPS readiness failed; SQLx migrations are preserved." >&2
     systemctl show tor-web.service --no-pager -p ActiveState -p SubState -p Result -p ExecMainStatus || true
+    if [[ "$rollback_healthy" != 1 ]]; then
+      systemctl stop tor-web.service || true
+      echo "TOR_ROLLBACK_SERVICE_STOPPED: manual recovery required" >&2
+    fi
   fi
 }
 trap undo ERR
@@ -476,6 +539,9 @@ ln -s "$release" "$tmp"
 mv -Tf "$tmp" /opt/tor/current
 switched=1
 systemctl daemon-reload
+if [[ "$recovery" == 1 ]]; then
+  systemctl reset-failed tor-web.service
+fi
 systemctl restart tor-web.service
 
 ok=0

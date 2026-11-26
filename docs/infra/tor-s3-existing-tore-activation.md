@@ -87,13 +87,12 @@ cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers
 
 Its evidence artifact contains the exact commit SHA, feature profile and
 binary checksum **but no binary or secrets**. It is not a deployable, signed
-release. Existing [one-click production release](../../.github/workflows/tor-one-click-release.yml)
-remains unchanged and still builds the default profile. **Do not press
-"TOR — Обновить сайт" to test S3.**
-
-A later separate I-line PR, approved only after the external gate, must
-integrate the S3 features into the signed, rollback-protected release path,
-with exact-main CI and checked schema compatibility.
+release. The [one-click production release](../../.github/workflows/tor-one-click-release.yml)
+now compiles the four production S3 adapters using a shared, verified profile.
+This is a compile-time compatibility fix, not provider acceptance, storage
+migration, credential installation or approval to activate new write paths.
+Continue to require all external/provider and DR evidence before changing
+runtime flags or the storage layout. Keep DELETE/GC off.
 
 ## 4. Server runtime configuration — future activation, not now
 
@@ -159,7 +158,14 @@ S3 flags; compatible signed builds and operational rollback acceptance
 are separate requirements.
 `TOR_FREE_S3_PUBLIC_ORIGIN` must be derived from the actual signed reader
 GET URL/host and verified against CORS/CSP; do not guess that the SDK uses
-path-style or virtual-hosted-style URLs. S3 runtime requires the matching
+path-style or virtual-hosted-style URLs. The full-feature authenticated
+runtime requires this setting whenever `TOR_FREE_S3_BUCKET` is present.
+Read-only `--check-runtime` refuses a missing origin before any migration.
+Enabled paid grants also require the paid bucket, origin and KEK V1.
+The first full-profile CI startup exposed the previously unnamed
+`NotPresent` error; CI reproduces that missing-origin failure before testing
+a valid isolated MinIO configuration. A passing configuration check does
+not certify the actual production origin or provider permissions. S3 runtime requires the matching
 compiled Cargo features **and** approved credentials/permissions. A successful
 build does not establish HTTP reader correctness on Yandex.
 
