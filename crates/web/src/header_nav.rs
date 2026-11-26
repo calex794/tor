@@ -316,9 +316,17 @@ mod tests {
         assert!(signed_in.contains("name=\"csrf_token\" value=\"csrf-token\""));
         assert!(signed_in.contains("action=\"/logout\""));
         let signed_in_header = signed_in.split("</header>").next().unwrap();
-        for path in ["/me/books/new", "/me/library", "/me", "/me/books", "/catalog"] {
+        for path in [
+            "/me/books/new",
+            "/me/library",
+            "/me",
+            "/me/books",
+            "/catalog",
+        ] {
             assert_eq!(
-                signed_in_header.matches(&format!("href=\"{path}\"")).count(),
+                signed_in_header
+                    .matches(&format!("href=\"{path}\""))
+                    .count(),
                 2,
                 "{path}: exactly one link in each navigation"
             );
