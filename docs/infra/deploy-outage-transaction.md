@@ -82,3 +82,12 @@ not a production authentication change. The production anonymous API can
 still rate-limit; fail-closed is retained. The authenticated marker is
 required in CI. A separate operational API availability improvement is
 needed if anonymous rate limits become a recurring production issue.
+
+Run 45887493876 failed at token admission before first install, despite the
+runner logging a masked token environment entry. The diagnostic did not
+establish whether sudo propagation or the assumed token alphabet caused the
+failure. Transfer the ephemeral credential using stdin instead, remove the
+exported variable before invoking sudo, and accept bounded opaque RFC 6750
+bearer syntax (including dots). Distinguish missing input from invalid syntax
+without printing any credential data. The private adapter applies the same
+bound and syntax checks. No production module or signed shell changes.

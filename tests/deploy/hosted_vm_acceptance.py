@@ -102,9 +102,11 @@ def vm_authenticated_request(url, *, headers):
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
                 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
             raise RuntimeError("unsafe fixture API token file")
-        token = stream.read(513)
-    if not re.fullmatch(rb"[A-Za-z0-9_-]{20,512}", token):
-        raise RuntimeError("missing or invalid fixture API token")
+        token = stream.read(8193)
+    # Accept opaque RFC 6750 bearer syntax (including JWT-style dots),
+    # not a particular historical GitHub token prefix or length.
+    if len(token) > 8192 or not re.fullmatch(rb"[A-Za-z0-9._~+/-]+=*", token):
+        raise RuntimeError("invalid fixture API bearer credential")
     request = OriginalRequest(url, headers=headers)
     # Do not send the authorization header on redirects.
     request.add_unredirected_header("Authorization", "Bearer " + token.decode("ascii"))
@@ -399,10 +401,13 @@ def real_outage_acceptance(source, shas, db, credentials, book):
 
 def run():
     checkout = hosted_guard()
-    # Strip the Actions credential before any subprocess is launched. Only
-    # the guarded lab phase uses it via a private transient file.
-    token = os.environ.pop("TOR_VM_GITHUB_TOKEN", "")
-    need(re.fullmatch(r"[A-Za-z0-9_-]{20,512}", token), "read-only Actions token required")
+    # Read the opaque Actions credential via stdin, not sudo env propagation.
+    # No subprocess receives it through environment or arguments.
+    need("TOR_VM_GITHUB_TOKEN" not in os.environ, "fixture token leaked into environment")
+    token = sys.stdin.buffer.read(8193)
+    need(bool(token), "read-only Actions token input missing")
+    need(len(token) <= 8192 and re.fullmatch(rb"[A-Za-z0-9._~+/-]+=*", token),
+         "invalid Actions bearer credential syntax")
     os.umask(0o077)
     # Same compiled checkout, separate synthetic identities for fault fixtures.
     shas = {label: hashlib.sha256((checkout + ":vm:" + label).encode()).hexdigest()[:40]
@@ -563,7 +568,7 @@ def run():
     # The read-only Actions token is never passed to the installed executor,
     # signed shell, or database through their environment or command line.
     token_path = LAB / "actions-read-token"
-    first.new_file(token_path, token.encode("ascii"), 0o600)
+    first.new_file(token_path, token, 0o600)
     del token
     try:
         with patch.object(executor.ancestry, "Request", vm_authenticated_request):

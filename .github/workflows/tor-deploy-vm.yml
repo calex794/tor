@@ -58,7 +58,11 @@ jobs:
           TOR_VM_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE,TOR_VM_GITHUB_TOKEN /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          # Keep the token off the subprocess command line and environment.
+          actions_read_token="$TOR_VM_GITHUB_TOKEN"
+          unset TOR_VM_GITHUB_TOKEN
+          printf '%s' "$actions_read_token" | sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          unset actions_read_token
           grep -Fxq 'DEPLOY08A_VM_ACCEPTANCE_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
           grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
