@@ -5,7 +5,7 @@ use axum::body::to_bytes;
 fn successful_dialog_and_standalone_responses_keep_private_cookies() {
     let cookie = String::from("session=test; HttpOnly; SameSite=Strict");
     let mut headers = HeaderMap::new();
-    let plain = auth_success(&headers, Some("/reader/42"), &[cookie.clone()]);
+    let plain = auth_success(&headers, Some("/reader/42"), std::slice::from_ref(&cookie));
     assert_eq!(plain.status(), StatusCode::SEE_OTHER);
     assert_eq!(plain.headers()[header::LOCATION], "/reader/42");
     headers.insert("x-tor-auth-dialog", HeaderValue::from_static("1"));

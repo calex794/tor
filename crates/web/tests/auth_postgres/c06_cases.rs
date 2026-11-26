@@ -93,7 +93,17 @@ pub(super) async fn purchased_version_http_journey(
     let csp = paywall.headers()["content-security-policy"]
         .to_str()
         .unwrap();
-    assert!(csp.contains("script-src 'none'"));
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use sha2::{Digest, Sha256};
+    let integrity = format!(
+        "sha256-{}",
+        STANDARD.encode(Sha256::digest(include_bytes!(
+            "../../assets/tor-auth-dialog.js"
+        )))
+    );
+    assert!(csp.contains(&format!("script-src '{integrity}';")));
+    assert!(csp.contains("connect-src 'self';"));
+    assert!(!csp.contains("unsafe-inline") && !csp.contains("script-src 'self'"));
     assert!(csp.contains("frame-ancestors 'none'"));
     let html = body_of(paywall).await;
     assert!(html.contains("Для чтения нужен доступ"));
@@ -104,7 +114,8 @@ pub(super) async fn purchased_version_http_journey(
         "paid V1 leaked through public paywall"
     );
     assert!(!html.contains("C06-PRIVATE-V2-MARKER"), "paid V2 leaked");
-    assert!(!html.contains("<script>"), "paywall must not run scripts");
+    assert!(!html.contains("<script>"), "paywall must not run inline scripts");
+    assert!(html.contains(&format!("integrity=\"{integrity}\"")));
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
     assert!(anonymous.is_empty());
     let other_purchase =

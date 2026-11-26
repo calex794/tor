@@ -80,7 +80,7 @@ fn auth_dialog_route(path: &str) -> bool {
 
 // Bind the script's integrity to the exact bytes served by this executable.
 // The hash in the URL also prevents a previously cached version being reused.
-fn dialog_integrity() -> &'static str {
+pub(crate) fn dialog_integrity() -> &'static str {
     static INTEGRITY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let bytes = include_bytes!("../assets/tor-auth-dialog.js");
         format!("sha256-{}", STANDARD.encode(Sha256::digest(bytes)))

@@ -105,7 +105,9 @@ async function openDialog(page, mobile = false) {
     const signedIn = mobile.waitForResponse(r => r.url() === base + '/login' && r.request().method() === 'POST');
     await login.getByRole('button', { name: 'Войти', exact: true }).click();
     assert.equal((await signedIn).status(), 204);
-    await mobile.locator('[data-chapter-comment-form]').waitFor();
+    await mobile.locator('[data-chapter-comment-form]').filter({
+      has: mobile.getByText('Комментарий к главе', { exact: true })
+    }).waitFor();
     assert.equal(mobile.url(), reader);
     assert.equal(await mobile.locator('#tor-auth-dialog').count(), 0);
     await mobile.close();
