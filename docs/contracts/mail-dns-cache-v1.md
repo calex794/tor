@@ -1,0 +1,7 @@
+# MAIL-01c — bounded DNS route decision cache
+
+The account service wraps the MAIL-01b1 resolver port, independent of a particular DNS library. Cache canonical ASCII domain keys only, case-insensitive; never store local parts or whole recipient addresses. Cache positives up to 24 hours, definitive negatives up to one hour and transient Retry for 5 seconds; never extend the source TTL, and never cache zero TTL or invalid syntax. TTL returned on cache hits is remaining lifetime.
+
+Per-process limits: 2,048 domain slots; 16 concurrent domain lookups (up to 32 simultaneous A/AAAA operations); 128 admitted callers; same-domain calls coalesce under an asynchronous mutex with a 5-second wait budget. Overload returns Retry without initiating DNS or recording a permanent negative. Evict least-recently-touched idle slots only, never an in-flight entry. Cancellation releases capacity. No background task or database lock during DNS. No raw domains in metrics. This cache is deliberately local to the process and resets on restart; persistent suppression and provider quotas are separate PostgreSQL work.
+
+Deterministic tests cover TTL caps/expiry/zero TTL, case-insensitive keys, negative/temporary results, eviction, coalescing, unique-domain saturation and cancellation. No external network or SMTP. Wiring to registration and delivery is still pending; use one shared instance per process, not a cache per request. Stacked on #1312, independent of the Hickory adapter #1313 until integration.
