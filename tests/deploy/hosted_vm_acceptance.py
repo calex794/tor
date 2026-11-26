@@ -363,7 +363,7 @@ def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
 
     def exact_live_main(sha):
         if executor.ancestry.require_on_main(executor.ancestry.public_get, sha) != sha:
-            raise executor.ExecutorError("candidate is no longer GitHub main")
+            raise executor.ancestry.AncestryError("candidate is no longer GitHub main")
 
     def assert_old():
         need(edge.read_small(transition.WRAPPER, 1024 * 1024) == wrapper and
@@ -378,7 +378,9 @@ def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
         executor.command("systemctl", "stop", executor.APP)
         try:
             transition.bootstrap(approved, head, vhost, pin)
-        except (executor.ExecutorError, subprocess.CalledProcessError):
+        except subprocess.CalledProcessError as exc:
+            need(tuple(exc.cmd) == ("systemctl", "is-active", "--quiet", executor.APP),
+                 "bootstrap refused for a reason other than stopped legacy web")
             assert_old()
             need(not os.path.lexists(executor.STATE / "bootstrap-bundles"),
                  "unhealthy bootstrap staged candidate")
@@ -391,7 +393,8 @@ def legacy_bootstrap_acceptance(source, shas, files, key, signers, inbox,
         # after the signed candidate has been copied and checked.
         try:
             transition.bootstrap(approved, head, vhost, "0" * 64)
-        except (transition.InstallError, edge.EdgeError):
+        except transition.InstallError as exc:
+            need("vhost differs from approved hash" in str(exc), "unexpected pin refusal")
             assert_old()
         else:
             raise AssertionError("unapproved legacy vhost accepted")
