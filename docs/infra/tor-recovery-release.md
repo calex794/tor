@@ -155,3 +155,29 @@ The automatic integration and manual PostgreSQL workflows have identical
 restore steps; both reuse the previously compiled web and migrator and
 build the remaining real trace-store payload. Architecture guards still
 require one web build and exact manual/automatic job parity.
+
+## DEPLOY-07c — exact historical rights and mandatory evidence
+
+Reuse the existing S334 paid and DROP-07 FREE/Layer recovery jobs. The
+S334 fixture compares an exact repeatable-read read-only witness of both
+purchases, library pins, balances/debits, current V2 and both attached
+ciphertext receipt identities/hashes before backup and after restore.
+Use the production tor_purchase_version_readable function to deny other
+version/buyer combinations, rather than duplicating entitlement policy.
+Actual Rust HTTP checks additionally try both legitimate buyers with the
+other buyer's purchase ID. After revoking both restored purchases, the
+pre-refund witness must refuse them and the original source witness must
+remain identical. Existing WebCrypto decryptions of V1 and V2, missing or
+wrong keys, S3 outage, unauthorized grants and refund denial remain intact.
+FREE/Layer adds the revoked Layer actor to saved-FREE denial and explicit
+successful evidence for the existing PACK corruption negative controls.
+The mandatory CI receipt now requires every named scenario marker; a green
+job with only the old aggregate success line does not suffice.
+
+This remains synthetic isolated PG18/MinIO recovery evidence, using actual
+Rust routers and WebCrypto. The signed recovered executable HTTP test in
+DEPLOY-07b uses the default feature profile; these S3 tests exercise their
+own feature-enabled Rust test harnesses, not that exact signed production
+binary. No external provider or physical operational DR acceptance, no
+production feature-profile change, no VPS changes. Later integration must
+preserve all newer Recovery-10 and physical restore checks from main.

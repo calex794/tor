@@ -300,6 +300,7 @@ async fn verify_restored_free_archive() {
         None,
         Some(rights.unrelated.as_str()),
         Some(rights.buyer.as_str()),
+        Some(rights.revoked.as_str()),
     ] {
         assert_denial(
             read(&app, Method::GET, &saved, token).await,
@@ -325,5 +326,6 @@ async fn verify_restored_free_archive() {
         StatusCode::NOT_FOUND,
     )
     .await;
+    println!("DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK");
     println!("FND05_RESTORED_FREE_ARCHIVE_HTTP_OK");
 }
