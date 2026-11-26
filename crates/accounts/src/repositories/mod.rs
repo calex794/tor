@@ -5,6 +5,7 @@ pub mod auth_spray;
 pub mod postgres;
 pub mod scoped_actions;
 pub use postgres::PgAccounts;
+pub mod admin_sessions;
 pub mod authority;
 mod credentials;
 pub mod moderation_book_history;
