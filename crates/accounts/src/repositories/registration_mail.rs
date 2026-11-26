@@ -35,12 +35,14 @@ fn digest(bytes: Vec<u8>) -> Result<[u8; 32], sqlx::Error> {
         .map_err(|_| sqlx::Error::Protocol("invalid signup mail digest".to_owned()))
 }
 
+type SignupMailRow = (Vec<u8>, Option<Vec<u8>>, Vec<u8>);
+
 impl PgAccounts {
     pub async fn registration_mail_source(
         &self,
         user_id: UserId,
     ) -> Result<Option<RegistrationMailEvidence>, sqlx::Error> {
-        let row: Option<(Vec<u8>, Option<Vec<u8>>, Vec<u8>)> = sqlx::query_as(
+        let row: Option<SignupMailRow> = sqlx::query_as(
             "SELECT recipient_key,registration_ip_key,key_binding \
              FROM account_registration_mail_sources \
              WHERE user_id=$1 AND created_at>clock_timestamp()-interval '7 days'",

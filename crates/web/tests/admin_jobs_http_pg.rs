@@ -527,3 +527,6 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     pool.close().await;
 }
+
+#[path = "admin_jobs_http_pg/system_mail.rs"]
+mod system_mail;

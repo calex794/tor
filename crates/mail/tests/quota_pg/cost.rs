@@ -114,7 +114,10 @@ async fn mail_01_h1_monthly_envelope_is_atomic_durable_and_not_a_free_tier_cutof
     );
     assert_eq!(count(&cost).await, 6979);
     let support = claim(&queue, user, 3, SupportReply).await;
-    assert_eq!(quota.reserve(support, keys(12, None)).await.unwrap(), Reserved);
+    assert_eq!(
+        quota.reserve(support, keys(12, None)).await.unwrap(),
+        Reserved
+    );
     assert_eq!(count(&cost).await, 6980);
 
     clear(&pool).await;

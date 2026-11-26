@@ -22,7 +22,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
     }
     // C-08 adds reviewed session-bound FREE open acknowledgement.
     // S3-ADMIN adds a reviewed GET/POST connection profile.
-    assert_eq!(unique.len(), 450);
+    assert_eq!(unique.len(), 454);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
