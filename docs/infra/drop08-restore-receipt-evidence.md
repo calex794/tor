@@ -99,3 +99,36 @@ PostgreSQL syntax. It does not model live FK constraints, decryption, S3
 availability, reader authorization, or independence of backups. Those remain
 mandatory operator acceptance gates.
 
+## D-001 — selected obsolete FREE SINGLE restore evidence
+
+Reuse the existing encrypted append-only offsite object archive. Do not create
+a second backup system, use the current primary as a fallback, or infer an
+old edition from its text hash. On the independent recovery host select one
+exact immutable receipt from the recovered PG snapshot (source bucket,
+chapter ID, version ID). Retrieve that exact object into a dedicated empty
+private directory under the full original object key using the approved
+read-only offsite configuration. Retain the independently pinned, original
+manifest and its SHA-256, not a new manifest generated from the retrieved
+file. The manifest may cover other objects; the selected staging tree must
+contain exactly one file.
+
+```bash
+set -o pipefail
+psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
+    -v bucket="$TOR_DR_SOURCE_BUCKET" -v chapter_id="$TOR_DR_CHAPTER_ID" \
+    -v version_id="$TOR_DR_VERSION_ID" \
+    -f tools/d001_restore_single_receipt.sql |
+    python3 tools/drop_verify_restore_receipts.py \
+        --manifest "$TOR_DR_PRIVATE_MANIFEST" \
+        --expected-manifest-sha256 "$TOR_DR_MANIFEST_DIGEST" \
+        --restored-single-root "$TOR_DR_SELECTED_RESTORE_ROOT"
+```
+
+TOR_D001_SINGLE_BACKUP_VERIFIED proves exact immutable receipt/manifest/file
+agreement. It is neither a removal authorization nor a policy for reopening
+a closed edition. The existing I-11 disposable lane archives a synthetic old
+SINGLE in its separate loopback vault, discards the local source, checks the
+exact receipt from the restored PostgreSQL dump, rejects corrupted recovered
+bytes and verifies a fresh download again. This is not production provider,
+credentials, administrative history, or independent physical host acceptance.
+No primary S3 DELETE, restore-to-live or automatic activation is added.
