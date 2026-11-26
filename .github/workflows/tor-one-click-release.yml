@@ -313,6 +313,7 @@ jobs:
           set -euo pipefail
           pin=$(sha256sum "$RUNNER_TEMP/tor-v2/tor-release-manifest-v2" | cut -d' ' -f1)
           printf '%s\n' "$pin" > "$RUNNER_TEMP/tor-v2-manifest-pin"
+          sha256sum "$RUNNER_TEMP/tor-v2-signers" | cut -d' ' -f1 > "$RUNNER_TEMP/tor-v2-signers-pin"
           python3 tools/import_offline_release.py --source "$RUNNER_TEMP/tor-v2" --directory "$RUNNER_TEMP/tor-offline-v2" --sha "$TARGET_SHA" --signers "$RUNNER_TEMP/tor-v2-signers" --manifest-sha256 "$pin"
           echo "TOR_V2_EXPORT_ONLY $TARGET_SHA manifest_sha256=$pin deployment=none"
 
@@ -340,5 +341,6 @@ jobs:
             ${{ runner.temp }}/tor-v2-edge.log
             ${{ runner.temp }}/tor-v2-manifest-pin
             ${{ runner.temp }}/tor-v2-signers
+            ${{ runner.temp }}/tor-v2-signers-pin
           if-no-files-found: warn
           retention-days: 14

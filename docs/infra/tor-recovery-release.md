@@ -92,3 +92,32 @@ Actual offsite release retention is a separate operator task.
 
 No SSH, VPS access, backup writes, cloud changes, service installation,
 migrations or new CI workflows in RECOVERY-01.
+
+## DEPLOY-07a — signed v2 recovery releases
+
+The same RECOVERY-01 verifier accepts the explicitly selected --format v2.
+The default remains v1; no format guessing or fallback is permitted.
+V2 uses the full exact allowlist of the accepted release_bundle_v2 tool,
+including signed Nginx, fallback, unit, install and migration files. Keep
+that specific independently reviewed tool version and its import helper
+with the archive; the allowlist can change between future releases.
+The signature namespace is tor-release-v2, distinct from legacy v1.
+
+Use the same CLI and independent SHA, manifest SHA-256 and signer SHA-256,
+with --format v2 and optionally --stage-root /srv/tor-recovery/release.
+The v2 verifier takes a private snapshot of the independently pinned
+signer, reuses the bounded signed import, checks the manifest pin, and
+publishes only the exact verified bytes at tor-recovery-SHA, all mode 0600.
+Without --stage-root it uses an ephemeral private complete copy; ensure
+sufficient scratch disk. No current-main dependency, SSH, service start,
+SQL, production backup or DNS. Do not run the clean empty installer on a
+recovery workspace. Use the existing physical PG/WAL, object and key
+recovery steps and independent rights/ACL acceptance, with an isolated
+application boot to be implemented separately. Recovery still needs the
+accepted S3 feature profile for the selected data; a signed default build
+is not evidence that a recovered S3-configured TOR can read paid content.
+
+The export_v2 artifact evidence now also records the public signer digest.
+Retain independent trust and approved checkpoint metadata BEFORE loss,
+not only evidence alongside the GitHub artifact. This step only verifies
+and stages release bytes, not data recovery or production readiness.

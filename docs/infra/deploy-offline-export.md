@@ -44,3 +44,8 @@ The workflow exercises the importer before upload. The verified directory
 can be passed to DEPLOY-06a preparation, then DEPLOY-06b local start and
 DEPLOY-06c admission. For restoring old data use RECOVER instead.
 No automatic install, public admission, provider activation or VPS change.
+
+For disaster recovery, retain both independent manifest and signer SHA-256
+pins. The evidence artifact includes tor-v2-signers-pin. Use the existing
+RECOVERY-01 tool with --format v2 for a non-executable recovery stage,
+not the empty-install activation flow. See tor-recovery-release.md.
