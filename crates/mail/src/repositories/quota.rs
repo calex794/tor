@@ -107,9 +107,8 @@ impl PgMailQuota {
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(reason) = suppressed {
-            let reason = SuppressionReason::parse(&reason).ok_or_else(|| {
-                sqlx::Error::Protocol("invalid recipient suppression".to_owned())
-            })?;
+            let reason = SuppressionReason::parse(&reason)
+                .ok_or_else(|| sqlx::Error::Protocol("invalid recipient suppression".to_owned()))?;
             tx.rollback().await?;
             return Ok(QuotaDecision::RecipientSuppressed(reason));
         }
