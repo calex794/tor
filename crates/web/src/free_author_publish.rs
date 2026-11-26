@@ -124,6 +124,34 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         }
         result
     }
+
+    /// Verified edit using the same author orchestration as the HTTP adapter.
+    pub async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
+        let prepared = self.repository.prepare_edit(actor, request).await?;
+        if prepared.published {
+            return Ok(());
+        }
+        let object = FreeChapterObject::for_markdown(
+            prepared.chapter_id,
+            prepared.version_id,
+            &request.body,
+        )
+        .map_err(map_storage)?;
+        let key = object.key();
+        self.reserve_s3_keys(&[&key]).await?;
+        let verified = upload_and_verify(&self.store, &object, &request.body)
+            .await
+            .map_err(map_storage)?;
+        let actual = verified.object();
+        self.repository
+            .attach_edit(
+                actor,
+                request,
+                &prepared,
+                (&self.bucket, *actual.sha256(), actual.size_bytes()),
+            )
+            .await
+    }
 }
 
 fn map_storage(error: StorageError) -> AuthorError {
@@ -230,30 +258,7 @@ impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
     }
 
     async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
-        let prepared = self.repository.prepare_edit(actor, request).await?;
-        if prepared.published {
-            return Ok(());
-        }
-        let object = FreeChapterObject::for_markdown(
-            prepared.chapter_id,
-            prepared.version_id,
-            &request.body,
-        )
-        .map_err(map_storage)?;
-        let key = object.key();
-        self.reserve_s3_keys(&[&key]).await?;
-        let verified = upload_and_verify(&self.store, &object, &request.body)
-            .await
-            .map_err(map_storage)?;
-        let actual = verified.object();
-        self.repository
-            .attach_edit(
-                actor,
-                request,
-                &prepared,
-                (&self.bucket, *actual.sha256(), actual.size_bytes()),
-            )
-            .await
+        PgFreeAuthorPublisher::publish_edit(self, actor, request).await
     }
 
     async fn owned(
