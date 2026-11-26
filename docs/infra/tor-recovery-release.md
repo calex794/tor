@@ -150,3 +150,8 @@ An operational app launch still requires independently reviewed exact
 checkpoint/business witnesses, approved promotion on a separate target,
 restricted fresh roles and runtime configuration, preserved KEKs/objects,
 blocked external side effects and the accepted compatible S3 build profile.
+
+The automatic integration and manual PostgreSQL workflows have identical
+restore steps; both reuse the previously compiled web and migrator and
+build the remaining real trace-store payload. Architecture guards still
+require one web build and exact manual/automatic job parity.

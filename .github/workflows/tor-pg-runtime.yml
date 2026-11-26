@@ -532,8 +532,11 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          # Reuse the verified binary without two additional Cargo invocations.
+          # Reuse the already-built real web and migrator. Build the remaining
+          # real payload executable; never start the optional trace writer.
           test -x ./target/debug/tor-web
+          test -x ./target/debug/tor-migrate
+          cargo build -p tor-observability --bin tor-trace-store
           bash tools/tor_pg_backup_restore_smoke.sh
       - name: S061 build previous binary (manual opt-in only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && matrix.shard == 'foundation' }}
