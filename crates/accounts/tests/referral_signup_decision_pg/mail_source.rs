@@ -49,7 +49,11 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
         .await
         .unwrap();
     let user = UserId::new(id).unwrap();
-    let committed = accounts.registration_mail_source(user).await.unwrap().unwrap();
+    let committed = accounts
+        .registration_mail_source(user)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(committed.source == evidence);
     assert_eq!(committed.user_id, user);
     assert!(matches!(
@@ -62,11 +66,21 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
         .await
         .unwrap();
     let restarted = PgAccounts::from_pool(db.clone());
-    let again = restarted.registration_mail_source(user).await.unwrap().unwrap();
+    let again = restarted
+        .registration_mail_source(user)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(again.source == evidence);
     let rejected = unique_email("mail-source-rejected");
     assert!(matches!(
-        signup(&accounts, &rejected, Some("unknown_mail_fixture_code"), Some(evidence)).await,
+        signup(
+            &accounts,
+            &rejected,
+            Some("unknown_mail_fixture_code"),
+            Some(evidence)
+        )
+        .await,
         Err(AccountWriteError::InvalidReferral)
     ));
     assert!(accounts.find_user(&rejected).await.unwrap().is_none());
@@ -74,11 +88,24 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
     let legacy = signup(&accounts, &unique_email("mail-off"), None, None)
         .await
         .unwrap();
-    let unknown = signup(&accounts, &unique_email("mail-unknown"), None, Some(source(None)))
+    let unknown = signup(
+        &accounts,
+        &unique_email("mail-unknown"),
+        None,
+        Some(source(None)),
+    )
+    .await
+    .unwrap();
+    assert!(accounts
+        .registration_mail_source(UserId::new(legacy).unwrap())
         .await
+        .unwrap()
+        .is_none());
+    let captured = accounts
+        .registration_mail_source(UserId::new(unknown).unwrap())
+        .await
+        .unwrap()
         .unwrap();
-    assert!(accounts.registration_mail_source(UserId::new(legacy).unwrap()).await.unwrap().is_none());
-    let captured = accounts.registration_mail_source(UserId::new(unknown).unwrap()).await.unwrap().unwrap();
     assert!(captured.source.registration_ip_key.is_none());
 
     sqlx::query(
@@ -88,7 +115,11 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
     .execute(&db)
     .await
     .unwrap();
-    assert!(accounts.registration_mail_source(user).await.unwrap().is_none());
+    assert!(accounts
+        .registration_mail_source(user)
+        .await
+        .unwrap()
+        .is_none());
     accounts.prune_security_data().await.unwrap();
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM account_registration_mail_sources WHERE user_id=$1",

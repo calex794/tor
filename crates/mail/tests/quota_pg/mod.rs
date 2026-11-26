@@ -165,7 +165,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     seed(&pool, 3, RegistrationConfirmation, keys(3, Some(3)), 180).await;
     assert_eq!(
         quota
-            .reserve(registration, registration_keys(registration, 3, Some(4), "4f"))
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(4), "4f")
+            )
             .await
             .unwrap(),
         RegistrationRecipientDaily
@@ -174,7 +177,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     seed(&pool, 1, RegistrationConfirmation, keys(3, Some(3)), 60).await;
     assert_eq!(
         quota
-            .reserve(registration, registration_keys(registration, 3, Some(4), "4f"))
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(4), "4f")
+            )
             .await
             .unwrap(),
         RegistrationRecipientCooldown
@@ -183,7 +189,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     seed(&pool, 10, RegistrationConfirmation, keys(4, Some(3)), 180).await;
     assert_eq!(
         quota
-            .reserve(registration, registration_keys(registration, 3, Some(3), "4f"))
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
             .await
             .unwrap(),
         RegistrationIpDaily
@@ -213,7 +222,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     seed(&pool, 200, ProjectNews, keys(7, None), 180).await;
     assert_eq!(
         quota
-            .reserve(registration, registration_keys(registration, 3, Some(3), "4f"))
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
             .await
             .unwrap(),
         GlobalDailyLimit
@@ -226,7 +238,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     .unwrap();
     assert_eq!(
         quota
-            .reserve(registration, registration_keys(registration, 3, Some(3), "4f"))
+            .reserve(
+                registration,
+                registration_keys(registration, 3, Some(3), "4f")
+            )
             .await
             .unwrap(),
         Reserved
@@ -247,7 +262,3 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     assert_eq!(recent, 1);
     clear(&pool).await;
 }
-
-mod suppression;
-
-mod postbox_feedback;

@@ -257,7 +257,13 @@ impl PgAccounts {
         context: RegistrationContext<'_>,
     ) -> Result<i64, AccountWriteError> {
         self.register_with_audited_session_referral_mail(
-            email, name, password_hash, digest, ttl, context, None,
+            email,
+            name,
+            password_hash,
+            digest,
+            ttl,
+            context,
+            None,
         )
         .await
     }

@@ -34,8 +34,8 @@ async fn mail_01_g1_suppression_is_durable_correlated_and_precedes_quota() {
         .await
         .unwrap()
     }
-    let first_user = UserId::new(user(&pool, format!("mail-g1-{nonce}@example.invalid")).await)
-        .unwrap();
+    let first_user =
+        UserId::new(user(&pool, format!("mail-g1-{nonce}@example.invalid")).await).unwrap();
     let signer = QuotaKeySigner::from_hex(&"4f".repeat(32)).unwrap();
     let address = format!("mail-g1-{nonce}@example.invalid");
     let key = signer.keys(&address, None).unwrap();
