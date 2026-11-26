@@ -13,6 +13,7 @@ import tempfile
 import adopt_edge_vhost as adoption
 import coordinated_release as coordinated
 import managed_edge_release as edge
+import managed_systemd_release as unit
 import release_bundle_v2 as bundle
 import release_executor_v2 as executor
 
@@ -113,6 +114,31 @@ def publish_marker(path):
     atomic_write(path, b"2\n", 0o644)
 
 
+def require_healthy_baseline(lock_fd, expected=None):
+    """Never replace the legacy recovery route while the website is down.
+
+    The selected app may still be a legacy release, so verify its live inode
+    and both readiness endpoints without requiring a v2 manifest for it.
+    The staged v2 candidate is verified separately by bootstrap.
+    """
+    executor.require_database_policy()
+    store = executor.AppStore()
+    app = executor.Application(store, edge.SIGNERS, lock_fd)
+    sha = app.current()
+    if expected is not None and sha != expected:
+        raise InstallError("legacy release changed during protocol adoption")
+    app.verify(sha)
+    systemd = unit.Systemd()
+    systemd.verify()
+    snapshot = systemd.snapshot()
+    unit.check_identity(snapshot)
+    managed = unit.read_current(unit.DROPIN_DIR)
+    if managed is not None:
+        unit.check_effective(snapshot, snapshot, unit.policy(managed))
+    app.verify(sha)
+    return sha
+
+
 def bootstrap(source, sha, vhost, pin):
     files = source_files(source)
     bundle.validate_sha(sha)
@@ -130,13 +156,14 @@ def bootstrap(source, sha, vhost, pin):
         raise InstallError("existing restricted sudoers rule required")
     executor.command("visudo", "-c")
     edge.trusted(edge.SIGNERS)
-    with executor.release_lock():
+    with executor.release_lock() as lock_fd:
         executor.require_main(sha)
         if os.path.lexists(MARKER):
             raise InstallError("v2 already configured; do not re-bootstrap")
         record = coordinated.Journal().load()
         if record is not None and record.state not in coordinated.TERMINAL:
             raise InstallError("unfinished transaction; root recovery required")
+        baseline = require_healthy_baseline(lock_fd)
         # Bootstrap snapshot is separate from application releases: may adopt
         # even if that SHA exists as a legacy v1 app directory.
         staged = STATE / "bootstrap-bundles"
@@ -172,6 +199,9 @@ def bootstrap(source, sha, vhost, pin):
                 adoption.render(actual, store.root)
                 nginx.test()
                 nginx.loaded(vhost)
+            # Recheck after staging and vhost inspection, immediately before
+            # replacing the legacy recovery route. No automatic v1 downgrade.
+            require_healthy_baseline(lock_fd, baseline)
             install_helpers(HELPERS, files)
             disable_v1(WRAPPER, BACKUP, files["wrapper.sh"])
             # After this point an interrupted bootstrap blocks all regular
@@ -181,6 +211,7 @@ def bootstrap(source, sha, vhost, pin):
             nginx.test()
             nginx.probe(sha, store.releases / sha)
             executor.require_main(sha)
+            require_healthy_baseline(lock_fd, baseline)
             publish_marker(MARKER)
     print("TOR_V2_BOOTSTRAPPED " + sha)
 

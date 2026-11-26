@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch, Mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -23,6 +24,74 @@ class TransitionTests(unittest.TestCase):
         self.wrapper.write_bytes(V1)
         self.wrapper.chmod(0o755)
         self.backup = self.root / "backup"
+
+
+    def test_unhealthy_baseline_refuses_before_legacy_helper_mutation(self):
+        # All host boundaries are mocked: never use the local machine's
+        # actual root files or invoke systemd from the architecture test.
+        lock = Mock()
+        lock.__enter__ = Mock(return_value=9)
+        lock.__exit__ = Mock(return_value=False)
+        with patch.object(install, "source_files", return_value={}), \
+             patch.object(install.edge, "trusted"), \
+             patch.object(install.edge, "read_small", return_value=
+                          b"tor-deploy ALL=(root) NOPASSWD: /usr/local/sbin/tor-one-click-release *\n"), \
+             patch.object(install.executor, "command"), \
+             patch.object(install.executor, "release_lock", return_value=lock), \
+             patch.object(install.executor, "require_main"), \
+             patch.object(install.os.path, "lexists", return_value=False), \
+             patch.object(install.coordinated, "Journal") as journal, \
+             patch.object(install, "require_healthy_baseline",
+                          side_effect=install.executor.ExecutorError("readiness failed")), \
+             patch.object(install.bundle, "stage") as stage, \
+             patch.object(install, "install_helpers") as helpers, \
+             patch.object(install, "disable_v1") as disable, \
+             patch.object(install, "publish_marker") as marker:
+            journal.return_value.load.return_value = None
+            with self.assertRaisesRegex(install.executor.ExecutorError, "readiness"):
+                install.bootstrap(self.root, "a" * 40,
+                                  Path("/etc/nginx/sites-available/pandaolate.conf"), "b" * 64)
+            for operation in (stage, helpers, disable, marker):
+                operation.assert_not_called()
+        self.assertEqual(self.wrapper.read_bytes(), V1)
+        self.assertFalse(self.backup.exists())
+
+    def test_baseline_requires_live_identity_and_stable_release(self):
+        with patch.object(install.executor, "require_database_policy") as pg, \
+             patch.object(install.executor, "AppStore"), \
+             patch.object(install.executor, "Application") as application, \
+             patch.object(install.unit, "Systemd") as systemd, \
+             patch.object(install.unit, "read_current", return_value=None):
+            app = application.return_value
+            app.current.return_value = "a" * 40
+            systemd.return_value.snapshot.return_value = {
+                "User": "tor-deploy", "Group": "tor-deploy",
+                "WorkingDirectory": "/opt/tor", "FragmentPath": "/etc/systemd/system/tor-web.service",
+            }
+            self.assertEqual(install.require_healthy_baseline(9), "a" * 40)
+            pg.assert_called_once()
+            self.assertEqual(app.verify.call_count, 2)
+            with self.assertRaisesRegex(install.InstallError, "release changed"):
+                install.require_healthy_baseline(9, "b" * 40)
+            app.verify.side_effect = install.executor.ExecutorError("readiness failed")
+            with self.assertRaisesRegex(install.executor.ExecutorError, "readiness"):
+                install.require_healthy_baseline(9)
+            app.verify.side_effect = None
+            systemd.return_value.snapshot.return_value["User"] = "root"
+            with self.assertRaisesRegex(install.unit.UnitError, "identity"):
+                install.require_healthy_baseline(9)
+
+    def test_baseline_rechecked_before_swap_and_marker(self):
+        source = (ROOT / "tools/install_release_v2.py").read_text()
+        body = source.split("def bootstrap(", 1)[1].split("def main(", 1)[0]
+        guard = "require_healthy_baseline(lock_fd, baseline)"
+        self.assertEqual(body.count(guard), 2)
+        self.assertLess(body.index("baseline = require_healthy_baseline(lock_fd)"),
+                        body.index("bundle.stage("))
+        self.assertLess(body.index(guard), body.index("disable_v1("))
+        self.assertLess(body.index("nginx.probe(sha", body.index("disable_v1(")),
+                        body.rindex(guard))
+        self.assertLess(body.rindex(guard), body.index("publish_marker("))
 
     def test_v1_is_backed_up_before_wrapper_swap_and_retry_is_safe(self):
         install.disable_v1(self.wrapper, self.backup, WRAPPER)

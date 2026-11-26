@@ -157,6 +157,23 @@ def readiness():
             raise ExecutorError("database-backed readiness failed")
 
 
+def require_database_policy():
+    """Read-only common activation guard for update and legacy adoption."""
+    trace_inactive()
+    command("systemctl", "is-active", "--quiet", PG)
+    if edge.read_small(STATE / "pg-activated", 64).strip() != b"PG_ACTIVATED":
+        raise ExecutorError("verified PostgreSQL activation required")
+    config = edge.read_small(unit.DROPIN_DIR / "20-postgres.conf", 8192)
+    required = (
+        b"Environment=TOR_DEMO_MODE=0",
+        b"Environment=TOR_AUTH_ENABLED=1",
+        b"Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru",
+        b"EnvironmentFile=/etc/tor/tor-app.env",
+    )
+    if not set(required).issubset(config.splitlines()):
+        raise ExecutorError("production PostgreSQL policy missing")
+
+
 class Application:
     def __init__(self, store, signers, lock_fd):
         self.store, self.signers, self.lock_fd = store, signers, lock_fd
@@ -182,19 +199,7 @@ class Application:
         for name in bundle.FILES:
             edge.trusted(path / name)
         bundle.verify(path, sha, self.signers)
-        trace_inactive()
-        command("systemctl", "is-active", "--quiet", PG)
-        if edge.read_small(STATE / "pg-activated", 64).strip() != b"PG_ACTIVATED":
-            raise ExecutorError("verified PostgreSQL activation required")
-        config = edge.read_small(unit.DROPIN_DIR / "20-postgres.conf", 8192)
-        required = (
-            b"Environment=TOR_DEMO_MODE=0",
-            b"Environment=TOR_AUTH_ENABLED=1",
-            b"Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru",
-            b"EnvironmentFile=/etc/tor/tor-app.env",
-        )
-        if not set(required).issubset(config.splitlines()):
-            raise ExecutorError("production PostgreSQL policy missing")
+        require_database_policy()
         for name in bundle.SCRIPTS:
             command("bash", "-n", str(path / name))
         command("bash", str(path / "go-live-postgres-vps.sh"), "--check-runtime")

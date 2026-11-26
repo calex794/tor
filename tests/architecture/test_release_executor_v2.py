@@ -113,6 +113,20 @@ class ExecutorTests(unittest.TestCase):
             self.assertEqual(cmd.call_count, 2)
             self.assertIn("https://pandaolate.ru/readyz", cmd.call_args.args)
 
+
+    def test_database_policy_shared_guard_refuses_missing_activation_or_config(self):
+        valid = b"Environment=TOR_DEMO_MODE=0\nEnvironment=TOR_AUTH_ENABLED=1\nEnvironment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru\nEnvironmentFile=/etc/tor/tor-app.env\n"
+        with patch.object(executor, "trace_inactive"), \
+             patch.object(executor, "command"), \
+             patch.object(executor.edge, "read_small", side_effect=[b"PG_ACTIVATED\n", valid]):
+            executor.require_database_policy()
+        for data in ([b"not activated"], [b"PG_ACTIVATED\n", b""]):
+            with patch.object(executor, "trace_inactive"), \
+                 patch.object(executor, "command"), \
+                 patch.object(executor.edge, "read_small", side_effect=data):
+                with self.assertRaises(executor.ExecutorError):
+                    executor.require_database_policy()
+
     def test_current_main_only(self):
         for payload in (b'{}', b'{"ref":"refs/heads/main","object":{"sha":"bad"}}'):
             with patch.object(executor, "command", return_value=subprocess.CompletedProcess([], 0, payload)):

@@ -55,3 +55,18 @@ edge lab from the selected checkout before signing and transfer; its success
 is required and its log is retained. A pending wrapper without marker blocks
 ordinary releases; a v2 marker without the matching wrapper also refuses.
 A v2 invocation must report the expected exact-SHA v2 success marker.
+
+## Healthy baseline requirement (DEPLOY-08c)
+
+Legacy helper replacement is not an outage recovery mechanism. Before
+staging, immediately before replacing the v1 wrapper, and again before
+publishing the v2 marker, require the already activated PostgreSQL policy,
+inactive Trace Store, the same root-controlled current release, live Rust
+inode, direct and local HTTPS readiness, and the expected systemd identity.
+This reuses the executor's database-policy guard; it never requires a v2
+signature on the already-running legacy app. If an initial preflight fails,
+the old wrapper is untouched, and the existing v1 emergency recovery route
+remains available. A failure after wrapper replacement remains a fail-closed
+partial adoption; root must inspect and repair the baseline before retrying.
+There is no automatic downgrade or new outage activation command here.
+Actual production v2 emergency recovery is still pending.
