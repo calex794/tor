@@ -72,7 +72,6 @@ class RecoveryHTTPTests(unittest.TestCase):
         self.assertIn("cargo build -p tor-observability --bin tor-trace-store", step)
         self.assertIn("bash tools/tor_pg_backup_restore_smoke.sh", step)
 
-
     def test_auth_recovery_refuses_unsafe_identity(self):
         for database in ("postgres", "template1", "tor;DROP", "TOR", ""):
             with self.subTest(database=database), self.assertRaises(recovery_auth.Refused):
@@ -101,6 +100,62 @@ class RecoveryHTTPTests(unittest.TestCase):
         self.assertIn("WHERE " + recovery_auth.ACTIVE, statement)
         continuity = (ROOT / "tools/s061_session_continuity.py").read_text()
         self.assertIn("revoke_restored = invalidation_sql()", continuity)
+
+
+    def test_auth_recovery_receipt_pins_and_lineage(self):
+        from hashlib import sha256
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import json
+
+        args = SimpleNamespace(source_machine_id="a" * 32,
+                               target_machine_id="b" * 32, pg_port=15432)
+        stage = {
+            "schema_version": 1, "scope": "physical_files_staged_only",
+            "source_machine_id": args.source_machine_id,
+            "target_machine_id": args.target_machine_id,
+            "pg_port": args.pg_port, "backup_label": "20261126-000001F",
+            "target_utc": "2026-11-26T00:01:00Z", "timeline": 1,
+        }
+        def encode(record):
+            return json.dumps(record, sort_keys=True).encode("ascii")
+
+        stage_raw = encode(stage)
+        args.stage_sha256 = sha256(stage_raw).hexdigest()
+        replay = {
+            "schema_version": 1,
+            "scope": "paused_replay_observed_then_stopped_only",
+            "stage_receipt_sha256": args.stage_sha256, "pg_port": args.pg_port,
+            "backup_label": stage["backup_label"], "target_utc": stage["target_utc"],
+            "timeline": stage["timeline"], "stable_paused_replay_observed": True,
+            "postgres_shutdown_confirmed": True, "promotion_authorized": False,
+            "recovery_accepted": False,
+        }
+        def verify(stage_bytes, replay_bytes):
+            with patch.object(recovery_auth, "private_read",
+                              side_effect=[stage_bytes, replay_bytes]):
+                recovery_auth.verify_receipts(self.root, args)
+
+        good_replay = encode(replay)
+        args.replay_sha256 = sha256(good_replay).hexdigest()
+        verify(stage_raw, good_replay)
+        for a, b in ((stage_raw + b" ", good_replay), (stage_raw, good_replay + b" ")):
+            with self.subTest(tamper=True), self.assertRaises(recovery_auth.Refused):
+                verify(a, b)
+        for key, bad in (
+            ("stage_receipt_sha256", "c" * 64), ("timeline", 2),
+            ("pg_port", 15433), ("stable_paused_replay_observed", False),
+            ("postgres_shutdown_confirmed", False), ("promotion_authorized", True),
+            ("recovery_accepted", True), ("schema_version", True),
+        ):
+            wrong = encode({**replay, key: bad})
+            args.replay_sha256 = sha256(wrong).hexdigest()
+            with self.subTest(key=key), self.assertRaises(recovery_auth.Refused):
+                verify(stage_raw, wrong)
+        duplicate = good_replay[:-1] + b', "schema_version": 1}'
+        args.replay_sha256 = sha256(duplicate).hexdigest()
+        with self.assertRaises(recovery_auth.Refused):
+            verify(stage_raw, duplicate)
 
 
 if __name__ == "__main__":
