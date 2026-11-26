@@ -4,6 +4,21 @@
 set -Eeuo pipefail
 umask 077
 [[ $(id -u) == 0 ]] || { echo 'Run as root' >&2; exit 1; }
+empty_install=0
+if [[ $# == 1 && $1 == --install-empty ]]; then
+  empty_install=1
+  # First activation only, from a root-private prepared installation.
+  [[ ! -L /srv/tor-install/activation.json &&
+     $(stat -c '%U:%G:%a:%h' /srv/tor-install/activation.json) == root:root:600:1 &&
+     ! -e /opt/tor/current && ! -L /opt/tor/current &&
+     ! -e /var/lib/tor-release/pg-activated && ! -L /var/lib/tor-release/pg-activated ]] ||
+    { echo 'Refusing: clean-install activation guard missing' >&2; exit 1; }
+  if systemctl is-active --quiet tor-web.service; then
+    echo 'Refusing: existing web service' >&2; exit 1
+  fi
+elif [[ $# != 0 ]]; then
+  echo 'Usage: init-tor-database.sh [--install-empty]' >&2; exit 2
+fi
 systemctl is-active --quiet postgresql@18-main.service || { echo 'PG18 is not active' >&2; exit 1; }
 version=$(runuser -u postgres -- psql -X -Atqc 'SHOW server_version_num')
 [[ $version =~ ^18[0-9]{4}$ ]] || { echo "Expected PG18, got $version" >&2; exit 1; }
@@ -12,6 +27,16 @@ listen=$(runuser -u postgres -- psql -X -Atqc 'SHOW listen_addresses')
 [[ $(runuser -u postgres -- psql -X -Atqc 'SHOW password_encryption') == scram-sha-256 ]] || {
   echo 'Require scram-sha-256 authentication' >&2; exit 1;
 }
+
+if [[ $empty_install == 1 ]]; then
+  [[ $(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres','template0','template1')") == 0 &&
+     $(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_roles WHERE rolname IN ('tor_app','tor_migrator')") == 0 ]] ||
+    { echo 'Refusing: existing database or TOR roles; use recovery' >&2; exit 1; }
+  for path in /etc/tor/tor-app.env /etc/tor/tor-migrator.env /etc/tor/tor-runtime.env; do
+    [[ ! -e "$path" && ! -L "$path" ]] ||
+      { echo 'Refusing: existing credentials' >&2; exit 1; }
+  done
+fi
 
 dir=/etc/tor
 [[ ! -L $dir ]] || { echo "Unexpected symlink: $dir" >&2; exit 1; }
@@ -104,8 +129,14 @@ runuser -u postgres -- psql -X -Atqc \
  FROM pg_roles WHERE rolname IN ('tor_app','tor_migrator') ORDER BY rolname"
 echo '=== Services and memory ==='
 pg_lsclusters
-systemctl is-active tor-web.service
+if [[ $empty_install == 0 ]]; then
+  systemctl is-active tor-web.service
+fi
 free -h
 echo '=== Secret files (permissions only) ==='
 stat -c '%U:%G %a %n' "$app_config" "$migrator_config"
-echo 'SUCCESS: tor DB and restricted roles; Rust is still an isolated RAM demo.'
+if [[ $empty_install == 1 ]]; then
+  echo 'TOR_EMPTY_DATABASE_INITIALIZED'
+else
+  echo 'SUCCESS: tor DB and restricted roles; Rust is still an isolated RAM demo.'
+fi
