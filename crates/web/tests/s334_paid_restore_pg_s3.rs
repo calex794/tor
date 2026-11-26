@@ -9,9 +9,8 @@ use aws_sdk_s3::{
 };
 use axum::{
     body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
+    http::{header, StatusCode},
     response::Response,
-    Router,
 };
 use serde_json::{json, Value};
 #[cfg(unix)]
@@ -46,12 +45,10 @@ use tor_storage::{
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
-use tower::ServiceExt;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
 const BACKUP_BUCKET: &str = "tor-s334-backup-ci";
-const ORIGIN: &str = "http://127.0.0.1:3098";
 const ID: &str = "f0c0e034-2026-4034-8034-000000000134";
 const MARKDOWN: &str = "S334 купленная редакция V1: А😀Б и 第二章";
 const ID_V2: &str = "f0c0e034-2026-4034-8034-000000000234";
@@ -140,18 +137,33 @@ async fn register(accounts: &PgAccounts, email: &str) -> (i64, String) {
     (id, session)
 }
 
+struct GrantServer {
+    origin: String,
+    client: reqwest::Client,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for GrantServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 async fn grant(
-    app: &Router,
+    app: &GrantServer,
     chapter: i64,
     session: Option<&str>,
     csrf: Option<&str>,
     body: &str,
 ) -> Response {
-    let mut req = Request::builder()
-        .method("POST")
-        .uri(format!("/api/v1/reader/chapters/{chapter}/delivery-grants"))
+    let mut req = app
+        .client
+        .post(format!(
+            "{}/api/v1/reader/chapters/{chapter}/delivery-grants",
+            app.origin
+        ))
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::ORIGIN, ORIGIN);
+        .header(header::ORIGIN, app.origin.as_str());
     if let Some(session) = session {
         req = req.header(
             header::COOKIE,
@@ -164,17 +176,25 @@ async fn grant(
     if let Some(csrf) = csrf {
         req = req.header("x-csrf-token", csrf);
     }
-    app.clone()
-        .oneshot(req.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap()
+    let mut received = req.body(body.to_owned()).send().await.unwrap();
+    let status = received.status();
+    let headers = received.headers().clone();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = received.chunk().await.unwrap() {
+        assert!(bytes.len() + chunk.len() <= 8192);
+        bytes.extend_from_slice(&chunk);
+    }
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    *response.headers_mut() = headers;
+    response
 }
 
-async fn app(url: &str, client: Client, kek: Arc<ContentKek>) -> Router {
+async fn app(url: &str, client: Client, kek: Arc<ContentKek>) -> GrantServer {
     app_with_keyring(url, client, ContentKeyring::v1_only(kek)).await
 }
 
-async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) -> Router {
+async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) -> GrantServer {
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool();
     let reader = PgReader::new(pool.clone());
@@ -182,15 +202,29 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
     let signer =
         PgPrivateDelivery::with_keyring(pool, store, Arc::new(keyring), BUCKET.to_owned()).unwrap();
-    tor_web::router_with_postgres_reading_auth_paid_grants(
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let router = tor_web::router_with_postgres_reading_auth_paid_grants(
         catalog,
         reader,
         accounts,
         false,
-        ORIGIN.to_owned(),
+        origin.clone(),
         Arc::new(signer),
         None,
-    )
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap();
+    GrantServer {
+        origin,
+        client,
+        task,
+    }
 }
 
 async fn decoded(response: Response) -> Value {
