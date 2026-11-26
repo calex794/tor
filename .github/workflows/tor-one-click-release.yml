@@ -81,22 +81,27 @@ jobs:
           protocol=$(ssh "${opts[@]}" "$destination" '
             set -eu
             marker=/var/lib/tor-release/release-format
-            test -x /usr/local/sbin/tor-one-click-release
+            helper=/usr/local/sbin/tor-one-click-release
+            test -x "$helper" && test ! -L "$helper"
+            test "$(stat -c "%U:%G:%a:%h" "$helper")" = root:root:755:1
             if test -e "$marker" || test -L "$marker"; then
               test -f "$marker" && test ! -L "$marker"
               test "$(stat -c "%U:%G:%a:%h" "$marker")" = root:root:644:1
               test "$(cat "$marker")" = 2
+              grep -Fxq "# TOR RELEASE PROTOCOL 2" "$helper"
               printf "v2\n"
+            elif grep -Fxq "# TOR RELEASE PROTOCOL 2" "$helper"; then
+              printf "pending-v2\n"
             else
               printf "v1\n"
             fi
           ')
           case "$PREPARE_V2" in true|false) ;; *) exit 1;; esac
           case "$REQUIRE_V2" in ""|0|1) ;; *) exit 1;; esac
-          case "$protocol" in v1|v2) ;; *) exit 1;; esac
+          case "$protocol" in v1|v2|pending-v2) ;; *) exit 1;; esac
           if [[ "$PREPARE_V2" == true ]]; then
             protocol=v2
-          elif [[ "$REQUIRE_V2" == 1 && "$protocol" != v2 ]]; then
+          elif [[ "$protocol" == pending-v2 || ( "$REQUIRE_V2" == 1 && "$protocol" != v2 ) ]]; then
             echo "TOR_V2_SETUP_REQUIRED: no downgrade to v1" >&2
             exit 1
           fi
@@ -162,6 +167,16 @@ jobs:
             "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256 && sha256sum -c --status tor-trace-store.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
 
+      - name: "Проверить реальный NGINX и откат для выбранного SHA"
+        if: env.TOR_RELEASE_PROTOCOL == 'v2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx iproute2 util-linux openssl openssh-client
+          sudo unshare --net -- bash -ec 'ip link set lo up; exec python3 tests/edge/managed_edge_smoke.py' | tee "$RUNNER_TEMP/tor-v2-edge.log"
+
       - name: "Собрать и подписать весь комплект v2"
         if: env.TOR_RELEASE_PROTOCOL == 'v2'
         shell: bash
@@ -201,8 +216,14 @@ jobs:
           set -euo pipefail
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
-          ssh "${opts[@]}" "$destination" \
-            "test -x /usr/local/sbin/tor-one-click-release || { echo TOR_ONE_CLICK_SETUP_REQUIRED; exit 2; }; sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'"
+          if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
+            ssh "${opts[@]}" "$destination" "grep -Fxq '# TOR RELEASE PROTOCOL 2' /usr/local/sbin/tor-one-click-release && test \"\$(cat /var/lib/tor-release/release-format)\" = 2 && sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'" | tee "$RUNNER_TEMP/tor-v2-deploy.log"
+            grep -Fxq "TOR_ONE_CLICK_RELEASE_V2_OK $TARGET_SHA" "$RUNNER_TEMP/tor-v2-deploy.log" ||
+              grep -Fxq "TOR_V2_ALREADY_ACTIVE $TARGET_SHA" "$RUNNER_TEMP/tor-v2-deploy.log"
+          else
+            ssh "${opts[@]}" "$destination" \
+              "test -x /usr/local/sbin/tor-one-click-release || { echo TOR_ONE_CLICK_SETUP_REQUIRED; exit 2; }; sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'"
+          fi
 
       - name: "Проверить установленный SHA, службу и HTTPS"
         if: inputs.prepare_v2 == false
@@ -236,5 +257,6 @@ jobs:
             ${{ runner.temp }}/tor-trace-store.sha256
             ${{ runner.temp }}/tor-v2/tor-release-manifest-v2
             ${{ runner.temp }}/tor-v2/tor-release-manifest-v2.sig
+            ${{ runner.temp }}/tor-v2-edge.log
           if-no-files-found: warn
           retention-days: 14

@@ -84,6 +84,17 @@ class TransitionTests(unittest.TestCase):
             self.assertIn("if: inputs.prepare_v2 == false", block)
         self.assertIn("TOR_V2_PREPARED_ONLY", WORKFLOW)
 
+    def test_pending_bootstrap_cannot_downgrade(self):
+        self.assertIn('printf "pending-v2\\n"', WORKFLOW)
+        self.assertIn('"$protocol" == pending-v2', WORKFLOW)
+        self.assertIn('grep -Fxq "# TOR RELEASE PROTOCOL 2" "$helper"', WORKFLOW)
+
+    def test_exact_checkout_real_edge_gate_precedes_v2_transfer(self):
+        self.assertLess(WORKFLOW.index("python3 tests/edge/managed_edge_smoke.py"),
+                        WORKFLOW.index("Собрать и подписать весь комплект v2"))
+        self.assertIn('grep -Fxq "TOR_ONE_CLICK_RELEASE_V2_OK $TARGET_SHA"', WORKFLOW)
+        self.assertIn('grep -Fxq "TOR_V2_ALREADY_ACTIVE $TARGET_SHA"', WORKFLOW)
+
     def test_v2_namespace_and_transport_are_separate(self):
         self.assertIn('if: env.TOR_RELEASE_PROTOCOL == \'v2\'', WORKFLOW)
         self.assertIn('tor-release-v2 "$RUNNER_TEMP/tor-v2/tor-release-manifest-v2"', WORKFLOW)

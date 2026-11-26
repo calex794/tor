@@ -50,4 +50,8 @@ A crash before marker publication blocks normal sudo updates, not the
 running website. Root may retry the approved bootstrap; no automatic v1
 fallback. A fully installed helper upgrade is a separate operator procedure.
 Existing sudoers and secrets are preserved. Real systemd/Rust/PG acceptance
-and an exact-main edge acceptance gate are still required before rollout.
+is still required before rollout. The v2 workflow now runs the real TLS
+edge lab from the selected checkout before signing and transfer; its success
+is required and its log is retained. A pending wrapper without marker blocks
+ordinary releases; a v2 marker without the matching wrapper also refuses.
+A v2 invocation must report the expected exact-SHA v2 success marker.
