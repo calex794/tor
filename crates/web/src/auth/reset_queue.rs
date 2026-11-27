@@ -86,6 +86,9 @@ async fn handoff_once(accounts: &PgAccounts, queue: &PgMailQueue) -> Result<(), 
 /// Explicit server-entry-point task; no worker is created by Router construction.
 /// No transport, quota reservation, proof issuance or automatic retry of SMTP.
 pub fn start_handoff(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHandle<()>> {
+    if std::env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1") {
+        return None;
+    }
     let accounts = accounts?;
     ResetQueue::from_env()?;
     let queue = PgMailQueue::new(accounts.pool().clone());

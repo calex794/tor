@@ -57,6 +57,7 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     let db = accounts.pool();
     let key = "4f".repeat(32);
     let _env = Environment::set(&[
+        ("TOR_AUTH_ENABLED", "1"),
         ("TOR_PASSWORD_RESET_ENABLED", "1"),
         ("TOR_PASSWORD_RESET_QUEUE_ENABLED", "1"),
         ("TOR_MAIL_QUOTA_KEY", ""),
@@ -71,7 +72,9 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     )
     .await;
     assert!(html(disabled).await.contains("временно недоступно"));
-    assert!(tor_web::start_password_reset_handoff(Some(accounts.clone())).is_none());
+    assert!(
+        tor_web::flow_runtime::start_password_reset_handoff(Some(accounts.clone())).is_none()
+    );
 
     std::env::set_var("TOR_MAIL_QUOTA_KEY", &key);
     let app = app(&catalog, &accounts);
@@ -187,7 +190,8 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     // Reproduce a committed enqueue with a lost source acknowledgement.
     let queue = PgMailQueue::new(db.clone());
     assert!(queue.enqueue(intent).await.unwrap());
-    let worker = tor_web::start_password_reset_handoff(Some(accounts.clone())).unwrap();
+    let worker =
+        tor_web::flow_runtime::start_password_reset_handoff(Some(accounts.clone())).unwrap();
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
             let forwarded: bool = sqlx::query_scalar(
