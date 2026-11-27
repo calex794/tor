@@ -208,27 +208,26 @@ impl PgAccounts {
         if current.as_deref() != Some(expected_password_hash) {
             return Ok(false);
         }
-        let alias_matches: bool = match identity {
-            None => true,
-            Some(LoginIdentity::Email(email)) => {
-                sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND email_normalized=$2)",
-                )
-                .bind(user_id)
-                .bind(email)
-                .fetch_one(&mut *tx)
-                .await?
-            }
-            Some(LoginIdentity::Handle(handle)) => {
-                sqlx::query_scalar(
+        let alias_matches: bool =
+            match identity {
+                None => true,
+                Some(LoginIdentity::Email(email)) => {
+                    sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND email_normalized=$2)",
+                    )
+                    .bind(user_id)
+                    .bind(email)
+                    .fetch_one(&mut *tx)
+                    .await?
+                }
+                Some(LoginIdentity::Handle(handle)) => sqlx::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM account_settings WHERE user_id=$1 AND handle=$2)",
                 )
                 .bind(user_id)
                 .bind(handle)
                 .fetch_one(&mut *tx)
-                .await?
-            }
-        };
+                .await?,
+            };
         if !alias_matches {
             return Ok(false);
         }

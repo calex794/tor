@@ -2,10 +2,7 @@
 //! This adapter never stores plaintext passwords or session tokens.
 #![forbid(unsafe_code)]
 
-use crate::{
-    domain::access_audit::LoginAuditContext,
-    services::validation::NamedAccount,
-};
+use crate::{domain::access_audit::LoginAuditContext, services::validation::NamedAccount};
 use sqlx::{PgPool, Row};
 use std::num::NonZeroU32;
 

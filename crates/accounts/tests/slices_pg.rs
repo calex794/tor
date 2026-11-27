@@ -806,12 +806,11 @@ async fn auth_03_named_signup_is_atomic_and_uses_existing_handle_uniqueness() {
         Err(AccountWriteError::Duplicate)
     );
     assert!(accounts.find_user(&email_c).await.unwrap().is_none());
-    let saved: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM account_settings WHERE handle=$1")
-            .bind(&other_handle)
-            .fetch_one(accounts.pool())
-            .await
-            .unwrap();
+    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM account_settings WHERE handle=$1")
+        .bind(&other_handle)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
     assert_eq!(saved, 0);
     // Duplicate email also cannot reserve an otherwise free handle.
     let duplicate = named_registration(won_email, &other_handle, password, password).unwrap();

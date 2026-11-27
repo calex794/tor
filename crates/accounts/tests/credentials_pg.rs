@@ -778,7 +778,11 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
     let alias = login_identity(&handle.to_uppercase(), password).unwrap();
     let email_key = login_identity(&email, password).unwrap();
     let a = accounts.find_user_by_login(&alias).await.unwrap().unwrap();
-    let b = accounts.find_user_by_login(&email_key).await.unwrap().unwrap();
+    let b = accounts
+        .find_user_by_login(&email_key)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(a.id, user);
     assert_eq!(a.id, b.id);
     assert_eq!(a.email_normalized, b.email_normalized);
@@ -787,14 +791,7 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         ..audit
     };
     assert!(accounts
-        .insert_verified_session_for_login(
-            user,
-            &a.password_hash,
-            &fresh,
-            ttl,
-            login_audit,
-            &alias
-        )
+        .insert_verified_session_for_login(user, &a.password_hash, &fresh, ttl, login_audit, &alias)
         .await
         .unwrap());
     assert!(matches!(
@@ -812,7 +809,12 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         Err(tor_accounts::repositories::profile::ProfileError::HandleLocked)
     ));
     assert_eq!(
-        accounts.find_user_by_login(&alias).await.unwrap().unwrap().id,
+        accounts
+            .find_user_by_login(&alias)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
         user
     );
     // Fixture-only change emulates a stale proof after an operator repair.
@@ -824,14 +826,7 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         .unwrap();
     assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
     assert!(!accounts
-        .insert_verified_session_for_login(
-            user,
-            &a.password_hash,
-            &stale,
-            ttl,
-            login_audit,
-            &alias
-        )
+        .insert_verified_session_for_login(user, &a.password_hash, &stale, ttl, login_audit, &alias)
         .await
         .unwrap());
     assert_eq!(accounts.active_session_user(&stale).await.unwrap(), None);

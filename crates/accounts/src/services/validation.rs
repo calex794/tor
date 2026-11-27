@@ -182,7 +182,17 @@ mod tests {
             named_registration(" Reader@Example.COM ", " A.B_1 ", password, password).unwrap();
         assert_eq!(account.email(), "reader@example.com");
         assert_eq!(account.handle(), "a.b_1");
-        for bad in ["", "  ", "admin", "odmen", "me", "a", "a@b", "русский", "a b"] {
+        for bad in [
+            "",
+            "  ",
+            "admin",
+            "odmen",
+            "me",
+            "a",
+            "a@b",
+            "русский",
+            "a b",
+        ] {
             assert!(named_registration("reader@example.com", bad, password, password).is_err());
         }
         assert!(
