@@ -1,7 +1,7 @@
 //! Input invariants for web registration and login, independent of HTTP and SQL.
 #![forbid(unsafe_code)]
 
-use crate::domain::normalize_email;
+use crate::domain::{email::registration_email, normalize_email};
 
 pub struct NewAccount {
     pub email: String,
@@ -13,7 +13,7 @@ pub fn registration(
     display_name: &str,
     password: &str,
 ) -> Result<NewAccount, &'static str> {
-    let email = normalize_email(email)?;
+    let email = registration_email(email)?;
     let display_name = display_name.trim();
     let length = display_name.chars().count();
     if !(1..=80).contains(&length) || display_name.chars().any(char::is_control) {
@@ -78,6 +78,21 @@ mod tests {
         assert!(registration("a@b", "A\nB", "мой_надежный_пароль").is_err());
         assert!(registration("a@b", "Автор", "short").is_err());
         assert!(registration("a@b", "Автор", &"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn registration_rejects_invalid_email_without_changing_legacy_login() {
+        let password = "мой_надежный_пароль";
+        for invalid in [
+            "a@b",
+            "user@gmail..com",
+            "user@-gmail.com",
+            "a..b@example.com",
+        ] {
+            assert!(registration(invalid, "Reader", password).is_err());
+            assert!(login(invalid, password).is_ok());
+        }
+        assert!(registration("reader+books@example.com", "Reader", password).is_ok());
     }
 
     #[test]

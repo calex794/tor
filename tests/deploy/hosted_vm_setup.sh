@@ -29,6 +29,22 @@ umask 022
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl gpg postgresql-common \
   nginx openssl openssh-client iproute2
+# The hosted lab uses an isolated loopback sshd, never the machine's normal
+# SSH service. If the binary is missing, prevent package auto-start.
+if [[ ! -x /usr/sbin/sshd ]]; then
+  policy=/usr/sbin/policy-rc.d
+  [[ ! -e "$policy" && ! -L "$policy" ]] || {
+    echo 'REFUSE: existing package service policy; install sshd explicitly' >&2; exit 2;
+  }
+  ( set -e
+    trap 'rm -f -- "$policy"' EXIT
+    ( set -o noclobber; printf '#!/bin/sh\nexit 101\n' > "$policy" )
+    chmod 0755 "$policy"
+    apt-get install -y -qq --no-install-recommends openssh-server
+  )
+fi
+[[ -x /usr/sbin/sshd ]]
+install -d -o root -g root -m 0755 /run/sshd
 # Same authenticated PGDG distribution as the operator bootstrap.
 key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
 install -d -m 0755 "$(dirname "$key")"

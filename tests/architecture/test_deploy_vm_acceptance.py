@@ -60,6 +60,35 @@ class DeploymentVMTests(unittest.TestCase):
         self.assertIn("(( (8#$mode & 022) == 0 ))", setup)
         self.assertIn("/etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d", setup)
 
+    def test_legacy_sudoers_preflight_is_narrow_and_fixture_only(self):
+        import ast
+        lab = ROOT / "tests/deploy/hosted_vm_acceptance.py"
+        text = lab.read_text()
+        parser = next(node for node in ast.parse(text).body
+                      if isinstance(node, ast.FunctionDef)
+                      and node.name == "parsed_vm_sudoers_paths")
+        module = ast.Module(body=[parser], type_ignores=[])
+        namespace = {"Path": Path, "re": __import__("re")}
+        exec(compile(module, str(lab), "exec"), namespace)
+        paths = namespace["parsed_vm_sudoers_paths"](
+            b"/etc/sudoers: parsed OK\n"
+            b"/etc/sudoers.d/runner: parsed OK\n"
+            b"/etc/sudoers.d/90-cloud-init-users: parsed OK\n"
+            b"/tmp/sudoers: parsed OK\n"
+            b"/etc/sudoers.d/../sudoers: parsed OK\n"
+            b"/etc/sudoers.d/other.conf: parsed OK\n"
+            b"/etc/sudoers.d/unsafe: syntax error\n")
+        self.assertEqual(list(paths), [Path("/etc/sudoers"), Path("/etc/sudoers.d/runner"),
+                                      Path("/etc/sudoers.d/90-cloud-init-users")])
+        self.assertLess(text.index("checkout = hosted_guard()"),
+                        text.index('require_vm_sudoers("existing", normalize_runner_modes=True)'))
+        self.assertIn("stat.S_IMODE(info.st_mode) == 0o644", text)
+        self.assertIn("os.fchmod(fd, 0o440)", text)
+        self.assertIn('require_vm_sudoers("after_tor_rule")', text)
+        production = (ROOT / "tools/install_release_v2.py").read_text()
+        self.assertIn('executor.command("visudo", "-c")', production)
+        self.assertNotIn("normalize_runner_modes", production)
+
     def test_fixture_syntax_and_real_boundaries(self):
         setup = ROOT / "tests/deploy/hosted_vm_setup.sh"
         subprocess.run(["bash", "-n", str(setup)], check=True)

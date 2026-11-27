@@ -12,7 +12,8 @@ const ADMIN_MENU: &str = r#"<section class="section"><div class="container">
 <li><a href="/odmen/promotion/editorial">Редакционное продвижение</a></li>
 <li><a href="/odmen/recommendations">Рекомендации</a></li>
 <li><a href="/odmen/surprises">Сюрпризы</a></li>
-<li><a href="/odmen/mail">Почта</a></li>
+<li><a href="/odmen/mail">Личные сообщения</a></li>
+<li><a href="/odmen/system-mail">Системная почта</a></li>
 <li><a href="/odmen/support">Поддержка</a></li>
 <li><a href="/odmen/security/sessions">Сеансы пользователей</a></li>
 <li><a href="/odmen/finance/refunds">Возвраты</a></li>

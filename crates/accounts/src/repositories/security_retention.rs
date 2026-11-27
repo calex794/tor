@@ -70,6 +70,7 @@ impl PgAccounts {
         )
         .execute(self.pool())
         .await?;
+        self.prune_registration_mail_sources().await?;
         Ok(())
     }
 }

@@ -49,6 +49,39 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_system_mail_admin_role_and_csrf_are_required(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "if !actor.administrator",
+            "if false",
+        )
+        self.assert_detected("system mail missing live role")
+
+    def test_system_mail_post_cannot_skip_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "if !valid_csrf(&state, &headers, &form.csrf_token)",
+            "if false",
+            start="async fn save(",
+        )
+        self.assert_detected("POST /odmen/system-mail [save]")
+
+    def test_postbox_relay_must_verify_actual_mac(self):
+        self.mutate(
+            "crates/mail/src/domain/postbox/relay.rs",
+            "mac.verify_slice(&provided)",
+            "mac.skip_verification(&provided)",
+        )
+        self.assert_detected("Postbox relay missing signature")
+
+    def test_system_mail_repository_requires_live_role_lock(self):
+        self.mutate(
+            "crates/mail/src/repositories/cost/admin.rs",
+            "FOR SHARE OF s,u,r",
+            "FOR SHARE OF s",
+        )
+        self.assert_detected("system mail missing live role")
+
     def test_s018_email_proof_routes_require_actor_scope_and_csrf(self):
         self.mutate(
             "crates/web/src/auth/notification_settings.rs",

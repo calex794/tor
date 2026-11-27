@@ -6,5 +6,6 @@ pub mod auth;
 pub mod drop_pack;
 pub mod exposure;
 pub mod flow;
+pub mod mail;
 pub mod paid_delivery;
 pub mod reader_manifest;

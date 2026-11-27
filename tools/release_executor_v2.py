@@ -27,6 +27,7 @@ HOST = "pandaolate.ru"
 APP = "tor-web.service"
 PG = "postgresql@18-main.service"
 TRACE = "tor-trace-store.service"
+OUTAGE_APPROVAL = Path("/etc/tor/tor-release-v2-outage.approval")
 SAFE_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8", "HOME": "/root", "TOR_RELEASE_SIGNED_V2": "1"}
 
@@ -163,6 +164,76 @@ def readiness():
             raise ExecutorError("database-backed readiness failed")
 
 
+def require_stopped_web():
+    """Operator must explicitly stop the unit; do not infer outage from curl errors."""
+    fields = {"LoadState": "loaded", "ActiveState": "inactive",
+              "SubState": "dead", "MainPID": "0", "ControlPID": "0"}
+    result = command("systemctl", "show", APP,
+                     *("--property=" + name for name in fields))
+    values = {}
+    for row in result.stdout.decode("utf-8").splitlines():
+        key, sep, value = row.partition("=")
+        if not sep or key not in fields or key in values:
+            raise ExecutorError("invalid stopped web state")
+        values[key] = value
+    if values != fields or command("ss", "-H", "-ltn", "sport = :3000").stdout.strip():
+        raise ExecutorError("explicitly stopped web unit and empty listener required")
+
+
+def require_outage_edge():
+    result = command("curl", "--disable", "--silent", "--show-error",
+                     "--noproxy", "*", "--max-time", "5", "--output", "/dev/null",
+                     "--write-out", "%{http_code}", "--resolve", HOST + ":443:127.0.0.1",
+                     "https://" + HOST + "/catalog")
+    if result.stdout != b"502":
+        raise ExecutorError("verified offline HTTPS edge required")
+
+
+def require_v2_marker(path=None):
+    path = STATE / "release-format" if path is None else path
+    edge.trusted(path.parent, directory=True)
+    info = edge.trusted(path)
+    if (info.st_gid != os.getegid() or stat.S_IMODE(info.st_mode) != 0o644
+            or info.st_nlink != 1 or edge.read_small(path, 16) != b"2\n"):
+        raise ExecutorError("completed v2 bootstrap required")
+
+
+def require_outage_approval(previous, candidate, *, path=None, consume=False):
+    """Root-private exact pair, consumed durably under the release lock."""
+    bundle.validate_sha(previous)
+    bundle.validate_sha(candidate)
+    if previous == candidate:
+        raise ExecutorError("outage requires a distinct forward release")
+    path = OUTAGE_APPROVAL if path is None else path
+    parent = edge.trusted(path.parent, directory=True)
+    info = edge.trusted(path)
+    expected = (previous + "\n" + candidate + "\n").encode("ascii")
+    if (parent.st_gid != os.getegid() or stat.S_IMODE(parent.st_mode) != 0o700
+            or info.st_gid != os.getegid() or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_nlink != 1 or edge.read_small(path, 82) != expected):
+        raise ExecutorError("exact root outage approval required")
+    if consume:
+        path.unlink()
+        edge.sync_dir(path.parent)
+
+
+def require_database_policy():
+    """Read-only common activation guard for update and legacy adoption."""
+    trace_inactive()
+    command("systemctl", "is-active", "--quiet", PG)
+    if edge.read_small(STATE / "pg-activated", 64).strip() != b"PG_ACTIVATED":
+        raise ExecutorError("verified PostgreSQL activation required")
+    config = edge.read_small(unit.DROPIN_DIR / "20-postgres.conf", 8192)
+    required = (
+        b"Environment=TOR_DEMO_MODE=0",
+        b"Environment=TOR_AUTH_ENABLED=1",
+        b"Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru",
+        b"EnvironmentFile=/etc/tor/tor-app.env",
+    )
+    if not set(required).issubset(config.splitlines()):
+        raise ExecutorError("production PostgreSQL policy missing")
+
+
 class Application:
     def __init__(self, store, signers, lock_fd):
         self.store, self.signers, self.lock_fd = store, signers, lock_fd
@@ -188,34 +259,37 @@ class Application:
         for name in bundle.FILES:
             edge.trusted(path / name)
         bundle.verify(path, sha, self.signers)
-        trace_inactive()
-        command("systemctl", "is-active", "--quiet", PG)
-        if edge.read_small(STATE / "pg-activated", 64).strip() != b"PG_ACTIVATED":
-            raise ExecutorError("verified PostgreSQL activation required")
-        config = edge.read_small(unit.DROPIN_DIR / "20-postgres.conf", 8192)
-        required = (
-            b"Environment=TOR_DEMO_MODE=0",
-            b"Environment=TOR_AUTH_ENABLED=1",
-            b"Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru",
-            b"EnvironmentFile=/etc/tor/tor-app.env",
-        )
-        if not set(required).issubset(config.splitlines()):
-            raise ExecutorError("production PostgreSQL policy missing")
+        require_database_policy()
         for name in bundle.SCRIPTS:
             command("bash", "-n", str(path / name))
         command("bash", str(path / "go-live-postgres-vps.sh"), "--check-runtime")
 
+    def verify_outage(self, sha):
+        trace_inactive()
+        if self.current() != sha:
+            raise ExecutorError("outage application pointer differs")
+        require_stopped_web()
+        require_outage_edge()
+        require_stopped_web()
+
     def activate(self, sha):
+        self._activate(sha, recovery=False)
+
+    def activate_outage(self, sha):
+        self.verify_outage(self.current())
+        self._activate(sha, recovery=True)
+
+    def _activate(self, sha, *, recovery):
         require_forward(sha, self.current())
         trace_inactive()
         path = self.store.release(sha)
         bundle.verify(path, sha, self.signers)
         # Descendants inherit the overall lock, so a surviving migration
         # cannot race a new update if the coordinator is interrupted.
-        child = subprocess.Popen(
-            ["bash", str(path / "go-live-postgres-vps.sh"), sha, "--forward"],
-            env=SAFE_ENV, pass_fds=(self.lock_fd,),
-        )
+        args = ["bash", str(path / "go-live-postgres-vps.sh"), sha, "--forward"]
+        if recovery:
+            args.insert(-1, "--recover")
+        child = subprocess.Popen(args, env=SAFE_ENV, pass_fds=(self.lock_fd,))
         try:
             status = child.wait()
         except KeyboardInterrupt:
@@ -224,6 +298,15 @@ class Application:
         if status:
             raise ExecutorError("signed application activation failed")
         self.verify(sha)
+
+    def restore_outage(self, previous, candidate):
+        trace_inactive()
+        if self.current() not in (previous, candidate):
+            raise ExecutorError("application pointer changed outside outage transaction")
+        command("systemctl", "stop", APP, timeout=90)
+        require_stopped_web()
+        self.store.switch(previous, candidate)
+        require_stopped_web()
 
     def restore(self, previous, candidate):
         trace_inactive()
@@ -242,17 +325,25 @@ class Application:
         raise ExecutorError("previous Rust version not ready with retained schema")
 
 
+def release_request(args):
+    if args == ["--recover"]:
+        return "journal", None
+    if len(args) == 2 and args[0] == "--repair-outage":
+        bundle.validate_sha(args[1])
+        return "outage", args[1]
+    if len(args) == 1:
+        bundle.validate_sha(args[0])
+        return "normal", args[0]
+    raise ExecutorError("one full SHA or explicit root-only recovery required")
+
+
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     try:
         if os.geteuid() != 0:
             raise ExecutorError("root privileges required")
-        if len(args) != 1:
-            raise ExecutorError("one full SHA or root-only recovery required")
-        recovery = args == ["--recover"]
-        # The future sudo wrapper MUST accept a SHA only, never --recover.
-        if not recovery:
-            bundle.validate_sha(args[0])
+        mode, sha = release_request(args)
+        # The sudo wrapper accepts only a single SHA, never either root mode.
         os.umask(0o077)
         os.environ.clear()
         os.environ.update(SAFE_ENV)
@@ -268,17 +359,39 @@ def main(argv=None):
                     journal, edge_store, edge.ProductionNginx(),
                     unit.UnitPolicy(), unit.Systemd(), app,
                 )
-                if recovery:
+                if mode == "journal":
                     record = coordinator.recover()
                     print("TOR_V2_RECOVERY " + (record.state if record else "no_transaction"))
-                    return 0
-                sha = args[0]
+                    return 1 if record is not None and record.state == "outage_stopped" else 0
                 previous = journal.load()
                 if previous is not None and previous.state not in coordinated.TERMINAL:
                     raise ExecutorError("unfinished release; root recovery required")
                 require_forward(sha, app.current())
-                app.verify(app.current())
+                if mode == "outage":
+                    require_v2_marker()
+                    require_database_policy()
+                    baseline = app.current()
+                    app.verify_outage(baseline)
+                    require_outage_approval(baseline, sha)
+                else:
+                    app.verify(app.current())
                 target = app_store.stage(TOR / "incoming" / "v2" / sha, sha, edge.SIGNERS)
+                if mode == "outage":
+                    def consume(previous_sha, candidate_sha):
+                        if (previous_sha, candidate_sha) != (baseline, sha):
+                            raise ExecutorError("outage release identity changed")
+                        require_v2_marker()
+                        require_database_policy()
+                        require_forward(candidate_sha, previous_sha)
+                        app.verify_outage(previous_sha)
+                        require_outage_approval(previous_sha, candidate_sha, consume=True)
+
+                    record = coordinator.run_outage(target, sha, edge.SIGNERS,
+                                                    consume_approval=consume)
+                    if record.state != "committed":
+                        raise ExecutorError("outage release did not commit")
+                    print("TOR_V2_OUTAGE_REPAIRED " + sha)
+                    return 0
                 if previous is not None and previous.state == "committed" and previous.candidate == sha:
                     coordinator.verify(previous)
                     print("TOR_V2_ALREADY_ACTIVE " + sha)
@@ -291,6 +404,12 @@ def main(argv=None):
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         # Do not log subprocess stderr or environment values.
         safe = str(exc) if isinstance(exc, ExecutorError) else type(exc).__name__
+        if isinstance(exc, coordinated.ReleaseError):
+            # The coordinator reports fixed, non-secret terminal diagnostics.
+            if str(exc).startswith("TOR_OUTAGE_RESTORED_STOPPED:"):
+                safe = "TOR_OUTAGE_RESTORED_STOPPED: website remains stopped"
+            elif str(exc).startswith("TOR_ROLLBACK_UNVERIFIED:"):
+                safe = "TOR_ROLLBACK_UNVERIFIED: root inspection required"
         print("TOR_V2_REFUSED: " + safe, file=sys.stderr)
         return 1
 
