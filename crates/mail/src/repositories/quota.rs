@@ -1,7 +1,8 @@
 //! PostgreSQL serialization point for all outbound quota reservations.
 use crate::domain::{
     quota::{
-        QuotaDecision, QuotaKeys, DAILY_LIMIT, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
+        QuotaDecision, QuotaKeys, DAILY_LIMIT, PASSWORD_RESET_IP_DAILY,
+        PASSWORD_RESET_RECIPIENT_DAILY, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
         TRANSACTIONAL_RESERVE,
     },
     suppression::SuppressionReason,
@@ -32,6 +33,11 @@ impl PgMailQuota {
             && !keys.matches_registration(claim.intent)
         {
             return Ok(QuotaDecision::RegistrationEvidenceRequired);
+        }
+        if claim.intent.purpose == MailPurpose::PasswordReset
+            && !keys.matches_password_reset(claim.intent)
+        {
+            return Ok(QuotaDecision::PasswordResetEvidenceRequired);
         }
         let mut tx = self.pool.begin().await?;
         // Serialize all providers/credentials/workers against the same initial
@@ -122,7 +128,14 @@ impl PgMailQuota {
         .execute(&mut *tx)
         .await?;
 
-        let ip = if claim.intent.purpose == MailPurpose::RegistrationConfirmation {
+        let (recipient_limit, ip_limit) = match claim.intent.purpose {
+            MailPurpose::PasswordReset => (PASSWORD_RESET_RECIPIENT_DAILY, PASSWORD_RESET_IP_DAILY),
+            _ => (REGISTRATION_RECIPIENT_DAILY, REGISTRATION_IP_DAILY),
+        };
+        let ip = if matches!(
+            claim.intent.purpose,
+            MailPurpose::RegistrationConfirmation | MailPurpose::PasswordReset
+        ) {
             keys.registration_ip().map(|key| key.as_slice())
         } else {
             None
@@ -135,8 +148,8 @@ impl PgMailQuota {
             .bind(ip)
             .bind(DAILY_LIMIT)
             .bind(DAILY_LIMIT - TRANSACTIONAL_RESERVE)
-            .bind(REGISTRATION_RECIPIENT_DAILY)
-            .bind(REGISTRATION_IP_DAILY)
+            .bind(recipient_limit)
+            .bind(ip_limit)
             .fetch_one(&mut *tx)
             .await?;
         let decision = QuotaDecision::parse(&decision)
@@ -165,14 +178,14 @@ WITH stamp AS MATERIALIZED (
     SELECT count(*) AS total,
            coalesce(bool_or(r.reserved_at > s.at - interval '1 second'), false) AS paced,
            count(*) FILTER (
-             WHERE r.purpose='registration_confirmation' AND r.recipient_key=$4
+             WHERE r.purpose=$3 AND r.recipient_key=$4
            ) AS recipient_total,
            coalesce(bool_or(
-             r.purpose='registration_confirmation' AND r.recipient_key=$4
+             r.purpose=$3 AND r.recipient_key=$4
              AND r.reserved_at > s.at - interval '120 seconds'
            ), false) AS recipient_recent,
            count(*) FILTER (
-             WHERE r.purpose='registration_confirmation'
+             WHERE r.purpose=$3
                AND r.registration_ip_key IS NOT DISTINCT FROM $5
            ) AS ip_total
     FROM stamp s JOIN mail_send_reservations r
@@ -188,6 +201,9 @@ WITH stamp AS MATERIALIZED (
       WHEN $3='registration_confirmation' AND recipient_total >= $8 THEN 'recipient_daily'
       WHEN $3='registration_confirmation' AND recipient_recent THEN 'recipient_cooldown'
       WHEN $3='registration_confirmation' AND ip_total >= $9 THEN 'ip_daily'
+      WHEN $3='password_reset' AND recipient_total >= $8 THEN 'reset_recipient_daily'
+      WHEN $3='password_reset' AND recipient_recent THEN 'reset_recipient_cooldown'
+      WHEN $3='password_reset' AND ip_total >= $9 THEN 'reset_ip_daily'
       WHEN paced THEN 'global_pace'
       ELSE 'reserved'
     END AS outcome FROM counts

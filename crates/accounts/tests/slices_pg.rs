@@ -698,3 +698,6 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
         .unwrap()
         .is_empty());
 }
+
+#[path = "slices_pg/password_reset_mail.rs"]
+mod password_reset_mail;
