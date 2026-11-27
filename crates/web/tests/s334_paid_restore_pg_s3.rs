@@ -367,6 +367,17 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
              RETURNING id"
         ),
     );
+    // Explicit CI-only D-08 terms; never infer or enable a production rate.
+    pg(
+        url,
+        &format!(
+            "INSERT INTO finance_revenue_terms
+             (book_id,policy_version,platform_fee_bps,refund_policy_version,refund_window_seconds)
+             VALUES({book},'ci-s334-finance-v1',2000,'ci-s334-refund-7d-v1',604800);
+             INSERT INTO finance_revenue_term_states(book_id,policy_version)
+             VALUES({book},'ci-s334-finance-v1')"
+        ),
+    );
     let chapter = scalar(
         url,
         &format!(
@@ -417,6 +428,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         .await
         .unwrap();
     let purchase = PgCheckout::new(pool.clone())
+        .with_creator_posting(true)
         .checkout_once(
             &PurchaseCommand::new(
                 PositiveId::new(buyer).unwrap(),
@@ -471,6 +483,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         .await
         .unwrap();
     let purchase_v2 = PgCheckout::new(pool.clone())
+        .with_creator_posting(true)
         .checkout_once(
             &PurchaseCommand::new(
                 PositiveId::new(buyer_v2).unwrap(),
