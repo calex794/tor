@@ -330,7 +330,10 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     clear(&pool).await;
     seed(&pool, 10, PasswordReset, keys(9, None), 180).await;
     assert_eq!(
-        quota.reserve(reset, reset_keys(reset, 8, None)).await.unwrap(),
+        quota
+            .reserve(reset, reset_keys(reset, 8, None))
+            .await
+            .unwrap(),
         PasswordResetIpDaily
     );
     clear(&pool).await;
