@@ -14,8 +14,15 @@ DECLARE
     outsider BIGINT;
     first_purchase BIGINT;
     second_purchase BIGINT;
+    author_id BIGINT;
+    purchase_ref BIGINT;
+    buyer_ref BIGINT;
+    version_ref BIGINT;
 BEGIN
-    SELECT c.id INTO STRICT target_chapter
+    IF current_setting('transaction_read_only') <> 'on' THEN
+        RAISE EXCEPTION 'S334 witness requires read-only transaction';
+    END IF;
+    SELECT c.id,b.owner_user_id INTO STRICT target_chapter,author_id
       FROM chapters c JOIN books b ON b.id=c.book_id
       WHERE b.source_identity='ci:s334-paid-restore'
         AND b.visibility='draft' AND c.visibility='draft'
@@ -77,6 +84,50 @@ BEGIN
     THEN
         RAISE EXCEPTION 'S334 historical paid entitlement or ledger witness differs';
     END IF;
+    -- Verify the actual D-08 posting and frozen terms for EACH encrypted sale.
+    FOR purchase_ref,buyer_ref,version_ref IN
+        SELECT * FROM (VALUES (first_purchase,first_buyer,first_version),
+                              (second_purchase,second_buyer,second_version)) AS expected
+    LOOP
+        IF (SELECT count(*) FROM reader_wallet_entries WHERE user_id=buyer_ref)<>1
+           OR (SELECT count(*) FROM chapter_purchase_commands WHERE user_id=buyer_ref)<>1
+           OR NOT EXISTS (
+               SELECT 1 FROM reader_wallet_entries e
+               JOIN chapter_purchase_facts p ON p.id=e.purchase_id
+               WHERE e.user_id=buyer_ref AND e.purchase_id=purchase_ref
+                 AND e.kind='chapter_purchase' AND e.delta_minor=-175
+                 AND e.balance_after_minor=425 AND e.reference=p.settlement_reference)
+           OR NOT EXISTS (
+               SELECT 1 FROM chapter_purchase_commands q
+               WHERE q.user_id=buyer_ref AND q.purchase_id=purchase_ref
+                 AND q.chapter_id=target_chapter AND q.expected_version_id=version_ref
+                 AND q.expected_price_minor=175)
+           OR NOT EXISTS (
+               SELECT 1 FROM library_purchased_chapters l
+               WHERE l.purchase_id=purchase_ref AND l.user_id=buyer_ref
+                 AND l.chapter_id=target_chapter AND l.active_version_id=version_ref)
+           OR (SELECT count(*) FROM finance_chapter_postings WHERE purchase_id=purchase_ref)<>1
+           OR (SELECT count(*) FROM finance_creator_earnings WHERE purchase_id=purchase_ref)<>1
+           OR (SELECT count(*) FROM finance_platform_credits WHERE purchase_id=purchase_ref)<>1
+           OR NOT EXISTS (
+               SELECT 1 FROM finance_chapter_postings fp
+               JOIN chapter_purchase_facts p ON p.id=fp.purchase_id
+               JOIN finance_platform_credits pc ON pc.purchase_id=p.id
+               JOIN finance_creator_earnings e ON e.purchase_id=p.id
+               WHERE p.id=purchase_ref AND fp.gross_minor=175 AND fp.currency='RUB'
+                 AND fp.policy_version='ci-s334-finance-v1'
+                 AND fp.platform_fee_minor=35 AND fp.creator_pool_minor=140
+                 AND pc.amount_minor=35 AND e.user_id=author_id
+                 AND e.share_percent=100 AND e.amount_minor=140
+                 AND p.refund_policy_version='ci-s334-refund-7d-v1'
+                 AND fp.refund_policy_version=p.refund_policy_version
+                 AND fp.refund_deadline_at=p.refund_deadline_at
+                 AND fp.refund_deadline_at=p.acquired_at+INTERVAL '604800 seconds'
+                 AND e.clear_at=fp.refund_deadline_at)
+        THEN
+            RAISE EXCEPTION 'S334 encrypted purchase finance witness differs';
+        END IF;
+    END LOOP;
 END
 $s334$;
 
@@ -92,13 +143,15 @@ WITH target AS (
 SELECT jsonb_build_object(
     'target', (SELECT to_jsonb(t) FROM target t),
     'publication', (SELECT to_jsonb(p) FROM chapter_publications p JOIN target t USING(chapter_id)),
-    'editions', (SELECT jsonb_agg(jsonb_build_array(v.id,v.version_no,v.storage_object_id)
+    'editions', (SELECT jsonb_agg(jsonb_build_array(v.id,v.version_no,v.storage_object_id,
+                    encode(sha256(convert_to(to_jsonb(v)::text,'UTF8')),'hex'))
                                   ORDER BY v.id)
                  FROM chapter_versions v JOIN target t USING(chapter_id)),
     'objects', (SELECT jsonb_agg(jsonb_build_array(
                     s.id,s.object_kind,s.bucket,s.object_key,s.state,s.kek_id,s.size_bytes,
                     encode(s.sha256_ciphertext,'hex'),encode(s.plaintext_sha256,'hex'),
-                    s.codec,s.created_at,s.verified_at,s.attached_at) ORDER BY s.id)
+                    s.codec,s.created_at,s.verified_at,s.attached_at,
+                    encode(sha256(convert_to(to_jsonb(s)::text,'UTF8')),'hex')) ORDER BY s.id)
                 FROM storage_objects s JOIN chapter_versions v ON v.storage_object_id=s.id
                 JOIN target t ON t.chapter_id=v.chapter_id),
     'purchases', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM purchases p),
@@ -107,6 +160,16 @@ SELECT jsonb_build_object(
     'wallets', (SELECT jsonb_agg(to_jsonb(w) ORDER BY w.user_id)
                 FROM reader_wallet_accounts w JOIN purchases p ON p.user_id=w.user_id),
     'debits', (SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id)
-               FROM reader_wallet_entries e JOIN purchases p ON e.purchase_id=p.id)
+               FROM reader_wallet_entries e JOIN purchases p ON e.purchase_id=p.id),
+    'commands', (SELECT jsonb_agg(to_jsonb(q) ORDER BY q.command_key)
+                 FROM chapter_purchase_commands q JOIN purchases p ON q.purchase_id=p.id),
+    'shares', (SELECT jsonb_agg(to_jsonb(s) ORDER BY s.purchase_id,s.user_id)
+               FROM chapter_purchase_share_lines s JOIN purchases p ON s.purchase_id=p.id),
+    'postings', (SELECT jsonb_agg(to_jsonb(f) ORDER BY f.purchase_id)
+                 FROM finance_chapter_postings f JOIN purchases p ON f.purchase_id=p.id),
+    'platform', (SELECT jsonb_agg(to_jsonb(f) ORDER BY f.purchase_id)
+                 FROM finance_platform_credits f JOIN purchases p ON f.purchase_id=p.id),
+    'creator', (SELECT jsonb_agg(to_jsonb(f) ORDER BY f.purchase_id,f.user_id)
+                FROM finance_creator_earnings f JOIN purchases p ON f.purchase_id=p.id)
 )::text;
 COMMIT;

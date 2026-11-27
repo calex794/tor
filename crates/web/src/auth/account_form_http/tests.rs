@@ -17,6 +17,48 @@ fn successful_dialog_and_standalone_responses_keep_private_cookies() {
     assert!(!dialog.headers().contains_key(header::LOCATION));
 }
 
+#[test]
+fn dialog_reuses_only_valid_unambiguous_csrf_cookies() {
+    for secure in [false, true] {
+        let policy = CookiePolicy {
+            secure,
+            origin: "https://pandaolate.ru".into(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("x-tor-auth-dialog", HeaderValue::from_static("1"));
+        let (token, fresh) = form_csrf(&policy, &headers);
+        assert_eq!(fresh.len(), 1);
+        assert!(fresh[0].contains("HttpOnly; SameSite=Strict"));
+        headers.insert(
+            header::COOKIE,
+            format!("{}={token}", policy.csrf_name()).parse().unwrap(),
+        );
+        let (reused, unchanged) = form_csrf(&policy, &headers);
+        assert_eq!(reused, token);
+        assert!(unchanged.is_empty());
+        assert!(policy.valid_csrf(&headers, &reused));
+        headers.remove("x-tor-auth-dialog");
+        let (rotated, fresh) = form_csrf(&policy, &headers);
+        assert_ne!(rotated, token);
+        assert_eq!(fresh.len(), 1);
+        headers.insert("x-tor-auth-dialog", HeaderValue::from_static("1"));
+        for value in [
+            format!("{}=invalid", policy.csrf_name()),
+            format!(
+                "{}={token}; {}={token}",
+                policy.csrf_name(),
+                policy.csrf_name()
+            ),
+        ] {
+            headers.insert(header::COOKIE, value.parse().unwrap());
+            let (replacement, fresh) = form_csrf(&policy, &headers);
+            assert_ne!(replacement, token);
+            assert_eq!(fresh.len(), 1);
+            assert!(!policy.valid_csrf(&headers, &replacement));
+        }
+    }
+}
+
 #[tokio::test]
 async fn too_many_login_attempts_has_clear_429_and_retry_after() {
     let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, false);

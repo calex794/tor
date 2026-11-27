@@ -163,6 +163,13 @@ class FoundationLogTests(unittest.TestCase):
             "FND05_RESTORED_FREE_ARCHIVE_HTTP_OK",
             "DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK",
             "DEPLOY07C_CORRUPT_RESTORED_PACK_DENIED",
+            "I11_RESTORED_CHECKOUT_FINANCE_OK",
+            "I11_RESTORED_REFUND_FINANCE_REVOCATION_OK",
+            "I11_RESTORED_HISTORICAL_RIGHTS_DB_OK",
+            "D001_OFFSITE_VERIFIED_BEFORE_FIXTURE_SEAL_OK",
+            "D001_OFFSITE_RESTORED_SEAL_AND_V2_OK",
+            "D001_OFFSITE_SINGLE_EXACT_RESTORE_CI_OK",
+            "FND05_RESTORED_ACTIVE_COVER_HTTP_OK",
             "I11_PITR_ISOLATED_DRILL_OK report=/runner/drill.json",
         ]
         self.assertEqual(verify_foundation_log(job, log, SHA), f"{SHA}:{job}")
@@ -186,6 +193,11 @@ class FoundationLogTests(unittest.TestCase):
                 with self.subTest(job=job_id, marker=marker):
                     with self.assertRaisesRegex(GateError, "missing foundation evidence"):
                         verify_foundation_log(job_id, complete[:index] + complete[index+1:], SHA)
+                    for altered in (f"warning: {marker}", f"{marker} (skipped)"):
+                        with self.assertRaisesRegex(GateError, "missing foundation evidence"):
+                            verify_foundation_log(
+                                job_id, complete[:index] + [altered] + complete[index+1:], SHA
+                            )
 
 
 if __name__ == "__main__":

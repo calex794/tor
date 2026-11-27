@@ -38,6 +38,13 @@ FOUNDATION_MARKERS = {
         "restored saved and Layer access": r"FND05_RESTORED_FREE_ARCHIVE_HTTP_OK",
         "saved FREE and revoked denial": r"DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK",
         "corrupt restored PACK denial": r"DEPLOY07C_CORRUPT_RESTORED_PACK_DENIED",
+        "restored checkout finance": r"I11_RESTORED_CHECKOUT_FINANCE_OK",
+        "restored refund and revocation": r"I11_RESTORED_REFUND_FINANCE_REVOCATION_OK",
+        "restored historical rights": r"I11_RESTORED_HISTORICAL_RIGHTS_DB_OK",
+        "verified SINGLE before seal": r"D001_OFFSITE_VERIFIED_BEFORE_FIXTURE_SEAL_OK",
+        "restored SINGLE seal and V2": r"D001_OFFSITE_RESTORED_SEAL_AND_V2_OK",
+        "exact obsolete SINGLE restore": r"D001_OFFSITE_SINGLE_EXACT_RESTORE_CI_OK",
+        "restored active cover HTTP": r"FND05_RESTORED_ACTIVE_COVER_HTTP_OK",
         "WAL recovery": r"I11_PITR_ISOLATED_DRILL_OK report=\S+",
     },
     "purchased-v1-recovery": {
