@@ -32,3 +32,6 @@ pub const S3_CONNECTION_STEP_UP_SCOPE: &str = "storage.s3.connection.save.v1";
 
 /// Exact-intent, one-use proof for replacing an encrypted Postbox candidate.
 pub const POSTBOX_PROFILE_STEP_UP_SCOPE: &str = "mail.postbox.profile.save.v1";
+
+/// Separate exact-intent password proof for activating the mail launch gate.
+pub const MAIL_ACTIVATION_STEP_UP_SCOPE: &str = "mail.launch.activate.v1";

@@ -1,22 +1,13 @@
 //! A process-local, fail-closed second gate. It cannot enable PostgreSQL.
 //! All web/worker clones must share a single instance. Never deserialize it.
-use crate::domain::launch::LaunchSnapshot;
+pub use crate::domain::launch::LaunchScope;
+use crate::domain::launch::{ActivationIntent, LaunchSnapshot, REVIEW_LIMIT};
 use rand::{rngs::OsRng, RngCore};
 use std::{
     mem,
     sync::Mutex,
-    time::{Duration, Instant},
+    time::Instant,
 };
-
-const REVIEW_LIMIT: Duration = Duration::from_secs(300);
-
-/// A test authorization is tied to one trusted administrator user ID and
-/// cannot be used for registration, support or news delivery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LaunchScope {
-    OperatorTest(i64),
-    Dispatch,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
@@ -31,6 +22,7 @@ enum State {
     #[default]
     Stopped,
     Reviewing(Review),
+    Confirming([u8; 32]),
     Armed(Approval),
 }
 
@@ -46,6 +38,7 @@ struct Approval {
     reviewed: LaunchSnapshot,
     scope: LaunchScope,
     high_water: i64,
+    activation_digest: [u8; 32],
 }
 
 /// A DB backup cannot restore this state. Every new process is stopped,
@@ -91,14 +84,11 @@ impl LaunchFence {
         Ok(challenge)
     }
 
-    /// Caller rechecks live administrator authority, fresh password proof,
-    /// successful non-sending probe of this exact profile, and explicitly
-    /// reviewed independent billing/restore evidence. The supplied hash is a
-    /// reference to that review, NOT a proof of its authenticity.
-    ///
-    /// The future activation transaction must advance the reviewed policy
-    /// revision by exactly one, leave all other bindings unchanged and only
-    /// then set enabled=true. This function performs no database mutation.
+    /// Caller rechecks live administrator authority, successful non-sending
+    /// probe of this exact profile, and independently reviewed billing/restore
+    /// evidence. The hash is a reference, NOT proof of authenticity. This
+    /// produces an intent for the fresh password proof and DB transaction,
+    /// but deliberately does not arm sending.
     pub fn confirm_review(
         &self,
         challenge: &[u8; 32],
@@ -106,7 +96,7 @@ impl LaunchFence {
         current: &LaunchSnapshot,
         external_evidence: &[u8; 32],
         probed_profile: &[u8; 32],
-    ) -> Result<(), LaunchError> {
+    ) -> Result<ActivationIntent, LaunchError> {
         let mut state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
         let State::Reviewing(review) = mem::take(&mut *state) else {
             return Err(LaunchError::Stopped);
@@ -121,11 +111,50 @@ impl LaunchFence {
         {
             return Err(LaunchError::Conflict);
         }
-        *state = State::Armed(Approval {
+        let intent = ActivationIntent {
             reviewed: review.snapshot,
             scope: review.scope,
-            high_water: current.reserved_attempts,
-        });
+            session: review.session,
+            challenge: review.challenge,
+            started: review.started,
+        };
+        *state = State::Confirming(intent.proof_digest());
+        Ok(intent)
+    }
+
+    /// Call only after admin_activate commits and a fresh observation
+    /// contains its exact durable receipt. A local stop/new review during
+    /// the DB transaction wins: an old result cannot resurrect authority.
+    pub fn complete_activation(
+        &self,
+        intent: ActivationIntent,
+        current: &LaunchSnapshot,
+    ) -> Result<(), LaunchError> {
+        let mut state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
+        let State::Confirming(digest) = &*state else {
+            return Err(LaunchError::Stopped);
+        };
+        if *digest != intent.proof_digest() {
+            return Err(LaunchError::Conflict);
+        }
+        let digest = *digest;
+        *state = State::Stopped;
+        if !intent.fresh() {
+            return Err(LaunchError::Conflict);
+        }
+        let approval = Approval {
+            high_water: intent.reviewed.reserved_attempts,
+            reviewed: intent.reviewed,
+            scope: intent.scope,
+            activation_digest: digest,
+        };
+        if !matches_approval(&approval, current, approval.scope)
+            || current.reserved_attempts != approval.high_water
+            || !current.room_for_reservation
+        {
+            return Err(LaunchError::Conflict);
+        }
+        *state = State::Armed(approval);
         Ok(())
     }
 
@@ -140,7 +169,10 @@ impl LaunchFence {
         let State::Armed(approval) = &*state else {
             return Err(LaunchError::Stopped);
         };
-        if !matches_approval(approval, current, scope) || !current.room_for_reservation {
+        if !matches_approval(approval, current, scope)
+            || current.reserved_attempts != approval.high_water
+            || !current.room_for_reservation
+        {
             *state = State::Stopped;
             return Err(LaunchError::Conflict);
         }
@@ -162,7 +194,7 @@ impl LaunchFence {
             return Err(LaunchError::Stopped);
         };
         if !matches_approval(&approval, current, scope)
-            || current.reserved_attempts <= approval.high_water
+            || approval.high_water.checked_add(1) != Some(current.reserved_attempts)
         {
             return Err(LaunchError::Conflict);
         }
@@ -184,16 +216,13 @@ impl LaunchFence {
     }
 }
 
-fn matches_approval(
-    approval: &Approval,
-    current: &LaunchSnapshot,
-    scope: LaunchScope,
-) -> bool {
+fn matches_approval(approval: &Approval, current: &LaunchSnapshot, scope: LaunchScope) -> bool {
     approval.scope == scope
         && current.enabled
         && !current.boundary_pause
         && current.within_budget
         && current.binding == approval.reviewed.binding
+        && current.activation_digest == Some(approval.activation_digest)
         && approval.reviewed.policy_revision.checked_add(1) == Some(current.policy_revision)
         && current.reserved_attempts >= approval.high_water
 }

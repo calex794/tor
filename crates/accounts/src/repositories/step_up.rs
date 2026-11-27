@@ -4,7 +4,9 @@
 use super::postgres::PgAccounts;
 use crate::services::security::{generate_session_token, session_token_digest, VerifiedPassword};
 use sqlx::Row;
-use tor_contracts::auth::{POSTBOX_PROFILE_STEP_UP_SCOPE, S3_CONNECTION_STEP_UP_SCOPE};
+use tor_contracts::auth::{
+    MAIL_ACTIVATION_STEP_UP_SCOPE, POSTBOX_PROFILE_STEP_UP_SCOPE, S3_CONNECTION_STEP_UP_SCOPE,
+};
 
 const REFUND_SCOPE: &str = "finance.refund.approve.v1";
 const PAYOUT_SCOPE: &str = "finance.payout.post.v1";
@@ -108,6 +110,29 @@ impl PgAccounts {
     ) -> Result<String, StepUpIssueError> {
         self.issue_administrator_step_up(
             POSTBOX_PROFILE_STEP_UP_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id: 1,
+                revision: expected_revision,
+                digest: intent_digest,
+            },
+        )
+        .await
+    }
+
+    /// Separate scope for exact stopped launch review.
+    pub async fn issue_administrator_mail_activation_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        expected_revision: i64,
+        intent_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            MAIL_ACTIVATION_STEP_UP_SCOPE,
             actor,
             session_digest,
             verified_password,

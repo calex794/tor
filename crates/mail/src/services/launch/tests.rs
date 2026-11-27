@@ -17,6 +17,7 @@ fn stopped() -> LaunchSnapshot {
             reconciled_attempts: 42,
         },
         policy_revision: 7,
+        activation_digest: None,
         enabled: false,
         boundary_pause: false,
         reserved_attempts: 42,
@@ -29,16 +30,19 @@ fn armed(scope: LaunchScope) -> (LaunchFence, LaunchSnapshot) {
     let gate = LaunchFence::new();
     let mut snapshot = stopped();
     let challenge = gate.begin_review(&snapshot, scope, SESSION).unwrap();
-    gate.confirm_review(
-        &challenge,
-        &SESSION,
-        &snapshot,
-        snapshot.evidence(),
-        snapshot.profile_digest(),
-    )
-    .unwrap();
+    let intent = gate
+        .confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .unwrap();
     snapshot.enabled = true;
     snapshot.policy_revision += 1;
+    snapshot.activation_digest = Some(intent.proof_digest());
+    gate.complete_activation(intent, &snapshot).unwrap();
     (gate, snapshot)
 }
 
@@ -48,8 +52,7 @@ fn restored_enabled_database_and_new_process_are_stopped() {
     gate.permit_reservation(&current, LaunchScope::Dispatch)
         .unwrap();
     current.reserved_attempts += 1;
-    gate.consume_start(&current, LaunchScope::Dispatch)
-        .unwrap();
+    gate.consume_start(&current, LaunchScope::Dispatch).unwrap();
     let restarted = LaunchFence::new();
     assert_eq!(
         restarted.permit_reservation(&current, LaunchScope::Dispatch),
@@ -69,37 +72,43 @@ fn external_review_is_exact_session_bound_and_single_use() {
         .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
         .unwrap();
     assert_eq!(
-        gate.confirm_review(
-            &challenge,
-            &[8; 32],
-            &snapshot,
-            snapshot.evidence(),
-            snapshot.profile_digest(),
-        ),
-        Err(LaunchError::Conflict)
+        gate
+            .confirm_review(
+                &challenge,
+                &[8; 32],
+                &snapshot,
+                snapshot.evidence(),
+                snapshot.profile_digest(),
+            )
+            .err(),
+        Some(LaunchError::Conflict)
     );
     assert_eq!(
-        gate.confirm_review(
-            &challenge,
-            &SESSION,
-            &snapshot,
-            snapshot.evidence(),
-            snapshot.profile_digest(),
-        ),
-        Err(LaunchError::Stopped)
+        gate
+            .confirm_review(
+                &challenge,
+                &SESSION,
+                &snapshot,
+                snapshot.evidence(),
+                snapshot.profile_digest(),
+            )
+            .err(),
+        Some(LaunchError::Stopped)
     );
     let challenge = gate
         .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
         .unwrap();
     assert_eq!(
-        gate.confirm_review(
-            &challenge,
-            &SESSION,
-            &snapshot,
-            &[7; 32],
-            snapshot.profile_digest(),
-        ),
-        Err(LaunchError::Conflict)
+        gate
+            .confirm_review(
+                &challenge,
+                &SESSION,
+                &snapshot,
+                &[7; 32],
+                snapshot.profile_digest(),
+            )
+            .err(),
+        Some(LaunchError::Conflict)
     );
     let challenge = gate
         .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
@@ -111,14 +120,16 @@ fn external_review_is_exact_session_bound_and_single_use() {
     review.started -= REVIEW_LIMIT;
     drop(state);
     assert_eq!(
-        gate.confirm_review(
-            &challenge,
-            &SESSION,
-            &snapshot,
-            snapshot.evidence(),
-            snapshot.profile_digest(),
-        ),
-        Err(LaunchError::Conflict)
+        gate
+            .confirm_review(
+                &challenge,
+                &SESSION,
+                &snapshot,
+                snapshot.evidence(),
+                snapshot.profile_digest(),
+            )
+            .err(),
+        Some(LaunchError::Conflict)
     );
 }
 
@@ -176,8 +187,7 @@ fn restart_rollover_profile_revision_or_counter_rollback_latches_stop() {
 fn each_send_start_requires_new_committed_counter_and_explicit_stop_works() {
     let (gate, mut current) = armed(LaunchScope::Dispatch);
     current.reserved_attempts += 1;
-    gate.consume_start(&current, LaunchScope::Dispatch)
-        .unwrap();
+    gate.consume_start(&current, LaunchScope::Dispatch).unwrap();
     assert_eq!(
         gate.consume_start(&current, LaunchScope::Dispatch),
         Err(LaunchError::Conflict)
@@ -187,5 +197,51 @@ fn each_send_start_requires_new_committed_counter_and_explicit_stop_works() {
     assert_eq!(
         gate.permit_reservation(&current, LaunchScope::Dispatch),
         Err(LaunchError::Stopped)
+    );
+}
+
+#[test]
+fn no_commit_no_approval_and_stop_wins_over_late_commit() {
+    let gate = LaunchFence::new();
+    let mut snapshot = stopped();
+    let challenge = gate
+        .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
+        .unwrap();
+    let intent = gate
+        .confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .unwrap();
+    snapshot.enabled = true;
+    snapshot.policy_revision += 1;
+    snapshot.activation_digest = Some(intent.proof_digest());
+    assert_eq!(
+        gate.permit_reservation(&snapshot, LaunchScope::Dispatch),
+        Err(LaunchError::Stopped)
+    );
+    gate.stop().unwrap();
+    assert_eq!(
+        gate.complete_activation(intent, &snapshot),
+        Err(LaunchError::Stopped)
+    );
+}
+
+#[test]
+fn missing_or_different_receipt_and_skipped_counter_are_not_accepted() {
+    let (gate, mut current) = armed(LaunchScope::Dispatch);
+    current.activation_digest = None;
+    assert_eq!(
+        gate.permit_reservation(&current, LaunchScope::Dispatch),
+        Err(LaunchError::Conflict)
+    );
+    let (gate, mut current) = armed(LaunchScope::Dispatch);
+    current.reserved_attempts += 2;
+    assert_eq!(
+        gate.consume_start(&current, LaunchScope::Dispatch),
+        Err(LaunchError::Conflict)
     );
 }
