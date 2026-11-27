@@ -45,6 +45,7 @@ pub fn normalize_handle(raw: &str) -> Result<String, &'static str> {
                 .all(|c| c.is_ascii_alphanumeric() || b"_.".contains(&c))
             || [
                 "admin",
+                "odmen",
                 "administrator",
                 "support",
                 "system",

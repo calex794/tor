@@ -724,7 +724,8 @@ async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
 }
 
 /// Alias resolution and password verification are separate from issuance.
-/// Moving or clearing the handle in between must invalidate the old proof.
+/// The free settings path cannot move or clear a claimed handle. A stale
+/// alias still must not mint a session if the persisted binding changed.
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn auth_03_login_alias_is_rechecked_under_account_lock() {
@@ -786,24 +787,51 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         ..audit
     };
     assert!(accounts
-        .insert_verified_session_for_login(user, &a.password_hash, &fresh, ttl, login_audit, &alias)
+        .insert_verified_session_for_login(
+            user,
+            &a.password_hash,
+            &fresh,
+            ttl,
+            login_audit,
+            &alias
+        )
         .await
         .unwrap());
-    accounts
-        .update_profile(
-            user,
-            &ProfileUpdate {
-                display_name: Some("Changed display name".into()),
-                handle: Some(String::new()),
-                adult_enabled: None,
-                expected_revision: 1,
-            },
-        )
+    assert!(matches!(
+        accounts
+            .update_profile(
+                user,
+                &ProfileUpdate {
+                    display_name: Some("Changed display name".into()),
+                    handle: Some(String::new()),
+                    adult_enabled: None,
+                    expected_revision: 1,
+                },
+            )
+            .await,
+        Err(tor_accounts::repositories::profile::ProfileError::HandleLocked)
+    ));
+    assert_eq!(
+        accounts.find_user_by_login(&alias).await.unwrap().unwrap().id,
+        user
+    );
+    // Fixture-only change emulates a stale proof after an operator repair.
+    // The production free settings path above cannot change this binding.
+    sqlx::query("UPDATE account_settings SET handle=NULL WHERE user_id=$1")
+        .bind(user)
+        .execute(accounts.pool())
         .await
         .unwrap();
     assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
     assert!(!accounts
-        .insert_verified_session_for_login(user, &a.password_hash, &stale, ttl, login_audit, &alias)
+        .insert_verified_session_for_login(
+            user,
+            &a.password_hash,
+            &stale,
+            ttl,
+            login_audit,
+            &alias
+        )
         .await
         .unwrap());
     assert_eq!(accounts.active_session_user(&stale).await.unwrap(), None);
@@ -818,5 +846,8 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         )
         .await
         .unwrap());
-    assert_eq!(accounts.active_session_user(&stale).await.unwrap(), Some(user));
+    assert_eq!(
+        accounts.active_session_user(&stale).await.unwrap(),
+        Some(user)
+    );
 }

@@ -155,16 +155,31 @@ async function inspectAccountNavigation(page,width) {
     assert.equal((await guest.request.get(`${base}/api/v1/me`)).status(),401);
     await alice.page.goto(`${base}/me/settings`);
     await alice.page.locator('[name=display_name]').fill('Updated A reader');
-    await alice.page.locator('[name=handle]').fill(`reader_${nonce}`);
     await alice.page.locator('[name=adult_enabled]').selectOption('true');
-    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/settings`),alice.page.locator('form[action="/me/settings"] button').click()]);
+    const settingsPost=()=>alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/settings`);
+    await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Сохранить настройки',exact:true}).click()]);
     await alice.page.waitForLoadState('networkidle');
     let profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
     assert.equal(profile.display_name,'Updated A reader');assert.equal(profile.adult_enabled,true);
     assert.equal(profile.revision,1);assert(!('password_hash' in profile));
+    assert(!('email' in profile));assert(!('email_normalized' in profile));
+    assert.equal(profile.handle,null);
+    const handle=`reader_${nonce}`;
+    await alice.page.locator('[name=handle]').fill(handle);
+    await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Закрепить логин',exact:true}).click()]);
+    await alice.page.waitForLoadState('networkidle');
+    profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
+    assert.equal(profile.handle,handle);assert.equal(profile.revision,2);
+    assert.equal(await alice.page.locator('[name=handle]').count(),0);
+    assert(await alice.page.getByText('@'+handle,{exact:true}).isVisible());
+    for(const replacement of ['',`other_${nonce}`]) {
+      const locked=await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{expected_revision:profile.revision,handle:replacement,csrf_token:profile.csrf_token}});
+      assert.equal(locked.status(),409);
+      assert.equal((await locked.json()).error.code,'HANDLE_LOCKED');
+    }
     const stale={expected_revision:0,display_name:'Stale request',csrf_token:profile.csrf_token};
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:stale})).status(),409);
-    assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:1}})).status(),403);
+    assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:profile.revision}})).status(),403);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{...stale,user_id:'1'}})).status(),422);
     assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,'B browser reader');
     await fs.mkdir(shots,{recursive:true});

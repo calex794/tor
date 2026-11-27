@@ -4,7 +4,7 @@
 
 use crate::{
     domain::access_audit::LoginAuditContext,
-    services::validation::{LoginIdentity, NamedAccount},
+    services::validation::NamedAccount,
 };
 use sqlx::{PgPool, Row};
 use std::num::NonZeroU32;
@@ -137,28 +137,6 @@ impl PgAccounts {
             })
         })
         .transpose()
-    }
-
-    /// Resolve the login alias through its existing unique index. Callers must
-    /// use the resolved canonical email for the same identity/spray budget
-    /// as email login, and recheck the alias when issuing the session.
-    pub async fn find_user_by_login(
-        &self,
-        identity: &LoginIdentity,
-    ) -> Result<Option<StoredUser>, sqlx::Error> {
-        match identity {
-            LoginIdentity::Email(email) => self.find_user(email).await,
-            LoginIdentity::Handle(handle) => {
-                sqlx::query_as(
-                    "SELECT u.id,u.email_normalized,u.display_name,u.password_hash
-                     FROM account_settings s JOIN users u ON u.id=s.user_id
-                     WHERE s.handle=$1 AND u.account_state='active'",
-                )
-                .bind(handle)
-                .fetch_optional(&self.pool)
-                .await
-            }
-        }
     }
 
     /// Accepts a SHA-256 token digest, never the raw token; expiry uses DB time.

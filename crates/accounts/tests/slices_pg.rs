@@ -92,11 +92,35 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert!(saved.adult_enabled);
     assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
     update.expected_revision = 1;
-    update.handle = Some(String::new());
     update.adult_enabled = Some(false);
+    for forbidden in [String::new(), format!("other{alice}")] {
+        update.handle = Some(forbidden);
+        assert!(matches!(
+            accounts.update_profile(alice, &update).await,
+            Err(ProfileError::HandleLocked)
+        ));
+        let saved = accounts.profile(alice).await.unwrap().unwrap();
+        assert_eq!(saved.revision, 1);
+        assert!(saved.adult_enabled);
+        assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    }
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(alice)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    update.handle = None;
+    update.display_name = Some(email.to_ascii_uppercase());
+    assert!(matches!(
+        accounts.update_profile(alice, &update).await,
+        Err(ProfileError::PrivateEmail)
+    ));
+    update.display_name = Some("Reader renamed".into());
     accounts.update_profile(alice, &update).await.unwrap();
     let saved = accounts.profile(alice).await.unwrap().unwrap();
-    assert!(saved.handle.is_none() && !saved.adult_enabled);
+    assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    assert_eq!(saved.display_name, "Reader renamed");
+    assert!(!saved.adult_enabled);
     let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM user_level_grants WHERE user_id=$1")
         .bind(alice)
         .fetch_one(accounts.pool())
@@ -718,8 +742,22 @@ async fn auth_03_named_signup_is_atomic_and_uses_existing_handle_uniqueness() {
         key_binding: [23; 32],
     };
     let (ra, rb) = tokio::join!(
-        accounts.register_named(&a, "$argon2id$fixture", &digest_a, ttl, context(), Some(mail)),
-        accounts.register_named(&b, "$argon2id$fixture", &digest_b, ttl, context(), Some(mail)),
+        accounts.register_named(
+            &a,
+            "$argon2id$fixture",
+            &digest_a,
+            ttl,
+            context(),
+            Some(mail)
+        ),
+        accounts.register_named(
+            &b,
+            "$argon2id$fixture",
+            &digest_b,
+            ttl,
+            context(),
+            Some(mail)
+        ),
     );
     let (winner, won_email, lost_email, won_digest, lost_digest) = match (ra, rb) {
         (Ok(id), Err(AccountWriteError::Duplicate)) => {
@@ -731,7 +769,10 @@ async fn auth_03_named_signup_is_atomic_and_uses_existing_handle_uniqueness() {
         _ => panic!("exactly one normalized handle can commit"),
     };
     assert!(accounts.find_user(lost_email).await.unwrap().is_none());
-    assert_eq!(accounts.active_session_user(lost_digest).await.unwrap(), None);
+    assert_eq!(
+        accounts.active_session_user(lost_digest).await.unwrap(),
+        None
+    );
     assert_eq!(
         accounts.active_session_user(won_digest).await.unwrap(),
         Some(winner)
@@ -789,7 +830,14 @@ async fn auth_03_named_signup_is_atomic_and_uses_existing_handle_uniqueness() {
         Err(AccountWriteError::Duplicate)
     );
     assert!(accounts
-        .register_named(&c, "$argon2id$fixture", &digest_c, ttl, context(), Some(mail))
+        .register_named(
+            &c,
+            "$argon2id$fixture",
+            &digest_c,
+            ttl,
+            context(),
+            Some(mail)
+        )
         .await
         .is_ok());
 }
