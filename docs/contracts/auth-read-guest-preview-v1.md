@@ -107,6 +107,17 @@ tail; UI ellipsis is separate. N<=1 or no safe nonempty boundary -> CTA
 without text. Bound both scan (existing chapter input limits) and projection
 (<=2000 scalar values and <=8000 UTF-8 bytes). A short chapter is never
 promoted to full access merely because it fits the maximum.
+02a uses the existing restricted Markdown tokenizer moved to a shared pure
+contracts module with an unchanged reading facade and an alternate visible
+text sink. Normalize whitespace within blocks and preserve paragraph breaks.
+Pin unicode-segmentation 1.12.0 for the versioned grapheme rule. If literal
+image/link destinations or HTML-like markup survive the historical tokenizer,
+v1 conservatively returns CTA-only instead of guessing at unsupported syntax.
+The internal maximum prefix uses a strict grapheme cap; nearby natural
+boundary preference is applied to the selected guest percentage, not to
+the stored maximum. No full source or full visible text is retained by the
+result. This slice is pure only; exact version/SHA persistence and safe
+HTML escaping of the selected plain text remain required.
 
 Store one bounded derived maximum-prefix projection (p=50) per needed exact
 FREE edition, not four copies or a full chapter. Candidate shape:
