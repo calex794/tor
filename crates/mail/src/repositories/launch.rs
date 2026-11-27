@@ -6,7 +6,9 @@ use crate::domain::{
     postbox_profile::{ProfileIdentity, SealedProfile},
     quota::QuotaDecision,
 };
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
+
+mod activation;
 use tor_contracts::mail::MailPurpose;
 
 #[derive(Clone)]
@@ -24,16 +26,25 @@ impl PgMailLaunch {
     /// committed reservation. None/error is a stop, never a permissive default.
     pub async fn snapshot(&self) -> Result<Option<LaunchSnapshot>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query_scalar::<_, bool>(
-            "SELECT singleton FROM mail_send_budget_guard WHERE singleton FOR UPDATE",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        let row = sqlx::query(SNAPSHOT_SQL).fetch_optional(&mut *tx).await?;
-        let result = row.map(decode).transpose()?;
+        lock_guard(&mut tx).await?;
+        let result = load(&mut tx).await?;
         tx.commit().await?;
         Ok(result)
     }
+}
+
+async fn lock_guard(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT singleton FROM mail_send_budget_guard WHERE singleton FOR UPDATE",
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn load(tx: &mut Transaction<'_, Postgres>) -> Result<Option<LaunchSnapshot>, sqlx::Error> {
+    let row = sqlx::query(SNAPSHOT_SQL).fetch_optional(&mut **tx).await?;
+    row.map(decode).transpose()
 }
 
 fn invalid() -> sqlx::Error {
@@ -105,6 +116,10 @@ fn decode(row: sqlx::postgres::PgRow) -> Result<LaunchSnapshot, sqlx::Error> {
     Ok(LaunchSnapshot {
         binding,
         policy_revision: row.try_get("policy_revision")?,
+        activation_digest: row
+            .try_get::<Option<Vec<u8>>, _>("activation_digest")?
+            .map(|value| value.try_into().map_err(|_| invalid()))
+            .transpose()?,
         enabled: row.try_get("enabled")?,
         boundary_pause,
         reserved_attempts,
@@ -126,7 +141,8 @@ SELECT (extract(epoch FROM pg_postmaster_start_time())*1000000)::bigint AS postm
        (s.local_at>=date_trunc('month',s.local_at)+interval '1 month'-interval '5 minutes')
          AS boundary_pause,
        a.new_revision AS reconciliation_revision,a.evidence_sha256,a.new_reserved_attempts,
-       f.revision AS profile_revision,f.identity_id,f.sender,f.key_version,f.nonce,f.ciphertext
+       f.revision AS profile_revision,f.identity_id,f.sender,f.key_version,f.nonce,f.ciphertext,
+       CASE WHEN p.enabled THEN l.intent_digest END AS activation_digest
 FROM stamp s
 JOIN mail_cost_months m ON m.month_start=date_trunc('month',s.local_at)::date
 CROSS JOIN mail_cost_policy p
@@ -138,6 +154,12 @@ JOIN LATERAL (
     WHERE month_start=m.month_start
     ORDER BY new_revision DESC LIMIT 1
 ) a ON true
+LEFT JOIN mail_launch_activation_audit l
+  ON l.new_revision=p.revision AND l.old_revision=a.new_revision
+ AND l.month_start=m.month_start AND l.evidence_sha256=a.evidence_sha256
+ AND l.postmaster_epoch=(extract(epoch FROM pg_postmaster_start_time())*1000000)::bigint
+ AND l.database_oid=(SELECT oid::bigint FROM pg_database WHERE datname=current_database())
+ AND l.reserved_attempts=a.new_reserved_attempts AND l.created_at<=s.checked_at
 WHERE p.singleton AND f.singleton AND f.ciphertext IS NOT NULL
   AND a.new_revision<=p.revision AND a.created_at<=s.checked_at
   AND a.new_free_allowance=m.free_allowance

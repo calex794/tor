@@ -210,7 +210,7 @@ impl PgPostboxProfile {
     }
 }
 
-async fn operator(
+pub(super) async fn operator(
     tx: &mut Transaction<'_, Postgres>,
     digest: &[u8; 32],
 ) -> Result<i64, ProfileError> {

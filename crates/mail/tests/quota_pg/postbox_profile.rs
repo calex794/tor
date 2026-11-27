@@ -249,7 +249,7 @@ async fn exercise_launch_fence(
     let scope = LaunchScope::OperatorTest(actor);
     let fence = LaunchFence::new();
     let challenge = fence.begin_review(&stopped, scope, *digest).unwrap();
-    fence
+    let intent = fence
         .confirm_review(
             &challenge,
             digest,
@@ -259,13 +259,52 @@ async fn exercise_launch_fence(
         )
         .unwrap();
 
-    // Simulate the future explicit activation transaction in CI only.
-    // There is no production enable route or SMTP invocation in this test.
-    sqlx::query("UPDATE mail_cost_policy SET enabled=true,revision=revision+1 WHERE singleton")
-        .execute(pool)
+    // The test uses a disposable, exact-intent password-proof fixture.
+    // The actual web caller must obtain it from the fresh password verifier.
+    let proof = "y".repeat(43);
+    assert_eq!(
+        launch.admin_activate(digest, &proof, &intent).await,
+        Err(ProfileError::StepUpRequired)
+    );
+    let proof_hash: [u8; 32] = Sha256::digest(proof.as_bytes()).into();
+    let intent_digest = intent.proof_digest();
+    sqlx::query(
+        "UPDATE sessions SET step_up_proof_hash=$1,step_up_scope=$2,
+         step_up_resource_id=1,step_up_revision=$3,step_up_payload_digest=$4,
+         step_up_issued_at=clock_timestamp(),step_up_expires_at=clock_timestamp()+interval '2 minutes',
+         step_up_used_at=NULL WHERE token_hash=$5",
+    )
+    .bind(proof_hash.as_slice())
+    .bind(tor_contracts::auth::MAIL_ACTIVATION_STEP_UP_SCOPE)
+    .bind(intent.policy_revision())
+    .bind(intent_digest.as_slice())
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    launch
+        .admin_activate(digest, &proof, &intent)
         .await
         .unwrap();
+    assert_eq!(
+        launch.admin_activate(digest, &proof, &intent).await,
+        Err(ProfileError::Conflict)
+    );
     let active = launch.snapshot().await.unwrap().unwrap();
+    assert_eq!(
+        fence.permit_reservation(&active, scope),
+        Err(LaunchError::Stopped)
+    );
+    fence.complete_activation(intent, &active).unwrap();
+    let receipt: (String, Option<i64>) = sqlx::query_as(
+        "SELECT mode,test_user_id FROM mail_launch_activation_audit
+         WHERE new_revision=$1",
+    )
+    .bind(active.policy_revision())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt, ("operator_test".to_owned(), Some(actor)));
     assert_eq!(
         LaunchFence::new().permit_reservation(&active, scope),
         Err(LaunchError::Stopped)
