@@ -20,7 +20,6 @@ module.exports = async function honeypotBrowser(browser, base, email, password) 
     const page = await context.newPage();
     await page.goto(`${base}/register`);
     await assertDecoy(page, '/register');
-    await page.locator('[name=display_name]').fill('Rejected decoy');
     await page.locator('[name=email]').fill(email);
     await page.locator('[name=password]').fill(password);
     await page.locator('form[action="/register"] input[name=website]').evaluate(el => { el.value = 'bot-filled'; });
