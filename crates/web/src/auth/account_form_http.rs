@@ -1,7 +1,7 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
 use super::{access_audit, auth_observation, honeypot, login_limiter, AuthState};
 use crate::{
-    auth_cookies::{private_response, SESSION_AGE},
+    auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
     observability, pages,
 };
 use axum::{
@@ -58,37 +58,53 @@ pub(super) struct AuthReturnQuery {
     next: Option<String>,
 }
 
+fn dialog_requested(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-tor-auth-dialog")
+        .is_some_and(|value| value == "1")
+}
+
+// Switching modal forms must not invalidate a valid CSRF token in another
+// tab. Standalone navigation retains its existing fresh-token behavior.
+fn form_csrf(policy: &CookiePolicy, headers: &HeaderMap) -> (String, Vec<String>) {
+    if dialog_requested(headers) {
+        policy.csrf_for_page(headers)
+    } else {
+        let (token, cookie) = policy.csrf_token_cookie();
+        (token, vec![cookie])
+    }
+}
+
 pub(super) async fn show_registration(
     State(state): State<AuthState>,
     Query(query): Query<AuthReturnQuery>,
+    headers: HeaderMap,
 ) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
+    let (token, cookies) = form_csrf(&state.cookies, &headers);
     let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::registration_form_with_next(&token, next.as_deref()),
-        &[cookie],
+        &cookies,
     )
 }
 
 pub(super) async fn show_login(
     State(state): State<AuthState>,
     Query(query): Query<AuthReturnQuery>,
+    headers: HeaderMap,
 ) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
+    let (token, cookies) = form_csrf(&state.cookies, &headers);
     let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::login_form_with_next(&token, next.as_deref()),
-        &[cookie],
+        &cookies,
     )
 }
 
 /// The dialog uses the exact same POST endpoints and security checks as the
 /// standalone forms. Only the successful response representation differs.
 fn auth_success(headers: &HeaderMap, next: Option<&str>, cookies: &[String]) -> Response {
-    if headers
-        .get("x-tor-auth-dialog")
-        .is_some_and(|value| value == "1")
-    {
+    if dialog_requested(headers) {
         let mut response = private_response(StatusCode::NO_CONTENT, cookies);
         response
             .headers_mut()

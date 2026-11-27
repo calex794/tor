@@ -3,7 +3,8 @@
 (() => {
   'use strict';
   const dialog = document.getElementById('tor-auth-dialog');
-  if (!dialog || typeof dialog.showModal !== 'function' || !window.fetch) return;
+  if (!dialog || typeof dialog.showModal !== 'function' || !window.fetch ||
+      typeof window.AbortController !== 'function') return;
 
   const slot = dialog.querySelector('[data-auth-form-slot]');
   const status = dialog.querySelector('[data-auth-status]');
@@ -17,6 +18,7 @@
   let busy = false;
   let submitting = false;
   let opener = null;
+  let pendingLoad = null;
 
   function showError(message) {
     error.textContent = message;
@@ -55,7 +57,7 @@
     return new DOMParser().parseFromString(await response.text(), 'text/html');
   }
 
-  async function loadForm(nextMode, saved = {}) {
+  async function loadForm(nextMode, saved = {}, controller = new AbortController()) {
     mode = nextMode;
     standalone.href = standalonePath();
     recover.hidden = mode !== 'login';
@@ -64,60 +66,89 @@
     }
     slot.replaceChildren();
     status.textContent = 'Загрузка формы…';
-    const response = await fetch('/' + mode, {
-      credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-      headers: dialogHeaders, referrerPolicy: 'same-origin',
-      signal: AbortSignal.timeout(15000)
-    });
-    if (!response.ok) throw new Error('auth form unavailable');
-    const doc = await readDocument(response);
-    const source = doc.querySelector('#main .auth-card--newboo form.auth-form');
-    if (!source || source.getAttribute('method') !== 'post' ||
-        source.getAttribute('action') !== '/' + mode ||
-        !source.querySelector('input[type="hidden"][name="csrf_token"]')?.value) {
-      throw new Error('unexpected auth form');
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch('/' + mode, {
+        credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: dialogHeaders, referrerPolicy: 'same-origin',
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error('auth form unavailable');
+      const doc = await readDocument(response);
+      const source = doc.querySelector('#main .auth-card--newboo form.auth-form');
+      if (!source || source.getAttribute('method') !== 'post' ||
+          source.getAttribute('action') !== '/' + mode ||
+          !source.querySelector('input[type="hidden"][name="csrf_token"]')?.value) {
+        throw new Error('unexpected auth form');
+      }
+      if (controller.signal.aborted || !dialog.open) return;
+      // Import only the server-rendered form, not the page shell or scripts.
+      const form = document.importNode(source, true);
+      for (const [name, value] of Object.entries(saved)) {
+        const input = form.elements.namedItem(name);
+        if (input && value) input.value = value;
+      }
+      form.querySelector('input[type="password"]').value = '';
+      slot.replaceChildren(form);
+      status.textContent = '';
+      if (dialog.open) form.querySelector('input:not([type="hidden"]):not([name="website"])')?.focus();
+    } finally {
+      clearTimeout(timeout);
     }
-    if (!dialog.open) return;
-    // Import only the server-rendered form, not the page shell or scripts.
-    const form = document.importNode(source, true);
-    for (const [name, value] of Object.entries(saved)) {
-      const input = form.elements.namedItem(name);
-      if (input && value) input.value = value;
-    }
-    form.querySelector('input[type="password"]').value = '';
-    slot.replaceChildren(form);
-    status.textContent = '';
-    if (dialog.open) form.querySelector('input:not([type="hidden"]):not([name="website"])')?.focus();
   }
 
   async function changeMode(nextMode) {
     if (busy) return;
     const saved = savedFields();
+    const load = new AbortController();
+    pendingLoad = load;
     setBusy(true);
     showError('');
     try {
-      await loadForm(nextMode, saved);
+      await loadForm(nextMode, saved, load);
     } catch (_) {
-      status.textContent = '';
-      showError('Не удалось открыть форму. Повторите попытку или откройте отдельную страницу.');
+      if (pendingLoad === load && dialog.open) {
+        status.textContent = '';
+        showError('Не удалось открыть форму. Повторите попытку или откройте отдельную страницу.');
+      }
     } finally {
-      setBusy(false);
+      if (pendingLoad === load) {
+        pendingLoad = null;
+        setBusy(false);
+      }
     }
   }
 
   for (const button of modes) {
     button.addEventListener('click', () => changeMode(button.dataset.authMode));
   }
-  close.addEventListener('click', () => { if (!submitting) dialog.close(); });
-  dialog.addEventListener('cancel', event => {
-    if (submitting) event.preventDefault();
-  });
-  dialog.addEventListener('close', () => {
+  function clearDialog() {
+    if (pendingLoad) {
+      const previous = pendingLoad;
+      pendingLoad = null;
+      previous.abort();
+      setBusy(false);
+    }
     slot.replaceChildren();
     showError('');
     status.textContent = '';
     if (opener?.isConnected) opener.focus();
     opener = null;
+  }
+
+  function dismiss() {
+    if (submitting) return;
+    dialog.close();
+    clearDialog();
+  }
+
+  close.addEventListener('click', dismiss);
+  dialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    dismiss();
+  });
+  dialog.addEventListener('close', () => {
+    if (!dialog.open) clearDialog();
   });
 
   dialog.addEventListener('submit', async event => {
@@ -131,11 +162,13 @@
     setBusy(true);
     showError('');
     status.textContent = mode === 'login' ? 'Выполняется вход…' : 'Создаётся аккаунт…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
     try {
       const response = await fetch('/' + mode, {
         method: 'POST', body, credentials: 'same-origin', cache: 'no-store',
         redirect: 'error', headers: dialogHeaders, referrerPolicy: 'same-origin',
-        signal: AbortSignal.timeout(45000)
+        signal: controller.signal
       });
       if (response.status === 204 && response.headers.get('x-tor-auth-dialog') === 'success') {
         // The server has issued the ordinary session cookie. Re-read the same
@@ -155,6 +188,7 @@
       form.querySelector('input[type="password"]').value = '';
       showError('Не удалось подтвердить результат. Обновите страницу или откройте отдельную страницу входа.');
     } finally {
+      clearTimeout(timeout);
       status.textContent = '';
       submitting = false;
       setBusy(false);
