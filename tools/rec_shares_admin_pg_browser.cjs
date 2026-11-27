@@ -61,7 +61,6 @@ async function submit(page, button) {
     const ctx = await browser.newContext({javaScriptEnabled: false, viewport: {width: 390, height: 900}});
     const page = await ctx.newPage();
     await page.goto(base + '/register');
-    await page.getByLabel('Отображаемое имя').fill('Администратор рекомендаций');
     await page.getByLabel('Электронная почта').fill(email);
     await page.getByLabel('Пароль (12–128 символов)').fill('RecommendationShareBrowser2026');
     await page.getByRole('button', {name: 'Создать учётную запись'}).click();

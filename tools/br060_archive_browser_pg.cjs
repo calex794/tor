@@ -1,4 +1,5 @@
 'use strict';
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 // BR-060: actual Chromium + Rust HTTP + disposable PostgreSQL, no route mocks.
 // Owner submits one password-confirmed deletion request; an independent site
 // moderator approves through real HTTP before the reader restores pinned V1.
@@ -42,13 +43,13 @@ function id(value) {
 
 async function register(page, email, name) {
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill(name);
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill(password);
   await Promise.all([
     page.waitForURL(base + '/me'),
     page.getByRole('button', { name: 'Создать учётную запись' }).click(),
   ]);
+  await setFixtureDisplayName(page, name);
 }
 
 async function login(page, email) {
