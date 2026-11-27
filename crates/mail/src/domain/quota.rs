@@ -67,6 +67,7 @@ pub enum QuotaDecision {
     KeyMismatch,
     RegistrationEvidenceRequired,
     PasswordResetEvidenceRequired,
+    DispatchNotAuthorized,
     RecipientSuppressed(super::suppression::SuppressionReason),
     CostStateUnavailable,
     CostEmergencyStop,

@@ -2,7 +2,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 use tor_mail::repositories::postbox_feedback::PgPostboxFeedback;
 
-async fn reset_source(
+pub(super) async fn reset_source(
     pool: &PgPool,
     user: UserId,
     address: &str,

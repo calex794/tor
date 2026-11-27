@@ -1,4 +1,5 @@
 //! Read-only launch observation and process-local activation intent.
+use super::MailClaim;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
@@ -67,6 +68,41 @@ impl LaunchSnapshot {
             && self.reserved_attempts == self.binding.reconciled_attempts
             && self.reserved_attempts >= 0
             && self.policy_revision.checked_add(1).is_some()
+    }
+}
+
+/// A nonserializable authorization for one exact leased reference and
+/// one expected budget increment. Only LaunchFence can mint it.
+pub struct DispatchGrant {
+    pub(crate) claim: MailClaim,
+    pub(crate) before: LaunchSnapshot,
+}
+
+impl DispatchGrant {
+    pub fn claim(&self) -> MailClaim {
+        self.claim
+    }
+
+    pub(crate) fn matches(&self, current: &LaunchSnapshot, reserved: bool) -> bool {
+        if !current.enabled
+            || current.boundary_pause
+            || !current.within_budget
+            || current.binding != self.before.binding
+            || current.policy_revision != self.before.policy_revision
+            || current.activation_digest.is_none()
+            || current.activation_digest != self.before.activation_digest
+        {
+            return false;
+        }
+        if reserved {
+            self.before.reserved_attempts.checked_add(1) == Some(current.reserved_attempts)
+        } else {
+            current == &self.before && current.room_for_reservation
+        }
+    }
+
+    pub(crate) fn digest(&self) -> Option<&[u8; 32]> {
+        self.before.activation_digest.as_ref()
     }
 }
 

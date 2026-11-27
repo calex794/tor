@@ -2,7 +2,7 @@
 //! Snapshot reads never initialize a month or write a receipt; activation is separate.
 use crate::domain::{
     cost::{CostLimits, CostSnapshot, MonthUsage},
-    launch::{LaunchBinding, LaunchSnapshot},
+    launch::{DispatchGrant, LaunchBinding, LaunchSnapshot},
     postbox_profile::{ProfileIdentity, SealedProfile},
     quota::QuotaDecision,
 };
@@ -31,6 +31,76 @@ impl PgMailLaunch {
         tx.commit().await?;
         Ok(result)
     }
+    /// Load only the profile covered by the exact process dispatch grant.
+    /// No SMTP credentials are decrypted or returned by this repository.
+    pub async fn dispatch_profile(
+        &self,
+        grant: &DispatchGrant,
+    ) -> Result<Option<SealedProfile>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        lock_guard(&mut tx).await?;
+        if !dispatch_matches(&mut tx, grant, false).await? {
+            return Ok(None);
+        }
+        let row: (String, String, i64, i32, Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT identity_id,sender,revision,key_version,nonce,ciphertext \
+             FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let profile = SealedProfile {
+            identity: ProfileIdentity::new(row.0, row.1).map_err(|_| invalid())?,
+            revision: row.2,
+            key_version: row.3,
+            nonce: row.4.try_into().map_err(|_| invalid())?,
+            ciphertext: row.5,
+        };
+        if !profile.valid() || &profile.intent_digest() != grant.before.profile_digest() {
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(profile))
+    }
+}
+
+/// Must be called under the shared quota singleton. An enabled cost bit,
+/// a recovered receipt, or a test-only grant does not authorize dispatch.
+pub(super) async fn dispatch_matches(
+    tx: &mut Transaction<'_, Postgres>,
+    grant: &DispatchGrant,
+    reserved: bool,
+) -> Result<bool, sqlx::Error> {
+    let Some(current) = load(tx).await? else {
+        return Ok(false);
+    };
+    if !grant.matches(&current, reserved) {
+        return Ok(false);
+    }
+    let Some(digest) = grant.digest() else {
+        return Ok(false);
+    };
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM mail_launch_activation_audit \
+         WHERE new_revision=$1 AND intent_digest=$2 AND mode='dispatch' AND test_user_id IS NULL)",
+    )
+    .bind(current.policy_revision())
+    .bind(digest.as_slice())
+    .fetch_one(&mut **tx)
+    .await
+}
+
+/// Historical standalone admission methods exist for offline acceptance,
+/// not for a currently activated live profile (including operator test).
+pub(super) async fn legacy_allowed(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT NOT EXISTS(SELECT 1 FROM mail_cost_policy p \
+         JOIN mail_launch_activation_audit a ON a.new_revision=p.revision \
+         WHERE p.singleton AND p.enabled)",
+    )
+    .fetch_one(&mut **tx)
+    .await
 }
 
 async fn lock_guard(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {

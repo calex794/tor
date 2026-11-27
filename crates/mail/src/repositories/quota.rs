@@ -1,5 +1,6 @@
 //! PostgreSQL serialization point for all outbound quota reservations.
 use crate::domain::{
+    launch::DispatchGrant,
     quota::{
         QuotaDecision, QuotaKeys, DAILY_LIMIT, PASSWORD_RESET_IP_DAILY,
         PASSWORD_RESET_RECIPIENT_DAILY, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
@@ -29,6 +30,25 @@ impl PgMailQuota {
         claim: MailClaim,
         keys: QuotaKeys,
     ) -> Result<QuotaDecision, sqlx::Error> {
+        self.reserve_inner(claim, keys, None).await
+    }
+
+    /// Common live dispatch reservation. The exact activation receipt is
+    /// persisted on the charged row under the same budget lock/transaction.
+    pub async fn reserve_dispatch(
+        &self,
+        grant: &DispatchGrant,
+        keys: QuotaKeys,
+    ) -> Result<QuotaDecision, sqlx::Error> {
+        self.reserve_inner(grant.claim(), keys, Some(grant)).await
+    }
+
+    async fn reserve_inner(
+        &self,
+        claim: MailClaim,
+        keys: QuotaKeys,
+        grant: Option<&DispatchGrant>,
+    ) -> Result<QuotaDecision, sqlx::Error> {
         if claim.intent.purpose == MailPurpose::RegistrationConfirmation
             && !keys.matches_registration(claim.intent)
         {
@@ -47,6 +67,14 @@ impl PgMailQuota {
         )
         .fetch_one(&mut *tx)
         .await?;
+        let allowed = match grant {
+            Some(grant) => super::launch::dispatch_matches(&mut tx, grant, false).await?,
+            None => super::launch::legacy_allowed(&mut tx).await?,
+        };
+        if !allowed {
+            tx.rollback().await?;
+            return Ok(QuotaDecision::DispatchNotAuthorized);
+        }
 
         let active = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM mail_outbox WHERE id=$1 AND generation=$2 \
@@ -161,6 +189,25 @@ impl PgMailQuota {
                 // commit when admission is denied. No SMTP permit is issued.
                 tx.rollback().await?;
                 return Ok(cost);
+            }
+            if let Some(grant) = grant {
+                let Some(digest) = grant.digest() else {
+                    return Ok(QuotaDecision::DispatchNotAuthorized);
+                };
+                let bound = sqlx::query(
+                    "UPDATE mail_send_reservations SET launch_intent_digest=$3 \
+                     WHERE outbox_id=$1 AND generation=$2 AND launch_intent_digest IS NULL",
+                )
+                .bind(claim.id)
+                .bind(claim.generation)
+                .bind(digest.as_slice())
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if bound != 1 || !super::launch::dispatch_matches(&mut tx, grant, true).await? {
+                    tx.rollback().await?;
+                    return Ok(QuotaDecision::DispatchNotAuthorized);
+                }
             }
         }
         tx.commit().await?;

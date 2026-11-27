@@ -245,3 +245,40 @@ fn missing_or_different_receipt_and_skipped_counter_are_not_accepted() {
         Err(LaunchError::Conflict)
     );
 }
+
+#[test]
+fn dispatch_grant_is_exact_counter_bound_and_local_stop_wins() {
+    use crate::domain::MailClaim;
+    use tor_contracts::{
+        auth::UserId,
+        mail::{MailIntent, MailPurpose},
+        paid_delivery::PositiveId,
+    };
+
+    let (gate, mut snapshot) = armed(LaunchScope::Dispatch);
+    let claim = MailClaim {
+        id: 7,
+        generation: 2,
+        intent: MailIntent {
+            purpose: MailPurpose::PasswordReset,
+            event_id: PositiveId::new(11).unwrap(),
+            recipient: UserId::new(13).unwrap(),
+        },
+    };
+    let grant = gate.authorize_dispatch(&snapshot, claim).unwrap();
+    assert_eq!(grant.claim(), claim);
+    assert!(grant.matches(&snapshot, false));
+    assert!(!grant.matches(&snapshot, true));
+    snapshot.reserved_attempts += 1;
+    assert!(grant.matches(&snapshot, true));
+    gate.stop().unwrap();
+    assert_eq!(
+        gate.consume_dispatch_start(&snapshot, grant),
+        Err(LaunchError::Stopped)
+    );
+    let (gate, snapshot) = armed(LaunchScope::OperatorTest(13));
+    assert!(matches!(
+        gate.authorize_dispatch(&snapshot, claim),
+        Err(LaunchError::Conflict)
+    ));
+}

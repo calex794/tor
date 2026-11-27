@@ -1,6 +1,7 @@
 //! Durable Postbox correlation; no public endpoint or provider credentials.
 use super::suppression::record_attempt;
 use crate::domain::{
+    launch::DispatchGrant,
     postbox::{valid_id, PostboxEvent},
     quota::identity::QuotaKeySigner,
     suppression::{AttemptRef, FeedbackDecision},
@@ -41,7 +42,7 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(claim, identity_id, None).await
+        self.prepare_inner(claim, identity_id, None, None).await
     }
 
     /// The caller resolves the current request, verifies recipient policy,
@@ -54,7 +55,29 @@ impl PgPostboxFeedback {
         identity_id: &str,
         token_hash: &[u8; 32],
     ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(claim, identity_id, Some(token_hash))
+        self.prepare_inner(claim, identity_id, Some(token_hash), None)
+            .await
+    }
+
+    /// For non-reset dispatch, the exact grant must own the charged row.
+    pub async fn prepare_dispatch(
+        &self,
+        grant: &DispatchGrant,
+        identity_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(grant.claim(), identity_id, None, Some(grant))
+            .await
+    }
+
+    /// After authenticated SMTPS, issue the reset proof and correlation only
+    /// under the same live dispatch activation and charged reservation.
+    pub async fn prepare_password_reset_dispatch(
+        &self,
+        grant: &DispatchGrant,
+        identity_id: &str,
+        token_hash: &[u8; 32],
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(grant.claim(), identity_id, Some(token_hash), Some(grant))
             .await
     }
 
@@ -63,6 +86,7 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
         reset_token_hash: Option<&[u8; 32]>,
+        grant: Option<&DispatchGrant>,
     ) -> Result<Option<String>, sqlx::Error> {
         if (claim.intent.purpose == MailPurpose::PasswordReset) != reset_token_hash.is_some() {
             return Ok(None);
@@ -76,14 +100,6 @@ impl PgPostboxFeedback {
             .map_err(|_| sqlx::Error::Protocol("mail randomness unavailable".to_owned()))?;
         let marker = hex::encode(bytes);
         let mut tx = self.pool.begin().await?;
-        let Some(binding) = guard(&mut tx).await? else {
-            tx.rollback().await?;
-            return Ok(None);
-        };
-        if !super::cost::submission_enabled(&mut tx, claim).await? {
-            tx.rollback().await?;
-            return Ok(None);
-        }
         // For reset, lock the account before the outbox/source/proof. Account
         // changes and account deletion must serialize with proof issuance.
         if reset_token_hash.is_some() {
@@ -98,6 +114,38 @@ impl PgPostboxFeedback {
                 return Ok(None);
             }
         }
+        let Some(binding) = guard(&mut tx).await? else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        if !super::cost::submission_enabled(&mut tx, claim).await? {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        let launch_digest = if let Some(grant) = grant {
+            if !super::launch::dispatch_matches(&mut tx, grant, true).await? {
+                return Ok(None);
+            }
+            let exact_identity: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM mail_postbox_profile \
+                 WHERE singleton AND identity_id=$1 AND ciphertext IS NOT NULL)",
+            )
+            .bind(identity_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !exact_identity {
+                return Ok(None);
+            }
+            let Some(digest) = grant.digest() else {
+                return Ok(None);
+            };
+            Some(digest.as_slice())
+        } else {
+            if !super::launch::legacy_allowed(&mut tx).await? {
+                return Ok(None);
+            }
+            None
+        };
         let inserted = sqlx::query(
             "INSERT INTO mail_feedback_attempts \
              (outbox_id,generation,recipient_key,key_binding,identity_id,marker,reserved_at) \
@@ -106,6 +154,7 @@ impl PgPostboxFeedback {
                AND m.generation=r.generation \
              WHERE m.id=$1 AND m.generation=$2 AND m.purpose=$3 AND m.event_id=$4 \
                AND m.recipient_user_id=$5 AND m.status='leased' \
+               AND r.launch_intent_digest IS NOT DISTINCT FROM $9 \
                AND m.lease_until>clock_timestamp() \
                AND (m.purpose<>'password_reset' OR \
                     m.lease_until>clock_timestamp()+interval '25 seconds') \
@@ -127,6 +176,7 @@ impl PgPostboxFeedback {
         .bind(identity_id)
         .bind(&binding)
         .bind(&marker)
+        .bind(launch_digest)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -175,9 +225,6 @@ impl PgPostboxFeedback {
             return Ok(false);
         }
         let mut tx = self.pool.begin().await?;
-        let Some(binding) = guard(&mut tx).await? else {
-            return Ok(false);
-        };
         let account: Option<i64> =
             sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
                 .bind(claim.intent.recipient.get())
@@ -186,6 +233,9 @@ impl PgPostboxFeedback {
         if account.is_none() {
             return Ok(false);
         }
+        let Some(binding) = guard(&mut tx).await? else {
+            return Ok(false);
+        };
         let updated = sqlx::query(
             "UPDATE mail_outbox m SET status=$8,lease_until=NULL,finished_at=clock_timestamp() \
              FROM mail_feedback_attempts f,password_reset_tokens p \
