@@ -7,6 +7,8 @@ pub mod suppression;
 
 use tor_contracts::mail::MailIntent;
 
+pub mod dispatch;
+
 /// A claim generation fences late results from a previous claim.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MailClaim {
