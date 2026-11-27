@@ -104,7 +104,10 @@ async fn idna_aliases_share_domain_cache_without_changing_local_parts() {
     let preflight = RecipientPreflight::new(dns.clone(), DisposableMode::default());
     for (input, expected) in [
         ("A+Books@пример.рф", "A+Books@xn--e1afmkfd.xn--p1ai"),
-        ("second@xn--e1afmkfd.xn--p1ai", "second@xn--e1afmkfd.xn--p1ai"),
+        (
+            "second@xn--e1afmkfd.xn--p1ai",
+            "second@xn--e1afmkfd.xn--p1ai",
+        ),
     ] {
         let RecipientDecision::Ready(recipient) = preflight.check(input).await else {
             panic!("valid IDNA transport address rejected");
