@@ -57,6 +57,7 @@ FIXTURE_MODULES = (
     'tor_recovery_pg_run.py',
     'i11_pitr_run_paused.py',
     'i11_finance_restore_facts.sql',
+    'i11_s334_paid_recovery_facts.sql',
     'i11_paid_restore_facts.sql',
     'i11_historical_rights_restore_facts.sql',
     'i11_pitr_http_fixture.py',

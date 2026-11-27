@@ -52,7 +52,7 @@ cleanup() {
     admin -c "DROP DATABASE $restore_db WITH (FORCE)" >/dev/null || status=1
   fi
   # No artifact uploads: all plaintext and ciphertext are CI fixture only.
-  rm -rf -- "$work/pack-fixture" "$work/single-fixture"
+  rm -rf -- "$work/pack-fixture" "$work/single-fixture" "$work/s334-minio"
   rm -f -- "$work"/*
   rmdir -- "$work" || status=1
   exit "$status"
@@ -109,8 +109,83 @@ cargo test -p tor-commerce --test d08_finance_pg d_08_single_purchase_posts_exac
 # Actual D-06 purchase, approved refund, idempotent approval and old-right denial.
 cargo test -p tor-commerce --test slices_pg d06_refund_approval::d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split \
   -- --ignored --exact --test-threads=1
+# RECOVERY-10e-c1: use the actual S334 purchase seed in this same database.
+# A separate loopback source MinIO is destroyed before PITR. The vault keeps
+# only ciphertext, never the independent synthetic KEKs or session fixture.
+s334_seed_and_archive() (
+  umask 077
+  export TOR_TEST_S3_ENDPOINT=http://127.0.0.1:9000
+  export TOR_TEST_S3_ACCESS_KEY=tor-chapter-ci-user
+  export TOR_TEST_S3_SECRET_KEY=tor-chapter-ci-secret-only
+  export TOR_CONTENT_KEK_V1=''
+  export RUNNER_TEMP="$work"
+  if curl --noproxy '*' -fsS --max-time 2 "$TOR_TEST_S3_ENDPOINT/minio/health/ready" >/dev/null 2>&1; then
+    echo 'REFUSE: S334 source MinIO port already in use' >&2
+    exit 1
+  fi
+  mkdir -m 700 "$work/s334-minio"
+  release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+  HOME="$work" MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
+    MINIO_BROWSER=off MINIO_UPDATE=off "$work/../$release" server "$work/s334-minio" \
+    --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+    >"$work/s334-minio.log" 2>&1 &
+  source_pid=$!
+  trap 'kill "$source_pid" 2>/dev/null || true; wait "$source_pid" 2>/dev/null || true' EXIT
+  ready=false
+  for attempt in $(seq 1 60); do
+    kill -0 "$source_pid" 2>/dev/null || exit 1
+    if curl --noproxy '*' -fsS --max-time 2 "$TOR_TEST_S3_ENDPOINT/minio/health/ready" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 0.5
+  done
+  [[ $ready == true ]]
+  openssl rand -out "$work/s334-content-kek.bin" 32
+  openssl rand -out "$work/s334-content-kek-v2.bin" 32
+  [[ $(wc -c <"$work/s334-content-kek.bin") == 32 && $(wc -c <"$work/s334-content-kek-v2.bin") == 32 ]]
+  ! cmp -s "$work/s334-content-kek.bin" "$work/s334-content-kek-v2.bin"
+  if ! cargo test -p tor-web --features s3-paid --test s334_paid_restore_pg_s3 \
+      s3_34_seed_paid_v1_and_publish_v2 -- --ignored --exact --test-threads=1 \
+      >"$work/s334-seed.log" 2>&1; then
+    echo 'I11_S334_SHARED_SEED_FAILED' >&2
+    exit 1
+  fi
+  [[ -s "$work/s334-state.json" ]]
+  source_s3() {
+    curl --noproxy '*' --silent --show-error --max-time 30 \
+      --aws-sigv4 'aws:amz:us-east-1:s3' \
+      --user "$TOR_TEST_S3_ACCESS_KEY:$TOR_TEST_S3_SECRET_KEY" "$@"
+  }
+  for edition in v1 v2; do
+    case "$edition" in
+      v1) id=f0c0e034-2026-4034-8034-000000000134 ;;
+      v2) id=f0c0e034-2026-4034-8034-000000000234 ;;
+    esac
+    key="private/chapter-versions/$id.enc"
+    digest=$(psql "$TEST_DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 \
+      -c "SELECT encode(sha256_ciphertext,'hex') FROM storage_objects WHERE id='$id'::uuid AND state='attached' AND kek_id='content-kek-$edition'")
+    [[ $digest =~ ^[0-9a-f]{64}$ ]]
+    original="$TOR_TEST_S3_ENDPOINT/tor-private-chapter-ci/$key"
+    archived="$endpoint/$bucket/s334/$key"
+    source_s3 --fail --output "$work/s334-source.enc" "$original"
+    [[ $(sha256sum "$work/s334-source.enc" | cut -d ' ' -f 1) == "$digest" ]]
+    s3 --noproxy '*' --upload-file "$work/s334-source.enc" \
+      --header 'If-None-Match: *' --header 'Content-Type: application/octet-stream' \
+      --output /dev/null "$archived"
+    [[ $(curl --noproxy '*' -sS --max-time 5 -o /dev/null -w '%{http_code}' "$archived") == 403 ]]
+    source_s3 --fail --request DELETE --output /dev/null "$original"
+    [[ $(source_s3 --output /dev/null --write-out '%{http_code}' "$original") == 404 ]]
+    rm -- "$work/s334-source.enc"
+    s3 --noproxy '*' --output "$work/s334-$edition.enc" "$archived"
+    [[ $(sha256sum "$work/s334-$edition.enc" | cut -d ' ' -f 1) == "$digest" ]]
+  done
+)
+s334_seed_and_archive
+echo 'I11_S334_SHARED_CIPHERTEXT_ARCHIVE_OK'
 finance_snapshot() {
-  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_finance_restore_facts.sql
+  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_finance_restore_facts.sql \
+    -f tools/i11_s334_paid_recovery_facts.sql
 }
 source_finance="$(finance_snapshot "$TEST_DATABASE_URL")"
 [[ -n "$source_finance" ]] || {
@@ -300,3 +375,4 @@ chmod 700 "$work/http-reader-test"
 finance_sha256="$(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1)"
 python3 tools/i11_pitr_drill.py --fixture-dump "$work/restored.dump" \
   --finance-sha256 "$finance_sha256"
+echo 'I11_S334_SHARED_WAL_SNAPSHOT_OK'

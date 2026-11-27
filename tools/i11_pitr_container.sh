@@ -208,7 +208,8 @@ pg_restore --host="$work/source-socket" --port=55432 --username=postgres \
   "$work/fixture.dump" >"$work/log/finance-import.log" 2>&1
 rm -- "$work/fixture.dump"
 source_finance=$(sql -d tor_ci -q -c 'SET ROLE tor_app' \
-  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql 2>"$work/log/finance-witness.log")
+  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql \
+  -f /opt/tor-i11-tools/i11_s334_paid_recovery_facts.sql 2>"$work/log/finance-witness.log")
 [[ -n "$source_finance" ]]
 [[ $(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1) == "$TOR_I11_FINANCE_SHA256" ]]
 # Choose a real whole-second UTC point strictly between two transactions.
@@ -354,7 +355,8 @@ done
 # TOR database. It requires all original purchase/finance rows and 750,
 # not the later 850 balance; compare exact stable row snapshots as well.
 restored_finance=$(time_sql -d tor_ci -q -c 'SET ROLE tor_app' \
-  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql 2>"$work/log/finance-restored-witness.log")
+  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql \
+  -f /opt/tor-i11-tools/i11_s334_paid_recovery_facts.sql 2>"$work/log/finance-restored-witness.log")
 [[ -n "$restored_finance" && "$restored_finance" == "$source_finance" ]]
 [[ $(printf '%s' "$restored_finance" | sha256sum | cut -d ' ' -f 1) == "$TOR_I11_FINANCE_SHA256" ]]
 [[ $(time_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]
@@ -384,14 +386,16 @@ wait_for_primary 30 "$app_dir" app_sql
 [[ $(app_sql -c "SELECT current_setting('data_directory')='$app_dir' AND current_setting('listen_addresses')='127.0.0.1' AND current_setting('archive_mode')='off'") == t ]]
 [[ $(app_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
 [[ $(app_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]
-app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql \
+  -f /opt/tor-i11-tools/i11_s334_paid_recovery_facts.sql)
 [[ -n "$app_finance" && "$app_finance" == "$source_finance" ]]
 # Only the isolated promoted app copy enables LOGIN. Actual restored grants
 # are retained; source and pause copies stay unchanged.
 app_sql -c 'ALTER ROLE tor_app LOGIN' >/dev/null
 [[ $(app_sql -c "SELECT NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication FROM pg_roles WHERE rolname='tor_app'") == t ]]
 bash /opt/tor-i11-tools/i11_pitr_http.sh "$work"
-app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql \
+  -f /opt/tor-i11-tools/i11_s334_paid_recovery_facts.sql)
 [[ "$app_finance" == "$source_finance" ]]
 pg_ctl -D "$app_dir" -m fast -w -t 30 stop >/dev/null
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'

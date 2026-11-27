@@ -171,6 +171,8 @@ class FoundationLogTests(unittest.TestCase):
             "D001_OFFSITE_SINGLE_EXACT_RESTORE_CI_OK",
             "FND05_RESTORED_ACTIVE_COVER_HTTP_OK",
             "I11_PITR_ISOLATED_DRILL_OK report=/runner/drill.json",
+            "I11_S334_SHARED_CIPHERTEXT_ARCHIVE_OK",
+            "I11_S334_SHARED_WAL_SNAPSHOT_OK",
         ]
         self.assertEqual(verify_foundation_log(job, log, SHA), f"{SHA}:{job}")
         with self.assertRaisesRegex(GateError, "WAL recovery"):

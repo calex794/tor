@@ -46,6 +46,8 @@ FOUNDATION_MARKERS = {
         "exact obsolete SINGLE restore": r"D001_OFFSITE_SINGLE_EXACT_RESTORE_CI_OK",
         "restored active cover HTTP": r"FND05_RESTORED_ACTIVE_COVER_HTTP_OK",
         "WAL recovery": r"I11_PITR_ISOLATED_DRILL_OK report=\S+",
+        "S334 independent ciphertext archive": r"I11_S334_SHARED_CIPHERTEXT_ARCHIVE_OK",
+        "S334 exact financial WAL snapshot": r"I11_S334_SHARED_WAL_SNAPSHOT_OK",
     },
     "purchased-v1-recovery": {
         "purchased V1 and KEK": r"S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS",
