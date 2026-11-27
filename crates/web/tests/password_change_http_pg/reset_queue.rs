@@ -55,7 +55,10 @@ fn pg(url: &str, sql: &str) -> String {
             sql,
         ])
         .env("PGCONNECT_TIMEOUT", "5")
-        .env("PGOPTIONS", "-c statement_timeout=3000 -c lock_timeout=3000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=3000 -c lock_timeout=3000",
+        )
         .output()
         .expect("disposable PostgreSQL fixture requires psql");
     assert!(output.status.success(), "fixture SQL failed");
@@ -138,16 +141,14 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     )
     .await;
     assert_eq!(bad_origin.status(), StatusCode::FORBIDDEN);
-    let missing_csrf = send(
-        &app,
-        request("POST", "/forgot-password", &form, "", ORIGIN),
-    )
-    .await;
+    let missing_csrf = send(&app, request("POST", "/forgot-password", &form, "", ORIGIN)).await;
     assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM account_password_reset_mail_requests WHERE user_id={user}"),
+            &format!(
+                "SELECT count(*) FROM account_password_reset_mail_requests WHERE user_id={user}"
+            ),
         ),
         "0"
     );
