@@ -20,17 +20,32 @@ fn encrypted_profile_survives_reopen_but_cannot_be_substituted() {
     let reopened = key(1, 13).open(&sealed).unwrap();
     assert_eq!(reopened.access(), "fixture-access");
     assert_eq!(reopened.secret(), "fixture-secret");
-    assert!(matches!(key(1, 14).open(&sealed), Err(SealError::KeyUnavailable)));
-    assert!(matches!(key(2, 13).open(&sealed), Err(SealError::KeyUnavailable)));
+    assert!(matches!(
+        key(1, 14).open(&sealed),
+        Err(SealError::KeyUnavailable)
+    ));
+    assert!(matches!(
+        key(2, 13).open(&sealed),
+        Err(SealError::KeyUnavailable)
+    ));
 
     sealed.revision += 1;
-    assert!(matches!(master.open(&sealed), Err(SealError::KeyUnavailable)));
+    assert!(matches!(
+        master.open(&sealed),
+        Err(SealError::KeyUnavailable)
+    ));
     sealed.revision -= 1;
     sealed.identity.sender = "other@pandaolate.ru".into();
-    assert!(matches!(master.open(&sealed), Err(SealError::KeyUnavailable)));
+    assert!(matches!(
+        master.open(&sealed),
+        Err(SealError::KeyUnavailable)
+    ));
     sealed.identity = identity();
     sealed.ciphertext[0] ^= 1;
-    assert!(matches!(master.open(&sealed), Err(SealError::KeyUnavailable)));
+    assert!(matches!(
+        master.open(&sealed),
+        Err(SealError::KeyUnavailable)
+    ));
 }
 
 #[test]

@@ -166,7 +166,8 @@ impl PgPostboxProfile {
         let (identity, sender, key_version, nonce, ciphertext) =
             row.ok_or(ProfileError::Conflict)?;
         let result = SealedProfile {
-            identity: ProfileIdentity::new(identity, sender).map_err(|_| ProfileError::Unavailable)?,
+            identity: ProfileIdentity::new(identity, sender)
+                .map_err(|_| ProfileError::Unavailable)?,
             revision: expected_revision,
             key_version,
             nonce: nonce.try_into().map_err(|_| ProfileError::Unavailable)?,

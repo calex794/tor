@@ -102,9 +102,7 @@ impl ProfileSecrets {
 }
 
 fn valid_secret(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_SECRET
-        && value.bytes().all(|b| b.is_ascii_graphic())
+    !value.is_empty() && value.len() <= MAX_SECRET && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
 /// A versioned key supplied by independently managed operator configuration.
