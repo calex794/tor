@@ -183,6 +183,7 @@ TEST_SUITES = {
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/drop07_pack_restore_ci.sh": {"backup_recovery"},
     "crates/web/tests/fnd05_restored_free_rights_pg_s3.rs": {"rust", "backup_recovery"},
+    "crates/web/tests/fnd05_restored_cover_pg_s3.rs": {"rust", "backup_recovery"},
     "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
     "tools/i11_s334_paid_recovery_facts.sql": {"purchased_recovery"},
 }

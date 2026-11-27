@@ -91,6 +91,10 @@ d001_single_seed "$work/single-fixture"
 s3 --request PUT --output /dev/null "$endpoint/$bucket"
 d001_single_archive "$work/single-fixture" "$endpoint/$bucket"
 d001_single_seal_fixture "$work/single-fixture" "$endpoint/$bucket"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 seed_active_cover_backup \
+    -- --exact --ignored --test-threads=1
+[[ -s "$work/cover-manifest.sha256" ]]
 # Reuse the existing I-11 historical paid V1/V2 fixture in this separate
 # disposable sealed-restore lane (no real purchase or payment claimed here).
 psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
@@ -224,6 +228,11 @@ echo 'I11_RESTORED_REFUND_FINANCE_REVOCATION_OK'
 echo 'I11_RESTORED_HISTORICAL_RIGHTS_DB_OK'
 drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
 d001_single_verify_restore "$work/single-fixture" "$endpoint/$bucket" "$restored_url"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  FND05_RESTORED_DATABASE_URL="$restored_url" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 verify_restored_active_cover \
+    -- --exact --ignored --test-threads=1 --show-output | tee "$work/cover-restore.log"
+grep -Fxq 'FND05_RESTORED_ACTIVE_COVER_HTTP_OK' "$work/cover-restore.log"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3095 \
