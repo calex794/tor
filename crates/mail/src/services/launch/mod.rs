@@ -2,7 +2,7 @@
 //! All web/worker clones must share a single instance. Never deserialize it.
 pub use crate::domain::launch::LaunchScope;
 use crate::domain::{
-    launch::{ActivationIntent, DispatchGrant, LaunchSnapshot, REVIEW_LIMIT},
+    launch::{ActivationIntent, DispatchGrant, DispatchStart, LaunchSnapshot, REVIEW_LIMIT},
     MailClaim,
 };
 use rand::{rngs::OsRng, RngCore};
@@ -197,16 +197,12 @@ impl LaunchFence {
 
     /// The common worker consumes the same grant after final preparation
     /// and a fresh observation, immediately before starting its SMTP send.
-    pub fn consume_dispatch_start(
-        &self,
-        current: &LaunchSnapshot,
-        grant: DispatchGrant,
-    ) -> Result<(), LaunchError> {
-        if !grant.matches(current, true) {
+    pub fn consume_dispatch_start(&self, start: DispatchStart) -> Result<(), LaunchError> {
+        if !start.prepared.fresh() || !start.prepared.grant.matches(&start.current, true) {
             self.stop()?;
             return Err(LaunchError::Conflict);
         }
-        self.consume_start(current, LaunchScope::Dispatch)
+        self.consume_counter(&start.current, LaunchScope::Dispatch)
     }
 
     /// Called only after an exact claim/attempt reservation commits and the
@@ -215,6 +211,20 @@ impl LaunchFence {
     /// A replayed/decreasing counter or different mode invalidates approval.
     /// One dispatch worker must serialize this check and actual send start.
     pub fn consume_start(
+        &self,
+        current: &LaunchSnapshot,
+        scope: LaunchScope,
+    ) -> Result<(), LaunchError> {
+        // Dispatch must present the exact prepared DB witness; a naked
+        // counter or a reservation grant cannot authorize a message.
+        if scope == LaunchScope::Dispatch {
+            self.stop()?;
+            return Err(LaunchError::Conflict);
+        }
+        self.consume_counter(current, scope)
+    }
+
+    fn consume_counter(
         &self,
         current: &LaunchSnapshot,
         scope: LaunchScope,

@@ -505,18 +505,20 @@ async fn exercise_dispatch_grant(
         .await
         .unwrap()
         .is_none());
-    assert!(feedback
+    let prepared = feedback
         .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
         .await
         .unwrap()
-        .is_some());
+        .unwrap();
+    assert_eq!(prepared.claim(), reset);
+    assert!(prepared.marker().starts_with("<tor-"));
     assert!(feedback
         .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
         .await
         .unwrap()
         .is_none());
-    let current = launch.snapshot().await.unwrap().unwrap();
-    fence.consume_dispatch_start(&current, grant).unwrap();
+    let start = launch.dispatch_start(prepared).await.unwrap().unwrap();
+    fence.consume_dispatch_start(start).unwrap();
     // A simulated ambiguous submission, not a network call.
     assert!(feedback
         .finish_password_reset(
@@ -529,9 +531,10 @@ async fn exercise_dispatch_grant(
         .await
         .unwrap());
     assert!(queue.finish(other, MailOutcome::Cancelled).await.unwrap());
-    assert!(matches!(
-        fence.consume_dispatch_start(&current, other_grant),
+    let current = launch.snapshot().await.unwrap().unwrap();
+    assert_eq!(
+        fence.consume_start(&current, LaunchScope::Dispatch),
         Err(LaunchError::Conflict)
-    ));
+    );
     clear(pool).await;
 }

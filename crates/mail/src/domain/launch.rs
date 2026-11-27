@@ -106,6 +106,53 @@ impl DispatchGrant {
     }
 }
 
+/// Produced only after an exact preparation transaction has committed.
+/// The secret itself never crosses this boundary.
+pub struct PreparedDispatch {
+    pub(crate) grant: DispatchGrant,
+    pub(crate) marker: String,
+    pub(crate) reset_hash: Option<[u8; 32]>,
+    pub(crate) started: Instant,
+}
+
+impl PreparedDispatch {
+    pub(crate) fn new(
+        grant: &DispatchGrant,
+        marker: String,
+        reset_hash: Option<[u8; 32]>,
+        started: Instant,
+    ) -> Self {
+        Self {
+            grant: DispatchGrant {
+                claim: grant.claim,
+                before: grant.before.clone(),
+            },
+            marker,
+            reset_hash,
+            started,
+        }
+    }
+
+    pub fn claim(&self) -> MailClaim {
+        self.grant.claim
+    }
+
+    pub fn marker(&self) -> &str {
+        &self.marker
+    }
+
+    pub(crate) fn fresh(&self) -> bool {
+        self.started.elapsed() < Duration::from_secs(4)
+    }
+}
+
+/// A fresh exact database send-start observation. No public constructor,
+/// serialization, clone or recovery from a stored counter.
+pub struct DispatchStart {
+    pub(crate) prepared: PreparedDispatch,
+    pub(crate) current: LaunchSnapshot,
+}
+
 /// One process-bound, expiring intent. Never deserialize from browser input
 /// or persist it in the recovered database. It is not a send authorization.
 pub struct ActivationIntent {

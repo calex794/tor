@@ -1,7 +1,7 @@
 //! Durable Postbox correlation; no public endpoint or provider credentials.
 use super::suppression::record_attempt;
 use crate::domain::{
-    launch::DispatchGrant,
+    launch::{DispatchGrant, PreparedDispatch},
     postbox::{valid_id, PostboxEvent},
     quota::identity::QuotaKeySigner,
     suppression::{AttemptRef, FeedbackDecision},
@@ -9,6 +9,7 @@ use crate::domain::{
 };
 use rand::{rngs::OsRng, RngCore};
 use sqlx::{PgPool, Postgres, Transaction};
+use std::time::Instant;
 use tor_contracts::mail::MailPurpose;
 
 #[derive(Clone)]
@@ -64,9 +65,12 @@ impl PgPostboxFeedback {
         &self,
         grant: &DispatchGrant,
         identity_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(grant.claim(), identity_id, None, Some(grant))
-            .await
+    ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
+        let started = Instant::now();
+        let marker = self
+            .prepare_inner(grant.claim(), identity_id, None, Some(grant))
+            .await?;
+        Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, None, started)))
     }
 
     /// After authenticated SMTPS, issue the reset proof and correlation only
@@ -76,9 +80,12 @@ impl PgPostboxFeedback {
         grant: &DispatchGrant,
         identity_id: &str,
         token_hash: &[u8; 32],
-    ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(grant.claim(), identity_id, Some(token_hash), Some(grant))
-            .await
+    ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
+        let started = Instant::now();
+        let marker = self
+            .prepare_inner(grant.claim(), identity_id, Some(token_hash), Some(grant))
+            .await?;
+        Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, Some(*token_hash), started)))
     }
 
     async fn prepare_inner(
@@ -156,7 +163,7 @@ impl PgPostboxFeedback {
                AND m.recipient_user_id=$5 AND m.status='leased' \
                AND r.launch_intent_digest IS NOT DISTINCT FROM $9 \
                AND m.lease_until>clock_timestamp() \
-               AND (m.purpose<>'password_reset' OR \
+               AND (($9::bytea IS NULL AND m.purpose<>'password_reset') OR \
                     m.lease_until>clock_timestamp()+interval '25 seconds') \
                AND r.reserved_at>clock_timestamp()-interval '120 seconds' \
                AND r.reserved_at<=clock_timestamp() \

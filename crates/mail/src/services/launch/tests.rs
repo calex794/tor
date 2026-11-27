@@ -52,7 +52,7 @@ fn restored_enabled_database_and_new_process_are_stopped() {
     gate.permit_reservation(&current, LaunchScope::Dispatch)
         .unwrap();
     current.reserved_attempts += 1;
-    gate.consume_start(&current, LaunchScope::Dispatch).unwrap();
+    gate.consume_counter(&current, LaunchScope::Dispatch).unwrap();
     let restarted = LaunchFence::new();
     assert_eq!(
         restarted.permit_reservation(&current, LaunchScope::Dispatch),
@@ -187,9 +187,9 @@ fn restart_rollover_profile_revision_or_counter_rollback_latches_stop() {
 fn each_send_start_requires_new_committed_counter_and_explicit_stop_works() {
     let (gate, mut current) = armed(LaunchScope::Dispatch);
     current.reserved_attempts += 1;
-    gate.consume_start(&current, LaunchScope::Dispatch).unwrap();
+    gate.consume_counter(&current, LaunchScope::Dispatch).unwrap();
     assert_eq!(
-        gate.consume_start(&current, LaunchScope::Dispatch),
+        gate.consume_counter(&current, LaunchScope::Dispatch),
         Err(LaunchError::Conflict)
     );
     let (gate, current) = armed(LaunchScope::Dispatch);
@@ -241,7 +241,7 @@ fn missing_or_different_receipt_and_skipped_counter_are_not_accepted() {
     let (gate, mut current) = armed(LaunchScope::Dispatch);
     current.reserved_attempts += 2;
     assert_eq!(
-        gate.consume_start(&current, LaunchScope::Dispatch),
+        gate.consume_counter(&current, LaunchScope::Dispatch),
         Err(LaunchError::Conflict)
     );
 }
@@ -271,14 +271,31 @@ fn dispatch_grant_is_exact_counter_bound_and_local_stop_wins() {
     assert!(!grant.matches(&snapshot, true));
     snapshot.reserved_attempts += 1;
     assert!(grant.matches(&snapshot, true));
-    gate.stop().unwrap();
-    assert_eq!(
-        gate.consume_dispatch_start(&snapshot, grant),
-        Err(LaunchError::Stopped)
+    let prepared = crate::domain::launch::PreparedDispatch::new(
+        &grant,
+        "fixture-marker".into(),
+        Some([1; 32]),
+        Instant::now(),
     );
+    let start = DispatchStart {
+        prepared,
+        current: snapshot.clone(),
+    };
+    gate.stop().unwrap();
+    assert_eq!(gate.consume_dispatch_start(start), Err(LaunchError::Stopped));
     let (gate, snapshot) = armed(LaunchScope::OperatorTest(13));
     assert!(matches!(
         gate.authorize_dispatch(&snapshot, claim),
         Err(LaunchError::Conflict)
     ));
+}
+
+#[test]
+fn raw_counter_cannot_authorize_dispatch() {
+    let (gate, mut current) = armed(LaunchScope::Dispatch);
+    current.reserved_attempts += 1;
+    assert_eq!(
+        gate.consume_start(&current, LaunchScope::Dispatch),
+        Err(LaunchError::Conflict)
+    );
 }
