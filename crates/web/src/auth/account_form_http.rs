@@ -35,8 +35,11 @@ pub(super) fn router() -> Router<AuthState> {
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
     email: String,
-    display_name: String,
+    #[serde(default)]
+    handle: String,
     password: String,
+    #[serde(default)]
+    confirm_password: String,
     website: Option<String>,
     csrf_token: Option<String>,
     manual_invite_code: Option<String>,
@@ -147,7 +150,7 @@ fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
             StatusCode::BAD_REQUEST,
             pages::registration_form_with_error_and_next(
                 form.csrf_token.as_deref().unwrap_or(""),
-                &form.display_name,
+                &form.handle,
                 &form.email,
                 Some(reason),
                 next.as_deref(),
@@ -261,7 +264,12 @@ pub(super) async fn register(
             true,
         );
     }
-    let account = match rules::registration(&form.email, &form.display_name, &form.password) {
+    let account = match rules::named_registration(
+        &form.email,
+        &form.handle,
+        &form.password,
+        &form.confirm_password,
+    ) {
         Ok(account) => account,
         Err(message) => {
             return private_response(
@@ -269,7 +277,7 @@ pub(super) async fn register(
                     StatusCode::BAD_REQUEST,
                     pages::registration_form_with_error_and_next(
                         form.csrf_token.as_deref().unwrap_or(""),
-                        &form.display_name,
+                        &form.handle,
                         &form.email,
                         Some(message),
                         next.as_deref(),
@@ -281,7 +289,7 @@ pub(super) async fn register(
     };
     let audit = access_audit::context(&headers, peer.0, LoginEventKind::Registration);
     if let Err(status) =
-        login_limiter::limit(&state, "register", &account.email, &headers, peer).await
+        login_limiter::limit(&state, "register", account.email(), &headers, peer).await
     {
         return auth_limit_error(status, true);
     }
@@ -347,12 +355,11 @@ pub(super) async fn register(
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    let mail_source = super::registration_mail::capture(&account.email, audit.verified_ip);
+    let mail_source = super::registration_mail::capture(account.email(), audit.verified_ip);
     match state
         .accounts
-        .register_with_audited_session_referral_mail(
-            &account.email,
-            &account.display_name,
+        .register_named(
+            &account,
             &hashed,
             &digest,
             ttl,
@@ -396,7 +403,7 @@ pub(super) async fn register(
             auth_problem(
                 StatusCode::CONFLICT,
                 "Не удалось завершить регистрацию",
-                "Проверьте адрес почты. Если вы уже регистрировались, попробуйте войти.",
+                "Проверьте логин и адрес почты. Если вы уже регистрировались, попробуйте войти.",
                 true,
             )
         }

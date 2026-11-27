@@ -37,8 +37,12 @@
   function savedFields() {
     const form = slot.querySelector('form');
     // Do not carry passwords between modes or form requests.
-    return Object.fromEntries(['email', 'display_name', 'manual_invite_code'].map(name =>
+    return Object.fromEntries(['email', 'handle', 'manual_invite_code'].map(name =>
       [name, form?.elements.namedItem(name)?.value || '']));
+  }
+
+  function clearPasswords(form) {
+    for (const input of form.querySelectorAll('input[type="password"]')) input.value = '';
   }
 
   function standalonePath() {
@@ -88,7 +92,7 @@
         const input = form.elements.namedItem(name);
         if (input && value) input.value = value;
       }
-      form.querySelector('input[type="password"]').value = '';
+      clearPasswords(form);
       slot.replaceChildren(form);
       status.textContent = '';
       if (dialog.open) form.querySelector('input:not([type="hidden"]):not([name="website"])')?.focus();
@@ -181,11 +185,11 @@
       if (response.status === 403) {
         await loadForm(mode, saved);
       } else {
-        form.querySelector('input[type="password"]').value = '';
+        clearPasswords(form);
       }
       showError(message || 'Не удалось завершить действие. Проверьте данные и повторите попытку.');
     } catch (_) {
-      form.querySelector('input[type="password"]').value = '';
+      clearPasswords(form);
       showError('Не удалось подтвердить результат. Обновите страницу или откройте отдельную страницу входа.');
     } finally {
       clearTimeout(timeout);

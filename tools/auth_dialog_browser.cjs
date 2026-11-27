@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const base = 'http://127.0.0.1:3098';
 const password = 'Dialog-Test-Password-2026';
-const email = 'auth-dialog.' + Date.now() + '@example.test';
+const nonce = Date.now();
+const email = 'auth-dialog.' + nonce + '@example.test';
+const handle = 'dialog_' + nonce;
 const shots = process.env.TOR_READER_SHOTS;
 
 async function openDialog(page, mobile = false) {
@@ -95,9 +97,10 @@ async function openDialog(page, mobile = false) {
     assert.ok((await desktop.context().cookies(base)).some(c =>
       c.name === 'tor-dev-csrf' && c.value === csrf), 'CSRF cookie changed across tabs');
     await native.close();
-    await dialog.getByLabel('Отображаемое имя').fill('Auth Dialog Reader');
+    await dialog.getByLabel('Логин', { exact: true }).fill(handle);
     await dialog.getByLabel('Электронная почта').fill(email);
     await dialog.getByLabel('Пароль (12–128 символов)').fill('short');
+    await dialog.getByLabel('Повторите пароль', { exact: true }).fill('short');
     const weak = desktop.waitForResponse(r => r.url() === base + '/register' && r.request().method() === 'POST');
     await dialog.getByRole('button', { name: 'Создать учётную запись' }).click();
     assert.equal((await weak).status(), 400);
@@ -105,7 +108,18 @@ async function openDialog(page, mobile = false) {
     assert.equal(desktop.url(), destination);
     assert.equal(await dialog.getByLabel('Электронная почта').inputValue(), email);
     assert.equal(await dialog.getByLabel('Пароль (12–128 символов)').inputValue(), '');
+    assert.equal(await dialog.getByLabel('Повторите пароль', { exact: true }).inputValue(), '');
+    assert.equal(await dialog.getByLabel('Логин', { exact: true }).inputValue(), handle);
     await dialog.getByLabel('Пароль (12–128 символов)').fill(password);
+    await dialog.getByLabel('Повторите пароль', { exact: true }).fill(password + '-wrong');
+    const mismatch = desktop.waitForResponse(r => r.url() === base + '/register' && r.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Создать учётную запись' }).click();
+    assert.equal((await mismatch).status(), 400);
+    await dialog.locator('[data-auth-error]').filter({ hasText: 'Пароли не совпадают' }).waitFor();
+    assert.equal(await dialog.getByLabel('Пароль (12–128 символов)').inputValue(), '');
+    assert.equal(await dialog.getByLabel('Повторите пароль', { exact: true }).inputValue(), '');
+    await dialog.getByLabel('Пароль (12–128 символов)').fill(password);
+    await dialog.getByLabel('Повторите пароль', { exact: true }).fill(password);
     const registration = desktop.waitForResponse(r => r.url() === base + '/register' && r.request().method() === 'POST');
     await dialog.getByRole('button', { name: 'Создать учётную запись' }).click();
     assert.equal((await registration).status(), 204);
