@@ -81,25 +81,30 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
         .await
         .unwrap();
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Forbidden)
     );
-    sqlx::query("INSERT INTO account_roles(user_id,role,is_active) VALUES($1,'administrator',true)")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active) VALUES($1,'administrator',true)",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(cost.snapshot().await.unwrap().unwrap().usage.is_none());
 
     request.usage.month_start = previous.clone();
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Conflict)
     );
     request.usage.month_start = month;
     request.evidence_sha256 = [0; 32];
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Invalid)
     );
     request.evidence_sha256 = [7; 32];
@@ -108,7 +113,8 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
         .await
         .unwrap();
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Conflict)
     );
     sqlx::query("UPDATE mail_cost_policy SET enabled=false WHERE singleton")
@@ -120,7 +126,8 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
     seed(&pool, 2, MailPurpose::SupportReply, keys(17, None), 0).await;
     request.usage.reserved_attempts = 0;
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Invalid)
     );
     request.usage.reserved_attempts = 20;
@@ -134,7 +141,8 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
     assert!(!view.snapshot.limits.enabled);
     assert_eq!(view.snapshot.usage, Some(request.usage.clone()));
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision, &request).await,
+        cost.admin_reconcile_month(&digest, revision, &request)
+            .await,
         Err(CostAdminError::Conflict)
     );
 
@@ -200,11 +208,13 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
     .execute(&pool)
     .await
     .is_err());
-    assert!(sqlx::query("DELETE FROM mail_cost_month_reconciliation_audit WHERE actor_user_id=$1")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .is_err());
+    assert!(
+        sqlx::query("DELETE FROM mail_cost_month_reconciliation_audit WHERE actor_user_id=$1")
+            .bind(actor)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
 
     sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
         .bind(actor)
@@ -212,7 +222,8 @@ async fn mail_01_j_reconcile_stopped_current_month_without_refunds() {
         .await
         .unwrap();
     assert_eq!(
-        cost.admin_reconcile_month(&digest, revision + 2, &request).await,
+        cost.admin_reconcile_month(&digest, revision + 2, &request)
+            .await,
         Err(CostAdminError::Forbidden)
     );
     sqlx::query("DELETE FROM users WHERE id=$1")

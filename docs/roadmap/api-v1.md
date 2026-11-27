@@ -18,7 +18,7 @@
 | POST `/register`, POST `/login`, POST `/logout` | Уже существующие `application/x-www-form-urlencoded`: `email,display_name,password,csrf_token`; login без display; logout только csrf | Гость/владелец; серверная cookie, redirect/HTML. **Сохранить из bokarust** | duplicate email 409/форменный отказ; неверный Origin и cookie; лимит 4096 байт |
 | GET `/me` | HTML личный кабинет | Текущая сессия, no-store | Гость не видит данные |
 | GET `/api/v1/me` | `{id,display_name,handle,adult_enabled,delivery_settings}` | Только текущий Actor, 200 | 401 без cookie, никакого password_hash |
-| PATCH `/api/v1/me` | `{display_name?,handle?,adult_enabled?,delivery_settings?,expected_revision}` | Владелец, 200 + новая revision | 409 stale revision; невозможно выставить чужой UserId |
+| PATCH `/api/v1/me` | `{display_name?,handle?,adult_enabled?,delivery_settings?,expected_revision}` | Владелец, 200 + новая revision; первая успешная установка уникального handle бесплатна; существующие handle сохранены и считаются закреплёнными | 409 stale revision, HANDLE_UNAVAILABLE или HANDLE_LOCKED при попытке изменить/удалить закреплённый handle; 422 PRIVATE_EMAIL при использовании собственной почты в публичном имени; невозможно выставить чужой UserId |
 | POST `/api/v1/me/password` | `{current_password,new_password,csrf_token}` | Владелец; revoke previous sessions | 401/403, 422 weak password, старый token недействителен |
 | GET/POST `/auth/yandex/*` | `state,nonce,code` по OAuth; вход disabled до config | callback связывает только verified provider subject | неверный state/callback даёт отказ, matching email не proof |
 | GET `/api/v1/admin/auth-events` | bounded chronological page | Только admin | чужой 403, PII/tokens redacted |
