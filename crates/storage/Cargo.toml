@@ -28,4 +28,5 @@ s3 = ["dep:aws-sdk-s3"]
 pg = ["dep:sqlx"]
 
 [dev-dependencies]
+aws-smithy-runtime-api = { version = "1.22", features = ["client"] }
 tokio = { workspace = true, features = ["test-util"] }
