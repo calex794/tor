@@ -71,9 +71,8 @@ pub(super) async fn assert_neutral_registered_account(lookup: &PgAccounts) -> St
 }
 
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
-    let weak_password = format!(
-        "email=tor_ci_account%40example.com&password=1234&csrf_token={csrf}"
-    );
+    let weak_password =
+        format!("email=tor_ci_account%40example.com&password=1234&csrf_token={csrf}");
     let invalid = send(
         app,
         request("POST", "/register", &weak_password, csrf_cookie, ORIGIN),
