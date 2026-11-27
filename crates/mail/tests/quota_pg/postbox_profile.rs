@@ -120,6 +120,14 @@ async fn mail_01_profile_sealed_candidate_requires_live_role_proof_and_revision(
     let recovered = master.open(&loaded).unwrap();
     assert_eq!(recovered.access(), "ci-profile-access");
     assert_eq!(recovered.secret(), "ci-profile-secret");
+    restarted
+        .admin_confirm_probe(&digest, &loaded)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.admin_confirm_probe(&digest, &other).await,
+        Err(ProfileError::Conflict)
+    );
     assert_eq!(
         restarted
             .admin_save_candidate(&digest, &proof, revision, &candidate)

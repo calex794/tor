@@ -336,3 +336,131 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
     );
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL tor_ci and CI-only master key"]
+async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
+    use tor_accounts::services::security::hash_password;
+    let url = env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    assert_eq!(
+        env::var("TOR_POSTBOX_PROFILE_MASTER_KEY").unwrap(),
+        "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
+    );
+    assert_eq!(env::var("TOR_POSTBOX_PROFILE_KEY_VERSION").unwrap(), "1");
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool().clone();
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        PgAccounts::from_pool(pool),
+        false,
+        ORIGIN.to_owned(),
+    );
+    pg(&url, "UPDATE mail_cost_policy SET enabled=false WHERE singleton");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let password = "FixturePasswordMail03";
+    let hash = hash_password(password).unwrap();
+    let actor: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO users(email_normalized,display_name,password_hash)
+             VALUES('mail-profile-http-{nonce}@example.invalid','Postbox HTTP fixture','{hash}')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let session = generate_session_token();
+    let csrf = generate_session_token();
+    let digest = hex::encode(session_token_digest(&session));
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO sessions(token_hash,user_id,expires_at)
+             VALUES(decode('{digest}','hex'),{actor},clock_timestamp()+interval '1 day')"
+        ),
+    );
+    let token = Some(session.as_str());
+    let revision: i64 = pg(
+        &url,
+        "SELECT revision FROM mail_postbox_profile WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    let posted = |csrf: &str, password: &str| {
+        format!(
+            "csrf_token={csrf}&revision={revision}&identity_id=ci-http&sender=sender%40example.invalid&access=ci-access-fixture&secret=ci-secret-fixture&current_password={password}"
+        )
+    };
+    let path = "/odmen/system-mail/profile";
+    assert_eq!(
+        http(&app, "POST", path, token, &csrf, ORIGIN, posted(&csrf, password))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({actor},'administrator',true)"
+        ),
+    );
+    for (body, origin, expected) in [
+        (posted("bad", password), ORIGIN, StatusCode::FORBIDDEN),
+        (posted(&csrf, password), "https://evil.invalid", StatusCode::FORBIDDEN),
+        (posted(&csrf, "wrong-password"), ORIGIN, StatusCode::UNAUTHORIZED),
+        (posted(&csrf, password), ORIGIN, StatusCode::SEE_OTHER),
+        (posted(&csrf, password), ORIGIN, StatusCode::CONFLICT),
+    ] {
+        let (status, html) = http(&app, "POST", path, token, &csrf, origin, body).await;
+        assert_eq!(status, expected);
+        assert!(!html.contains("ci-secret-fixture"));
+        assert!(!html.contains(password));
+    }
+    let (status, html) = http(&app, "GET", PAGE, token, &csrf, ORIGIN, String::new()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("sender@example.invalid"));
+    assert!(html.contains("/odmen/system-mail/probe"));
+    assert!(!html.contains("ci-access-fixture"));
+    assert!(!html.contains("ci-secret-fixture"));
+    assert!(!html.contains("name=\"enabled\""));
+    // Stale revision must fail before any provider I/O.
+    let probe = format!("csrf_token={csrf}&revision={revision}");
+    assert_eq!(
+        http(
+            &app,
+            "POST",
+            "/odmen/system-mail/probe",
+            token,
+            &csrf,
+            ORIGIN,
+            probe,
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        pg(&url, "SELECT enabled FROM mail_cost_policy WHERE singleton"),
+        "f"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM mail_postbox_profile_audit WHERE actor_user_id={actor}"),
+        ),
+        "1"
+    );
+    pg(
+        &url,
+        "UPDATE mail_postbox_profile SET identity_id=NULL,sender=NULL,key_version=NULL,
+         nonce=NULL,ciphertext=NULL,saved_at=NULL WHERE singleton",
+    );
+    pg(&url, &format!("DELETE FROM account_roles WHERE user_id={actor}"));
+    pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
+}
