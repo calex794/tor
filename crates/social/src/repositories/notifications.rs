@@ -5,6 +5,8 @@ use crate::domain::MailError;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
+#[path = "notification_actor_text.rs"]
+mod actor_text;
 #[path = "notification_continuation.rs"]
 mod continuation;
 #[path = "notification_daily_digest.rs"]
@@ -23,8 +25,19 @@ mod revision_counts;
 pub use daily_chapter_digest::DailyChapterDigestEntry;
 #[path = "notification_profile_url.rs"]
 mod profile_url;
-#[path = "notification_actor_text.rs"]
-mod actor_text;
+
+type NotificationRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
@@ -232,16 +245,14 @@ impl PgNotifications {
             read_policy::VISIBLE
         );
         // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool, Option<String>, Option<String>, Option<String>)>(
-            sqlx::AssertSqlSafe(sql),
-        )
-        .bind(actor)
-        .bind(before)
-        .bind(i64::from(limit))
-        .bind(section)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(unavailable)?;
+        let rows = sqlx::query_as::<_, NotificationRow>(sqlx::AssertSqlSafe(sql))
+            .bind(actor)
+            .bind(before)
+            .bind(i64::from(limit))
+            .bind(section)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
         Ok(rows
             .into_iter()
             .map(|r| {

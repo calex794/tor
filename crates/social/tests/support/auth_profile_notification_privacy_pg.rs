@@ -40,9 +40,11 @@ async fn auth_profile_03b_legacy_notification_mailbox_is_never_returned() {
     .unwrap();
     let repaired = notifications.list(recipient, None, 50).await.unwrap();
     assert_eq!(repaired, before);
-    assert!(repaired.iter().all(|row| !row.body.contains(stale)
-        && !row.url.contains("%40")
-        && !row.is_read));
+    for row in &repaired {
+        assert!(!row.body.contains(stale));
+        assert!(!row.url.contains("%40"));
+        assert!(!row.is_read);
+    }
     assert!(notifications.list(outsider, None, 50).await.unwrap().is_empty());
     assert!(!notifications.mark_read(outsider, repaired[0].id).await.unwrap());
     assert!(notifications.mark_read(recipient, repaired[0].id).await.unwrap());

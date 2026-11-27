@@ -83,8 +83,8 @@ mod tests {
 
     #[test]
     fn actor_text_never_uses_mailbox_as_name_or_profile_link() {
-        let row = project("social.friendship.requested", Some("private@example.test"), Some(1))
-            .unwrap();
+        let mailbox = Some("private@example.test");
+        let row = project("social.friendship.requested", mailbox, Some(1)).unwrap();
         assert_eq!(row.2, "Пользователь хочет добавить вас в друзья.");
         assert_eq!(row.3, "/notifications");
         let row = project("social.friendship.accepted", Some("Алиса"), Some(1)).unwrap();
