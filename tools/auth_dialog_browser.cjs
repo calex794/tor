@@ -24,7 +24,12 @@ async function openDialog(page, mobile = false) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const desktopContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const desktop = await desktopContext.newPage();
+    // Chromium without the newer timeout helper must still use the modal.
+    await desktop.addInitScript(() => {
+      Object.defineProperty(AbortSignal, 'timeout', { value: undefined, configurable: true });
+    });
     const destination = base + '/books/1?dialog-test=1#main';
     const bookResponse = await desktop.goto(destination);
     const integrity = await desktop.locator('script[src^="/assets/tor-auth-dialog.js"]').getAttribute('integrity');
@@ -33,14 +38,63 @@ async function openDialog(page, mobile = false) {
     assert.ok(bookCsp.includes("script-src '" + integrity + "';"));
     assert.ok(bookCsp.includes("connect-src 'self';"));
     assert.ok(!bookCsp.includes("script-src 'self'"));
+    // A standalone form in another tab must remain usable after opening
+    // and switching modal forms in this tab.
+    const native = await desktopContext.newPage();
+    await native.goto(base + '/login');
+    const csrf = await native.locator('input[name="csrf_token"]').inputValue();
     const dialog = await openDialog(desktop);
+    assert.ok(await dialog.locator('input[name="csrf_token"]').inputValue() === csrf,
+      'opening modal invalidated an existing standalone CSRF token');
     await desktop.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(desktop.url(), destination);
-    await openDialog(desktop);
+
+    // Hold the first GET until after dismissal/reopening. A stale canceled
+    // request must not navigate away, replace the new form or show an error.
+    let held = false;
+    let release;
+    let completed;
+    const gate = new Promise(resolve => { release = resolve; });
+    const released = new Promise(resolve => { completed = resolve; });
+    const holdFirst = async route => {
+      const request = route.request();
+      if (!held && request.method() === 'GET' && request.headers()['x-tor-auth-dialog'] === '1') {
+        held = true;
+        await gate;
+        try { await route.abort(); } catch (_) { /* already canceled by the client */ }
+        finally { completed(); }
+      } else {
+        await route.continue();
+      }
+    };
+    await desktop.route(base + '/login', holdFirst);
+    try {
+      const loading = desktop.waitForRequest(r =>
+        r.url() === base + '/login' && r.method() === 'GET' &&
+        r.headers()['x-tor-auth-dialog'] === '1');
+      await desktop.locator('.site-header__auth a[href="/login"]').click();
+      await loading;
+      await dialog.getByRole('button', { name: 'Закрыть' }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await openDialog(desktop);
+      assert.equal(desktop.url(), destination);
+    } finally {
+      release();
+      if (held) await released;
+      await desktop.unroute(base + '/login', holdFirst);
+    }
+    assert.equal(await dialog.locator('[data-auth-error]').isVisible(), false);
+    assert.ok(await dialog.locator('input[name="csrf_token"]').inputValue() === csrf,
+      'reopening modal invalidated an existing CSRF token');
     if (shots) await desktop.screenshot({ path: path.join(shots, 'auth-dialog-desktop.png') });
     await dialog.getByRole('button', { name: 'Регистрация', exact: true }).click();
     await dialog.locator('form[action="/register"]').waitFor();
+    assert.ok(await dialog.locator('input[name="csrf_token"]').inputValue() === csrf,
+      'switching modal forms invalidated an existing CSRF token');
+    assert.ok((await desktop.context().cookies(base)).some(c =>
+      c.name === 'tor-dev-csrf' && c.value === csrf), 'CSRF cookie changed across tabs');
+    await native.close();
     await dialog.getByLabel('Отображаемое имя').fill('Auth Dialog Reader');
     await dialog.getByLabel('Электронная почта').fill(email);
     await dialog.getByLabel('Пароль (12–128 символов)').fill('short');
@@ -60,7 +114,7 @@ async function openDialog(page, mobile = false) {
     assert.equal(await desktop.locator('#tor-auth-dialog').count(), 0);
     const signedBook = await desktop.reload();
     assert.ok(signedBook.headers()['content-security-policy'].includes("script-src 'none'"));
-    await desktop.close();
+    await desktopContext.close();
 
     const paywall = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const locked = base + '/reader/103#main';
