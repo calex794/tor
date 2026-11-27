@@ -1,10 +1,10 @@
 //! Pure SEO policy. Rendering, SQL and access control belong to other layers.
 
-use crate::domain::seo::SeoChapterAccess;
 use crate::domain::seo::{
     SeoBookFacts, SeoBookView, SeoCatalogView, SeoDecision, SeoMode, SeoPage, SeoReason, SeoRobots,
     SeoSite, SeoVisibility,
 };
+use crate::domain::seo::{SeoChapterAccess, SeoChapterGuestText};
 use crate::domain::seo_urls::BookUrl;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +49,9 @@ impl SeoPolicy {
                 }
                 if !chapter.has_public_version {
                     return denied(SeoReason::ChapterHasNoPublicVersion);
+                }
+                if chapter.guest_text != SeoChapterGuestText::Full {
+                    return denied(SeoReason::ChapterNotGuestFull);
                 }
                 match self.book_gate(chapter.book) {
                     Ok(()) => indexable(format!("/reader/{}", chapter.chapter_id)),
