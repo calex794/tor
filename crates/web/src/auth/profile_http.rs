@@ -157,6 +157,16 @@ async fn save(
                 "HANDLE_UNAVAILABLE",
                 "Этот адрес профиля недоступен",
             ),
+            ProfileError::HandleLocked => (
+                StatusCode::CONFLICT,
+                "HANDLE_LOCKED",
+                "Логин уже закреплён. Бесплатно изменить или удалить его нельзя",
+            ),
+            ProfileError::PrivateEmail => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PRIVATE_EMAIL",
+                "Не используйте свою электронную почту в публичном имени",
+            ),
             ProfileError::Unavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "UNAVAILABLE",

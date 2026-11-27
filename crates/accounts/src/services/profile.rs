@@ -36,6 +36,7 @@ impl ProfileUpdate {
                         .all(|c| c.is_ascii_alphanumeric() || b"_.".contains(&c))
                     || [
                         "admin",
+                        "odmen",
                         "administrator",
                         "support",
                         "system",

@@ -57,6 +57,19 @@ pub(super) async fn login_returns_to_public_reader(app: &Router, logged: &Respon
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
 }
 
+pub(super) async fn assert_neutral_registered_account(lookup: &PgAccounts) -> String {
+    let account = lookup
+        .find_user("tor_ci_account@example.com")
+        .await
+        .expect("account lookup")
+        .expect("persisted account");
+    assert!(account.display_name.starts_with("Читатель №"));
+    assert!(!account.display_name.contains("tor_ci_account"));
+    assert!(account.password_hash.starts_with("$argon2id$"));
+    assert!(!account.password_hash.contains("LongSecurePassword2026"));
+    account.display_name
+}
+
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
     let weak_password = format!(
         "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"

@@ -160,17 +160,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap().contains("HttpOnly")));
-    let registered_account = lookup
-        .find_user("tor_ci_account@example.com")
-        .await
-        .expect("account lookup")
-        .expect("persisted account");
-    let generated_name = registered_account.display_name;
-    assert!(generated_name.starts_with("Читатель №"));
-    assert!(!generated_name.contains("tor_ci_account"));
-    let hash = registered_account.password_hash;
-    assert!(hash.starts_with("$argon2id$"));
-    assert!(!hash.contains("LongSecurePassword2026"));
+    let generated_name = h_account_cases::assert_neutral_registered_account(&lookup).await;
     let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
     assert_eq!(private.status(), StatusCode::OK);
     assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
