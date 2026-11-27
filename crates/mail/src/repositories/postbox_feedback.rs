@@ -8,6 +8,7 @@ use crate::domain::{
 };
 use rand::{rngs::OsRng, RngCore};
 use sqlx::{PgPool, Postgres, Transaction};
+use tor_contracts::mail::MailPurpose;
 
 #[derive(Clone)]
 pub struct PgPostboxFeedback {
@@ -40,6 +41,32 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(claim, identity_id, None).await
+    }
+
+    /// The caller resolves the current request, verifies recipient policy,
+    /// reserves shared quota, then generates a fresh 256-bit proof in memory.
+    /// Only its SHA-256 digest crosses this port. Commit the correlation and
+    /// proof together, or neither; the prior charged reservation stays charged.
+    pub async fn prepare_password_reset(
+        &self,
+        claim: MailClaim,
+        identity_id: &str,
+        token_hash: &[u8; 32],
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(claim, identity_id, Some(token_hash))
+            .await
+    }
+
+    async fn prepare_inner(
+        &self,
+        claim: MailClaim,
+        identity_id: &str,
+        reset_token_hash: Option<&[u8; 32]>,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if (claim.intent.purpose == MailPurpose::PasswordReset) != reset_token_hash.is_some() {
+            return Ok(None);
+        }
         if !valid_id(identity_id) {
             return Err(sqlx::Error::Protocol("invalid Postbox identity".to_owned()));
         }
@@ -56,6 +83,20 @@ impl PgPostboxFeedback {
         if !super::cost::submission_enabled(&mut tx, claim).await? {
             tx.rollback().await?;
             return Ok(None);
+        }
+        // For reset, lock the account before the outbox/source/proof. Account
+        // changes and account deletion must serialize with proof issuance.
+        if reset_token_hash.is_some() {
+            let active: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+            )
+            .bind(claim.intent.recipient.get())
+            .fetch_optional(&mut *tx)
+            .await?;
+            if active.is_none() {
+                tx.rollback().await?;
+                return Ok(None);
+            }
         }
         let inserted = sqlx::query(
             "INSERT INTO mail_feedback_attempts \
@@ -87,8 +128,30 @@ impl PgPostboxFeedback {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        if inserted != 1 {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        if let Some(token_hash) = reset_token_hash {
+            // A-owned SQL port; verify the exact live source against the
+            // just-prepared reservation and correlation under the same locks.
+            let issued: bool = sqlx::query_scalar(
+                "SELECT account_issue_password_reset_mail_proof($1,$2,$3,$4,$5)",
+            )
+            .bind(claim.intent.recipient.get())
+            .bind(claim.intent.event_id.get())
+            .bind(claim.id)
+            .bind(claim.generation)
+            .bind(token_hash.as_slice())
+            .fetch_one(&mut *tx)
+            .await?;
+            if !issued {
+                tx.rollback().await?;
+                return Ok(None);
+            }
+        }
         tx.commit().await?;
-        Ok((inserted == 1).then(|| format!("<tor-{marker}@pandaolate.ru>")))
+        Ok(Some(format!("<tor-{marker}@pandaolate.ru>")))
     }
 
     /// Bind the provider ID from a successful SMTP receipt, even if the
