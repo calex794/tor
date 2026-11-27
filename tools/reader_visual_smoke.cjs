@@ -413,7 +413,8 @@ async function inspect(page, name, where) {
         name + ': browser-native English validation must be disabled');
       await inspect(page, name, 'register');
       checkpoint = reportPhase('registration_form', name, checkpoint);
-      await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
+      assert(await page.locator('form[action="/register"] input[required]').count() === 2);
+      assert(await page.locator('form[action="/register"] [name="display_name"]').count() === 0);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('1234');
       const invalidPost = page.waitForResponse(response =>
@@ -460,7 +461,9 @@ async function inspect(page, name, where) {
           }));
       }
       await page.waitForURL('**/me', { timeout: 10000 });
-      assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
+      const generatedName = await page.locator('.me-role-card__value').innerText();
+      assert(/^Читатель №[0-9a-f]{16}$/.test(generatedName), name + ': neutral profile missing');
+      assert(!generatedName.includes('visual.'), name + ': email leaked into name');
       assert(await page.getByRole('heading', { name: 'Кабинет', exact: true }).isVisible(),
         name + ': original NEwBOO dashboard heading missing');
       assert(await page.getByRole('heading', { name: 'Чтение', exact: true }).isVisible(),
@@ -833,10 +836,10 @@ async function inspect(page, name, where) {
       await inspect(page, name, 'login');
       await page.getByRole('button', { name: 'Войти', exact: true }).click();
       await page.waitForURL('**/me');
-      assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
+      assert(await page.locator('.me-role-card__value').innerText() === generatedName,
+        name + ': login did not restore session identity');
       // Same address as an existing account: a proper styled 409 page, never raw text.
       await timedGoto(page, base + '/register');
-      await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
       const duplicatePost = page.waitForResponse(response =>

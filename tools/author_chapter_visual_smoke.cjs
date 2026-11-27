@@ -1,4 +1,5 @@
 // Real desktop/mobile acceptance: draft-book release and immediate public free Save.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -325,11 +326,11 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       const context = await browser.newContext({ viewport: { width, height } });
       const page = await context.newPage();
       await page.goto(base + '/register');
-      await page.getByLabel('Отображаемое имя').fill('Автор ' + viewport);
       await page.getByLabel('Электронная почта').fill('author.chapter.' + viewport + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestAuthorPassword2026');
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
       await page.waitForURL('**/me');
+      await setFixtureDisplayName(page, 'Автор ' + viewport);
 
       await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
@@ -609,11 +610,11 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
         const reader = await readerContext.newPage();
         const readerEmail = 'reader.chapter.' + viewport + '@example.test';
         await reader.goto(base + '/register');
-        await reader.getByLabel('Отображаемое имя').fill('Читатель новой книги ' + viewport);
         await reader.getByLabel('Электронная почта').fill(readerEmail);
         await reader.getByLabel('Пароль (12–128 символов)').fill('ReaderChapterPassword2026');
         await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
         await reader.waitForURL('**/me');
+        await setFixtureDisplayName(reader, 'Читатель новой книги ' + viewport);
 
         const bookResponse = await reader.goto(base + '/books/' + bookId);
         assert(bookResponse && bookResponse.status() === 200,

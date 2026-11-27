@@ -37,7 +37,7 @@
   function savedFields() {
     const form = slot.querySelector('form');
     // Do not carry passwords between modes or form requests.
-    return Object.fromEntries(['email', 'display_name', 'manual_invite_code'].map(name =>
+    return Object.fromEntries(['email', 'manual_invite_code'].map(name =>
       [name, form?.elements.namedItem(name)?.value || '']));
   }
 
