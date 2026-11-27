@@ -155,6 +155,7 @@ async fn mail_01_profile_sealed_candidate_requires_live_role_proof_and_revision(
     .await
     .unwrap();
     assert_eq!(receipts, 1);
+    exercise_launch_fence(&pool, &digest, &loaded.intent_digest(), actor).await;
     sqlx::query("UPDATE account_roles SET is_active=false WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
@@ -182,4 +183,112 @@ async fn mail_01_profile_sealed_candidate_requires_live_role_proof_and_revision(
         .execute(&pool)
         .await
         .unwrap();
+}
+
+async fn exercise_launch_fence(
+    pool: &PgPool,
+    digest: &[u8; 32],
+    profile_digest: &[u8; 32],
+    actor: i64,
+) {
+    use tor_mail::{
+        domain::cost::MonthUsage,
+        repositories::{
+            cost::{admin::MonthReconciliation, PgMailCost},
+            launch::PgMailLaunch,
+        },
+        services::launch::{LaunchError, LaunchFence, LaunchScope},
+    };
+
+    let cost = PgMailCost::new(pool.clone());
+    let launch = PgMailLaunch::new(pool.clone());
+    // Disposable fixture only: create a genuinely reconciled, stopped month.
+    // The production repository must never reset accounting or audit history.
+    sqlx::query("DELETE FROM mail_cost_months")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(launch.snapshot().await.unwrap().is_none());
+    let month: String = sqlx::query_scalar(
+        "SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date::text",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let known_attempts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM (
+         SELECT outbox_id,generation FROM mail_send_reservations
+         WHERE reserved_at>=($1::date::timestamp AT TIME ZONE 'Europe/Moscow')
+         UNION SELECT outbox_id,generation FROM mail_feedback_attempts
+         WHERE reserved_at>=($1::date::timestamp AT TIME ZONE 'Europe/Moscow')
+         ) attempts",
+    )
+    .bind(&month)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let revision = cost.admin_view(digest).await.unwrap().revision;
+    let reconciliation = MonthReconciliation {
+        usage: MonthUsage {
+            month_start: month.clone(),
+            free_allowance: 0,
+            baseline_kopecks: 0,
+            rate_per_thousand: 8032,
+            reserved_attempts: known_attempts,
+        },
+        evidence_sha256: [17; 32],
+    };
+    cost.admin_reconcile_month(digest, revision, &reconciliation)
+        .await
+        .unwrap();
+    let stopped = launch.snapshot().await.unwrap().unwrap();
+    assert_eq!(stopped.policy_revision(), revision + 1);
+    assert_eq!(stopped.month(), month);
+    assert_eq!(stopped.profile_digest(), profile_digest);
+    assert_eq!(stopped.evidence(), &reconciliation.evidence_sha256);
+    let scope = LaunchScope::OperatorTest(actor);
+    let fence = LaunchFence::new();
+    let challenge = fence.begin_review(&stopped, scope, *digest).unwrap();
+    fence
+        .confirm_review(
+            &challenge,
+            digest,
+            &stopped,
+            &reconciliation.evidence_sha256,
+            profile_digest,
+        )
+        .unwrap();
+
+    // Simulate the future explicit activation transaction in CI only.
+    // There is no production enable route or SMTP invocation in this test.
+    sqlx::query("UPDATE mail_cost_policy SET enabled=true,revision=revision+1 WHERE singleton")
+        .execute(pool)
+        .await
+        .unwrap();
+    let active = launch.snapshot().await.unwrap().unwrap();
+    assert_eq!(
+        LaunchFence::new().permit_reservation(&active, scope),
+        Err(LaunchError::Stopped)
+    );
+    fence.permit_reservation(&active, scope).unwrap();
+    sqlx::query(
+        "UPDATE mail_cost_months SET reserved_attempts=reserved_attempts+1 WHERE month_start=$1::date",
+    )
+    .bind(&month)
+    .execute(pool)
+    .await
+    .unwrap();
+    let reserved = launch.snapshot().await.unwrap().unwrap();
+    fence.consume_start(&reserved, scope).unwrap();
+    assert_eq!(
+        fence.permit_reservation(&reserved, scope),
+        Err(LaunchError::Stopped)
+    );
+
+    cost.admin_stop(digest).await.unwrap();
+    sqlx::query("DELETE FROM mail_cost_months")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(launch.snapshot().await.unwrap().is_none());
 }
