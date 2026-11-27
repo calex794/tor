@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from drop_verify_restore_receipts import compare, compare_restored_pack
+from drop_verify_restore_receipts import compare, compare_restored_pack, compare_restored_single
 from i11_object_manifest import Refused
 
 
@@ -107,5 +107,70 @@ class DropRestoreReceipts(unittest.TestCase):
             extra.unlink()
             (root / pack).unlink()
             (root / pack).symlink_to(root / sidecar)
+            with self.assertRaisesRegex(Refused, "non-regular object refused"):
+                check()
+
+    def test_selected_single_requires_exact_receipt_manifest_and_bytes(self):
+        with tempfile.TemporaryDirectory() as t:
+            work = Path(t)
+            root = work / "restored"
+            key = "private/free-chapters/21/35.md"
+            target = root / key
+            target.parent.mkdir(parents=True)
+            body = b"Original historical FREE V1"
+            target.write_bytes(body)
+            digest = hashlib.sha256(body).hexdigest()
+            selected = {"key": key, "size": len(body), "sha256": digest}
+            other = dict(selected, key="private/free-chapters/21/36.md")
+            manifest = work / "retained.json"
+
+            def write_manifest(objects):
+                raw = json.dumps({
+                    "schema_version": 1,
+                    "created_utc": "2026-11-17T00:00:00Z",
+                    "objects": sorted(objects, key=lambda obj: obj["key"]),
+                }).encode()
+                manifest.write_bytes(raw)
+                return hashlib.sha256(raw).hexdigest()
+
+            fingerprint = write_manifest([selected, other])
+            receipt = f"{key},{len(body)},{digest}\n"
+
+            def check(report=receipt, expected=fingerprint):
+                return compare_restored_single(manifest, expected, io.StringIO(report), root)
+
+            self.assertEqual(check(), 1)
+            for report in ("", receipt + receipt.replace("/35.md", "/36.md")):
+                with self.assertRaisesRegex(Refused, "expected exactly one"):
+                    check(report)
+            with self.assertRaisesRegex(Refused, "invalid FREE SINGLE"):
+                check(receipt.replace("/35.md", "/35.zst"))
+            with self.assertRaisesRegex(Refused, "invalid FREE SINGLE"):
+                check(receipt.replace(f",{len(body)},", ",200001,"))
+            with self.assertRaisesRegex(Refused, "digest mismatch"):
+                check(expected="cd" * 32)
+            with self.assertRaisesRegex(Refused, "differ from the retained manifest"):
+                check(receipt.replace(digest, "ab" * 32))
+            missing = write_manifest([other])
+            with self.assertRaisesRegex(Refused, "differ from the retained manifest"):
+                check(expected=missing)
+            self.assertEqual(write_manifest([selected, other]), fingerprint)
+            target.unlink()
+            with self.assertRaises(Refused):
+                check()
+            target.write_bytes(b"x" * len(body))
+            with self.assertRaisesRegex(Refused, "restored SINGLE bytes mismatch"):
+                check()
+            target.write_bytes(body + b"x")
+            with self.assertRaisesRegex(Refused, "length mismatch"):
+                check()
+            target.write_bytes(body)
+            extra = root / other["key"]
+            extra.write_bytes(body)
+            with self.assertRaisesRegex(Refused, "unexpected object"):
+                check()
+            extra.unlink()
+            target.unlink()
+            target.symlink_to(manifest)
             with self.assertRaisesRegex(Refused, "non-regular object refused"):
                 check()

@@ -43,6 +43,8 @@ if [[ "$CI_PG_SHARD" == "foundation" ]]; then
   cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
   cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
   cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+  # Synthetic encryption key only for the isolated S3 proof test; no provider calls.
+  TOR_S3_ADMIN_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= cargo test -p tor-storage --features pg --test admin_s3_step_up_pg -- --ignored --test-threads=1
   cargo test -p tor-storage --features pg --test paid_author_source_pg -- --ignored --test-threads=1
   cargo test -p tor-storage --features pg --test free_chapter_storage_pg -- --ignored --test-threads=1
   cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1

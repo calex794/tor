@@ -65,7 +65,7 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
 
     def test_all_three_shards_keep_counts_order_timing_and_feature_flags(self):
         cases = (
-            ("foundation", 60, 60, "ril_rollups_pg", "paid_assets_pg",
+            ("foundation", 61, 61, "ril_rollups_pg", "paid_assets_pg",
              ("traffic_storage_catalog", "books_import_authoring")),
             ("reading", 50, 50, "postgres_reading", "text_issues_pg",
              ("reading_library", "referrals_recommendations_social")),
@@ -87,6 +87,10 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
                 self.assertEqual(tuple(re.findall(r"CI_PG_PHASE_SECONDS phase=(\w+)", result.stdout)), phases)
                 timing = re.findall(r"CI_PG_CARGO_MS seq=(\d+) .* status=(\d+)", result.stdout)
                 self.assertEqual(timing, [(str(n), "0") for n in range(1, timed + 1)])
+                if shard == "foundation":
+                    self.assertEqual(
+                        sum("--test admin_s3_step_up_pg " in row[0] for row in rows), 1
+                    )
                 if shard == "commerce":
                     disabled = next(row for row in rows if "d_06_swap_http_disabled_by_default" in row[0])
                     enabled = next(row for row in rows if "d_06_swap_http_preview_csrf_actor" in row[0])

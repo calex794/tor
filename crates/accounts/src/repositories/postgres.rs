@@ -508,8 +508,13 @@ impl PgAccounts {
 
     pub async fn revoke_session(&self, digest: &[u8; 32]) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE sessions SET revoked_at = now() \
-             WHERE token_hash = $1 AND revoked_at IS NULL",
+            "WITH ended AS (
+                UPDATE sessions SET revoked_at=now()
+                WHERE token_hash=$1 AND revoked_at IS NULL
+                RETURNING user_id,session_id
+             )
+             INSERT INTO account_security_events(user_id,event_kind,session_id,revoked_count)
+             SELECT user_id,'session_ended',session_id,1 FROM ended",
         )
         .bind(digest.as_slice())
         .execute(&self.pool)

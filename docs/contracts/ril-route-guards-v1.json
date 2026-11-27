@@ -3175,6 +3175,20 @@
     },
     {
       "method": "GET",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "page",
+      "policy": "admin_session_management"
+    },
+    {
+      "method": "POST",
+      "template": "/odmen/security/sessions",
+      "source": "crates/web/src/auth/admin_entry/sessions.rs",
+      "handler": "revoke",
+      "policy": "admin_session_management"
+    },
+    {
+      "method": "GET",
       "template": "/odmen/system-mail",
       "source": "crates/web/src/auth/admin_mail_cost/mod.rs",
       "handler": "page",

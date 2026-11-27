@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"admin_system_mail", "postbox_relay", "admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
+POLICIES = {"admin_system_mail", "postbox_relay", "admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
+PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/odmen/mail", "admin_mail::index"): "users",
     ("GET", "/odmen/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -1121,10 +1121,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if audited_s3_connection:
         evidence += "\n" + functions.get("operator", "")
     if policy == "admin_s3_connection":
-        repository = _production(
-            (ROOT / "crates/storage/src/repositories/admin_s3_profiles.rs")
-                .read_text(encoding="utf-8")
-        )
+        repository = functions.get("__admin_s3_repo", "")
         auth_guard = all(v in evidence for v in (
             "session_token(headers)", "session_token_digest(&token)",
             "session_actor(&digest)", "!actor.administrator",
@@ -1133,20 +1130,83 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ))
         store_guard = all(v in repository for v in (
             "TOR_S3_ADMIN_MASTER_KEY", "Aes256Gcm",
-            "FOR SHARE OF s,u,r", "account_state='active'",
+            "FOR SHARE OF u,r", "account_state='active'",
             "save_verified", "admin_s3_profile_audit",
-            "valid_bucket(bucket)",
+            "valid_bucket(bucket)", "UPDATE sessions SET step_up_used_at=clock_timestamp()",
+            "step_up_proof_hash=$3", "step_up_scope=$4",
+            "step_up_payload_digest=$5", "step_up_expires_at>clock_timestamp()",
+            "step_up_used_at IS NULL", "S3_CONNECTION_STEP_UP_SCOPE",
+            "if consumed != 1", "tx.commit().await",
         ))
         connect_guard = (
             entry["method"] != "POST" or all(v in body for v in (
                 "state.cookies.same_origin(&headers)",
                 "state.cookies.valid_csrf(&headers, &csrf)",
                 "master_key_ready()", "head_bucket()",
-                "YANDEX_ENDPOINT", ".save_verified(&digest, &bucket",
-            ))
+                "YANDEX_ENDPOINT", ".save_verified(&digest, &proof, &bucket",
+                "permit_auth_attempt(&attempt_key, 6, 600)",
+                "verify_password_for_step_up(&password, &hash)",
+                "issue_administrator_s3_step_up(actor, &digest, &verified_password, &intent)",
+                "connection_intent_digest(&bucket, &access, &secret)",
+                "Ok(None) => return deny(StatusCode::UNAUTHORIZED)",
+            )) and (
+                entry["method"] != "POST" or
+                body.index("verify_password_for_step_up") < body.index("issue_administrator_s3_step_up")
+                < body.index("head_bucket()") < body.index(".save_verified(")
+            )
         )
         if not (audited_s3_connection and auth_guard and store_guard and connect_guard):
-            errors.append(f"{label}: S3 connection missing live role, CSRF, fixed provider, or encrypted persistence")
+            errors.append(f"{label}: S3 connection missing live role, CSRF, password proof, fixed provider, or encrypted persistence")
+    # AUTH-04b: only the exact reviewed administrative session routes.
+    admin_session_route = (
+        entry["source"] == "crates/web/src/auth/admin_entry/sessions.rs"
+        and admin_key in {
+            ("GET", "/odmen/security/sessions", "page"),
+            ("POST", "/odmen/security/sessions", "revoke"),
+        }
+    )
+    audited_admin_sessions = admin_session_route and policy == "admin_session_management"
+    if admin_session_route and not audited_admin_sessions:
+        errors.append(f"{label}: administrator session policy downgraded")
+    if policy == "admin_session_management":
+        operator_guard = functions.get("operator", "")
+        guarded = (
+            "match operator(&state, &headers).await" in body
+            and "Err(status) => return deny(status)" in body
+            and all(marker in operator_guard for marker in (
+                "session_token(headers)", "session_token_digest(&token)",
+                "session_actor(&digest)", "if !actor.administrator",
+                "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
+            ))
+        )
+        evidence += "\n" + operator_guard
+        operation = (
+            ".administrator_session_overview(&digest, target)"
+            if entry["method"] == "GET" else
+            ".revoke_administrator_target_sessions(&digest, form.user_id, selected, &proof)"
+        )
+        repo = functions.get("__admin_session_repo", "")
+        repository_guard = all(marker in repo for marker in (
+            "requester.revoked_at IS NULL", "requester.expires_at>now()",
+            "administrator.account_state='active'", "role.role='administrator'",
+            "role.is_active", "LIMIT 50",
+            "pg_advisory_xact_lock(18001,1)", "FOR UPDATE",
+            "role='administrator' AND is_active FOR SHARE",
+            "password.matches_hash(&hash)", "expires_at>clock_timestamp()",
+            "WHERE user_id=$1 AND revoked_at IS NULL",
+            "INSERT INTO account_admin_session_revocation_events", "tx.commit().await?",
+        ))
+        write_guard = entry["method"] == "GET" or all(marker in body for marker in (
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+            "permit_auth_attempt(&key, 8, 600)",
+            "verify_password_for_step_up(&password, &hash)",
+            "Ok(None) => return deny(StatusCode::UNAUTHORIZED)",
+        ))
+        if not (audited_admin_sessions and guarded and repository_guard and write_guard
+                and operation in body
+                and body.index("operator(&state, &headers).await") < body.index(operation)):
+            errors.append(f"{label}: admin sessions lack live authority, exact target, password/CSRF or atomic audit")
     audited_surprises = (
         policy == "admin_surprises"
         and entry["source"] == "crates/web/src/auth/surprise_admin.rs"
@@ -1217,7 +1277,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection):
+            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection or audited_admin_sessions):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -2511,6 +2571,18 @@ def check(root: Path = ROOT) -> list[str]:
                     helper_functions = {}
                 for name in names:
                     source_cache[path]["__flow_" + name] = helper_functions.get(name, "")
+        if entry.get("policy") == "admin_s3_connection":
+            repository = root / "crates/storage/src/repositories/admin_s3_profiles.rs"
+            source_cache[path]["__admin_s3_repo"] = (
+                _strip_comments(_production(repository.read_text(encoding="utf-8")))
+                if repository.exists() else ""
+            )
+        if entry.get("policy") == "admin_session_management":
+            repository = root / "crates/accounts/src/repositories/admin_sessions.rs"
+            source_cache[path]["__admin_session_repo"] = (
+                _strip_comments(_production(repository.read_text(encoding="utf-8")))
+                if repository.exists() else ""
+            )
         if entry.get("policy") == "support_requester":
             identity_file = root / "crates/web/src/auth/support_identity.rs"
             source_cache[path]["__support_identity"] = (
