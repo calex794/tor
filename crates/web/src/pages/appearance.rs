@@ -29,6 +29,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../../assets/newboo-library.css"));
         css.push('\n');
         css.push_str(include_str!("../../assets/tor-appearance.css"));
+        css.push('\n');
+        css.push_str(include_str!("../../assets/tor-auth-dialog.css"));
         css
     });
     (

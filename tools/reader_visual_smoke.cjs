@@ -244,8 +244,12 @@ async function inspect(page, name, where) {
       assert((freeResponse.headers()['content-security-policy'] || '').includes("connect-src 'self'"),
         name + ': authenticated reader cannot reach its own progress API');
       const lockedResponse = await page.request.get(base + '/reader/103');
-      assert((lockedResponse.headers()['content-security-policy'] || '').includes("script-src 'none'"),
-        name + ': paid reader CSP relaxed');
+      const lockedPolicy = lockedResponse.headers()['content-security-policy'] || '';
+      assert(/script-src 'sha256-[A-Za-z0-9+/]{43}=';/.test(lockedPolicy) &&
+        lockedPolicy.includes("connect-src 'self';") &&
+        !lockedPolicy.includes("script-src 'self'") &&
+        !lockedPolicy.includes("unsafe-inline"),
+        name + ': guest paywall must allow only the integrity-pinned auth dialog');
       // NEwBOO's original reader keeps a scroll/paginated setting in the
       // same storage key. TOR must not erase an unsupported setting.
       await page.evaluate(() => {

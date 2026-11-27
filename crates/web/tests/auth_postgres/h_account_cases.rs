@@ -817,7 +817,9 @@ pub(super) async fn assert_session_navigation(app: &Router, session: &str) {
             .next()
             .unwrap();
         assert!(header.contains("href=\"/login\""));
-        assert!(header.contains("href=\"/register\""));
+        assert!(!header.contains("href=\"/register\""));
+        assert_eq!(header.matches("href=\"/login\"").count(), 2);
+        assert!(html.contains("id=\"tor-auth-dialog\""));
         assert!(!header.contains("action=\"/logout\""));
         for target in ["/me/books/new", "/me/library", "/me", "/me/books"] {
             assert!(!header.contains(&format!("href=\"{target}\"")));

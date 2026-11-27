@@ -464,10 +464,11 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/odmen/storage/s3"), "POST") => Some(449),
         (Some("/odmen/security/sessions"), "GET") => Some(450),
         (Some("/odmen/security/sessions"), "POST") => Some(451),
-        (Some("/internal/mail/postbox-feedback"), "POST") => Some(452),
-        (Some("/odmen/system-mail"), "GET") => Some(453),
-        (Some("/odmen/system-mail"), "POST") => Some(454),
-        (Some("/odmen/system-mail/stop"), "POST") => Some(455),
+        (Some("/assets/tor-auth-dialog.js"), "GET") => Some(452),
+        (Some("/internal/mail/postbox-feedback"), "POST") => Some(453),
+        (Some("/odmen/system-mail"), "GET") => Some(454),
+        (Some("/odmen/system-mail"), "POST") => Some(455),
+        (Some("/odmen/system-mail/stop"), "POST") => Some(456),
         _ => None,
     };
     index
