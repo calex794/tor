@@ -25,6 +25,7 @@ enum Reply {
     Accept,
     AcceptWithoutId,
     RejectAuthentication,
+    UnexpectedAuthenticationReply,
     TemporaryRecipient,
     PermanentData,
     LostAck,
@@ -94,7 +95,10 @@ async fn loopback(reply: Reply) -> (SocketAddr, JoinHandle<bool>) {
         assert!(line(&mut stream).await.starts_with("AUTH PLAIN "));
         if matches!(reply, Reply::RejectAuthentication) {
             respond(&mut stream, b"535 5.7.8 Authentication rejected\r\n").await;
-            let _ = line(&mut stream).await;
+            return false;
+        }
+        if matches!(reply, Reply::UnexpectedAuthenticationReply) {
+            respond(&mut stream, b"250 Unexpected reply\r\n").await;
             return false;
         }
         respond(&mut stream, b"235 2.7.0 Authenticated\r\n").await;
@@ -173,11 +177,21 @@ async fn send(reply: Reply) -> Submission {
 fn rejects_header_injection_invalid_markers_and_credentials() {
     let transport = PostboxTransport::new("sender@example.com").unwrap();
     assert!(matches!(
-        transport.prepare("a@example.com\r\nBcc:x@example.com", "Hi", "Body", &marker()),
+        transport.prepare(
+            "a@example.com\r\nBcc:x@example.com",
+            "Hi",
+            "Body",
+            &marker()
+        ),
         Err(PrepareFailure::InvalidRecipient)
     ));
     assert!(matches!(
-        transport.prepare("a@example.com", "Hi\r\nBcc:x@example.com", "Body", &marker()),
+        transport.prepare(
+            "a@example.com",
+            "Hi\r\nBcc:x@example.com",
+            "Body",
+            &marker()
+        ),
         Err(PrepareFailure::InvalidSubject)
     ));
     assert!(matches!(
@@ -216,7 +230,10 @@ async fn definitive_rejections_are_distinct_from_ambiguous_submission() {
         send(Reply::TemporaryRecipient).await,
         Submission::TemporaryRejected
     );
-    assert_eq!(send(Reply::PermanentData).await, Submission::PermanentRejected);
+    assert_eq!(
+        send(Reply::PermanentData).await,
+        Submission::PermanentRejected
+    );
     assert_eq!(send(Reply::LostAck).await, Submission::Uncertain);
     assert_eq!(send(Reply::Stall).await, Submission::Uncertain);
 }
@@ -240,6 +257,21 @@ async fn certificate_mismatch_and_authentication_failure_never_submit() {
             .connect_at(address, &credentials(), Duration::from_secs(3))
             .await,
         Err(ConnectFailure::AuthenticationRejected)
+    ));
+    assert!(!timeout(Duration::from_secs(4), server)
+        .await
+        .unwrap()
+        .unwrap());
+}
+
+#[tokio::test]
+async fn unexpected_positive_auth_reply_cannot_authorize_submission() {
+    let (address, server) = loopback(Reply::UnexpectedAuthenticationReply).await;
+    assert!(matches!(
+        transport("localhost")
+            .connect_at(address, &credentials(), Duration::from_secs(3))
+            .await,
+        Err(ConnectFailure::Unavailable)
     ));
     assert!(!timeout(Duration::from_secs(4), server)
         .await

@@ -98,6 +98,10 @@ fn mailbox(value: &str) -> Option<Address> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".!#$%&'*+-/=?^_`{|}~".contains(&b))
         || !domain.contains('.')
+        || domain
+            .rsplit('.')
+            .next()
+            .is_some_and(|suffix| suffix.bytes().all(|b| b.is_ascii_digit()))
         || domain.split('.').any(|label| {
             label.is_empty()
                 || label.len() > 63
@@ -222,8 +226,11 @@ impl PostboxTransport {
             if !connection.is_encrypted() {
                 return Err(ConnectFailure::Unavailable);
             }
-            let auth = Credentials::new(credentials.key_id.to_string(), credentials.secret.to_string());
-            connection
+            let auth = Credentials::new(
+                credentials.key_id.to_string(),
+                credentials.secret.to_string(),
+            );
+            let authenticated = connection
                 .auth(&[Mechanism::Plain, Mechanism::Login], &auth)
                 .await
                 .map_err(|error| {
@@ -233,6 +240,9 @@ impl PostboxTransport {
                         ConnectFailure::Unavailable
                     }
                 })?;
+            if !authenticated.has_code(235) {
+                return Err(ConnectFailure::Unavailable);
+            }
             Ok(AuthenticatedPostbox {
                 sender: self.sender.clone(),
                 connection,
