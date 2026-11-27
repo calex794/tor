@@ -1,4 +1,4 @@
-use super::{unavailable, validate_period, AudienceError, PgAudience};
+use super::{unavailable, validate_period, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::{ClosedReadingCounts, ClosedReadingReport};
 use sqlx::Row;
 
@@ -7,15 +7,7 @@ impl PgAudience {
     /// snapshot and one completed UTC-hour boundary. No identity leaves SQL.
     pub async fn closed_report(&self, days: i32) -> Result<ClosedReadingReport, AudienceError> {
         validate_period(days)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementAndLock).await?;
         let rows = sqlx::query(include_str!("closed.sql"))
             .bind(days)
             .fetch_all(&mut *tx)

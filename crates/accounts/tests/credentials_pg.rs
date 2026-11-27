@@ -729,13 +729,7 @@ async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn auth_03_login_alias_is_rechecked_under_account_lock() {
-    use tor_accounts::{
-        repositories::postgres::{RegistrationContext, RegistrationReferral},
-        services::{
-            profile::ProfileUpdate,
-            validation::{login_identity, named_registration},
-        },
-    };
+    use tor_accounts::services::{login_identity::login_identity, profile::ProfileUpdate};
 
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
@@ -748,7 +742,6 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
     let email = format!("alias-{nonce}@example.invalid");
     let handle = format!("a{nonce:x}");
     let password = "AliasFixturePassword2026";
-    let named = named_registration(&email, &handle, password, password).unwrap();
     let original = session_token_digest(&format!("alias-original-{nonce}"));
     let fresh = session_token_digest(&format!("alias-fresh-{nonce}"));
     let stale = session_token_digest(&format!("alias-stale-{nonce}"));
@@ -759,24 +752,32 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         event_kind: LoginEventKind::Registration,
     };
     let user = accounts
-        .register_named(
-            &named,
-            "$argon2id$fixture",
-            &original,
-            ttl,
-            RegistrationContext {
-                referral: RegistrationReferral {
-                    guest_hash: None,
-                    manual_code: None,
-                },
-                audit,
-            },
-            None,
-        )
+        .register_with_session(&email, "Reader", "$argon2id$fixture", &original, ttl)
         .await
         .unwrap();
     let alias = login_identity(&handle.to_uppercase(), password).unwrap();
     let email_key = login_identity(&email, password).unwrap();
+    let profile = accounts.profile(user).await.unwrap().unwrap();
+    assert!(profile.handle.is_none());
+    assert_eq!(profile.revision, 0);
+    assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
+    assert_eq!(
+        accounts
+            .find_user_by_login(&email_key)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        user
+    );
+    let mut claim = ProfileUpdate {
+        display_name: None,
+        handle: Some(handle.to_uppercase()),
+        adult_enabled: None,
+        expected_revision: 0,
+    };
+    claim.validate().unwrap();
+    assert_eq!(accounts.update_profile(user, &claim).await.unwrap(), 1);
     let a = accounts.find_user_by_login(&alias).await.unwrap().unwrap();
     let b = accounts
         .find_user_by_login(&email_key)

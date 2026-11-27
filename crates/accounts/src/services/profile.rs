@@ -34,8 +34,8 @@ impl ProfileUpdate {
     }
 }
 
-/// Shared canonical key for profile handles, signup and login. Empty remains
-/// valid only for optional profile settings; registration and login reject it.
+/// Shared canonical key for profile handles and login. Empty remains valid
+/// for optional profile settings; login rejects it.
 pub fn normalize_handle(raw: &str) -> Result<String, &'static str> {
     let handle = raw.trim().to_ascii_lowercase();
     if !handle.is_empty()

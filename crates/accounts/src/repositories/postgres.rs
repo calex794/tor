@@ -2,7 +2,7 @@
 //! This adapter never stores plaintext passwords or session tokens.
 #![forbid(unsafe_code)]
 
-use crate::{domain::access_audit::LoginAuditContext, services::validation::NamedAccount};
+use crate::domain::access_audit::LoginAuditContext;
 use sqlx::{PgPool, Row};
 use std::num::NonZeroU32;
 
@@ -281,56 +281,6 @@ impl PgAccounts {
         context: RegistrationContext<'_>,
         mail_source: Option<tor_contracts::mail::SignupMailSource>,
     ) -> Result<i64, AccountWriteError> {
-        self.register_atomic(
-            email,
-            name,
-            None,
-            password_hash,
-            digest,
-            ttl,
-            context,
-            mail_source,
-        )
-        .await
-    }
-
-    /// New public signup path: the validated handle, user, first session,
-    /// referral decision and optional signup mail evidence share one commit.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn register_named(
-        &self,
-        account: &NamedAccount,
-        password_hash: &str,
-        digest: &[u8; 32],
-        ttl: NonZeroU32,
-        context: RegistrationContext<'_>,
-        mail_source: Option<tor_contracts::mail::SignupMailSource>,
-    ) -> Result<i64, AccountWriteError> {
-        self.register_atomic(
-            account.email(),
-            account.handle(),
-            Some(account.handle()),
-            password_hash,
-            digest,
-            ttl,
-            context,
-            mail_source,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn register_atomic(
-        &self,
-        email: &str,
-        name: &str,
-        handle: Option<&str>,
-        password_hash: &str,
-        digest: &[u8; 32],
-        ttl: NonZeroU32,
-        context: RegistrationContext<'_>,
-        mail_source: Option<tor_contracts::mail::SignupMailSource>,
-    ) -> Result<i64, AccountWriteError> {
         let RegistrationContext { referral, audit } = context;
         if mail_source.is_some()
             && audit.event_kind != crate::domain::access_audit::LoginEventKind::Registration
@@ -347,13 +297,6 @@ impl PgAccounts {
         .bind(password_hash)
         .fetch_one(&mut *transaction)
         .await?;
-        if let Some(handle) = handle {
-            sqlx::query("INSERT INTO account_settings(user_id,handle) VALUES($1,$2)")
-                .bind(user_id)
-                .bind(handle)
-                .execute(&mut *transaction)
-                .await?;
-        }
         sqlx::query(INSERT_AUDITED_SESSION)
             .bind(user_id)
             .bind(digest.as_slice())

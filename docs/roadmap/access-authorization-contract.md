@@ -1,5 +1,7 @@
 # TOR — единая система доступа: исполняемый контракт и матрица отказов
 
+> **Planned AUTH-READ v1 (#1349):** [guest excerpt contract](../contracts/auth-read-guest-preview-v1.md) adds an independent book-level FREE full-text gate with a canonical chapter_no open-prefix exception after existing public/age/hold checks. SEO consumes the same verified anonymous full-text fact and never grants reading. Current ACL rows remain the default-open behavior until implementation; PAID and historical rights are unchanged.
+
 **Владелец A + B + C + D + E, сборка I.** Привязка: S005, S031, S032, S034, S036, S037, S039, S049, S065; исторические F024/F025/F027/F028/F043/F055. Это **спецификация к реализации**, не существующий Rust-компонент. Исходные аудиты: [слои и продления](https://app.notion.com/p/3cd32a84beec81e4af2af311a284f780), [слой: visibility/admin revoke](https://app.notion.com/p/3cd32a84beec81fcac28c0d7e2cb0735), [withdrawn/pinned chapter](https://app.notion.com/p/3cd32a84beec810eaae3e4460bd71df3). Код: [chapter_access_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py).
 
 ## 1. Никакого универсального `has_access`

@@ -1,6 +1,6 @@
 //! Credential writes lock the account before sessions to serialize login and rotation.
 use super::postgres::{PgAccounts, StoredUser, INSERT_AUDITED_SESSION};
-use crate::{domain::access_audit::LoginAuditContext, services::validation::LoginIdentity};
+use crate::{domain::access_audit::LoginAuditContext, services::login_identity::LoginIdentity};
 use std::num::NonZeroU32;
 
 /// Private audit data for a proven live session; deliberately not serializable.
