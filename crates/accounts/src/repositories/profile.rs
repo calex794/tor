@@ -13,7 +13,11 @@ pub enum ProfileError {
 }
 impl From<sqlx::Error> for ProfileError {
     fn from(error: sqlx::Error) -> Self {
-        if matches!(&error, sqlx::Error::Database(db) if db.code().as_deref() == Some("23505")) {
+        if matches!(&error, sqlx::Error::Database(db) if db.constraint() == Some("users_public_name_excludes_own_email"))
+        {
+            Self::PrivateEmail
+        } else if matches!(&error, sqlx::Error::Database(db) if db.code().as_deref() == Some("23505"))
+        {
             Self::Duplicate
         } else {
             Self::Unavailable
