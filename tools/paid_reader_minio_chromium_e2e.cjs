@@ -43,6 +43,7 @@ const orderedNewbooFiles = [
   "author-layers.css",
   "newboo-library.css",
   "tor-appearance.css",
+  "tor-auth-dialog.css",
 ];
 // Extract the actual Rust handler's include_str! order, so future changes
 // cannot silently turn this Chromium smoke into a stale visual fixture.

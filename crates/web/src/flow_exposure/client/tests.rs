@@ -109,6 +109,35 @@ mod cases {
     }
 
     #[tokio::test]
+    async fn guest_dialog_and_flow_scripts_are_both_pinned_without_general_script_access() {
+        let auth = crate::header_nav::dialog_integrity();
+        let flow = observation_integrity();
+        let mut input = response(Body::from(HTML));
+        let policy = format!(
+            "default-src 'none'; script-src '{auth}'; connect-src 'self'; frame-ancestors 'none';"
+        );
+        input.headers_mut().insert(
+            "content-security-policy",
+            HeaderValue::from_str(&policy).unwrap(),
+        );
+        let output = apply(input).await;
+        isolated(&output);
+        assert_eq!(
+            output.headers()["content-security-policy"].to_str().unwrap(),
+            format!(
+                "default-src 'none'; script-src '{auth}' '{flow}'; connect-src 'self'; frame-ancestors 'none';"
+            )
+        );
+        let bytes = to_bytes(output.into_body(), 4096).await.unwrap();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(html.contains(&format!(
+            "src=\"/assets/flow-observations.js?v={flow}\" integrity=\"{flow}\""
+        )));
+        let foreign = "script-src 'sha256-foreign'; connect-src 'none';";
+        assert!(observation_policy(foreign).contains("script-src 'sha256-foreign';"));
+    }
+
+    #[tokio::test]
     async fn untransformed_html_remains_exact_and_cannot_cache_per_response_proofs() {
         let large = HTML.replace("Book", &"x".repeat(2 * 1024 * 1024));
         let fragment = HTML.replace("</body>", "");

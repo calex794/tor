@@ -23,7 +23,8 @@ fn registry_is_finite_and_classifies_each_declared_method() {
     // C-08 adds reviewed session-bound FREE open acknowledgement.
     // S3-ADMIN adds a reviewed GET/POST connection profile.
     // AUTH-04b adds two reviewed administrator session routes.
-    assert_eq!(unique.len(), 452);
+    // AUTH-UI-01 adds the integrity-pinned dialog asset.
+    assert_eq!(unique.len(), 453);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;
