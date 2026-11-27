@@ -1,5 +1,7 @@
 # S349: direct delivery of immutable free editions
 
+> **Planned AUTH-READ v1 (#1349):** [guest excerpt contract](auth-read-guest-preview-v1.md) preserves the existing open FREE transport. A restricted book must deny new anonymous full grants and use a verified session-bound ordinary full source path, with explicit old-URL/cache transition checks. This is a future implementation contract, not current runtime behavior.
+
 Related scenarios: S006, S008, S013, S020, S023. Owner: B publication,
 C reading authority, E source anchors, G objects/jobs, H browser, I wiring.
 Tracks [#349](https://github.com/calex794/tor/issues/349); does not close it.
