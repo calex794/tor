@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
+POLICIES = {"admin_system_mail", "postbox_relay", "admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 ADMIN_MAIL_HANDLERS = {
@@ -256,8 +256,11 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "paid_comment_appeals":
         return source.parent / "book_paid_comment_appeals.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
-        return (source.parent / "admin_mail.rs"
-                if module == "admin_mail"
+        # The extracted member route wiring keeps the exact original handlers
+        # and policies; permit only these explicitly reviewed sibling modules.
+        allowed = {"admin_mail", "mail", "mail_api", "group_mail", "book_rooms"}
+        return (source.parent / f"{module}.rs"
+                if module in allowed
                 else root / "__unsupported_admin_mail_handler__")
     if source == root / "crates/web/src/auth/referral_routes.rs":
         # Only these three sibling handlers may be bound through the F-09 router.
@@ -494,6 +497,109 @@ def _audience_funnel_is_bounded(body: str) -> bool:
     )
 
 
+# MAIL-01: exact route bindings, not general administrator or token exceptions.
+SYSTEM_MAIL_ADMIN = {
+    ("GET", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "page"): ".admin_view(&digest)",
+    ("POST", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "save"): ".admin_save_limits(&digest,",
+    ("POST", "/odmen/system-mail/stop", "crates/web/src/auth/admin_mail_cost/mod.rs", "stop"): ".admin_stop(&digest)",
+}
+POSTBOX_RELAY = (
+    "POST", "/internal/mail/postbox-feedback",
+    "crates/web/src/auth/postbox_feedback.rs", "receive",
+)
+
+
+def _system_mail_key(entry: dict[str, str]) -> tuple[str, str, str, str]:
+    return tuple(entry.get(field, "") for field in ("method", "template", "source", "handler"))
+
+
+def _system_mail_policy(entry: dict[str, str], body: str,
+                        functions: dict[str, str]) -> list[str] | None:
+    key = _system_mail_key(entry)
+    policy = entry["policy"]
+    label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
+    if key not in SYSTEM_MAIL_ADMIN and key != POSTBOX_RELAY:
+        if policy in {"admin_system_mail", "postbox_relay"}:
+            return [f"{label}: mail policy is reserved for exact reviewed routes"]
+        return None
+
+    if key in SYSTEM_MAIL_ADMIN:
+        op = SYSTEM_MAIL_ADMIN[key]
+        operator = functions.get("operator", "")
+        csrf = functions.get("valid_csrf", "")
+        repo = functions.get("__mail_cost_repository", "")
+        guarded = all(marker in body for marker in (
+            "match operator(&state, &headers).await",
+            "Err(error) => return deny(error)",
+            op,
+        )) and body.index("operator(&state, &headers)") < body.index(op)
+        live = all(marker in operator for marker in (
+            ".session_token(headers)", "session_token_digest(&token)",
+            ".session_actor(&digest)", "if !actor.administrator",
+            "return Err(StatusCode::NOT_FOUND)", "ok_or(StatusCode::NOT_FOUND)",
+        ))
+        store = all(marker in repo for marker in (
+            "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+            "r.role='administrator' AND r.is_active", "s.revoked_at IS NULL",
+            "s.expires_at>clock_timestamp()", "u.account_state='active'",
+            "FOR SHARE OF s,u,r", "mail_send_budget_guard",
+            "INSERT INTO mail_cost_admin_audit", "WHERE singleton AND revision=$7",
+            "enabled: old.enabled", "enabled: false", "tx.commit().await?",
+        ))
+        write_guard = entry["method"] == "GET" or (
+            "if !valid_csrf(&state, &headers, &form.csrf_token)" in body
+            and "return deny(StatusCode::FORBIDDEN)" in body
+            and body.index("if !valid_csrf(") < body.index(op)
+            and "state.cookies.same_origin(headers) && state.cookies.valid_csrf(headers, token)" in csrf
+        )
+        if not (policy == "admin_system_mail" and guarded and live and store and write_guard):
+            return [f"{label}: system mail missing live role, CSRF, quota lock or audit guard"]
+        return []
+
+    # This is service-to-service HMAC, not a browser session or a public write.
+    # Verify the receive order and actual cryptographic/identity implementation.
+    normalized = re.sub(r"\s+", "", body)
+    crypto = re.sub(r"\s+", "", functions.get("__mail_relay_crypto", ""))
+    router = functions.get("router", "")
+    config = functions.get("router_from_env", "")
+    required = (
+        'single_header(&headers,"x-tor-mail-timestamp")',
+        'single_header(&headers,"x-tor-mail-signature")',
+        "state.auth.authenticate(timestamp,signature,&body,now.as_secs())",
+        "Err(RelayError::Unauthorized)=>returnresponse(StatusCode::UNAUTHORIZED)",
+        "Err(RelayError::ForeignIdentity)=>returnresponse(StatusCode::FORBIDDEN)",
+        "state.permits.try_acquire()",
+        "state.store.record_verified_event(&event,&state.signer)",
+        "tokio::time::timeout(",
+    )
+    ordered = (
+        all(marker in normalized for marker in required)
+        and normalized.index(required[2]) < normalized.index(required[5]) < normalized.index(required[6])
+    )
+    checked = (
+        all(marker in crypto for marker in (
+            "body.len()>MAX_EVENT_BYTES", "now.abs_diff(sent)>MAX_SKEW_SECONDS",
+            "mac.verify_slice(&provided)", "PostboxEvent::parse(body)",
+            "event.identity_id()!=self.identity",
+        ))
+        and crypto.index("mac.verify_slice(&provided)") < crypto.index("PostboxEvent::parse(body)")
+    )
+    configured = (
+        "DefaultBodyLimit::max(MAX_BODY)" in router
+        and "TOR_MAIL_POSTBOX_RELAY_ENABLED" in config
+        and '!= Ok("1")' in config
+        and "if !secure" in config
+        and "TOR_POSTBOX_RELAY_KEY" in config
+        and "TOR_MAIL_QUOTA_KEY" in config
+        and "TOR_POSTBOX_IDENTITY_ID" in config
+        and "relay.eq_ignore_ascii_case(quota)" in functions.get("configure", "")
+        and "Semaphore::new(4)" in functions.get("configure", "")
+    )
+    if not (policy == "postbox_relay" and ordered and checked and configured):
+        return [f"{label}: Postbox relay missing signature, identity, bounded ingress or default-off guard"]
+    return []
+
+
 def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
@@ -501,6 +607,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     body = functions.get(handler)
     if body is None:
         return [f"{label}: handler function missing or renamed"]
+    mail_findings = _system_mail_policy(entry, body, functions)
+    if mail_findings is not None:
+        return mail_findings
     evidence = _with_known_helpers(body, functions)
     if _paid_grant_auth_binding(entry):
         request_auth = functions.get("__paid_grant_request_auth", "")
@@ -2418,6 +2527,17 @@ def check(root: Path = ROOT) -> list[str]:
                 ).get("charge", "")
             except OSError:
                 source_cache[path]["__layer_charge"] = ""
+        if _system_mail_key(entry) in SYSTEM_MAIL_ADMIN or _system_mail_key(entry) == POSTBOX_RELAY:
+            for evidence_name, relative_path in (
+                ("__mail_cost_repository", "crates/mail/src/repositories/cost/admin.rs"),
+                ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
+            ):
+                try:
+                    source_cache[path][evidence_name] = _strip_comments(
+                        _production((root / relative_path).read_text(encoding="utf-8"))
+                    )
+                except OSError:
+                    source_cache[path][evidence_name] = ""
         if _paid_grant_auth_binding(entry):
             try:
                 parent = _strip_comments(_production((root / entry["source"]).read_text(encoding="utf-8")))

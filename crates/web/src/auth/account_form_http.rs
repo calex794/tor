@@ -331,9 +331,10 @@ pub(super) async fn register(
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
+    let mail_source = super::registration_mail::capture(&account.email, audit.verified_ip);
     match state
         .accounts
-        .register_with_audited_session_referral(
+        .register_with_audited_session_referral_mail(
             &account.email,
             &account.display_name,
             &hashed,
@@ -346,6 +347,7 @@ pub(super) async fn register(
                 },
                 audit,
             },
+            mail_source,
         )
         .await
     {

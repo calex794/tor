@@ -85,7 +85,7 @@ CRITICAL_PACKAGES = {
     "tor-ads",  # Editorial availability and fresh administrator authority.
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",
+    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social", "tor-mail",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -128,6 +128,7 @@ TEST_SUITES = {
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/social/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/support/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/mail/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/web/tests/support_http_pg.rs": {"rust", "postgres"},
     "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
