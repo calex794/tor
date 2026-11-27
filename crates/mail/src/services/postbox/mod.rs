@@ -79,9 +79,7 @@ impl PostboxCredentials {
 }
 
 fn valid_credential(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 1024
-        && value.bytes().all(|byte| byte.is_ascii_graphic())
+    !value.is_empty() && value.len() <= 1024 && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 fn mailbox(value: &str) -> Option<Address> {
@@ -159,7 +157,9 @@ impl PostboxTransport {
         }
         if body.is_empty()
             || body.len() > MAX_BODY_BYTES
-            || body.chars().any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
+            || body
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
         {
             return Err(InvalidBody);
         }

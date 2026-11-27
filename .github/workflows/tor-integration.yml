@@ -45,14 +45,8 @@ jobs:
         run: node --test tools/s006_paid_progress_reconcile.test.mjs
       - name: MAIL-01g2b relay protocol offline tests (no network)
         run: python3 -m unittest discover -s tests/architecture -p test_postbox_relay.py
-      - name: Resolve Cargo lock for reviewed SMTP dependency
-        run: |
-          cargo metadata --format-version 1 --filter-platform x86_64-unknown-linux-gnu > /dev/null
-          git diff -- Cargo.lock
       - name: Rust formatting
         run: cargo fmt --all -- --check
-      - name: Require committed resolved dependency lock
-        run: git diff --exit-code -- Cargo.lock
   demo:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}

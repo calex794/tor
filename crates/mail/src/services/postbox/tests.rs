@@ -74,14 +74,13 @@ async fn loopback(reply: Reply) -> (SocketAddr, JoinHandle<bool>) {
     let address = listener.local_addr().unwrap();
     let key = PrivateKeyDer::from_pem_slice(KEY).unwrap();
     let cert = CertificateDer::from_pem_slice(CERT).unwrap();
-    let config = ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(vec![cert], key)
-    .unwrap();
+    let config =
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .unwrap();
     let task = tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let Ok(socket) = TlsAcceptor::from(Arc::new(config)).accept(socket).await else {
@@ -107,9 +106,13 @@ async fn loopback(reply: Reply) -> (SocketAddr, JoinHandle<bool>) {
             respond(&mut stream, b"250 2.0.0 OK\r\n").await;
             return true;
         }
-        assert!(line(&mut stream).await.starts_with("MAIL FROM:<sender@example.com>"));
+        assert!(line(&mut stream)
+            .await
+            .starts_with("MAIL FROM:<sender@example.com>"));
         respond(&mut stream, b"250 2.1.0 OK\r\n").await;
-        assert!(line(&mut stream).await.starts_with("RCPT TO:<reader@example.com>"));
+        assert!(line(&mut stream)
+            .await
+            .starts_with("RCPT TO:<reader@example.com>"));
         if matches!(reply, Reply::TemporaryRecipient) {
             respond(&mut stream, b"454 Sending rate exceeded\r\n").await;
             let _ = line(&mut stream).await;
@@ -169,7 +172,10 @@ async fn send(reply: Reply) -> Submission {
         Duration::from_secs(3)
     };
     let result = connection.submit_with_limit(message, limit).await;
-    timeout(Duration::from_secs(4), server).await.unwrap().unwrap();
+    timeout(Duration::from_secs(4), server)
+        .await
+        .unwrap()
+        .unwrap();
     result
 }
 
