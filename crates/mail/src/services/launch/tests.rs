@@ -72,42 +72,39 @@ fn external_review_is_exact_session_bound_and_single_use() {
         .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
         .unwrap();
     assert_eq!(
-        gate
-            .confirm_review(
-                &challenge,
-                &[8; 32],
-                &snapshot,
-                snapshot.evidence(),
-                snapshot.profile_digest(),
-            )
-            .err(),
+        gate.confirm_review(
+            &challenge,
+            &[8; 32],
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .err(),
         Some(LaunchError::Conflict)
     );
     assert_eq!(
-        gate
-            .confirm_review(
-                &challenge,
-                &SESSION,
-                &snapshot,
-                snapshot.evidence(),
-                snapshot.profile_digest(),
-            )
-            .err(),
+        gate.confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .err(),
         Some(LaunchError::Stopped)
     );
     let challenge = gate
         .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
         .unwrap();
     assert_eq!(
-        gate
-            .confirm_review(
-                &challenge,
-                &SESSION,
-                &snapshot,
-                &[7; 32],
-                snapshot.profile_digest(),
-            )
-            .err(),
+        gate.confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            &[7; 32],
+            snapshot.profile_digest(),
+        )
+        .err(),
         Some(LaunchError::Conflict)
     );
     let challenge = gate
@@ -120,15 +117,14 @@ fn external_review_is_exact_session_bound_and_single_use() {
     review.started -= REVIEW_LIMIT;
     drop(state);
     assert_eq!(
-        gate
-            .confirm_review(
-                &challenge,
-                &SESSION,
-                &snapshot,
-                snapshot.evidence(),
-                snapshot.profile_digest(),
-            )
-            .err(),
+        gate.confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .err(),
         Some(LaunchError::Conflict)
     );
 }
