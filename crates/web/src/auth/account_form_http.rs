@@ -35,7 +35,7 @@ pub(super) fn router() -> Router<AuthState> {
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
     email: String,
-    display_name: String,
+    display_name: Option<String>,
     password: String,
     website: Option<String>,
     csrf_token: Option<String>,
@@ -147,7 +147,7 @@ fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
             StatusCode::BAD_REQUEST,
             pages::registration_form_with_error_and_next(
                 form.csrf_token.as_deref().unwrap_or(""),
-                &form.display_name,
+                form.display_name.as_deref().unwrap_or(""),
                 &form.email,
                 Some(reason),
                 next.as_deref(),
@@ -261,7 +261,11 @@ pub(super) async fn register(
             true,
         );
     }
-    let account = match rules::registration(&form.email, &form.display_name, &form.password) {
+    let account = match rules::registration_with_optional_name(
+        &form.email,
+        form.display_name.as_deref(),
+        &form.password,
+    ) {
         Ok(account) => account,
         Err(message) => {
             return private_response(
@@ -269,7 +273,7 @@ pub(super) async fn register(
                     StatusCode::BAD_REQUEST,
                     pages::registration_form_with_error_and_next(
                         form.csrf_token.as_deref().unwrap_or(""),
-                        &form.display_name,
+                        form.display_name.as_deref().unwrap_or(""),
                         &form.email,
                         Some(message),
                         next.as_deref(),

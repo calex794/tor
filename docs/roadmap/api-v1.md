@@ -15,7 +15,7 @@
 
 | Метод+путь | Тело/выход | Право; успех | Отказ и тест |
 | --- | --- | --- | --- |
-| POST `/register`, POST `/login`, POST `/logout` | Уже существующие `application/x-www-form-urlencoded`: `email,display_name,password,csrf_token`; login без display; logout только csrf | Гость/владелец; серверная cookie, redirect/HTML. **Сохранить из bokarust** | duplicate email 409/форменный отказ; неверный Origin и cookie; лимит 4096 байт |
+| POST `/register`, POST `/login`, POST `/logout` | Уже существующие `application/x-www-form-urlencoded`: `email,password,csrf_token`; legacy display_name при регистрации необязателен, при отсутствии сервер создаёт нейтральное имя независимо от email; login без display; logout только csrf | Гость/владелец; серверная cookie, redirect/HTML. **Сохранить из bokarust** | duplicate email 409/форменный отказ; неверный Origin и cookie; лимит 4096 байт |
 | GET `/me` | HTML личный кабинет | Текущая сессия, no-store | Гость не видит данные |
 | GET `/api/v1/me` | `{id,display_name,handle,adult_enabled,delivery_settings}` | Только текущий Actor, 200 | 401 без cookie, никакого password_hash |
 | PATCH `/api/v1/me` | `{display_name?,handle?,adult_enabled?,delivery_settings?,expected_revision}` | Владелец, 200 + новая revision | 409 stale revision; невозможно выставить чужой UserId |

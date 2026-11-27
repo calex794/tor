@@ -122,7 +122,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("register-password-hint"));
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
-    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
+    let form = "email=tor_ci_account%40example.com&password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
     assert_eq!(
         send(&app, request("POST", "/register", &form, "", ORIGIN))
             .await
@@ -160,12 +160,15 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap().contains("HttpOnly")));
-    let hash = lookup
+    let registered_account = lookup
         .find_user("tor_ci_account@example.com")
         .await
         .expect("account lookup")
-        .expect("persisted account")
-        .password_hash;
+        .expect("persisted account");
+    let generated_name = registered_account.display_name;
+    assert!(generated_name.starts_with("Читатель №"));
+    assert!(!generated_name.contains("tor_ci_account"));
+    let hash = registered_account.password_hash;
     assert!(hash.starts_with("$argon2id$"));
     assert!(!hash.contains("LongSecurePassword2026"));
     let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
@@ -928,7 +931,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         );
     }
 
-    assert!(private_html.contains("CIReader"));
+    assert!(private_html.contains(&generated_name));
+    assert!(!private_html.contains("tor_ci_account@example.com"));
     assert!(!private_html.contains("LongSecurePassword2026"));
     assert!(private_html.contains("href=\"/me\""));
 
