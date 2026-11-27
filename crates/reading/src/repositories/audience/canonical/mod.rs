@@ -4,7 +4,7 @@ mod rank;
 const REPORT_SQL: &str = concat!(include_str!("common.sql"), include_str!("report_tail.sql"));
 const RANK_SQL: &str = concat!(include_str!("common.sql"), include_str!("rank_tail.sql"));
 
-use super::{unavailable, AudienceError, PgAudience};
+use super::{unavailable, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::canonical::{
     CanonicalCounts, CanonicalDimension, CanonicalQuery, CanonicalReport, CanonicalRow,
     CANONICAL_PAGE_SIZE,
@@ -17,15 +17,7 @@ impl PgAudience {
         query: &CanonicalQuery,
     ) -> Result<CanonicalReport, AudienceError> {
         let query = query.clone().validated()?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementOnly).await?;
         let records = sqlx::query(REPORT_SQL)
             .bind(query.days)
             .bind(&query.genre)
