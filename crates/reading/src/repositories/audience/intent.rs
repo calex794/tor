@@ -1,5 +1,5 @@
 //! Read-only counts from C-owned library and follow rows. No optional analytics.
-use super::{unavailable, validate_period, AudienceError, PgAudience};
+use super::{unavailable, validate_period, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::intent::{IntentCounts, IntentReport};
 use sqlx::{postgres::PgRow, Row};
 
@@ -8,15 +8,7 @@ impl PgAudience {
     /// total additions, historical snapshots, retention, or a conversion funnel.
     pub async fn intent_report(&self, days: i32) -> Result<IntentReport, AudienceError> {
         validate_period(days)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementOnly).await?;
         let row = sqlx::query(include_str!("intent.sql"))
             .bind(days)
             .fetch_one(&mut *tx)
