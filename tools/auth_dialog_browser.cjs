@@ -24,7 +24,8 @@ async function openDialog(page, mobile = false) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const desktopContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const desktop = await desktopContext.newPage();
     // Chromium without the newer timeout helper must still use the modal.
     await desktop.addInitScript(() => {
       Object.defineProperty(AbortSignal, 'timeout', { value: undefined, configurable: true });
@@ -39,7 +40,7 @@ async function openDialog(page, mobile = false) {
     assert.ok(!bookCsp.includes("script-src 'self'"));
     // A standalone form in another tab must remain usable after opening
     // and switching modal forms in this tab.
-    const native = await desktop.context().newPage();
+    const native = await desktopContext.newPage();
     await native.goto(base + '/login');
     const csrf = await native.locator('input[name="csrf_token"]').inputValue();
     const dialog = await openDialog(desktop);
@@ -113,7 +114,7 @@ async function openDialog(page, mobile = false) {
     assert.equal(await desktop.locator('#tor-auth-dialog').count(), 0);
     const signedBook = await desktop.reload();
     assert.ok(signedBook.headers()['content-security-policy'].includes("script-src 'none'"));
-    await desktop.close();
+    await desktopContext.close();
 
     const paywall = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const locked = base + '/reader/103#main';
