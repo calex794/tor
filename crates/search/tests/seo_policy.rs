@@ -1,6 +1,7 @@
 use tor_search::domain::seo::{
     seo_route_class, SeoBookFacts, SeoBookView, SeoCatalogView, SeoChapterAccess, SeoChapterFacts,
-    SeoChapterGuestText, SeoMode, SeoPage, SeoReason, SeoRobots, SeoRouteClass, SeoSite, SeoVisibility,
+    SeoChapterGuestText, SeoMode, SeoPage, SeoReason, SeoRobots, SeoRouteClass, SeoSite,
+    SeoVisibility,
 };
 use tor_search::services::seo::SeoPolicy;
 
