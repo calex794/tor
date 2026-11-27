@@ -260,5 +260,9 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
         "UPDATE mail_cost_policy SET enabled=false,warning_1=10000,warning_2=30000,
         news_pause=40000,monthly_limit=50000 WHERE singleton; DELETE FROM mail_cost_months",
     );
+    pg(
+        &url,
+        &format!("DELETE FROM account_roles WHERE user_id={actor}"),
+    );
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }

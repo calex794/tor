@@ -60,7 +60,7 @@ pub(super) async fn submission_enabled(
     tx: &mut Transaction<'_, Postgres>,
     claim: MailClaim,
 ) -> Result<bool, sqlx::Error> {
-    let Some(snapshot) = load(&mut **tx).await? else {
+    let Some(snapshot) = load(tx).await? else {
         return Ok(false);
     };
     Ok(snapshot.submission(claim.intent.purpose) == QuotaDecision::Reserved)
@@ -74,7 +74,7 @@ pub(super) async fn record_reservation(
     claim: MailClaim,
 ) -> Result<QuotaDecision, sqlx::Error> {
     use QuotaDecision::*;
-    let Some(snapshot) = load(&mut **tx).await? else {
+    let Some(snapshot) = load(tx).await? else {
         return Ok(CostStateUnavailable);
     };
     let decision = snapshot.admission(claim.intent.purpose);

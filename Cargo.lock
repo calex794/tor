@@ -3571,14 +3571,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tor-migrations"
-version = "0.1.0"
-dependencies = [
- "sqlx",
- "tokio",
-]
-
-[[package]]
 name = "tor-mail"
 version = "0.1.0"
 dependencies = [
@@ -3591,6 +3583,14 @@ dependencies = [
  "tokio",
  "tor-contracts",
  "zeroize",
+]
+
+[[package]]
+name = "tor-migrations"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]
