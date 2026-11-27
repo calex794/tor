@@ -305,6 +305,15 @@ async fn exercise_launch_fence(
     .await
     .unwrap();
     assert_eq!(receipt, ("operator_test".to_owned(), Some(actor)));
+    let probe_claim = MailClaim {
+        id: 1,
+        generation: 1,
+        intent: MailIntent {
+            purpose: MailPurpose::SupportReply,
+            event_id: PositiveId::new(1).unwrap(),
+            recipient: UserId::new(actor).unwrap(),
+        },
+    };
     assert_eq!(
         LaunchFence::new().permit_reservation(&active, scope),
         Err(LaunchError::Stopped)
@@ -324,10 +333,203 @@ async fn exercise_launch_fence(
         Err(LaunchError::Stopped)
     );
 
+    assert!(matches!(
+        fence.authorize_dispatch(&reserved, probe_claim),
+        Err(LaunchError::Stopped)
+    ));
+    cost.admin_stop(digest).await.unwrap();
+    exercise_dispatch_grant(pool, digest, profile_digest, actor, reconciliation, &month).await;
     cost.admin_stop(digest).await.unwrap();
     sqlx::query("DELETE FROM mail_cost_months")
         .execute(pool)
         .await
         .unwrap();
     assert!(launch.snapshot().await.unwrap().is_none());
+}
+
+/// Use the same disposable operator/profile fixture and actual activation
+/// transaction. No DNS, SMTP connection or real credentials.
+async fn exercise_dispatch_grant(
+    pool: &PgPool,
+    session: &[u8; 32],
+    profile_digest: &[u8; 32],
+    actor: i64,
+    mut reconciliation: tor_mail::repositories::cost::admin::MonthReconciliation,
+    month: &str,
+) {
+    use tor_mail::{
+        repositories::{
+            cost::PgMailCost, launch::PgMailLaunch, postbox_feedback::PgPostboxFeedback,
+        },
+        services::launch::{LaunchError, LaunchFence, LaunchScope},
+    };
+
+    let cost = PgMailCost::new(pool.clone());
+    let launch = PgMailLaunch::new(pool.clone());
+    let quota = PgMailQuota::new(pool.clone());
+    let feedback = PgPostboxFeedback::new(pool.clone());
+    let queue = PgMailQueue::new(pool.clone());
+    let fence = LaunchFence::new();
+    let revision = cost.admin_view(session).await.unwrap().revision;
+    reconciliation.usage.reserved_attempts = sqlx::query_scalar(
+        "SELECT reserved_attempts FROM mail_cost_months WHERE month_start=$1::date",
+    )
+    .bind(month)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    reconciliation.evidence_sha256 = [19; 32];
+    cost.admin_reconcile_month(session, revision, &reconciliation)
+        .await
+        .unwrap();
+    let stopped = launch.snapshot().await.unwrap().unwrap();
+    let challenge = fence
+        .begin_review(&stopped, LaunchScope::Dispatch, *session)
+        .unwrap();
+    let intent = fence
+        .confirm_review(
+            &challenge,
+            session,
+            &stopped,
+            &reconciliation.evidence_sha256,
+            profile_digest,
+        )
+        .unwrap();
+    let proof = "z".repeat(43);
+    let proof_hash: [u8; 32] = Sha256::digest(proof.as_bytes()).into();
+    let activation = intent.proof_digest();
+    sqlx::query(
+        "UPDATE sessions SET step_up_proof_hash=$1,step_up_scope=$2,
+         step_up_resource_id=1,step_up_revision=$3,step_up_payload_digest=$4,
+         step_up_issued_at=clock_timestamp(),step_up_expires_at=clock_timestamp()+interval '2 minutes',
+         step_up_used_at=NULL WHERE token_hash=$5",
+    )
+    .bind(proof_hash.as_slice())
+    .bind(tor_contracts::auth::MAIL_ACTIVATION_STEP_UP_SCOPE)
+    .bind(intent.policy_revision())
+    .bind(activation.as_slice())
+    .bind(session.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    launch
+        .admin_activate(session, &proof, &intent)
+        .await
+        .unwrap();
+    let active = launch.snapshot().await.unwrap().unwrap();
+    fence.complete_activation(intent, &active).unwrap();
+
+    clear(pool).await;
+    let user = UserId::new(actor).unwrap();
+    let address: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(actor)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let signer = QuotaKeySigner::from_hex(&"4f".repeat(32)).unwrap();
+    let (event, source) = super::reset_proof::reset_source(pool, user, &address, &signer).await;
+    let reset = claim(&queue, user, event, MailPurpose::PasswordReset).await;
+    assert_eq!(reset.intent.event_id.get(), event);
+    assert_eq!(reset.intent.purpose, MailPurpose::PasswordReset);
+    let other = claim(&queue, user, 101, MailPurpose::SupportReply).await;
+    let keys = signer
+        .keys_for_password_reset(
+            reset.intent,
+            &address,
+            PasswordResetMailEvidence {
+                intent: reset.intent,
+                source,
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        LaunchFence::new().authorize_dispatch(&active, reset),
+        Err(LaunchError::Stopped)
+    ));
+    let grant = fence.authorize_dispatch(&active, reset).unwrap();
+    let other_grant = fence.authorize_dispatch(&active, other).unwrap();
+    let loaded = launch.dispatch_profile(&grant).await.unwrap().unwrap();
+    assert_eq!(&loaded.intent_digest(), profile_digest);
+    assert_eq!(
+        quota.reserve(reset, keys).await.unwrap(),
+        QuotaDecision::DispatchNotAuthorized
+    );
+    let reset_hash: [u8; 32] = Sha256::digest(activation).into();
+    assert!(feedback
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        quota.reserve_dispatch(&grant, keys).await.unwrap(),
+        QuotaDecision::Reserved
+    );
+    let bound: Vec<u8> = sqlx::query_scalar(
+        "SELECT launch_intent_digest FROM mail_send_reservations
+         WHERE outbox_id=$1 AND generation=$2",
+    )
+    .bind(reset.id)
+    .bind(reset.generation)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(bound.as_slice(), activation.as_slice());
+    assert_eq!(
+        quota.reserve_dispatch(&grant, keys).await.unwrap(),
+        QuotaDecision::DispatchNotAuthorized
+    );
+    assert_eq!(
+        quota
+            .reserve_dispatch(&other_grant, super::keys(19, None))
+            .await
+            .unwrap(),
+        QuotaDecision::DispatchNotAuthorized
+    );
+    assert!(feedback
+        .prepare_dispatch(&other_grant, "ci-identity")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(feedback
+        .prepare_password_reset(reset, "ci-identity", &reset_hash)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(feedback
+        .prepare_password_reset_dispatch(&grant, "wrong-identity", &reset_hash)
+        .await
+        .unwrap()
+        .is_none());
+    let prepared = feedback
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.claim(), reset);
+    assert!(prepared.marker().starts_with("<tor-"));
+    assert!(feedback
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .await
+        .unwrap()
+        .is_none());
+    let start = launch.dispatch_start(prepared).await.unwrap().unwrap();
+    fence.consume_dispatch_start(start).unwrap();
+    // A simulated ambiguous submission, not a network call.
+    assert!(feedback
+        .finish_password_reset(
+            reset,
+            "ci-identity",
+            &reset_hash,
+            MailOutcome::Uncertain,
+            None,
+        )
+        .await
+        .unwrap());
+    assert!(queue.finish(other, MailOutcome::Cancelled).await.unwrap());
+    let current = launch.snapshot().await.unwrap().unwrap();
+    assert_eq!(
+        fence.consume_start(&current, LaunchScope::Dispatch),
+        Err(LaunchError::Conflict)
+    );
+    clear(pool).await;
 }

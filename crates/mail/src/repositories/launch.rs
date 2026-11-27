@@ -2,7 +2,8 @@
 //! Snapshot reads never initialize a month or write a receipt; activation is separate.
 use crate::domain::{
     cost::{CostLimits, CostSnapshot, MonthUsage},
-    launch::{LaunchBinding, LaunchSnapshot},
+    launch::{DispatchGrant, DispatchStart, LaunchBinding, LaunchSnapshot, PreparedDispatch},
+    postbox::marker_token,
     postbox_profile::{ProfileIdentity, SealedProfile},
     quota::QuotaDecision,
 };
@@ -31,6 +32,162 @@ impl PgMailLaunch {
         tx.commit().await?;
         Ok(result)
     }
+
+    /// Load only the profile covered by the exact process dispatch grant.
+    /// No SMTP credentials are decrypted or returned by this repository.
+    pub async fn dispatch_profile(
+        &self,
+        grant: &DispatchGrant,
+    ) -> Result<Option<SealedProfile>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        lock_guard(&mut tx).await?;
+        if !dispatch_matches(&mut tx, grant, false).await? {
+            return Ok(None);
+        }
+        let row: (String, String, i64, i32, Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT identity_id,sender,revision,key_version,nonce,ciphertext \
+             FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let profile = SealedProfile {
+            identity: ProfileIdentity::new(row.0, row.1).map_err(|_| invalid())?,
+            revision: row.2,
+            key_version: row.3,
+            nonce: row.4.try_into().map_err(|_| invalid())?,
+            ciphertext: row.5,
+        };
+        if !profile.valid() || &profile.intent_digest() != grant.before.profile_digest() {
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(profile))
+    }
+
+    /// Last read under the shared guard, after message preparation and
+    /// immediately before the single-use authenticated session is consumed.
+    /// No lock or transaction may survive into SMTP.
+    pub async fn dispatch_start(
+        &self,
+        prepared: PreparedDispatch,
+    ) -> Result<Option<DispatchStart>, sqlx::Error> {
+        if !prepared.fresh() {
+            return Ok(None);
+        }
+        let grant = &prepared.grant;
+        let claim = grant.claim();
+        let Some(digest) = grant.digest() else {
+            return Ok(None);
+        };
+        let Some(marker) = marker_token(prepared.marker()) else {
+            return Ok(None);
+        };
+        let mut tx = self.pool.begin().await?;
+        lock_guard(&mut tx).await?;
+        if !dispatch_matches(&mut tx, grant, true).await?
+            || !super::cost::submission_enabled(&mut tx, claim).await?
+        {
+            return Ok(None);
+        }
+        let exact: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM mail_outbox m
+                JOIN mail_send_reservations r ON r.outbox_id=m.id AND r.generation=m.generation
+                JOIN mail_feedback_attempts f ON f.outbox_id=m.id AND f.generation=m.generation
+                JOIN users u ON u.id=m.recipient_user_id
+                CROSS JOIN mail_send_budget_guard g
+                CROSS JOIN mail_postbox_profile profile
+                WHERE m.id=$1 AND m.generation=$2 AND m.purpose=$3
+                  AND m.event_id=$4 AND m.recipient_user_id=$5 AND u.account_state='active'
+                  AND m.status='leased' AND m.lease_until>clock_timestamp()+interval '21 seconds'
+                  AND r.purpose=m.purpose AND r.launch_intent_digest=$6
+                  AND f.marker=$7 AND f.recipient_key=r.recipient_key
+                  AND g.singleton AND f.key_binding=g.key_binding
+                  AND profile.singleton AND f.identity_id=profile.identity_id
+                  AND r.reserved_at>clock_timestamp()-interval '120 seconds'
+                  AND r.reserved_at<=clock_timestamp()
+                  AND date_trunc('month',r.reserved_at AT TIME ZONE 'Europe/Moscow')
+                      =date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+                  AND NOT EXISTS (SELECT 1 FROM mail_recipient_suppression x
+                      WHERE x.recipient_key=r.recipient_key
+                        AND (x.suppressed_until IS NULL OR x.suppressed_until>clock_timestamp()))
+                  AND (m.purpose<>'password_reset' OR EXISTS (
+                      SELECT 1 FROM password_reset_tokens p
+                      JOIN account_password_reset_mail_requests s
+                        ON s.id=p.password_reset_event_id AND s.user_id=p.user_id
+                      WHERE p.user_id=u.id AND s.id=m.event_id AND p.token_hash=$8
+                        AND p.consumed_at IS NULL AND p.expires_at>clock_timestamp()
+                        AND s.created_at>clock_timestamp()-interval '10 minutes'
+                        AND s.created_at<=clock_timestamp()
+                        AND s.recipient_key=r.recipient_key AND s.key_binding=g.key_binding
+                        AND s.request_ip_key IS NOT DISTINCT FROM r.registration_ip_key
+                        AND p.credential_fingerprint=s.credential_fingerprint
+                        AND p.credential_fingerprint=sha256(convert_to(u.password_hash,'UTF8'))
+                  ))
+            )"#,
+        )
+        .bind(claim.id)
+        .bind(claim.generation)
+        .bind(claim.intent.purpose.as_str())
+        .bind(claim.intent.event_id.get())
+        .bind(claim.intent.recipient.get())
+        .bind(digest.as_slice())
+        .bind(marker)
+        .bind(prepared.reset_hash.as_ref().map(|hash| hash.as_slice()))
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exact {
+            return Ok(None);
+        }
+        let Some(current) = load(&mut tx).await? else {
+            return Ok(None);
+        };
+        tx.commit().await?;
+        if !prepared.fresh() || !prepared.grant.matches(&current, true) {
+            return Ok(None);
+        }
+        Ok(Some(DispatchStart { prepared, current }))
+    }
+}
+
+/// Must be called under the shared quota singleton. An enabled cost bit,
+/// a recovered receipt, or a test-only grant does not authorize dispatch.
+pub(super) async fn dispatch_matches(
+    tx: &mut Transaction<'_, Postgres>,
+    grant: &DispatchGrant,
+    reserved: bool,
+) -> Result<bool, sqlx::Error> {
+    let Some(current) = load(tx).await? else {
+        return Ok(false);
+    };
+    if !grant.matches(&current, reserved) {
+        return Ok(false);
+    }
+    let Some(digest) = grant.digest() else {
+        return Ok(false);
+    };
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM mail_launch_activation_audit \
+         WHERE new_revision=$1 AND intent_digest=$2 AND mode='dispatch' AND test_user_id IS NULL)",
+    )
+    .bind(current.policy_revision())
+    .bind(digest.as_slice())
+    .fetch_one(&mut **tx)
+    .await
+}
+
+/// Historical standalone admission methods exist for offline acceptance,
+/// not for a currently activated live profile (including operator test).
+pub(super) async fn legacy_allowed(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT NOT EXISTS(SELECT 1 FROM mail_cost_policy p \
+         JOIN mail_launch_activation_audit a ON a.new_revision=p.revision \
+         WHERE p.singleton AND p.enabled)",
+    )
+    .fetch_one(&mut **tx)
+    .await
 }
 
 async fn lock_guard(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {

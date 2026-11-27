@@ -1,7 +1,10 @@
 //! A process-local, fail-closed second gate. It cannot enable PostgreSQL.
 //! All web/worker clones must share a single instance. Never deserialize it.
 pub use crate::domain::launch::LaunchScope;
-use crate::domain::launch::{ActivationIntent, LaunchSnapshot, REVIEW_LIMIT};
+use crate::domain::{
+    launch::{ActivationIntent, DispatchGrant, DispatchStart, LaunchSnapshot, REVIEW_LIMIT},
+    MailClaim,
+};
 use rand::{rngs::OsRng, RngCore};
 use std::{mem, sync::Mutex, time::Instant};
 
@@ -175,12 +178,53 @@ impl LaunchFence {
         Ok(())
     }
 
+    /// Bind the current process approval to a particular queue claim. The
+    /// database must still compare the grant under its quota singleton.
+    pub fn authorize_dispatch(
+        &self,
+        current: &LaunchSnapshot,
+        claim: MailClaim,
+    ) -> Result<DispatchGrant, LaunchError> {
+        if claim.id <= 0 || claim.generation <= 0 {
+            return Err(LaunchError::Conflict);
+        }
+        self.permit_reservation(current, LaunchScope::Dispatch)?;
+        Ok(DispatchGrant {
+            claim,
+            before: current.clone(),
+        })
+    }
+
+    /// The common worker consumes the same grant after final preparation
+    /// and a fresh observation, immediately before starting its SMTP send.
+    pub fn consume_dispatch_start(&self, start: DispatchStart) -> Result<(), LaunchError> {
+        if !start.prepared.fresh() || !start.prepared.grant.matches(&start.current, true) {
+            self.stop()?;
+            return Err(LaunchError::Conflict);
+        }
+        self.consume_counter(&start.current, LaunchScope::Dispatch)
+    }
+
     /// Called only after an exact claim/attempt reservation commits and the
     /// durable send-start/feedback gate succeeds. Fetch a fresh observation
     /// immediately before submission; never hold SQL locks across SMTP.
     /// A replayed/decreasing counter or different mode invalidates approval.
     /// One dispatch worker must serialize this check and actual send start.
     pub fn consume_start(
+        &self,
+        current: &LaunchSnapshot,
+        scope: LaunchScope,
+    ) -> Result<(), LaunchError> {
+        // Dispatch must present the exact prepared DB witness; a naked
+        // counter or a reservation grant cannot authorize a message.
+        if scope == LaunchScope::Dispatch {
+            self.stop()?;
+            return Err(LaunchError::Conflict);
+        }
+        self.consume_counter(current, scope)
+    }
+
+    fn consume_counter(
         &self,
         current: &LaunchSnapshot,
         scope: LaunchScope,
