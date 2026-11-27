@@ -47,9 +47,8 @@ pub(super) fn master_key() -> Result<ProfileMasterKey, StatusCode> {
         .map_err(|_| unavailable)?
         .parse::<i32>()
         .map_err(|_| unavailable)?;
-    let encoded = Zeroizing::new(
-        std::env::var("TOR_POSTBOX_PROFILE_MASTER_KEY").map_err(|_| unavailable)?,
-    );
+    let encoded =
+        Zeroizing::new(std::env::var("TOR_POSTBOX_PROFILE_MASTER_KEY").map_err(|_| unavailable)?);
     ProfileMasterKey::from_base64(version, &encoded).map_err(|_| unavailable)
 }
 

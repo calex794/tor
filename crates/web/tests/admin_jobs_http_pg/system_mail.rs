@@ -357,7 +357,10 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         false,
         ORIGIN.to_owned(),
     );
-    pg(&url, "UPDATE mail_cost_policy SET enabled=false WHERE singleton");
+    pg(
+        &url,
+        "UPDATE mail_cost_policy SET enabled=false WHERE singleton",
+    );
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -398,9 +401,17 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     };
     let path = "/odmen/system-mail/profile";
     assert_eq!(
-        http(&app, "POST", path, token, &csrf, ORIGIN, posted(&csrf, password))
-            .await
-            .0,
+        http(
+            &app,
+            "POST",
+            path,
+            token,
+            &csrf,
+            ORIGIN,
+            posted(&csrf, password)
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND
     );
     pg(
@@ -412,8 +423,16 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     );
     for (body, origin, expected) in [
         (posted("bad", password), ORIGIN, StatusCode::FORBIDDEN),
-        (posted(&csrf, password), "https://evil.invalid", StatusCode::FORBIDDEN),
-        (posted(&csrf, "wrong-password"), ORIGIN, StatusCode::UNAUTHORIZED),
+        (
+            posted(&csrf, password),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            posted(&csrf, "wrong-password"),
+            ORIGIN,
+            StatusCode::UNAUTHORIZED,
+        ),
         (posted(&csrf, password), ORIGIN, StatusCode::SEE_OTHER),
         (posted(&csrf, password), ORIGIN, StatusCode::CONFLICT),
     ] {
@@ -461,6 +480,9 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         "UPDATE mail_postbox_profile SET identity_id=NULL,sender=NULL,key_version=NULL,
          nonce=NULL,ciphertext=NULL,saved_at=NULL WHERE singleton",
     );
-    pg(&url, &format!("DELETE FROM account_roles WHERE user_id={actor}"));
+    pg(
+        &url,
+        &format!("DELETE FROM account_roles WHERE user_id={actor}"),
+    );
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }

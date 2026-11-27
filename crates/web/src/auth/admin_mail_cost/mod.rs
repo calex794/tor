@@ -155,11 +155,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         current.snapshot.limits.enabled,
     ));
     let mut response = private_response(
-        pages::layout(
-            "Системная почта",
-            "Локальная оценка бюджета Postbox",
-            &body,
-        ),
+        pages::layout("Системная почта", "Локальная оценка бюджета Postbox", &body),
         &cookies,
     );
     response.headers_mut().insert(
@@ -381,10 +377,11 @@ async fn probe_profile(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     use tor_mail::services::postbox::{PostboxCredentials, PostboxTransport};
-    let credentials = match PostboxCredentials::new(secrets.access().into(), secrets.secret().into()) {
-        Ok(value) => value,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
+    let credentials =
+        match PostboxCredentials::new(secrets.access().into(), secrets.secret().into()) {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
     let transport = match PostboxTransport::new(candidate.identity().sender()) {
         Ok(value) => value,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
