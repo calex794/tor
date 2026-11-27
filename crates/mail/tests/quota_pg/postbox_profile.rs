@@ -310,6 +310,7 @@ async fn exercise_launch_fence(
         Err(LaunchError::Stopped)
     );
     fence.permit_reservation(&active, scope).unwrap();
+    super::dispatch::reject_test_scope(pool, actor, &active).await;
     sqlx::query(
         "UPDATE mail_cost_months SET reserved_attempts=reserved_attempts+1 WHERE month_start=$1::date",
     )
@@ -325,6 +326,7 @@ async fn exercise_launch_fence(
     );
 
     cost.admin_stop(digest).await.unwrap();
+    super::dispatch::exercise_dispatch(pool, digest, actor).await;
     sqlx::query("DELETE FROM mail_cost_months")
         .execute(pool)
         .await
