@@ -5,11 +5,13 @@ mod canonical;
 mod closed;
 mod intent;
 mod time;
+mod transaction;
 
 use crate::services::audience::{
     validate_period, AudienceCounts, AudienceError, AudiencePeriod, AudienceReport,
 };
 use sqlx::{postgres::PgRow, PgPool, Row};
+use transaction::ReportTimeout;
 
 #[derive(Clone)]
 pub struct PgAudience {
@@ -25,16 +27,7 @@ impl PgAudience {
     /// Identity is used only inside COUNT(DISTINCT), never returned or persisted.
     pub async fn report(&self, days: i32) -> Result<AudienceReport, AudienceError> {
         validate_period(days)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        // A slow aggregate must not compete indefinitely with normal reading.
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementOnly).await?;
         let rows = sqlx::query(REPORT_SQL)
             .bind(days)
             .fetch_all(&mut *tx)
