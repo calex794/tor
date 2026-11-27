@@ -4,9 +4,17 @@ Decision: 26 November 2026. Keep password-based registration and sessions. No em
 
 ## MAIL-01 (I/G): durable reference queue
 
-Registration confirmation, support reply notification and project news are the only purposes. A single trusted event/recipient/purpose is unique. The queue stores numeric references, no addresses, message text, tokens or secrets. Claim is atomic, bounded and prioritized; no database transaction stays open during network I/O. A stale generation or expired claim cannot finalize a row. SMTP acceptance is not delivery. Expired claims become uncertain and cannot be blindly replayed. No live dispatch or HTTP integration in this change.
+Registration confirmation, password reset, support reply notification and project news are the only purposes. Password reset is a separately gated transactional purpose; no passwordless login. A single trusted event/recipient/purpose is unique. The queue stores numeric references, no addresses, message text, tokens or secrets. Claim is atomic, bounded and prioritized; no database transaction stays open during network I/O. A stale generation or expired claim cannot finalize a row. SMTP acceptance is not delivery. Expired claims become uncertain and cannot be blindly replayed. No live dispatch or HTTP integration in this change.
 
 The first isolated PostgreSQL test is `cargo test -p tor-mail --test slices_pg -- --ignored` with migrated disposable local tor_ci, plus `cargo test -p tor-mail -p tor-contracts`. The dedicated test must be wired into the applicable PG CI before acceptance.
+
+## MAIL-RESET — password recovery by email
+
+- RESET-01a: introduce the explicit reset purpose, request-bound quota evidence and independent recipient/IP cooldowns (3 per rolling 24h per recipient, 120 seconds between attempts, 10 per rolling 24h per verified IP; unknown IP shares a bucket). All purposes share provider pacing, daily cap, recipient suppression and monthly cost guard. No source producer, worker or external delivery in this slice.
+- RESET-01b: persist short-lived account-owned reset request references with keyed mailbox/IP evidence and credential binding; no plaintext token, password or email in mail_outbox. Generic request acknowledgement for unknown and existing accounts, bounded pending requests, no mail for unknown/inactive accounts. Request replay and account/password/email changes fail closed.
+- RESET-02: use the common Postbox transport only after source, suppression, DNS/recipient policy and quota gates. Generate the 256-bit reset proof immediately before sending; persist only its digest via the existing A-07 mechanism. Link uses a URL fragment, expires in 30 minutes and has no authentication or automatic login. Ambiguous submissions are not blindly retried; failed or delayed submissions must not invalidate previously usable proofs unnecessarily.
+- RESET-03: verify real PostgreSQL, HTTP and Chromium flows (unknown email, expired/replayed/wrong token, session revocation, provider failure, concurrent requests, restored stale database and budget stop). Retire or fence the old local sendmail path before enabling production email reset; it bypasses MAIL-01 quotas.
+- RESET-04: operator-approved Postbox staging and inbox acceptance; no real delivery in CI or automatic deploy. Telegram and backup codes are separate deferred recovery methods.
 
 ## Subsequent acceptance gates
 

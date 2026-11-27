@@ -143,3 +143,55 @@ fn registration_evidence_preserves_source_and_rejects_mismatches() {
         .keys_for_registration(not_registration, "reader@example.com", evidence)
         .is_err());
 }
+
+#[test]
+fn reset_evidence_binds_exact_intent_address_key_and_original_ip() {
+    use tor_contracts::{
+        auth::UserId,
+        mail::{MailIntent, MailPurpose, PasswordResetMailEvidence},
+        paid_delivery::PositiveId,
+    };
+    let signer = signer("4f");
+    let intent = MailIntent {
+        purpose: MailPurpose::PasswordReset,
+        event_id: PositiveId::new(9).unwrap(),
+        recipient: UserId::new(42).unwrap(),
+    };
+    let captured = signer
+        .keys("reader@example.com", Some("192.0.2.7".parse().unwrap()))
+        .unwrap();
+    let evidence = PasswordResetMailEvidence {
+        intent,
+        source: captured.password_reset_source(),
+    };
+    let bound = signer
+        .keys_for_password_reset(intent, "Reader@EXAMPLE.COM", evidence)
+        .unwrap();
+    assert!(bound.matches_password_reset(intent));
+    assert!(!bound.matches_registration(intent));
+    assert_eq!(bound.registration_ip(), captured.registration_ip());
+    assert!(!captured.matches_password_reset(intent));
+    let mut other = intent;
+    other.event_id = PositiveId::new(10).unwrap();
+    assert!(!bound.matches_password_reset(other));
+    assert!(signer
+        .keys_for_password_reset(other, "reader@example.com", evidence)
+        .is_err());
+    other = intent;
+    other.recipient = UserId::new(43).unwrap();
+    assert!(signer
+        .keys_for_password_reset(other, "reader@example.com", evidence)
+        .is_err());
+    other = intent;
+    other.purpose = MailPurpose::SupportReply;
+    assert!(signer
+        .keys_for_password_reset(other, "reader@example.com", evidence)
+        .is_err());
+    assert!(signer
+        .keys_for_password_reset(intent, "other@example.com", evidence)
+        .is_err());
+    assert!(QuotaKeySigner::from_hex(&"5a".repeat(32))
+        .unwrap()
+        .keys_for_password_reset(intent, "reader@example.com", evidence)
+        .is_err());
+}
