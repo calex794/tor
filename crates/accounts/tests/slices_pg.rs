@@ -674,3 +674,122 @@ async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
         .unwrap()
         .is_empty());
 }
+
+/// Named signup must not strand accounts or claim a handle after rollback.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_03_named_signup_is_atomic_and_uses_existing_handle_uniqueness() {
+    use tor_accounts::{
+        domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily},
+        repositories::postgres::{AccountWriteError, RegistrationContext, RegistrationReferral},
+        services::validation::named_registration,
+    };
+    use tor_contracts::mail::SignupMailSource;
+
+    let (accounts, _, existing_digest) = fixture("named-signup").await;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let handle = format!("u{nonce:x}");
+    let email_a = format!("named-a-{nonce}@example.invalid");
+    let email_b = format!("named-b-{nonce}@example.invalid");
+    let email_c = format!("named-c-{nonce}@example.invalid");
+    let password = "NamedFixturePassword2026";
+    let a = named_registration(&email_a, &handle, password, password).unwrap();
+    let b = named_registration(&email_b, &handle.to_uppercase(), password, password).unwrap();
+    let digest_a = session_token_digest(&email_a);
+    let digest_b = session_token_digest(&email_b);
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let context = || RegistrationContext {
+        referral: RegistrationReferral {
+            guest_hash: None,
+            manual_code: None,
+        },
+        audit: LoginAuditContext {
+            verified_ip: None,
+            agent_family: UserAgentFamily::Unknown,
+            event_kind: LoginEventKind::Registration,
+        },
+    };
+    let mail = SignupMailSource {
+        recipient_key: [17; 32],
+        registration_ip_key: None,
+        key_binding: [23; 32],
+    };
+    let (ra, rb) = tokio::join!(
+        accounts.register_named(&a, "$argon2id$fixture", &digest_a, ttl, context(), Some(mail)),
+        accounts.register_named(&b, "$argon2id$fixture", &digest_b, ttl, context(), Some(mail)),
+    );
+    let (winner, won_email, lost_email, won_digest, lost_digest) = match (ra, rb) {
+        (Ok(id), Err(AccountWriteError::Duplicate)) => {
+            (id, &email_a, &email_b, &digest_a, &digest_b)
+        }
+        (Err(AccountWriteError::Duplicate), Ok(id)) => {
+            (id, &email_b, &email_a, &digest_b, &digest_a)
+        }
+        _ => panic!("exactly one normalized handle can commit"),
+    };
+    assert!(accounts.find_user(lost_email).await.unwrap().is_none());
+    assert_eq!(accounts.active_session_user(lost_digest).await.unwrap(), None);
+    assert_eq!(
+        accounts.active_session_user(won_digest).await.unwrap(),
+        Some(winner)
+    );
+    let profile = accounts.profile(winner).await.unwrap().unwrap();
+    assert_eq!(profile.handle.as_deref(), Some(handle.as_str()));
+    assert_eq!(profile.display_name, handle);
+    assert_eq!(profile.revision, 1);
+    let evidence = accounts
+        .registration_mail_source(UserId::new(winner).unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(evidence.source == mail);
+
+    // A conflicting session digest fails after the handle insert. The entire
+    // signup must roll back, leaving both email and handle reusable.
+    let other_handle = format!("v{nonce:x}");
+    let c = named_registration(&email_c, &other_handle, password, password).unwrap();
+    assert_eq!(
+        accounts
+            .register_named(
+                &c,
+                "$argon2id$fixture",
+                &existing_digest,
+                ttl,
+                context(),
+                Some(mail),
+            )
+            .await,
+        Err(AccountWriteError::Duplicate)
+    );
+    assert!(accounts.find_user(&email_c).await.unwrap().is_none());
+    let saved: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_settings WHERE handle=$1")
+            .bind(&other_handle)
+            .fetch_one(accounts.pool())
+            .await
+            .unwrap();
+    assert_eq!(saved, 0);
+    // Duplicate email also cannot reserve an otherwise free handle.
+    let duplicate = named_registration(won_email, &other_handle, password, password).unwrap();
+    let digest_c = session_token_digest(&email_c);
+    assert_eq!(
+        accounts
+            .register_named(
+                &duplicate,
+                "$argon2id$fixture",
+                &digest_c,
+                ttl,
+                context(),
+                None,
+            )
+            .await,
+        Err(AccountWriteError::Duplicate)
+    );
+    assert!(accounts
+        .register_named(&c, "$argon2id$fixture", &digest_c, ttl, context(), Some(mail))
+        .await
+        .is_ok());
+}

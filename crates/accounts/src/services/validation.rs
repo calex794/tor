@@ -1,6 +1,7 @@
 //! Input invariants for web registration and login, independent of HTTP and SQL.
 #![forbid(unsafe_code)]
 
+use super::profile::normalize_handle;
 use crate::domain::{email::registration_email, normalize_email};
 
 pub struct NewAccount {
@@ -26,6 +27,73 @@ pub fn registration(
         email,
         display_name: display_name.to_owned(),
     })
+}
+
+/// A validated signup identity. Initial display name is the canonical handle;
+/// the profile's display name remains separately editable.
+pub struct NamedAccount {
+    email: String,
+    handle: String,
+}
+
+impl NamedAccount {
+    pub fn email(&self) -> &str {
+        &self.email
+    }
+
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
+}
+
+pub fn named_registration(
+    email: &str,
+    handle: &str,
+    password: &str,
+    confirmation: &str,
+) -> Result<NamedAccount, &'static str> {
+    let handle = normalize_handle(handle)?;
+    if handle.is_empty() {
+        return Err("Укажите логин");
+    }
+    if password != confirmation {
+        return Err("Пароли не совпадают");
+    }
+    let account = registration(email, &handle, password)?;
+    Ok(NamedAccount {
+        email: account.email,
+        handle,
+    })
+}
+
+/// Disjoint namespaces: existing email login keeps the legacy validation
+/// contract; handles use exactly the same normalization as profile settings.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoginIdentity {
+    Email(String),
+    Handle(String),
+}
+
+impl LoginIdentity {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Email(value) | Self::Handle(value) => value,
+        }
+    }
+}
+
+pub fn login_identity(raw: &str, password: &str) -> Result<LoginIdentity, &'static str> {
+    if raw.contains('@') {
+        return login(raw, password).map(LoginIdentity::Email);
+    }
+    if password.is_empty() || password.len() > 512 {
+        return Err("Некорректные учётные данные");
+    }
+    let handle = normalize_handle(raw)?;
+    if handle.is_empty() {
+        return Err("Некорректные учётные данные");
+    }
+    Ok(LoginIdentity::Handle(handle))
 }
 
 /// The current password may be shorter (legacy users); the new one must
@@ -93,6 +161,38 @@ mod tests {
             assert!(login(invalid, password).is_ok());
         }
         assert!(registration("reader+books@example.com", "Reader", password).is_ok());
+    }
+
+    #[test]
+    fn named_signup_requires_canonical_unique_key_and_exact_confirmation() {
+        let password = " Valid password ";
+        let account =
+            named_registration(" Reader@Example.COM ", " A.B_1 ", password, password).unwrap();
+        assert_eq!(account.email(), "reader@example.com");
+        assert_eq!(account.handle(), "a.b_1");
+        for bad in ["", "  ", "admin", "me", "a", "a@b", "русский", "a b"] {
+            assert!(named_registration("reader@example.com", bad, password, password).is_err());
+        }
+        assert!(
+            named_registration("reader@example.com", "reader", password, password.trim()).is_err()
+        );
+        assert!(named_registration("a@b", "reader", password, password).is_err());
+        assert!(named_registration("reader@example.com", "reader", "short", "short").is_err());
+    }
+
+    #[test]
+    fn login_identity_keeps_legacy_email_and_disjoint_handle_namespace() {
+        assert_eq!(
+            login_identity(" A@B ", "legacy").unwrap(),
+            LoginIdentity::Email("a@b".into())
+        );
+        assert_eq!(
+            login_identity(" A.B_1 ", "legacy").unwrap(),
+            LoginIdentity::Handle("a.b_1".into())
+        );
+        assert!(login_identity("reader", "").is_err());
+        assert!(login_identity("root", "legacy").is_err());
+        assert!(login_identity("bad@handle@", "legacy").is_err());
     }
 
     #[test]

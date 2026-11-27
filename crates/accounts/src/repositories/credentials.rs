@@ -1,6 +1,6 @@
 //! Credential writes lock the account before sessions to serialize login and rotation.
 use super::postgres::{PgAccounts, INSERT_AUDITED_SESSION};
-use crate::domain::access_audit::LoginAuditContext;
+use crate::{domain::access_audit::LoginAuditContext, services::validation::LoginIdentity};
 use std::num::NonZeroU32;
 
 /// Private audit data for a proven live session; deliberately not serializable.
@@ -132,6 +132,43 @@ impl PgAccounts {
         ttl: NonZeroU32,
         audit: LoginAuditContext,
     ) -> Result<bool, sqlx::Error> {
+        self.insert_verified_session_inner(user_id, expected_password_hash, digest, ttl, audit, None)
+            .await
+    }
+
+    /// Recheck the requested alias under the account lock too. The profile
+    /// writer uses the same lock, so a moved handle cannot mint a stale session.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_verified_session_for_login(
+        &self,
+        user_id: i64,
+        expected_password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        audit: LoginAuditContext,
+        identity: &LoginIdentity,
+    ) -> Result<bool, sqlx::Error> {
+        self.insert_verified_session_inner(
+            user_id,
+            expected_password_hash,
+            digest,
+            ttl,
+            audit,
+            Some(identity),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_verified_session_inner(
+        &self,
+        user_id: i64,
+        expected_password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        audit: LoginAuditContext,
+        identity: Option<&LoginIdentity>,
+    ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
         let current: Option<String> = sqlx::query_scalar(
             "SELECT password_hash FROM users WHERE id = $1 AND account_state='active' FOR UPDATE",
@@ -140,6 +177,30 @@ impl PgAccounts {
         .fetch_optional(&mut *tx)
         .await?;
         if current.as_deref() != Some(expected_password_hash) {
+            return Ok(false);
+        }
+        let alias_matches: bool = match identity {
+            None => true,
+            Some(LoginIdentity::Email(email)) => {
+                sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND email_normalized=$2)",
+                )
+                .bind(user_id)
+                .bind(email)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+            Some(LoginIdentity::Handle(handle)) => {
+                sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM account_settings WHERE user_id=$1 AND handle=$2)",
+                )
+                .bind(user_id)
+                .bind(handle)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
+        if !alias_matches {
             return Ok(false);
         }
         sqlx::query(INSERT_AUDITED_SESSION)

@@ -722,3 +722,101 @@ async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
     pool.close().await;
     setup.close().await;
 }
+
+/// Alias resolution and password verification are separate from issuance.
+/// Moving or clearing the handle in between must invalidate the old proof.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_03_login_alias_is_rechecked_under_account_lock() {
+    use tor_accounts::{
+        repositories::postgres::{RegistrationContext, RegistrationReferral},
+        services::{
+            profile::ProfileUpdate,
+            validation::{login_identity, named_registration},
+        },
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let email = format!("alias-{nonce}@example.invalid");
+    let handle = format!("a{nonce:x}");
+    let password = "AliasFixturePassword2026";
+    let named = named_registration(&email, &handle, password, password).unwrap();
+    let original = session_token_digest(&format!("alias-original-{nonce}"));
+    let fresh = session_token_digest(&format!("alias-fresh-{nonce}"));
+    let stale = session_token_digest(&format!("alias-stale-{nonce}"));
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let audit = LoginAuditContext {
+        verified_ip: None,
+        agent_family: UserAgentFamily::Unknown,
+        event_kind: LoginEventKind::Registration,
+    };
+    let user = accounts
+        .register_named(
+            &named,
+            "$argon2id$fixture",
+            &original,
+            ttl,
+            RegistrationContext {
+                referral: RegistrationReferral {
+                    guest_hash: None,
+                    manual_code: None,
+                },
+                audit,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let alias = login_identity(&handle.to_uppercase(), password).unwrap();
+    let email_key = login_identity(&email, password).unwrap();
+    let a = accounts.find_user_by_login(&alias).await.unwrap().unwrap();
+    let b = accounts.find_user_by_login(&email_key).await.unwrap().unwrap();
+    assert_eq!(a.id, user);
+    assert_eq!(a.id, b.id);
+    assert_eq!(a.email_normalized, b.email_normalized);
+    let login_audit = LoginAuditContext {
+        event_kind: LoginEventKind::PasswordLogin,
+        ..audit
+    };
+    assert!(accounts
+        .insert_verified_session_for_login(user, &a.password_hash, &fresh, ttl, login_audit, &alias)
+        .await
+        .unwrap());
+    accounts
+        .update_profile(
+            user,
+            &ProfileUpdate {
+                display_name: Some("Changed display name".into()),
+                handle: Some(String::new()),
+                adult_enabled: None,
+                expected_revision: 1,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
+    assert!(!accounts
+        .insert_verified_session_for_login(user, &a.password_hash, &stale, ttl, login_audit, &alias)
+        .await
+        .unwrap());
+    assert_eq!(accounts.active_session_user(&stale).await.unwrap(), None);
+    assert!(accounts
+        .insert_verified_session_for_login(
+            user,
+            &b.password_hash,
+            &stale,
+            ttl,
+            login_audit,
+            &email_key,
+        )
+        .await
+        .unwrap());
+    assert_eq!(accounts.active_session_user(&stale).await.unwrap(), Some(user));
+}

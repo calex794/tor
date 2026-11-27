@@ -28,29 +28,36 @@ impl ProfileUpdate {
             }
         }
         if let Some(handle) = self.handle.as_mut() {
-            *handle = handle.trim().to_ascii_lowercase();
-            if !handle.is_empty()
-                && (!(3..=32).contains(&handle.len())
-                    || !handle
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || b"_.".contains(&c))
-                    || [
-                        "admin",
-                        "administrator",
-                        "support",
-                        "system",
-                        "moderator",
-                        "root",
-                        "api",
-                        "me",
-                    ]
-                    .contains(&handle.as_str()))
-            {
-                return Err("Адрес профиля: от 3 до 32 латинских букв, цифр, точек или подчёркиваний; служебные имена недоступны");
-            }
+            *handle = normalize_handle(handle)?;
         }
         Ok(())
     }
+}
+
+/// Shared canonical key for profile handles, signup and login. Empty remains
+/// valid only for optional profile settings; registration and login reject it.
+pub fn normalize_handle(raw: &str) -> Result<String, &'static str> {
+    let handle = raw.trim().to_ascii_lowercase();
+    if !handle.is_empty()
+        && (!(3..=32).contains(&handle.len())
+            || !handle
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"_.".contains(&c))
+            || [
+                "admin",
+                "administrator",
+                "support",
+                "system",
+                "moderator",
+                "root",
+                "api",
+                "me",
+            ]
+            .contains(&handle.as_str()))
+    {
+        return Err("Адрес профиля: от 3 до 32 латинских букв, цифр, точек или подчёркиваний; служебные имена недоступны");
+    }
+    Ok(handle)
 }
 
 #[cfg(test)]
