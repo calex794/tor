@@ -239,9 +239,11 @@ mod tests {
             "csrf_token=csrf&command_key=key&reason=reason&extra=1",
             "csrf_token=csrf&command_key=key&reason=reason&reason=other",
         ] {
-            assert!(Form::<AppealForm>::from_request(form_request(malformed), &())
-                .await
-                .is_err());
+            assert!(
+                Form::<AppealForm>::from_request(form_request(malformed), &())
+                    .await
+                    .is_err()
+            );
         }
     }
 
@@ -265,9 +267,11 @@ mod tests {
             "csrf_token=csrf&decision=restored&note=note&extra=1",
             "csrf_token=csrf&decision=restored&note=note&decision=denied",
         ] {
-            assert!(Form::<DecisionForm>::from_request(form_request(malformed), &())
-                .await
-                .is_err());
+            assert!(
+                Form::<DecisionForm>::from_request(form_request(malformed), &())
+                    .await
+                    .is_err()
+            );
         }
     }
 }
