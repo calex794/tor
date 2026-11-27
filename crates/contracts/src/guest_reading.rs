@@ -55,6 +55,21 @@ impl GuestReadingPolicy {
         })
     }
 
+    pub fn mode(self) -> &'static str {
+        match self.mode {
+            GuestReadMode::Open => "open",
+            GuestReadMode::LoginPreview => "login_preview",
+        }
+    }
+
+    pub fn open_through(self) -> i32 {
+        self.open_through
+    }
+
+    pub fn preview_percent(self) -> i16 {
+        i16::from(self.preview_percent)
+    }
+
     /// The caller must first verify public, current, released, age-permitted
     /// FREE access. This describes guest text extent, not an entitlement.
     /// Paid/held/deleted/draft content cannot be passed as eligible FREE.

@@ -1,4 +1,6 @@
 //! B-01/B-02: a real owner creates one draft, protected against retries.
+#[path = "authoring_pg/guest_reading.rs"]
+mod guest_reading;
 #[path = "authoring_pg/pg_outage.rs"]
 mod pg_outage;
 use sqlx::{PgPool, Row};

@@ -2,6 +2,8 @@ mod book_access_level;
 pub use book_access_level::ManagedBookAccessLevel;
 mod book_description;
 pub use book_description::ManagedBookDescription;
+mod book_guest_reading;
+pub use book_guest_reading::ManagedGuestReading;
 mod book_lifecycle;
 pub use book_lifecycle::ManagedBookLifecycle;
 mod book_ordinary_deletion;
