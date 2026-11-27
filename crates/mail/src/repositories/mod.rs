@@ -1,4 +1,5 @@
 pub mod cost;
+mod deferred;
 pub mod launch;
 pub mod postbox_feedback;
 pub mod postbox_profile;
@@ -39,13 +40,15 @@ impl PgMailQueue {
     }
 
     /// Short, atomic claim. Never hold a database transaction during SMTP.
-    /// News is lower priority than account and support messages.
+    /// Future-due work is not claimable. News remains lower priority.
     pub async fn claim_next(&self) -> Result<Option<MailClaim>, sqlx::Error> {
         let row = sqlx::query(
             "WITH picked AS (SELECT id FROM mail_outbox WHERE status='pending' \
+               AND not_before<=clock_timestamp() AND generation<2147483647 \
                ORDER BY (purpose='project_news'), id LIMIT 1 FOR UPDATE SKIP LOCKED) \
              UPDATE mail_outbox m SET status='leased', generation=m.generation+1, \
-               lease_until=now()+interval '120 seconds' FROM picked WHERE m.id=picked.id \
+               lease_until=clock_timestamp()+interval '120 seconds', defer_reason=NULL \
+               FROM picked WHERE m.id=picked.id \
              RETURNING m.id,m.generation,m.purpose,m.event_id,m.recipient_user_id",
         )
         .fetch_optional(&self.pool)
