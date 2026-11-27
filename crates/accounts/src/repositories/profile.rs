@@ -45,7 +45,8 @@ impl PgAccounts {
         .fetch_all(self.pool())
         .await?;
         Ok(if rows.len() == 1 {
-            rows.pop().and_then(|(id, name)| name.map(|name| (id, name)))
+            rows.pop()
+                .and_then(|(id, name)| name.map(|name| (id, name)))
         } else {
             None
         })

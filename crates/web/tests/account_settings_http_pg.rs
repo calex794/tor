@@ -267,7 +267,10 @@ async fn assert_stable_public_profile(
     cookies: &str,
     csrf: &str,
 ) {
-    for path in [stable.to_owned(), format!("/users/by-handle/HTTP{alice_id}")] {
+    for path in [
+        stable.to_owned(),
+        format!("/users/by-handle/HTTP{alice_id}"),
+    ] {
         let response = call(app, "GET", &path, "", ORIGIN, String::new()).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
