@@ -92,11 +92,35 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert!(saved.adult_enabled);
     assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
     update.expected_revision = 1;
-    update.handle = Some(String::new());
     update.adult_enabled = Some(false);
+    for forbidden in [String::new(), format!("other{alice}")] {
+        update.handle = Some(forbidden);
+        assert!(matches!(
+            accounts.update_profile(alice, &update).await,
+            Err(ProfileError::HandleLocked)
+        ));
+        let saved = accounts.profile(alice).await.unwrap().unwrap();
+        assert_eq!(saved.revision, 1);
+        assert!(saved.adult_enabled);
+        assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    }
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(alice)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    update.handle = None;
+    update.display_name = Some(email.to_ascii_uppercase());
+    assert!(matches!(
+        accounts.update_profile(alice, &update).await,
+        Err(ProfileError::PrivateEmail)
+    ));
+    update.display_name = Some("Reader renamed".into());
     accounts.update_profile(alice, &update).await.unwrap();
     let saved = accounts.profile(alice).await.unwrap().unwrap();
-    assert!(saved.handle.is_none() && !saved.adult_enabled);
+    assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    assert_eq!(saved.display_name, "Reader renamed");
+    assert!(!saved.adult_enabled);
     let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM user_level_grants WHERE user_id=$1")
         .bind(alice)
         .fetch_one(accounts.pool())

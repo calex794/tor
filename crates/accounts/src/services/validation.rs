@@ -19,6 +19,12 @@ pub fn registration(
     if !(1..=80).contains(&length) || display_name.chars().any(char::is_control) {
         return Err("Имя должно содержать от 1 до 80 символов");
     }
+    if display_name
+        .to_ascii_lowercase()
+        .contains(&email.to_ascii_lowercase())
+    {
+        return Err("Не используйте свою электронную почту в публичном имени");
+    }
     if !(12..=128).contains(&password.chars().count()) || password.len() > 512 {
         return Err("Пароль должен содержать от 12 до 128 символов");
     }
@@ -73,6 +79,12 @@ mod tests {
             .expect("valid registration");
         assert_eq!(account.email, "user@example.com");
         assert_eq!(account.display_name, "Автор");
+        assert!(registration(
+            "user@example.com",
+            "Reader USER@EXAMPLE.COM",
+            "мой_надежный_пароль"
+        )
+        .is_err());
         assert!(registration("invalid", "Автор", "мой_надежный_пароль").is_err());
         assert!(registration("a@b", "", "мой_надежный_пароль").is_err());
         assert!(registration("a@b", "A\nB", "мой_надежный_пароль").is_err());
