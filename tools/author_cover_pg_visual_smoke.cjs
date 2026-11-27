@@ -1,4 +1,5 @@
 // H-web-11: actual Chromium owner journey. No HTML fixture, bypassCSP or fake S3.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 // Runs only with the disposable PostgreSQL and private loopback MinIO in CI.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
@@ -261,11 +262,11 @@ async function readyCover(page, bookId, viewport, scheme) {
     const moderator = await moderatorContext.newPage();
     const moderatorMail = 'cover.site.reviewer.' + process.env.GITHUB_RUN_ID + '@example.invalid';
     await moderator.goto(base + '/register');
-    await moderator.getByLabel('Отображаемое имя').fill('Независимый модератор обложек');
     await moderator.getByLabel('Электронная почта').fill(moderatorMail);
     await moderator.getByLabel('Пароль (12–128 символов)').fill('CoverBrowserStrongPassword2026');
     await moderator.getByRole('button', { name: 'Создать учётную запись' }).click();
     await moderator.waitForURL('**/me');
+    await setFixtureDisplayName(moderator, 'Независимый модератор обложек');
     const reviewerId = pg("SELECT id FROM users WHERE email_normalized='" + moderatorMail + "'");
     assert(/^[1-9]\d*$/.test(reviewerId), 'moderator fixture must be newly registered');
     pg('INSERT INTO account_roles(user_id,role,is_active) VALUES(' + reviewerId + ", 'moderator', TRUE)");
@@ -277,12 +278,12 @@ async function readyCover(page, bookId, viewport, scheme) {
         const page = await context.newPage();
         const title = 'Обложка из браузера ' + viewport + ' ' + scheme;
         await page.goto(base + '/register');
-        await page.getByLabel('Отображаемое имя').fill('Автор обложки ' + viewport + scheme);
         await page.getByLabel('Электронная почта')
           .fill('cover.browser.' + viewport + '.' + scheme + '@example.test');
         await page.getByLabel('Пароль (12–128 символов)').fill('CoverBrowserStrongPassword2026');
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
+        await setFixtureDisplayName(page, 'Автор обложки ' + viewport + scheme);
 
         await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
         // S019: exercise the header action at both viewport sizes.
