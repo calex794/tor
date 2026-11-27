@@ -187,7 +187,15 @@ async fn mail_01_reset_proof_atomic_preparation_and_account_revocation() {
     .await
     .unwrap();
     assert!(valid_duration);
-    assert!(queue.finish(request, MailOutcome::Uncertain).await.unwrap());
+    assert!(feedback
+        .finish_password_reset(request, identity, &winner, MailOutcome::Uncertain, None)
+        .await
+        .unwrap());
+    assert!(!feedback
+        .finish_password_reset(request, identity, &winner, MailOutcome::Failed, None)
+        .await
+        .unwrap());
+    assert!(live_proof(&pool, &winner).await);
 
     // A replacement source does not revoke a live proof, but an expired
     // or replaced request cannot issue another proof from a paid reservation.
@@ -227,6 +235,146 @@ async fn mail_01_reset_proof_atomic_preparation_and_account_revocation() {
     assert!(!correlation_exists(&pool, request).await);
     assert!(!live_proof(&pool, &loser).await);
     assert!(live_proof(&pool, &winner).await);
+
+    // A definitive SMTP rejection revokes only the new proof. A stale
+    // generation or unrelated digest cannot cancel an earlier live link.
+    sqlx::query("DELETE FROM account_password_reset_mail_requests WHERE user_id=$1")
+        .bind(user.get())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(queue.finish(request, MailOutcome::Cancelled).await.unwrap());
+    clear(&pool).await;
+    let (event, source) = reset_source(&pool, user, &address, &signer).await;
+    let rejected = claim(&queue, user, event, PasswordReset).await;
+    let keys = signer
+        .keys_for_password_reset(
+            rejected.intent,
+            &address,
+            PasswordResetMailEvidence {
+                intent: rejected.intent,
+                source,
+            },
+        )
+        .unwrap();
+    assert_eq!(quota.reserve(rejected, keys).await.unwrap(), Reserved);
+    sqlx::query("UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '10 seconds' WHERE id=$1")
+        .bind(rejected.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let rejected_proof = proof("definite-rejection");
+    assert!(feedback
+        .prepare_password_reset(rejected, identity, &rejected_proof)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(!correlation_exists(&pool, rejected).await);
+    sqlx::query("UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '120 seconds' WHERE id=$1")
+        .bind(rejected.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(feedback
+        .prepare_password_reset(rejected, identity, &rejected_proof)
+        .await
+        .unwrap()
+        .is_some());
+    let mut stale = rejected;
+    stale.generation += 1;
+    assert!(!feedback
+        .finish_password_reset(stale, identity, &rejected_proof, MailOutcome::Failed, None)
+        .await
+        .unwrap());
+    assert!(!feedback
+        .finish_password_reset(rejected, identity, &winner, MailOutcome::Failed, None)
+        .await
+        .unwrap());
+    assert!(live_proof(&pool, &rejected_proof).await);
+    let cost_before: i64 =
+        sqlx::query_scalar("SELECT sum(reserved_attempts)::bigint FROM mail_cost_months")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(feedback
+        .finish_password_reset(
+            rejected,
+            identity,
+            &rejected_proof,
+            MailOutcome::Failed,
+            None,
+        )
+        .await
+        .unwrap());
+    assert!(!live_proof(&pool, &rejected_proof).await);
+    assert!(live_proof(&pool, &old).await);
+    assert!(live_proof(&pool, &winner).await);
+    let cost_after: i64 =
+        sqlx::query_scalar("SELECT sum(reserved_attempts)::bigint FROM mail_cost_months")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(cost_before, cost_after);
+
+    // Accepted SMTP retains the issued proof and records the validated
+    // provider identifier without treating a repeat as another send.
+    sqlx::query("DELETE FROM account_password_reset_mail_requests WHERE user_id=$1")
+        .bind(user.get())
+        .execute(&pool)
+        .await
+        .unwrap();
+    clear(&pool).await;
+    let (event, source) = reset_source(&pool, user, &address, &signer).await;
+    let accepted = claim(&queue, user, event, PasswordReset).await;
+    let keys = signer
+        .keys_for_password_reset(
+            accepted.intent,
+            &address,
+            PasswordResetMailEvidence {
+                intent: accepted.intent,
+                source,
+            },
+        )
+        .unwrap();
+    assert_eq!(quota.reserve(accepted, keys).await.unwrap(), Reserved);
+    let accepted_proof = proof("accepted");
+    assert!(feedback
+        .prepare_password_reset(accepted, identity, &accepted_proof)
+        .await
+        .unwrap()
+        .is_some());
+    let receipt = format!("receipt-{nonce}");
+    assert!(feedback
+        .finish_password_reset(
+            accepted,
+            identity,
+            &accepted_proof,
+            MailOutcome::Accepted,
+            Some(&receipt),
+        )
+        .await
+        .unwrap());
+    assert!(live_proof(&pool, &accepted_proof).await);
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT provider_message_id FROM mail_feedback_attempts WHERE outbox_id=$1 AND generation=$2",
+    )
+    .bind(accepted.id)
+    .bind(accepted.generation)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored.as_deref(), Some(receipt.as_str()));
+    assert!(!feedback
+        .finish_password_reset(
+            accepted,
+            identity,
+            &accepted_proof,
+            MailOutcome::Cancelled,
+            None,
+        )
+        .await
+        .unwrap());
+
     sqlx::query("UPDATE users SET email_normalized=$2 WHERE id=$1")
         .bind(user.get())
         .bind(format!("changed-{address}"))
@@ -241,6 +389,7 @@ async fn mail_01_reset_proof_atomic_preparation_and_account_revocation() {
         .unwrap();
     assert!(!live_proof(&pool, &old).await);
     assert!(!live_proof(&pool, &winner).await);
+    assert!(!live_proof(&pool, &accepted_proof).await);
     assert!(feedback
         .prepare_password_reset(request, identity, &loser)
         .await

@@ -4,7 +4,7 @@ use crate::domain::{
     postbox::{valid_id, PostboxEvent},
     quota::identity::QuotaKeySigner,
     suppression::{AttemptRef, FeedbackDecision},
-    MailClaim,
+    MailClaim, MailOutcome,
 };
 use rand::{rngs::OsRng, RngCore};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -107,6 +107,8 @@ impl PgPostboxFeedback {
              WHERE m.id=$1 AND m.generation=$2 AND m.purpose=$3 AND m.event_id=$4 \
                AND m.recipient_user_id=$5 AND m.status='leased' \
                AND m.lease_until>clock_timestamp() \
+               AND (m.purpose<>'password_reset' OR \
+                    m.lease_until>clock_timestamp()+interval '25 seconds') \
                AND r.reserved_at>clock_timestamp()-interval '120 seconds' \
                AND r.reserved_at<=clock_timestamp() \
                AND date_trunc('month',r.reserved_at AT TIME ZONE 'Europe/Moscow') \
@@ -152,6 +154,95 @@ impl PgPostboxFeedback {
         }
         tx.commit().await?;
         Ok(Some(format!("<tor-{marker}@pandaolate.ru>")))
+    }
+
+    /// Finalize a prepared reset attempt. On definite nonacceptance revoke
+    /// only this proof. Accepted or uncertain SMTP may have delivered the
+    /// message, so keep its proof live. Never release the charged quota.
+    /// A receipt conflict is not permission to replay: retain the marker.
+    pub async fn finish_password_reset(
+        &self,
+        claim: MailClaim,
+        identity_id: &str,
+        token_hash: &[u8; 32],
+        outcome: MailOutcome,
+        provider_message_id: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
+        if claim.intent.purpose != MailPurpose::PasswordReset || !valid_id(identity_id) {
+            return Ok(false);
+        }
+        if outcome != MailOutcome::Accepted && provider_message_id.is_some() {
+            return Ok(false);
+        }
+        let mut tx = self.pool.begin().await?;
+        let Some(binding) = guard(&mut tx).await? else {
+            return Ok(false);
+        };
+        let account: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(claim.intent.recipient.get())
+            .fetch_optional(&mut *tx)
+            .await?;
+        if account.is_none() {
+            return Ok(false);
+        }
+        let updated = sqlx::query(
+            "UPDATE mail_outbox m SET status=$8,lease_until=NULL,finished_at=clock_timestamp() \
+             FROM mail_feedback_attempts f,password_reset_tokens p \
+             WHERE m.id=$1 AND m.generation=$2 AND m.purpose='password_reset' \
+               AND m.event_id=$3 AND m.recipient_user_id=$4 AND m.status='leased' \
+               AND m.lease_until>clock_timestamp() \
+               AND f.outbox_id=m.id AND f.generation=m.generation \
+               AND f.identity_id=$5 AND f.key_binding=$6 \
+               AND p.user_id=m.recipient_user_id AND p.password_reset_event_id=m.event_id \
+               AND p.token_hash=$7",
+        )
+        .bind(claim.id)
+        .bind(claim.generation)
+        .bind(claim.intent.event_id.get())
+        .bind(claim.intent.recipient.get())
+        .bind(identity_id)
+        .bind(&binding)
+        .bind(token_hash.as_slice())
+        .bind(outcome.as_str())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if updated != 1 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        if matches!(outcome, MailOutcome::Failed | MailOutcome::Cancelled) {
+            sqlx::query(
+                "UPDATE password_reset_tokens SET consumed_at=clock_timestamp() \
+                 WHERE token_hash=$1 AND user_id=$2 AND password_reset_event_id=$3 \
+                 AND consumed_at IS NULL",
+            )
+            .bind(token_hash.as_slice())
+            .bind(claim.intent.recipient.get())
+            .bind(claim.intent.event_id.get())
+            .execute(&mut *tx)
+            .await?;
+        }
+        if let Some(message_id) = provider_message_id.filter(|id| valid_id(id)) {
+            // The shared guard serializes feedback and other receipt binding.
+            // If another attempt owns the ID, keep the exact local marker.
+            sqlx::query(
+                "UPDATE mail_feedback_attempts f SET provider_message_id=$4 \
+                 WHERE f.outbox_id=$1 AND f.generation=$2 AND f.identity_id=$3 \
+                 AND (f.provider_message_id IS NULL OR f.provider_message_id=$4) \
+                 AND NOT EXISTS (SELECT 1 FROM mail_feedback_attempts other \
+                     WHERE other.identity_id=$3 AND other.provider_message_id=$4 \
+                     AND (other.outbox_id,other.generation)<>(f.outbox_id,f.generation))",
+            )
+            .bind(claim.id)
+            .bind(claim.generation)
+            .bind(identity_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Bind the provider ID from a successful SMTP receipt, even if the

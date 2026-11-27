@@ -1,6 +1,11 @@
 //! MAIL 2/6: authenticated, fixed-endpoint Postbox SMTP over TLS.
 //! This adapter never starts a worker, reads environment secrets or retries.
-use crate::domain::postbox::{marker_token, valid_id};
+use crate::domain::{
+    postbox::{marker_token, valid_id},
+    MailOutcome,
+};
+mod password_reset;
+pub use password_reset::ResetOrigin;
 use lettre::{
     message::{
         header::{ContentTransferEncoding, ContentType},
@@ -45,6 +50,7 @@ pub enum PrepareFailure {
     InvalidRecipient,
     InvalidSubject,
     InvalidBody,
+    InvalidResetProof,
     InvalidMarker,
     EncodingFailed,
 }
@@ -58,6 +64,26 @@ pub enum Submission {
     PermanentRejected,
     InvalidPreparedSender,
     Uncertain,
+}
+
+impl Submission {
+    /// One actual SMTP transaction, no automatic replay. Invalid sender is
+    /// rejected before any MAIL FROM; uncertainty must preserve the proof.
+    pub fn terminal_outcome(&self) -> MailOutcome {
+        match self {
+            Self::Accepted { .. } => MailOutcome::Accepted,
+            Self::TemporaryRejected | Self::PermanentRejected => MailOutcome::Failed,
+            Self::InvalidPreparedSender => MailOutcome::Cancelled,
+            Self::Uncertain => MailOutcome::Uncertain,
+        }
+    }
+
+    pub fn accepted_id(&self) -> Option<&str> {
+        match self {
+            Self::Accepted { provider_message_id } => provider_message_id.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 /// No Debug/Serialize. The library necessarily makes short-lived credential
