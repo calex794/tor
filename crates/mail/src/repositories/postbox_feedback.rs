@@ -178,10 +178,11 @@ impl PgPostboxFeedback {
         let Some(binding) = guard(&mut tx).await? else {
             return Ok(false);
         };
-        let account: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(claim.intent.recipient.get())
-            .fetch_optional(&mut *tx)
-            .await?;
+        let account: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+                .bind(claim.intent.recipient.get())
+                .fetch_optional(&mut *tx)
+                .await?;
         if account.is_none() {
             return Ok(false);
         }

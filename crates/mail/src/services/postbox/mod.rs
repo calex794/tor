@@ -5,7 +5,6 @@ use crate::domain::{
     MailOutcome,
 };
 mod password_reset;
-pub use password_reset::ResetOrigin;
 use lettre::{
     message::{
         header::{ContentTransferEncoding, ContentType},
@@ -19,6 +18,7 @@ use lettre::{
     },
     Address, Message,
 };
+pub use password_reset::ResetOrigin;
 use std::time::Duration;
 use tokio::{net::ToSocketAddrs, time::timeout};
 use zeroize::Zeroizing;
@@ -80,7 +80,9 @@ impl Submission {
 
     pub fn accepted_id(&self) -> Option<&str> {
         match self {
-            Self::Accepted { provider_message_id } => provider_message_id.as_deref(),
+            Self::Accepted {
+                provider_message_id,
+            } => provider_message_id.as_deref(),
             _ => None,
         }
     }

@@ -258,11 +258,13 @@ async fn mail_01_reset_proof_atomic_preparation_and_account_revocation() {
         )
         .unwrap();
     assert_eq!(quota.reserve(rejected, keys).await.unwrap(), Reserved);
-    sqlx::query("UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '10 seconds' WHERE id=$1")
-        .bind(rejected.id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '10 seconds' WHERE id=$1",
+    )
+    .bind(rejected.id)
+    .execute(&pool)
+    .await
+    .unwrap();
     let rejected_proof = proof("definite-rejection");
     assert!(feedback
         .prepare_password_reset(rejected, identity, &rejected_proof)
@@ -270,11 +272,13 @@ async fn mail_01_reset_proof_atomic_preparation_and_account_revocation() {
         .unwrap()
         .is_none());
     assert!(!correlation_exists(&pool, rejected).await);
-    sqlx::query("UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '120 seconds' WHERE id=$1")
-        .bind(rejected.id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE mail_outbox SET lease_until=clock_timestamp()+interval '120 seconds' WHERE id=$1",
+    )
+    .bind(rejected.id)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(feedback
         .prepare_password_reset(rejected, identity, &rejected_proof)
         .await
