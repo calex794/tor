@@ -27,9 +27,15 @@ pub(super) fn quota_action(decision: QuotaDecision) -> QuotaAction {
         | PasswordResetRecipientDaily
         | PasswordResetIpDaily
         | TransactionalReserve => Cancel,
-        CostStateUnavailable | CostEmergencyStop | CostNewsPaused | CostMonthlyLimit
-        | CostMonthBoundary | DispatchNotAuthorized | KeyMismatch
-        | RegistrationEvidenceRequired | PasswordResetEvidenceRequired => Stop,
+        CostStateUnavailable
+        | CostEmergencyStop
+        | CostNewsPaused
+        | CostMonthlyLimit
+        | CostMonthBoundary
+        | DispatchNotAuthorized
+        | KeyMismatch
+        | RegistrationEvidenceRequired
+        | PasswordResetEvidenceRequired => Stop,
         AlreadyReserved | StaleClaim => Quarantine,
     }
 }

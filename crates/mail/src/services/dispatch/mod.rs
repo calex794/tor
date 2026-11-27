@@ -8,7 +8,8 @@ use crate::{
         MailClaim, MailOutcome,
     },
     repositories::{
-        launch::PgMailLaunch, postbox_feedback::PgPostboxFeedback, quota::PgMailQuota, PgMailQueue,
+        dispatch::DispatchStores, launch::PgMailLaunch, postbox_feedback::PgPostboxFeedback,
+        quota::PgMailQuota, PgMailQueue,
     },
     services::{
         launch::{LaunchFence, LaunchScope},
@@ -16,7 +17,6 @@ use crate::{
     },
 };
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 use tor_contracts::mail::MailPurpose;
@@ -88,7 +88,7 @@ pub struct DispatchWorker {
 
 impl DispatchWorker {
     pub fn new(
-        pool: PgPool,
+        stores: DispatchStores,
         fence: Arc<LaunchFence>,
         source: Arc<dyn DispatchSource>,
         master: Arc<ProfileMasterKey>,
@@ -99,10 +99,10 @@ impl DispatchWorker {
             source,
             master,
             origin,
-            queue: PgMailQueue::new(pool.clone()),
-            launch: PgMailLaunch::new(pool.clone()),
-            quota: PgMailQuota::new(pool.clone()),
-            feedback: PgPostboxFeedback::new(pool),
+            queue: stores.queue,
+            launch: stores.launch,
+            quota: stores.quota,
+            feedback: stores.feedback,
         }
     }
 

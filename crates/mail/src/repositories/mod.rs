@@ -1,4 +1,5 @@
 pub mod cost;
+pub mod dispatch;
 pub mod launch;
 pub mod postbox_feedback;
 pub mod postbox_profile;

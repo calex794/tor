@@ -13,6 +13,7 @@ use tor_mail::{
         dispatch::DeferReason, postbox_profile::ProfileMasterKey, quota::identity::QuotaKeySigner,
         MailClaim,
     },
+    repositories::dispatch::DispatchStores,
     services::{
         dispatch::{DispatchSource, DispatchWorker, Resolve, ResolvedReset, SourceDecision},
         launch::LaunchFence,
@@ -83,5 +84,5 @@ pub fn build_password_reset_dispatch(
         signer,
         preflight,
     });
-    DispatchWorker::new(pool, fence, source, master, origin)
+    DispatchWorker::new(DispatchStores::new(pool), fence, source, master, origin)
 }

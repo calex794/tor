@@ -15,15 +15,12 @@ impl DispatchSource for NeverResolve {
 #[tokio::test]
 async fn stopped_and_busy_workers_do_not_even_connect_to_the_database() {
     use base64::{engine::general_purpose::STANDARD, Engine};
-    use sqlx::postgres::PgPoolOptions;
 
     // Lazy pool: no TCP connection unless a query is actually attempted.
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgresql://fixture@127.0.0.1:1/tor_ci")
-        .unwrap();
+    let stores = DispatchStores::lazy_fixture();
     let fence = Arc::new(LaunchFence::new());
     let worker = DispatchWorker::new(
-        pool,
+        stores,
         fence.clone(),
         Arc::new(NeverResolve),
         Arc::new(ProfileMasterKey::from_base64(1, &STANDARD.encode([7; 32])).unwrap()),
