@@ -17,6 +17,12 @@ on:
       - 'tools/managed_systemd_release.py'
       - 'tools/coordinated_release.py'
       - 'tools/release_executor_v2.py'
+      - 'tools/install_release_v2.py'
+      - 'ops/bootstrap-one-click-v2.sh'
+      - 'ops/one-click-release-v2-wrapper.sh'
+      - 'ops/one-click-release-vps.sh'
+      - '.github/workflows/tor-one-click-release.yml'
+      - 'tools/release_ancestry.py'
       - 'tools/adopt_edge_vhost.py'
       - 'tests/deploy/**'
       - '.github/workflows/tor-deploy-vm.yml'
@@ -51,10 +57,37 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/bash tests/deploy/hosted_vm_setup.sh 2>&1 | tee "$RUNNER_TEMP/deploy-vm-setup.log"
       - name: Real first start, signed update, failure and interrupted release recovery
         shell: bash
+        env:
+          # Job permissions are contents: read; not a production secret.
+          TOR_VM_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          # Keep the token off the subprocess command line and environment.
+          actions_read_token="$TOR_VM_GITHUB_TOKEN"
+          unset TOR_VM_GITHUB_TOKEN
+          printf '%s' "$actions_read_token" | sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          unset actions_read_token
           grep -Fxq 'DEPLOY08A_VM_ACCEPTANCE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_RECOVERED_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_AUTHENTICATED_LIVE_ANCESTRY_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_UNAPPROVED_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_FAILED_REPAIR_STOPPED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_SIGNED_REPAIR_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_EXISTING_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_TOR_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_V1_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_VHOST_PIN_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_V1_V2_BOOTSTRAP_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_LOOPBACK_SSH_READY' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_WRONG_HOST_KEY_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_SSH_STAGE_ONLY_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_TAMPERED_INBOX_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08G_REMOTE_VERIFY_OK' "$RUNNER_TEMP/deploy-vm.log"
       - name: Retain sanitized fixture evidence
         if: always()
         uses: actions/upload-artifact@v4
