@@ -14,6 +14,17 @@ impl PgAccounts {
             WHERE created_at<now()-INTERVAL '90 days' ORDER BY created_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM account_login_events e USING batch b WHERE e.session_id=b.session_id")
             .execute(self.pool()).await?;
+        // Account-visible security events use the existing 90-day horizon.
+        sqlx::query(
+            "WITH batch AS (
+                SELECT id FROM account_security_events
+                WHERE created_at<now()-INTERVAL '90 days'
+                ORDER BY created_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM account_security_events e USING batch b WHERE e.id=b.id",
+        )
+        .execute(self.pool())
+        .await?;
         sqlx::query("WITH batch AS (SELECT token_hash FROM password_reset_tokens
             WHERE expires_at<now()-INTERVAL '2 days' ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM password_reset_tokens t USING batch b WHERE t.token_hash=b.token_hash")

@@ -203,3 +203,13 @@ Schema 7 requires physical_http_primary_cutoff_verified and
 physical_free_layer_pack_http_verified. It does not assert full production ACL,
 paid V1 HTTP/WebCrypto, real offsite recovery, RPO/RTO or release approval.
 Protected paid object restore/decryption on the physical copy remains 10e-b.
+
+## RECOVERY-10e-b1: shared S334 TCP grant transport
+
+Prepare the existing paid V1/V2 S334 recovery acceptance for physical PITR by
+replacing its in-process grant requests with actual loopback TCP HTTP. Each
+real paid router has its own ephemeral listener, matching origin, bounded
+non-redirecting HTTP client and scoped server lifetime. Preserve the existing
+logical restore, ciphertext, key, revocation and WebCrypto assertions. This
+change does not yet join S334 to the physical PITR fixture; schema 7 and the
+independent-host acceptance boundary are unchanged.

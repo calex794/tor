@@ -44,6 +44,14 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         if url.scheme() != origin.scheme() || url.authority() != origin.authority() {
             return Err(AuthorError::Unavailable);
         }
+        if !self
+            .references
+            .record_single_delivery(&record)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?
+        {
+            return Err(AuthorError::Unavailable);
+        }
         let current = self
             .references
             .for_administrator(chapter, version, digest)

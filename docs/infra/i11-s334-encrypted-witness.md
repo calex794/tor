@@ -1,22 +1,21 @@
-# RECOVERY-10e-b2: exact S334 encrypted purchase witness
+# RECOVERY-10e-b2: exact S334 encrypted purchase finance witness
 
-The existing S334 fixture performs two real 175-minor-unit purchases, one
-of each encrypted chapter edition. Add a read-only reusable SQL witness to
-its existing logical restoration workflow. The pre-backup source snapshot
-is retained outside the dump. Compare the exact purchase, wallet, journal,
-command, library, posting and publication records after restore. The
-complete edition and immutable encrypted registry rows are represented
-by hashes rather than plaintext or key metadata. Each checkout has a
-425-minor-unit remaining synthetic wallet, 35 platform credit and 140
-creator earning; the initial 600 balance does not claim an actual deposit.
+The existing S334 logical restore fixture proves historical V1/V2
+entitlements, actual encrypted storage, wallet debits and WebCrypto. The
+first independent draft failed before backup: its two checkouts used the
+default wallet-only PgCheckout, whereas its SQL required D-08 postings.
 
-The actual entitlement function must grant each pinned version; the
-existing post-restore revocation test must make the witness fail with
-its specific entitlement error, while leaving the source unchanged.
-All statements run in a repeatable-read read-only transaction. No
-production data or real payments are involved.
+Publish explicit CI-only immutable finance terms (20% platform, seven-day
+refund window) for the disposable S334 book and opt both actual checkouts
+into the D-08 writer. These are synthetic test terms, not production policy
+or funding. Each 175-minor-unit purchase must produce a 425 remaining wallet,
+35 platform credit and 140 creator earning, with the original refund deadline.
 
-This is a prerequisite for incorporating the same fixture and witness
-into the physical WAL recovery acceptance. Schema 7 is unchanged.
-Neither physical encrypted paid HTTP/WebCrypto nor independent-host
-production recovery is attested by this change alone.
+Extend the already merged DEPLOY-07c read-only snapshot instead of adding
+a competing query. Verify each debit, command, pin, posting and recipient,
+and compare exact row evidence plus edition/registry hashes after restore.
+Keep all seven canonical entitlement checks, negative revocation control
+and source-unchanged assertion. No raw key material or plaintext is output.
+The restored revocation insertion exercises access denial, not a financial
+refund settlement. No runtime policy, production migration, deployment or
+physical PITR schema change is included; full CI is required.

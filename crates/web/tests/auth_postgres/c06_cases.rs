@@ -34,6 +34,7 @@ async fn owned_get(app: &Router, cookies: &str, uri: &str, status: StatusCode) -
     let reply = send(app, json_request("GET", uri, "", cookies, ORIGIN, "")).await;
     assert_eq!(reply.status(), status, "{uri}");
     assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(!reply.headers().contains_key(header::SET_COOKIE));
     let body = body_of(reply).await;
     assert!(
         !body.contains(SECRET),
@@ -93,7 +94,17 @@ pub(super) async fn purchased_version_http_journey(
     let csp = paywall.headers()["content-security-policy"]
         .to_str()
         .unwrap();
-    assert!(csp.contains("script-src 'none'"));
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use sha2::{Digest, Sha256};
+    let integrity = format!(
+        "sha256-{}",
+        STANDARD.encode(Sha256::digest(include_bytes!(
+            "../../assets/tor-auth-dialog.js"
+        )))
+    );
+    assert!(csp.contains(&format!("script-src '{integrity}';")));
+    assert!(csp.contains("connect-src 'self';"));
+    assert!(!csp.contains("unsafe-inline") && !csp.contains("script-src 'self'"));
     assert!(csp.contains("frame-ancestors 'none'"));
     let html = body_of(paywall).await;
     assert!(html.contains("Для чтения нужен доступ"));
@@ -104,7 +115,11 @@ pub(super) async fn purchased_version_http_journey(
         "paid V1 leaked through public paywall"
     );
     assert!(!html.contains("C06-PRIVATE-V2-MARKER"), "paid V2 leaked");
-    assert!(!html.contains("<script>"), "paywall must not run scripts");
+    assert!(
+        !html.contains("<script>"),
+        "paywall must not run inline scripts"
+    );
+    assert!(html.contains(&format!("integrity=\"{integrity}\"")));
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
     assert!(anonymous.is_empty());
     let other_purchase =
@@ -140,6 +155,7 @@ pub(super) async fn purchased_version_http_journey(
         .await;
         assert_eq!(denied.status(), StatusCode::FORBIDDEN);
         assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(!denied.headers().contains_key(header::SET_COOKIE));
         assert!(body_of(denied).await.is_empty());
     }
     let invalid = purchase_request(5, 1, 0); // First block has four UTF-16 units.
@@ -159,6 +175,7 @@ pub(super) async fn purchased_version_http_journey(
     .await;
     assert_eq!(saved.status(), StatusCode::OK);
     assert_eq!(saved.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(cookie(&saved, "tor-dev-session="), first_session);
     let receipt = body_of(saved).await;
     assert!(receipt.contains(r#""revision":1"#));
     assert!(!receipt.contains(SECRET));

@@ -266,16 +266,8 @@ pub fn private_account_layout(title: &str, description: &str, content: &str) -> 
     Html(
         html.0
             .replace(
-                "<a class=\"site-nav__link\" href=\"/login\">Войти</a>",
+                "<a class=\"button button--small\" href=\"/login\">Войти</a>",
                 "<a class=\"site-nav__link\" href=\"/me\">Мой кабинет</a>",
-            )
-            .replace(
-                "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
-                "",
-            )
-            .replace(
-                "<a class=\"site-mobile-nav__link\" href=\"/register\">Регистрация</a>",
-                "",
             )
             .replace(
                 "<a class=\"site-mobile-nav__link\" href=\"/login\">Войти</a>",

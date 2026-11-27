@@ -81,15 +81,12 @@ sha_v2="$(psql "$TEST_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 \
   exit 1
 }
 
-# The read-only witness is reusable by a future physical WAL fixture. Keep
-# the original exact rows outside the archive being tested.
 paid_snapshot() {
-  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 \
-    -c 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;' \
-    -f tools/i11_s334_paid_restore_facts.sql -c 'COMMIT;'
+  case "$1" in "$TEST_DATABASE_URL"|"$S334_RESTORED_DATABASE_URL") ;; *) return 2;; esac
+  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_s334_paid_recovery_facts.sql
 }
-source_paid="$(paid_snapshot "$TEST_DATABASE_URL")"
-[[ -n "$source_paid" ]] || { echo 'FAIL: empty encrypted purchase witness' >&2; exit 1; }
+source_paid_snapshot="$(paid_snapshot "$TEST_DATABASE_URL")"
+[[ -n "$source_paid_snapshot" ]] || { echo 'FAIL: empty S334 purchase witness' >&2; exit 1; }
 
 # Back up both parts: SQLx/Purchases/PG storage registry + immutable ciphertext.
 # KEK remains a third independent local recovery input and is NEVER uploaded.
@@ -186,18 +183,31 @@ if psql "$S334_RESTORED_DATABASE_URL" -X -v ON_ERROR_STOP=1 -q \
   exit 1
 fi
 
-restored_paid="$(paid_snapshot "$S334_RESTORED_DATABASE_URL")"
-[[ "$restored_paid" == "$source_paid" ]] || {
-  echo 'FAIL: restored encrypted purchase registry or financial history differs' >&2
+restored_paid_snapshot="$(paid_snapshot "$S334_RESTORED_DATABASE_URL")"
+[[ -n "$restored_paid_snapshot" && "$restored_paid_snapshot" == "$source_paid_snapshot" ]] || {
+  echo 'FAIL: recovered encrypted V1/V2 purchase, wallet or storage receipt differs' >&2
   exit 1
 }
-echo 'S334_EXACT_PAID_LEDGER_RESTORE_OK'
+echo 'DEPLOY07C_PAID_V1_V2_DB_EXACT_OK'
 
 # Rust must first reject missing S3, then recover the exact V1 ciphertext from
 # the backup bucket, reject missing/wrong KEK, verify D/B/G rights, issue V1.
 cargo test -p tor-web --features s3-paid \
   --test s334_paid_restore_pg_s3 s3_34_verify_restored_paid_v1_and_rejected_keys \
-  -- --ignored --exact --test-threads=1
+  -- --ignored --exact --test-threads=1 --show-output
+
+# The actual HTTP test just revoked both restored purchases. A pre-refund
+# acceptance snapshot must now refuse the restored fixture, but not source.
+if paid_snapshot "$S334_RESTORED_DATABASE_URL" >"$work/revoked-witness.log" 2>&1; then
+  echo 'FAIL: revoked purchases passed pre-refund witness' >&2
+  exit 1
+fi
+grep -Fq 'S334 unexpected pre-refund revocation' "$work/revoked-witness.log"
+[[ "$(paid_snapshot "$TEST_DATABASE_URL")" == "$source_paid_snapshot" ]] || {
+  echo 'FAIL: isolated restore/refund mutated source purchase witness' >&2
+  exit 1
+}
+echo 'DEPLOY07C_PAID_SOURCE_UNCHANGED_OK'
 
 # The browser-compatible decryption must work with the *new* scoped grant
 # issued after recovery, never with a cached pre-disaster bearer URL.
@@ -205,18 +215,5 @@ TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/s334-webcrypto.json" \
   node tools/paid_grant_webcrypto_e2e.mjs
 TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/s334-webcrypto-v2.json" \
   node tools/paid_grant_webcrypto_e2e.mjs
-# The existing Rust test revokes both purchases only in the restored DB.
-# The original witness must reject those changed rights, and the source
-# witness must still be identical after the entire recovery test.
-if paid_snapshot "$S334_RESTORED_DATABASE_URL" >"$work/revoked-witness.log" 2>&1; then
-  echo 'FAIL: encrypted purchase witness accepted changed entitlement' >&2
-  exit 1
-fi
-grep -Fq 'S334 encrypted purchase entitlement witness differs' "$work/revoked-witness.log"
-[[ "$(paid_snapshot "$TEST_DATABASE_URL")" == "$source_paid" ]] || {
-  echo 'FAIL: independent recovery altered original paid history' >&2
-  exit 1
-}
-echo 'S334_EXACT_PAID_LEDGER_NEGATIVE_CONTROL_OK'
 echo 'S334_HISTORICAL_KEK_V1_V2_RESTORE_PASS'
 echo 'S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS'

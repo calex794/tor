@@ -348,13 +348,30 @@ async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, 
     if actual.as_deref() != Some(state.s3_origin.as_str()) {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
+    if !state
+        .references
+        .record_single_delivery(&record)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
     Ok(signed)
 }
 
 async fn read_source(state: &FreeGrantState, record: FreeS3Ref) -> Result<Vec<u8>, StatusCode> {
     let object = trusted_object(state, &record)?;
-    tokio::time::timeout(Duration::from_secs(15), state.store.get_verified(&object))
+    let bytes = tokio::time::timeout(Duration::from_secs(15), state.store.get_verified(&object))
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !state
+        .references
+        .record_single_delivery(&record)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(bytes)
 }
