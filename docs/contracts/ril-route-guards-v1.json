@@ -1151,6 +1151,13 @@
       "policy": "public"
     },
     {
+      "method": "GET",
+      "template": "/users/by-handle/{handle}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "public_profile::by_handle",
+      "policy": "public"
+    },
+    {
       "method": "POST",
       "template": "/api/v1/me/messages",
       "source": "crates/web/src/auth/admin_mail_routes.rs",

@@ -34,15 +34,63 @@ impl PgAccounts {
         if normalized.is_empty() || normalized.chars().count() > 80 {
             return Ok(None);
         }
-        let mut rows = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id, display_name FROM users
+        let mut rows = sqlx::query_as::<_, (i64, Option<String>)>(
+            "SELECT id, CASE WHEN strpos(lower(display_name),email_normalized)=0
+                             THEN display_name END
+             FROM users
              WHERE account_state='active' AND lower(display_name)=lower($1::text)
              ORDER BY id LIMIT 2",
         )
         .bind(normalized)
         .fetch_all(self.pool())
         .await?;
-        Ok(if rows.len() == 1 { rows.pop() } else { None })
+        Ok(if rows.len() == 1 {
+            rows.pop().and_then(|(id, name)| name.map(|name| (id, name)))
+        } else {
+            None
+        })
+    }
+
+    /// Unique claimed handles are a separate namespace from mutable names.
+    pub async fn public_profile_by_handle(
+        &self,
+        handle: &str,
+    ) -> Result<Option<(i64, String, String)>, sqlx::Error> {
+        let handle = handle.to_ascii_lowercase();
+        if !(3..=32).contains(&handle.len())
+            || !handle
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_.".contains(&byte))
+        {
+            return Ok(None);
+        }
+        sqlx::query_as(
+            "SELECT u.id,
+                    CASE WHEN strpos(lower(u.display_name),u.email_normalized)=0
+                         THEN u.display_name ELSE 'Читатель' END,
+                    s.handle
+             FROM account_settings s JOIN users u ON u.id=s.user_id
+             WHERE s.handle=$1 AND u.account_state='active'",
+        )
+        .bind(handle)
+        .fetch_optional(self.pool())
+        .await
+    }
+
+    /// For redirects from canonical actor-ID writes, not numeric public lookup.
+    pub async fn public_profile_address_parts(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<(Option<String>, Option<String>)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT CASE WHEN strpos(lower(u.display_name),u.email_normalized)=0
+                         THEN u.display_name END, s.handle
+             FROM users u LEFT JOIN account_settings s ON s.user_id=u.id
+             WHERE u.id=$1 AND u.account_state='active'",
+        )
+        .bind(user_id)
+        .fetch_optional(self.pool())
+        .await
     }
 
     /// Account-owned display-name projection for private support admin queues.
