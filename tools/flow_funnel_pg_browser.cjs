@@ -36,7 +36,6 @@ function scalar(statement) {
 }
 async function register(page, email) {
   await page.goto(base+'/register');
-  await page.getByLabel('Отображаемое имя').fill('Проверка пути к чтению');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('FlowFunnelBrowserPassword2026');
   await page.getByRole('button', {name:'Создать учётную запись'}).click();

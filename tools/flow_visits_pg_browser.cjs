@@ -40,7 +40,6 @@ function ownPages(user) {
 }
 async function register(page, email) {
   await page.goto(base+'/register');
-  await page.getByLabel('Отображаемое имя').fill('Проверка визитов');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('FlowVisitsBrowserPassword2026');
   await page.getByRole('button', {name:'Создать учётную запись'}).click();
