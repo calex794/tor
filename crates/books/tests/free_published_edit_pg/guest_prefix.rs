@@ -18,15 +18,19 @@ async fn pool() -> PgPool {
 }
 
 async fn prepare_book(pool: &PgPool, book: i64) {
-    // Explicit preparation fixture. The SQL rollout fence remains closed.
-    sqlx::query(
-        "UPDATE books SET guest_policy_revision=1,guest_open_through_chapter_no=0
-         WHERE id=$1 AND guest_read_mode='open' AND access_level='basic'",
+    // Legacy fixtures have NULL age tier (B-09). Set the known public tier
+    // explicitly for this isolated fixture; never change production defaults.
+    // The SQL rollout fence remains closed.
+    let changed = sqlx::query(
+        "UPDATE books SET access_level='basic',guest_policy_revision=1,
+                          guest_open_through_chapter_no=0
+         WHERE id=$1 AND guest_read_mode='open' AND access_level IS NULL",
     )
     .bind(book)
     .execute(pool)
     .await
     .unwrap();
+    assert_eq!(changed.rows_affected(), 1);
 }
 
 async fn current_prefix(pool: &PgPool, chapter: i64) -> Option<String> {
@@ -50,7 +54,6 @@ async fn current_prefix(pool: &PgPool, chapter: i64) -> Option<String> {
 async fn auth_read_prefix_fences_old_editions_policy_and_wrong_source() {
     let pool = pool().await;
     let (author, owner, _, book, original) = fixture(&pool, "guest-prefix-v1-v2").await;
-    prepare_book(&pool, book).await;
     let repo = PgGuestPrefix::new(pool.clone());
     let first = GuestPrefixTarget {
         book_id: book,
@@ -59,6 +62,21 @@ async fn auth_read_prefix_fences_old_editions_policy_and_wrong_source() {
         policy_revision: 1,
     };
     let source = "Оригинальный текст V1 😀";
+    // A prepared policy alone cannot turn an unknown age tier into basic.
+    let changed = sqlx::query(
+        "UPDATE books SET guest_policy_revision=1 WHERE id=$1 AND access_level IS NULL",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changed.rows_affected(), 1);
+    assert_eq!(
+        repo.prepare_current(first, source).await,
+        Err(AuthorError::Conflict)
+    );
+    assert_eq!(current_prefix(&pool, first.chapter_id).await, None);
+    prepare_book(&pool, book).await;
     assert_eq!(
         repo.prepare_current(first, "different source").await,
         Err(AuthorError::Conflict)
