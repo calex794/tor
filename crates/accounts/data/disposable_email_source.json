@@ -1,0 +1,8 @@
+{
+  "repository": "disposable-email-domains/disposable-email-domains",
+  "path": "disposable_email_blocklist.conf",
+  "commit": "9cf2bee345b0276e1b65cee7484beb51e5c715b1",
+  "git_blob_sha1": "fe0a192a919ca86081d9bd9b8330227cf5f8d55d",
+  "license": "CC0-1.0",
+  "domains": 10455
+}

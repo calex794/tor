@@ -58,13 +58,33 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 456)  # AUTH-UI-01 adds one static asset.
-        self.assertEqual(report["route_pairs"], 453)  # AUTH-UI-01 adds one exact pair.
+        self.assertEqual(report["route_bindings"], 460)  # AUTH-04b, AUTH-UI-01 and MAIL-01.
+        self.assertEqual(report["route_pairs"], 457)  # AUTH-04b, AUTH-UI-01 and MAIL-01.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
         self.assertFalse(audit["nginx_config_reviewed"])
         self.assertFalse(audit["public_origin_reviewed"])
+
+    def test_system_mail_exposure_exceptions_are_exact(self):
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        routes = [row for row in original["routes"]
+                  if row["policy"] in {"admin_system_mail", "postbox_relay"}]
+        self.assertEqual(len(routes), 4)
+        for row in routes:
+            for field, value in (
+                ("template", row["template"] + "/extra"),
+                ("policy", "public"),
+                ("handler", "other_handler"),
+            ):
+                with self.subTest(route=row["template"], method=row["method"], field=field):
+                    data = json.loads(json.dumps(original))
+                    changed = next(item for item in data["routes"] if item == row)
+                    changed[field] = value
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    self.assertTrue(any("internal/admin route is not denied" in issue
+                                        for issue in check_repository(self.root)))
 
     def test_continuation_admin_exception_is_exact_and_not_downgradable(self):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"

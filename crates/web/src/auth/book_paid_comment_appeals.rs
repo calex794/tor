@@ -1,9 +1,7 @@
 //! S049: author appeal and independent administrator review for hidden paid V1 comments.
 //! Never returns the sealed text, grants, purchased versions, or selected quotes.
-use super::{
-    appeal_markup::{author_action, AppealForm, AppealTarget, DecisionForm},
-    deny, page, session_user, status, ShareState,
-};
+use super::appeal_markup::{author_action, AppealForm, AppealTarget, DecisionForm};
+use super::{deny, page, session_user, status, ShareState};
 use axum::{
     extract::{Form, Path, State},
     http::{HeaderMap, StatusCode},

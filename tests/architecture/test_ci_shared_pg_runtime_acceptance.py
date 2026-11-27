@@ -69,7 +69,7 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
              ("traffic_storage_catalog", "books_import_authoring")),
             ("reading", 50, 50, "postgres_reading", "text_issues_pg",
              ("reading_library", "referrals_recommendations_social")),
-            ("commerce", 59, 54, "slices_pg d_02_", "ril_behavior_consent_pg",
+            ("commerce", 60, 55, "slices_pg d_02_", "ril_behavior_consent_pg",
              ("commerce_support", "http_security")),
         )
         for shard, count, timed, first, last, phases in cases:
@@ -77,6 +77,10 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
                 result, rows = self.invoke(shard)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(len(rows), count)
+                mail = [row for row in rows if row[0].startswith("test -p tor-mail ")]
+                self.assertEqual(len(mail), int(shard == "commerce"))
+                if mail:
+                    self.assertEqual(mail[0][0], "test -p tor-mail --test slices_pg mail_01_ -- --ignored --test-threads=1")
                 self.assertTrue(all(len(row) == 4 for row in rows))
                 self.assertIn(first, rows[0][0])
                 self.assertIn(last, rows[-1][0])
