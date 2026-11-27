@@ -77,11 +77,10 @@ impl PgPostboxFeedback {
             return Ok(None);
         };
         let (activation_digest, recipient_key) = if let Some((keys, snapshot)) = expected {
-            let identity: Option<String> = sqlx::query_scalar(
-                "SELECT identity_id FROM mail_postbox_profile WHERE singleton",
-            )
-            .fetch_one(&mut *tx)
-            .await?;
+            let identity: Option<String> =
+                sqlx::query_scalar("SELECT identity_id FROM mail_postbox_profile WHERE singleton")
+                    .fetch_one(&mut *tx)
+                    .await?;
             if binding.as_slice() != keys.key_binding()
                 || identity.as_deref() != Some(identity_id)
                 || !super::launch::dispatch_matches(&mut tx, snapshot, false).await?
