@@ -3217,6 +3217,13 @@
     },
     {
       "method": "POST",
+      "template": "/odmen/system-mail/reconcile",
+      "source": "crates/web/src/auth/admin_mail_cost/mod.rs",
+      "handler": "reconcile",
+      "policy": "admin_system_mail"
+    },
+    {
+      "method": "POST",
       "template": "/internal/mail/postbox-feedback",
       "source": "crates/web/src/auth/postbox_feedback.rs",
       "handler": "receive",

@@ -236,9 +236,76 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
         &url,
         &format!("DELETE FROM mail_cost_admin_audit WHERE actor_user_id={actor}"),
     );
+    let reconcile_path = format!("{PAGE}/reconcile");
+    let rev: i64 = pg(&url, "SELECT revision FROM mail_cost_policy WHERE singleton")
+        .parse()
+        .unwrap();
+    let month = pg(
+        &url,
+        "SELECT to_char(clock_timestamp() AT TIME ZONE 'Europe/Moscow','YYYY-MM')",
+    );
+    let evidence = "ab".repeat(32);
+    let reconciliation = |csrf: &str, attempts: i64, rev: i64| {
+        format!(
+            "csrf_token={csrf}&revision={rev}&month={month}&free_allowance=1000&baseline_kopecks=100&rate_per_thousand=8032&reserved_attempts={attempts}&evidence_sha256={evidence}&reviewed=yes"
+        )
+    };
+    for (posted, origin) in [
+        (reconciliation("bad", 5001, rev), ORIGIN),
+        (reconciliation(&csrf, 5001, rev), "https://evil.invalid"),
+    ] {
+        assert_eq!(
+            http(&app, "POST", &reconcile_path, token, &csrf, origin, posted)
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    for (posted, expected) in [
+        (reconciliation(&csrf, 4999, rev), StatusCode::BAD_REQUEST),
+        (reconciliation(&csrf, 5001, rev - 1), StatusCode::CONFLICT),
+        (
+            reconciliation(&csrf, 5001, rev).replace("reviewed=yes", "reviewed=no"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (reconciliation(&csrf, 5001, rev), StatusCode::SEE_OTHER),
+        (reconciliation(&csrf, 5001, rev), StatusCode::CONFLICT),
+    ] {
+        assert_eq!(
+            http(&app, "POST", &reconcile_path, token, &csrf, ORIGIN, posted)
+                .await
+                .0,
+            expected
+        );
+    }
+    assert_eq!(
+        pg(&url, "SELECT enabled FROM mail_cost_policy WHERE singleton"),
+        "f"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM mail_cost_month_reconciliation_audit WHERE actor_user_id={actor}")
+        ),
+        "1"
+    );
     pg(
         &url,
         &format!("UPDATE account_roles SET is_active=false WHERE user_id={actor}"),
+    );
+    assert_eq!(
+        http(
+            &app,
+            "POST",
+            &reconcile_path,
+            token,
+            &csrf,
+            ORIGIN,
+            reconciliation(&csrf, 5002, rev + 1),
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
     );
     assert_eq!(
         http(

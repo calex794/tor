@@ -1,0 +1,7 @@
+# MAIL 3/6 — operator controls
+
+This integrated gate starts with the existing /odmen/system-mail page. The reconciliation action requires live administrator session, Origin/CSRF, explicit independent-review confirmation, a current Moscow billing month and a policy revision. Unknown allowance defaults to zero. The server validates numeric fields and a nonzero SHA-256 evidence reference; the repository atomically checks the stopped policy, reservation/correlation lower bound and immutable audit. The evidence digest is only a reference; the application does not claim to verify the external billing evidence.
+
+Pending in this same gate: fixed Postbox identity and sender configuration, independently keyed authenticated encryption of credentials, exact-intent administrator step-up, redacted read-only probe, separately quota-reserved test-send, and an independent restore/launch fence. No credentials in forms returned to browsers, audit or logs. No HTTP action or saved profile alone can enable sending. The future worker must start stopped after a restore or restart and must obtain current explicit operator approval with externally verified usage. No production SMTP, deployment or provider activation.
+
+CI must run the existing admin_jobs_http_pg suite and RIL route/governance checks. This is a draft stacked on gate 1 until its reconciliation API is accepted; transport integration will be added to the same PR after gate 2.

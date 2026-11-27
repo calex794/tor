@@ -14,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::services::security::session_token_digest;
 use tor_mail::repositories::cost::{
-    admin::{CostAdminError, CostAdminView, LimitChange},
+    admin::{CostAdminError, CostAdminView, LimitChange, MonthReconciliation},
     PgMailCost,
 };
 
@@ -24,6 +24,7 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/odmen/system-mail", get(page).post(save))
         .route("/odmen/system-mail/stop", post(stop))
+        .route("/odmen/system-mail/reconcile", post(reconcile))
 }
 
 #[derive(Deserialize)]
@@ -35,6 +36,54 @@ struct LimitsForm {
     warning_2: i64,
     news_pause: i64,
     monthly_limit: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReconcileForm {
+    csrf_token: String,
+    revision: i64,
+    month: String,
+    free_allowance: i64,
+    baseline_kopecks: i64,
+    rate_per_thousand: i64,
+    reserved_attempts: i64,
+    evidence_sha256: String,
+    reviewed: String,
+}
+
+impl ReconcileForm {
+    fn request(&self) -> Option<MonthReconciliation> {
+        let month = self.month.as_bytes();
+        if self.reviewed != "yes"
+            || self.revision <= 0
+            || month.len() != 7
+            || month[4] != b'-'
+            || !month[..4].iter().all(u8::is_ascii_digit)
+            || !month[5..].iter().all(u8::is_ascii_digit)
+            || !(1..=12).contains(&self.month[5..].parse::<u8>().ok()?)
+            || self.evidence_sha256.len() != 64
+        {
+            return None;
+        }
+        let mut evidence_sha256 = [0; 32];
+        hex::decode_to_slice(&self.evidence_sha256, &mut evidence_sha256).ok()?;
+        if evidence_sha256 == [0; 32] {
+            return None;
+        }
+        let usage = tor_mail::domain::cost::MonthUsage {
+            month_start: format!("{}-01", self.month),
+            free_allowance: self.free_allowance,
+            baseline_kopecks: self.baseline_kopecks,
+            rate_per_thousand: self.rate_per_thousand,
+            reserved_attempts: self.reserved_attempts,
+        };
+        usage.estimate_kopecks(1)?;
+        Some(MonthReconciliation {
+            usage,
+            evidence_sha256,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -149,6 +198,30 @@ async fn stop(
         return deny(StatusCode::FORBIDDEN);
     }
     match store(&state).admin_stop(&digest).await {
+        Ok(()) => private_response(Redirect::to("/odmen/system-mail"), &[]),
+        Err(error) => deny(status(error)),
+    }
+}
+
+async fn reconcile(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<ReconcileForm>,
+) -> Response {
+    let digest = match operator(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    if !valid_csrf(&state, &headers, &form.csrf_token) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Some(request) = form.request() else {
+        return deny(StatusCode::BAD_REQUEST);
+    };
+    match store(&state)
+        .admin_reconcile_month(&digest, form.revision, &request)
+        .await
+    {
         Ok(()) => private_response(Redirect::to("/odmen/system-mail"), &[]),
         Err(error) => deny(status(error)),
     }

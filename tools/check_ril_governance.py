@@ -502,6 +502,7 @@ SYSTEM_MAIL_ADMIN = {
     ("GET", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "page"): ".admin_view(&digest)",
     ("POST", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "save"): ".admin_save_limits(&digest,",
     ("POST", "/odmen/system-mail/stop", "crates/web/src/auth/admin_mail_cost/mod.rs", "stop"): ".admin_stop(&digest)",
+    ("POST", "/odmen/system-mail/reconcile", "crates/web/src/auth/admin_mail_cost/mod.rs", "reconcile"): ".admin_reconcile_month(&digest,",
 }
 POSTBOX_RELAY = (
     "POST", "/internal/mail/postbox-feedback",
@@ -546,6 +547,16 @@ def _system_mail_policy(entry: dict[str, str], body: str,
             "INSERT INTO mail_cost_admin_audit", "WHERE singleton AND revision=$7",
             "enabled: old.enabled", "enabled: false", "tx.commit().await?",
         ))
+        if entry["handler"] == "reconcile":
+            reconciliation = functions.get("__mail_month_reconciliation", "")
+            store = store and all(marker in reconciliation for marker in (
+                "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+                "revision(&mut tx).await? != expected_revision",
+                "snapshot.limits.enabled || snapshot.boundary_pause",
+                "next.reserved_attempts < previous.reserved_attempts",
+                "next.reserved_attempts < known", "WHERE singleton AND NOT enabled",
+                "INSERT INTO mail_cost_month_reconciliation_audit", "tx.commit().await?",
+            ))
         write_guard = entry["method"] == "GET" or (
             "if !valid_csrf(&state, &headers, &form.csrf_token)" in body
             and "return deny(StatusCode::FORBIDDEN)" in body
@@ -2530,6 +2541,7 @@ def check(root: Path = ROOT) -> list[str]:
         if _system_mail_key(entry) in SYSTEM_MAIL_ADMIN or _system_mail_key(entry) == POSTBOX_RELAY:
             for evidence_name, relative_path in (
                 ("__mail_cost_repository", "crates/mail/src/repositories/cost/admin.rs"),
+                ("__mail_month_reconciliation", "crates/mail/src/repositories/cost/admin/reconciliation.rs"),
                 ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
             ):
                 try:
