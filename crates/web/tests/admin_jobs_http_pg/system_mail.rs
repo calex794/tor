@@ -237,9 +237,12 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
         &format!("DELETE FROM mail_cost_admin_audit WHERE actor_user_id={actor}"),
     );
     let reconcile_path = format!("{PAGE}/reconcile");
-    let rev: i64 = pg(&url, "SELECT revision FROM mail_cost_policy WHERE singleton")
-        .parse()
-        .unwrap();
+    let rev: i64 = pg(
+        &url,
+        "SELECT revision FROM mail_cost_policy WHERE singleton",
+    )
+    .parse()
+    .unwrap();
     let month = pg(
         &url,
         "SELECT to_char(clock_timestamp() AT TIME ZONE 'Europe/Moscow','YYYY-MM')",

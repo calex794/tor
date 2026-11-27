@@ -29,3 +29,6 @@ pub struct SessionActor {
 
 /// One-use proof for saving the singleton encrypted S3 profile, not activation.
 pub const S3_CONNECTION_STEP_UP_SCOPE: &str = "storage.s3.connection.save.v1";
+
+/// Exact-intent, one-use proof for replacing an encrypted Postbox candidate.
+pub const POSTBOX_PROFILE_STEP_UP_SCOPE: &str = "mail.postbox.profile.save.v1";
