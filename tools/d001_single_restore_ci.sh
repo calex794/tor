@@ -78,6 +78,31 @@ d001_single_download_verified() {
   d001_single_check "$fixture" "$root"
 }
 
+d001_single_assert_space_preview() {
+  local fixture=$1 expected=$2 report
+  psql -Xq --no-password --dbname "$TEST_DATABASE_URL" \
+    -v "bucket=$d001_single_bucket" -v prefix=private/free-chapters/ \
+    -f tools/d001_export_single_space_preview.sql > "$fixture/space-candidates.csv"
+  report="$(python3 tools/d001_single_space_preview.py \
+    --primary-manifest "$fixture/retained.json" \
+    --expected-primary-manifest-sha256 "$(cat "$fixture/manifest-digest")" \
+    --backup-manifest "$fixture/backup-snapshot.json" \
+    --expected-backup-manifest-sha256 "$(cat "$fixture/backup-snapshot-digest")" \
+    < "$fixture/space-candidates.csv")"
+  python3 - "$report" "$expected" "$d001_single_text" <<'PY'
+import json
+import sys
+report = json.loads(sys.argv[1])
+count = int(sys.argv[2])
+size = count * len(sys.argv[3].encode())
+assert report["deletion_authorized"] is False
+assert report["candidates"] == {"objects": count, "registered_bytes": size}
+assert report["dispositions"]["matched"] == report["candidates"]
+assert all(not data["objects"] for name, data in report["dispositions"].items()
+           if name != "matched")
+PY
+}
+
 # Fixture-only privileged closure after a successful vault readback. The
 # caller's real-provider activation and administrator restore policy remain OFF.
 d001_single_seal_fixture() {
@@ -94,6 +119,12 @@ d001_single_seal_fixture() {
   [[ "$chapter" =~ ^[1-9][0-9]*$ && "$version" =~ ^[1-9][0-9]*$ ]]
   key="private/free-chapters/$chapter/$version.md"
   d001_single_download_verified "$fixture" "$vault" "$TEST_DATABASE_URL" "$fixture/preseal"
+  # Original source manifest is pinned before archive; the backup snapshot is
+  # independently made from the actual vault readback, not copied metadata.
+  python3 tools/i11_object_manifest.py snapshot --root "$fixture/preseal" \
+    --output "$fixture/backup-snapshot.json"
+  sha256sum "$fixture/backup-snapshot.json" | cut -d ' ' -f 1 > "$fixture/backup-snapshot-digest"
+  d001_single_assert_space_preview "$fixture" 1
   rm -f -- "$fixture/preseal/$key"
   [[ ! -e "$fixture/preseal/$key" ]]
   observed="$(psql -XAtq --no-password --dbname "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
@@ -109,6 +140,8 @@ SELECT d001_seal_free_single_for_retirement(:chapter,:version);
 SQL
 )"
   [[ "$sealed" == t ]]
+  d001_single_assert_space_preview "$fixture" 0
+  echo 'D001_SINGLE_SPACE_PREVIEW_CI_OK'
   psql -XAtq --no-password --dbname "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
     -v "chapter=$chapter" -v "version=$version" >"$fixture/sealed-at" <<'SQL'
 SELECT extract(epoch FROM sealed_at)::text

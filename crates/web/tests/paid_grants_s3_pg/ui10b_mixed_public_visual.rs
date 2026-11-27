@@ -19,8 +19,19 @@ pub(super) async fn verify(
     let csp = response.headers()["content-security-policy"]
         .to_str()
         .unwrap();
-    assert!(csp.contains("script-src 'none'") && !csp.contains("unsafe-inline"));
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use sha2::{Digest, Sha256};
+    let integrity = format!(
+        "sha256-{}",
+        STANDARD.encode(Sha256::digest(include_bytes!(
+            "../../assets/tor-auth-dialog.js"
+        )))
+    );
+    assert!(csp.contains(&format!("script-src '{integrity}';")));
+    assert!(csp.contains("connect-src 'self';"));
+    assert!(!csp.contains("unsafe-inline") && !csp.contains("script-src 'self'"));
     let html = html_body(response).await;
+    assert!(html.contains(&format!("integrity=\"{integrity}\"")));
     assert!(html.contains("data-tor-style=\"showcase\""));
     assert_eq!(html.matches("class=\"book-hero-card__title\"").count(), 1);
     assert!(html.matches("chapter-toc__item--paid").count() >= 2);
@@ -44,6 +55,10 @@ pub(super) async fn verify(
     }
     let buyer = private_get(app, &uri, Some(buyer_cookie)).await;
     assert_eq!(buyer.status(), StatusCode::OK);
+    assert!(buyer.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .contains("script-src 'none'"));
     let buyer_html = html_body(buyer).await;
     for secret in [MARKDOWN, "dek_b64u", "X-Amz-Signature"] {
         assert!(

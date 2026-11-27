@@ -1,0 +1,18 @@
+<dialog id="tor-auth-dialog" class="tor-auth-dialog" aria-labelledby="tor-auth-title">
+  <header class="tor-auth-dialog__header">
+    <h2 id="tor-auth-title">Вход в аккаунт</h2>
+    <button class="tor-auth-dialog__close" type="button" data-auth-close aria-label="Закрыть">×</button>
+  </header>
+  <div class="tor-auth-dialog__modes" role="group" aria-label="Действие с аккаунтом">
+    <button type="button" data-auth-mode="login" aria-pressed="true">Вход</button>
+    <button type="button" data-auth-mode="register" aria-pressed="false">Регистрация</button>
+  </div>
+  <p class="tor-auth-dialog__status" data-auth-status role="status" aria-live="polite"></p>
+  <p class="tor-auth-dialog__error" data-auth-error role="alert" hidden></p>
+  <div data-auth-form-slot></div>
+  <div class="tor-auth-dialog__links">
+    <a href="/forgot-password" data-auth-recover>Забыли пароль?</a>
+    <a href="/login" data-auth-standalone>Открыть отдельную страницу</a>
+  </div>
+</dialog>
+<script src="/assets/tor-auth-dialog.js?v=<!--AUTH_DIALOG_INTEGRITY-->" integrity="<!--AUTH_DIALOG_INTEGRITY-->" defer></script>

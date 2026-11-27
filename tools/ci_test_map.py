@@ -141,6 +141,7 @@ TEST_SUITES = {
     "tools/operator_trace_pg_browser.cjs": {"reader_browser"},
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
+    "tools/auth_dialog_browser.cjs": {"reader_browser"},
     "tools/mail_browser_pg.cjs": {"reader_browser"},
     "tools/support_browser_pg.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},

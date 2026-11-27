@@ -136,3 +136,50 @@ historical file again, checks the exact restored SQL receipt, rejects corrupted
 bytes and verifies a fresh download. This is not production provider,
 credentials, administrative history, or independent physical host acceptance.
 No primary S3 DELETE, restore-to-live, reopening or automatic activation is added.
+
+### D-001 — read-only storage-space preview
+
+To quantify prospective obsolete SINGLE bytes before deciding whether an
+operator rollout is worthwhile, use a SELECT-only connection to a consistent
+restored PostgreSQL snapshot. Independently collect the approved primary and
+backup manifests for the same original bucket and key scope, with hashes
+retained separately. The primary manifest must represent actual primary
+objects; the backup manifest must be generated from actual verified backup
+bytes, not a copied primary listing or a promise to back up. Neither
+manifest contains a bucket identifier: the operator must check and record
+their common source scope, snapshot times and independent acquisition.
+
+```bash
+set -o pipefail
+psql -Xq --no-password --dbname "$TOR_DR_RESTORE_URL" \
+    -v bucket="$TOR_DR_SOURCE_BUCKET" -v prefix=private/free-chapters/ \
+    -f tools/d001_export_single_space_preview.sql |
+    python3 tools/d001_single_space_preview.py \
+        --primary-manifest "$TOR_DR_PRIMARY_MANIFEST" \
+        --expected-primary-manifest-sha256 "$TOR_DR_PRIMARY_MANIFEST_DIGEST" \
+        --backup-manifest "$TOR_DR_BACKUP_MANIFEST" \
+        --expected-backup-manifest-sha256 "$TOR_DR_BACKUP_MANIFEST_DIGEST"
+```
+
+The query uses the existing conservative preflight and excludes active
+delivery holds at statement start. A shorter literal numeric key prefix
+may narrow the report; account for disjoint prefixes if exceeding the
+existing one-million-object manifest/export bounds. Use pipefail and
+discard all output if either stage fails. An empty valid export means no
+prospective candidates at that snapshot, not a proof of complete inventory.
+The preview reports aggregate object counts and registered bytes:
+matching both manifests, missing/changed primary, or missing/changed
+backup (primary failures take precedence). Only the matching subtotal is
+the estimated prospective primary byte reduction for this scope and
+snapshot. It is not measured provider billing or savings on both buckets.
+It excludes PACK and paid content, new grants, non-candidate objects and
+sealed rows; no object names are emitted by the report. Keep the receipt
+pipe private.
+
+The preview does not contact S3, modify PG, validate the current bytes
+against live storage, establish temporal consistency across snapshots,
+prove independent retention, authorize closure, or authorize DELETE.
+Do not trigger additional full downloads against a real provider solely
+for this report without considering their cost. Reuse existing approved
+inventory evidence where possible. Administrative archive policy, independent
+restore acceptance and a separate activation decision are still required.
