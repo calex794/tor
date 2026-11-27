@@ -45,11 +45,24 @@ struct Approval {
 #[derive(Default)]
 pub struct LaunchFence {
     state: Mutex<State>,
+    dispatch_serial: tokio::sync::Mutex<()>,
 }
 
 impl LaunchFence {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// One dispatcher per process, shared across all runtime handles.
+    pub(crate) fn try_dispatch_worker(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.dispatch_serial.try_lock().ok()
+    }
+
+    /// The idle worker must not disturb a pending review or test-only grant.
+    pub(crate) fn dispatch_armed(&self) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            matches!(&*state, State::Armed(approval) if approval.scope == LaunchScope::Dispatch)
+        })
     }
 
     /// Caller first authenticates the live administrator. The returned nonce

@@ -5,6 +5,9 @@ use tor_accounts::{domain::email::delivery_address, repositories::PgAccounts};
 use tor_mail::{domain::quota::identity::QuotaKeySigner, repositories::PgMailQueue};
 use zeroize::Zeroizing;
 
+mod dispatch;
+pub use dispatch::build_password_reset_dispatch;
+
 const DATABASE_BUDGET: Duration = Duration::from_secs(3);
 
 /// Even malformed nonzero selections suppress the legacy path.

@@ -6,6 +6,7 @@ pub enum DeferReason {
     RecipientCooldown,
     DnsUnavailable,
     TransportUnavailable,
+    ActivationUnavailable,
 }
 
 impl DeferReason {
@@ -13,7 +14,7 @@ impl DeferReason {
         match self {
             Self::GlobalPace => 5,
             Self::RecipientCooldown => 120,
-            Self::DnsUnavailable | Self::TransportUnavailable => 30,
+            Self::DnsUnavailable | Self::TransportUnavailable | Self::ActivationUnavailable => 30,
         }
     }
 }
