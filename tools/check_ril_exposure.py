@@ -242,6 +242,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("POST", "/odmen/system-mail", "save", "admin_system_mail"),
                     ("POST", "/odmen/system-mail/stop", "stop", "admin_system_mail"),
                     ("POST", "/odmen/system-mail/reconcile", "reconcile", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/profile", "save_profile", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/probe", "probe_profile", "admin_system_mail"),
                 }
             )
             allow_postbox_relay = (

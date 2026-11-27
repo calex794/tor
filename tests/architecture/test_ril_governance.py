@@ -83,6 +83,22 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("POST /odmen/system-mail/reconcile [reconcile]")
 
+    def test_postbox_profile_requires_password_step_up(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            ".issue_administrator_postbox_step_up(",
+            ".skip_administrator_postbox_step_up(",
+        )
+        self.assert_detected("POST /odmen/system-mail/profile [save_profile]")
+
+    def test_postbox_probe_requires_exact_candidate_after_network(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "admin_confirm_probe(&digest, &candidate)",
+            "skip_confirm_probe(&digest, &candidate)",
+        )
+        self.assert_detected("POST /odmen/system-mail/probe [probe_profile]")
+
     def test_postbox_relay_must_verify_actual_mac(self):
         self.mutate(
             "crates/mail/src/domain/postbox/relay.rs",
