@@ -1,7 +1,6 @@
 """Safety boundary for the manually selected S3-enabled TOR candidate build."""
 
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,11 +45,15 @@ class S3CandidateBuildTests(unittest.TestCase):
         self.assertNotIn("target/release/", upload)
         self.assertNotIn("tor_id_ed25519", upload)
 
-    def test_existing_production_release_stays_non_s3_and_manual(self):
+    def test_production_release_is_manual_and_uses_reviewed_complete_profile(self):
         self.assertIn("environment: tor-staging", PRODUCTION)
         self.assertIn("  workflow_dispatch:", PRODUCTION)
-        web_builds = re.findall(r"^\s*cargo build --release --locked -p tor-web.*$", PRODUCTION, re.M)
-        self.assertEqual([row.strip() for row in web_builds], ["cargo build --release --locked -p tor-web"])
+        self.assertIn("bash tools/build_tor_production_web.sh", PRODUCTION)
+        profile = (ROOT / "tools/build_tor_production_web.sh").read_text()
+        self.assertIn("--features 's3-covers,s3-free,s3-paid,s3-chapter-import'", profile)
+        self.assertIn("--release-capabilities", profile)
+        self.assertNotIn("test-cdn-loopback", profile)
+        self.assertNotIn("cargo build --release -p tor-web\n", PRODUCTION)
 
     def test_existing_tore_is_not_modified_and_publisher_is_separate(self):
         for item in ("existing `tore` bucket", "`tor-s3-publisher`",

@@ -2,6 +2,9 @@
 use super::contextual::{command, metadata, stop};
 use super::*;
 use tor_recommendations::services::contextual::Action;
+
+#[path = "contextual_scale/adapt_compare.rs"]
+mod adapt_compare;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci current model schema"]
 async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
@@ -84,8 +87,9 @@ async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
         start.elapsed().as_millis()
     );
     command(&f, Action::Cancel, Some(&generation)).await;
-    shared.close().await;
     stop(&f, &[generation]).await;
+    adapt_compare::run(&f, &shared, sentinel).await;
+    shared.close().await;
     sqlx::query("DELETE FROM books WHERE target_language=$1 AND source_identity LIKE 'ci:contextual-scale:%'")
         .bind(&language)
         .execute(&f.pool)

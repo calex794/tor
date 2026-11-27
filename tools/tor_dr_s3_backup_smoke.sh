@@ -20,6 +20,7 @@ fi
 : "${RUNNER_TEMP:?missing disposable CI work directory}"
 : "${GITHUB_SHA:?missing exact CI source SHA}"
 source tools/drop07_pack_restore_ci.sh
+source tools/d001_single_restore_ci.sh
 
 binary="${TOR_DR_WEB_BINARY:-./target/debug/tor-web}"
 bucket=tor-private-backup-ci
@@ -51,7 +52,7 @@ cleanup() {
     admin -c "DROP DATABASE $restore_db WITH (FORCE)" >/dev/null || status=1
   fi
   # No artifact uploads: all plaintext and ciphertext are CI fixture only.
-  rm -rf -- "$work/pack-fixture"
+  rm -rf -- "$work/pack-fixture" "$work/single-fixture"
   rm -f -- "$work"/*
   rmdir -- "$work" || status=1
   exit "$status"
@@ -84,6 +85,38 @@ VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 drop07_seed_pack "$work/pack-fixture"
+d001_single_seed "$work/single-fixture"
+# Archive and verify the exact historical file before sealing the fixture.
+# The encrypted database dump below must contain the committed closure.
+s3 --request PUT --output /dev/null "$endpoint/$bucket"
+d001_single_archive "$work/single-fixture" "$endpoint/$bucket"
+d001_single_seal_fixture "$work/single-fixture" "$endpoint/$bucket"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 seed_active_cover_backup \
+    -- --exact --ignored --test-threads=1
+[[ -s "$work/cover-manifest.sha256" ]]
+# Reuse the existing I-11 historical paid V1/V2 fixture in this separate
+# disposable sealed-restore lane (no real purchase or payment claimed here).
+psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
+INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+VALUES('ci:i11:backup-public','ru','I11 historical paid restore','public','basic');
+SQL
+psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -f tools/i11_seed_paid_restore.sql
+# RECOVERY-10a: real D-08 checkout including idempotent replay, buyer
+# wallet debit and immutable platform/creator postings. No mock ledger.
+cargo test -p tor-commerce --test d08_finance_pg d_08_single_purchase_posts_exact_credit_and_hold_once \
+  -- --ignored --exact --test-threads=1
+# Actual D-06 purchase, approved refund, idempotent approval and old-right denial.
+cargo test -p tor-commerce --test slices_pg d06_refund_approval::d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split \
+  -- --ignored --exact --test-threads=1
+finance_snapshot() {
+  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_finance_restore_facts.sql
+}
+source_finance="$(finance_snapshot "$TEST_DATABASE_URL")"
+[[ -n "$source_finance" ]] || {
+  echo 'FAIL: source finance witness empty' >&2
+  exit 1
+}
 history="$(psql "$MIGRATOR_URL" -X -A -t -v ON_ERROR_STOP=1 \
   -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
@@ -111,7 +144,6 @@ node tools/tor_dr_archive_crypto.cjs seal "$work/offline.key" \
   "$work/source.dump" "$work/archive.enc"
 digest="$(sha256sum "$work/archive.enc" | cut -d ' ' -f 1)"
 [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
-s3 --request PUT --output /dev/null "$endpoint/$bucket"
 drop07_archive_pack "$work/pack-fixture" "$endpoint/$bucket"
 s3 --upload-file "$work/archive.enc" \
   --header 'If-None-Match: *' \
@@ -186,7 +218,21 @@ pub_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
 hidden_id="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
   -c "SELECT id FROM books WHERE source_identity='ci:dr:hidden' AND visibility='draft'")"
 [[ "$pub_id" =~ ^[0-9]+$ && "$hidden_id" =~ ^[0-9]+$ ]]
+restored_finance="$(finance_snapshot "$restored_url")"
+[[ -n "$restored_finance" && "$restored_finance" == "$source_finance" ]] || {
+  echo 'FAIL: restored buyer wallet or immutable financial evidence differs' >&2
+  exit 1
+}
+echo 'I11_RESTORED_CHECKOUT_FINANCE_OK'
+echo 'I11_RESTORED_REFUND_FINANCE_REVOCATION_OK'
+echo 'I11_RESTORED_HISTORICAL_RIGHTS_DB_OK'
 drop07_verify_restored_pack "$work/pack-fixture" "$endpoint/$bucket" "$restored_url"
+d001_single_verify_restore "$work/single-fixture" "$endpoint/$bucket" "$restored_url"
+FND05_COVER_MANIFEST_SHA="$work/cover-manifest.sha256" \
+  FND05_RESTORED_DATABASE_URL="$restored_url" \
+  cargo test -p tor-web --features s3-covers --test fnd05_restored_cover_pg_s3 verify_restored_active_cover \
+    -- --exact --ignored --test-threads=1 --show-output | tee "$work/cover-restore.log"
+grep -Fxq 'FND05_RESTORED_ACTIVE_COVER_HTTP_OK' "$work/cover-restore.log"
 
 TOR_DEMO_MODE=0 TOR_AUTH_ENABLED=1 \
   TOR_PUBLIC_ORIGIN="$base" TOR_LISTEN_ADDR=127.0.0.1:3095 \
@@ -218,8 +264,39 @@ private_code="$(curl --silent --max-time 5 --output /dev/null \
   echo 'FAIL: restored private book became public' >&2
   exit 1
 }
+[[ "$(finance_snapshot "$TEST_DATABASE_URL")" == "$source_finance" ]] || {
+  echo 'FAIL: independent restore mutated source finance evidence' >&2
+  exit 1
+}
 echo 'I11_S3_PG18_RESTORED_AXUM_ACL_OK'
 
+# Re-fetch backup objects after the existing destructive negative PACK test.
+# Recheck against the retained independent manifest and restored SQL receipts.
+for key in "$drop07_stem.zst" "$drop07_stem.manifest.json"; do
+  s3 --output "$work/pack-fixture/restored/$key" "$endpoint/$bucket/objects/$key"
+done
+python3 tools/drop_verify_restore_receipts.py \
+  --manifest "$work/pack-fixture/retained.json" \
+  --expected-manifest-sha256 "$(cat "$work/pack-fixture/manifest-digest")" \
+  --restored-pack-root "$work/pack-fixture/restored" <"$work/pack-fixture/receipts.csv"
+install -m 600 "$work/pack-fixture/restored/$drop07_stem.zst" "$work/pack.zst"
+install -m 600 "$work/pack-fixture/restored/$drop07_stem.manifest.json" "$work/pack.manifest.json"
+install -m 600 "$work/pack-fixture/rights.json" "$work/rights.json"
+# The exact Cargo test target used for logical restore, stripped for transport.
+reader_test="$(cargo test -p tor-web --features s3-free --test fnd05_restored_free_rights_pg_s3 \
+  --no-run --message-format=json | python3 -c '
+import json, sys
+paths = [event["executable"] for event in map(json.loads, sys.stdin)
+         if event.get("reason") == "compiler-artifact"
+         and event.get("target", {}).get("name") == "fnd05_restored_free_rights_pg_s3"
+         and event.get("executable")]
+assert len(paths) == 1
+print(paths[0])
+')"
+strip --strip-debug -o "$work/http-reader-test" "$reader_test"
+chmod 700 "$work/http-reader-test"
 # The existing sealed-remote-copy job also proves WAL replay, not only pg_dump.
 # This independent sandbox has no ports, host bind mounts or runtime network.
-python3 tools/i11_pitr_drill.py
+finance_sha256="$(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1)"
+python3 tools/i11_pitr_drill.py --fixture-dump "$work/restored.dump" \
+  --finance-sha256 "$finance_sha256"

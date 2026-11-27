@@ -9,9 +9,8 @@ use aws_sdk_s3::{
 };
 use axum::{
     body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
+    http::{header, StatusCode},
     response::Response,
-    Router,
 };
 use serde_json::{json, Value};
 #[cfg(unix)]
@@ -46,20 +45,19 @@ use tor_storage::{
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
-use tower::ServiceExt;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
 const BACKUP_BUCKET: &str = "tor-s334-backup-ci";
-const ORIGIN: &str = "http://127.0.0.1:3098";
 const ID: &str = "f0c0e034-2026-4034-8034-000000000134";
 const MARKDOWN: &str = "S334 купленная редакция V1: А😀Б и 第二章";
 const ID_V2: &str = "f0c0e034-2026-4034-8034-000000000234";
 const MARKDOWN_V2: &str = "S334 вторая купленная редакция под ключом V2";
 const SOURCE: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci";
 const RESTORED: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_restore_ci";
+const PHYSICAL_RESTORED: &str = "postgresql://tor_app@127.0.0.1:15436/tor_ci";
 
-fn require_ci(restored: bool) -> &'static str {
+fn require_disposable_ci() {
     assert_eq!(env::var("GITHUB_ACTIONS").unwrap(), "true");
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").unwrap(), ENDPOINT);
     assert_eq!(
@@ -70,6 +68,10 @@ fn require_ci(restored: bool) -> &'static str {
         env::var("TOR_TEST_S3_SECRET_KEY").unwrap(),
         "tor-chapter-ci-secret-only"
     );
+}
+
+fn require_ci(restored: bool) -> &'static str {
+    require_disposable_ci();
     let url = env::var(if restored {
         "S334_RESTORED_DATABASE_URL"
     } else {
@@ -79,6 +81,30 @@ fn require_ci(restored: bool) -> &'static str {
     let expected = if restored { RESTORED } else { SOURCE };
     assert_eq!(url, expected, "forbid production database in recovery test");
     expected
+}
+
+fn require_physical_ci() -> &'static str {
+    require_disposable_ci();
+    assert_eq!(
+        env::var("TOR_I11_DISPOSABLE_CONTAINER").as_deref(),
+        Ok("yes")
+    );
+    assert!(std::path::Path::new("/.dockerenv").is_file());
+    let work = PathBuf::from(env::var("RUNNER_TEMP").unwrap());
+    assert_eq!(work.parent(), Some(std::path::Path::new("/tmp")));
+    let suffix = work
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("tor-i11-pitr."))
+        .unwrap();
+    assert_eq!(suffix.len(), 8);
+    assert!(suffix.bytes().all(|c| c.is_ascii_alphanumeric()));
+    assert!(work.is_dir());
+    assert_eq!(
+        env::var("S334_PHYSICAL_DATABASE_URL").as_deref(),
+        Ok(PHYSICAL_RESTORED)
+    );
+    PHYSICAL_RESTORED
 }
 
 fn ci_file(name: &str) -> PathBuf {
@@ -140,18 +166,52 @@ async fn register(accounts: &PgAccounts, email: &str) -> (i64, String) {
     (id, session)
 }
 
+struct GrantServer {
+    origin: String,
+    client: reqwest::Client,
+    task: tokio::task::JoinHandle<()>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    catalog: PgCatalog,
+}
+
+impl GrantServer {
+    async fn shutdown(mut self) {
+        let stop = self.stop.take().expect("one shutdown per test router");
+        let _ = stop.send(());
+        tokio::time::timeout(std::time::Duration::from_secs(10), &mut self.task)
+            .await
+            .expect("test HTTP server did not stop")
+            .expect("test HTTP server failed");
+        let pool = self.catalog.pool();
+        tokio::time::timeout(std::time::Duration::from_secs(10), pool.close())
+            .await
+            .expect("test PostgreSQL pool did not close");
+        assert!(pool.is_closed());
+        assert_eq!(pool.size(), 0);
+    }
+}
+
+impl Drop for GrantServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 async fn grant(
-    app: &Router,
+    app: &GrantServer,
     chapter: i64,
     session: Option<&str>,
     csrf: Option<&str>,
     body: &str,
 ) -> Response {
-    let mut req = Request::builder()
-        .method("POST")
-        .uri(format!("/api/v1/reader/chapters/{chapter}/delivery-grants"))
+    let mut req = app
+        .client
+        .post(format!(
+            "{}/api/v1/reader/chapters/{chapter}/delivery-grants",
+            app.origin
+        ))
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::ORIGIN, ORIGIN);
+        .header(header::ORIGIN, app.origin.as_str());
     if let Some(session) = session {
         req = req.header(
             header::COOKIE,
@@ -164,17 +224,25 @@ async fn grant(
     if let Some(csrf) = csrf {
         req = req.header("x-csrf-token", csrf);
     }
-    app.clone()
-        .oneshot(req.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap()
+    let mut received = req.body(body.to_owned()).send().await.unwrap();
+    let status = received.status();
+    let headers = received.headers().clone();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = received.chunk().await.unwrap() {
+        assert!(bytes.len() + chunk.len() <= 8192);
+        bytes.extend_from_slice(&chunk);
+    }
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    *response.headers_mut() = headers;
+    response
 }
 
-async fn app(url: &str, client: Client, kek: Arc<ContentKek>) -> Router {
+async fn app(url: &str, client: Client, kek: Arc<ContentKek>) -> GrantServer {
     app_with_keyring(url, client, ContentKeyring::v1_only(kek)).await
 }
 
-async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) -> Router {
+async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) -> GrantServer {
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool();
     let reader = PgReader::new(pool.clone());
@@ -182,15 +250,39 @@ async fn app_with_keyring(url: &str, client: Client, keyring: ContentKeyring) ->
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
     let signer =
         PgPrivateDelivery::with_keyring(pool, store, Arc::new(keyring), BUCKET.to_owned()).unwrap();
-    tor_web::router_with_postgres_reading_auth_paid_grants(
-        catalog,
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let router = tor_web::router_with_postgres_reading_auth_paid_grants(
+        catalog.clone(),
         reader,
         accounts,
         false,
-        ORIGIN.to_owned(),
+        origin.clone(),
         Arc::new(signer),
         None,
-    )
+    );
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                let _ = stopped.await;
+            })
+            .await
+            .unwrap();
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap();
+    GrantServer {
+        origin,
+        client,
+        task,
+        stop: Some(stop),
+        catalog,
+    }
 }
 
 async fn decoded(response: Response) -> Value {
@@ -212,7 +304,11 @@ fn state() -> Value {
 }
 
 fn pg(url: &str, sql: &str) -> String {
-    assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
+    if url == PHYSICAL_RESTORED {
+        assert_eq!(url, require_physical_ci());
+    } else {
+        assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
+    }
     let output = Command::new("psql")
         .args([
             "-X",
@@ -441,6 +537,7 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
             "sha256_ciphertext": hex::encode(reference.sha256_ciphertext),
         }),
     );
+    a.shutdown().await;
     pool.close().await;
 }
 
@@ -483,7 +580,55 @@ async fn restore_object(url: &str, c: &Client, id: &str, digest: &str) {
 #[tokio::test]
 #[ignore = "isolated GitHub Actions restored DB and MinIO only"]
 async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
-    let url = require_ci(true);
+    verify_restored_paid(require_ci(true), true).await;
+}
+
+fn verified_physical_target() -> &'static str {
+    let url = require_physical_ci();
+    // The parent PITR script checks data_directory, archive_mode and
+    // listen_addresses as postgres. Do not give tor_app read-all-settings.
+    // Independently bind the app-role connection to the local restored
+    // postmaster using its PID file and the actual TCP/database identity.
+    let expected = PathBuf::from(env::var("RUNNER_TEMP").unwrap()).join("app-restored");
+    let pid_file = fs::read_to_string(expected.join("postmaster.pid")).unwrap();
+    let mut fields = pid_file.lines();
+    assert!(fields.next().unwrap().parse::<u32>().unwrap() > 0);
+    assert_eq!(fields.next(), expected.to_str());
+    assert!(fields.next().unwrap().parse::<u64>().unwrap() > 0);
+    assert_eq!(fields.next(), Some("15436"));
+    assert_eq!(
+        pg(
+            url,
+            "SELECT current_user='tor_app' AND current_database()='tor_ci' \
+             AND NOT pg_is_in_recovery() \
+             AND inet_server_addr()='127.0.0.1'::inet AND inet_server_port()=15436 \
+             AND current_setting('is_superuser')='off' \
+             AND NOT pg_has_role(current_user,'pg_read_all_settings','MEMBER')"
+        ),
+        "t"
+    );
+    url
+}
+
+#[tokio::test]
+#[ignore = "requires the isolated promoted I-11 physical PITR fixture"]
+async fn s3_34_verify_physical_paid_v1_and_rejected_keys() {
+    verify_restored_paid(verified_physical_target(), false).await;
+    println!("I11_S334_PHYSICAL_PAID_HTTP_OK");
+}
+
+#[tokio::test]
+#[ignore = "only after physical WebCrypto and unchanged-ledger acceptance"]
+async fn s3_34_verify_physical_paid_revocations_after_witness() {
+    let url = verified_physical_target();
+    let keyring = ContentKeyring::with_v2(key(), key_v2()).unwrap();
+    let server = app_with_keyring(url, client(), keyring).await;
+    verify_post_restore_revocations(url, &server).await;
+    server.shutdown().await;
+    println!("I11_S334_PHYSICAL_PAID_REVOCATIONS_OK");
+}
+
+async fn verify_restored_paid(url: &str, revoke_after_grants: bool) {
     let snapshot = state();
     let chapter = snapshot["chapter_id"].as_i64().unwrap();
     let v1 = snapshot["v1_id"].as_i64().unwrap();
@@ -535,6 +680,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
+    missing.shutdown().await;
+
     let reader_keys = ContentKeyring::with_v2(kek.clone(), key_v2()).unwrap();
     let missing_v2 = app_with_keyring(url, c.clone(), reader_keys).await;
     assert_eq!(
@@ -543,6 +690,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    missing_v2.shutdown().await;
     restore_object(url, &c, ID, digest).await;
     restore_object(url, &c, ID_V2, digest_v2).await;
     let missing_key_v2 = app(url, c.clone(), kek.clone()).await;
@@ -560,6 +708,9 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         assert_eq!(old.status(), StatusCode::OK);
         assert_eq!(decoded(old).await["version_id"], v1.to_string());
     }
+
+    missing_key_v2.shutdown().await;
+    wrong_key_v2.shutdown().await;
 
     // RET-02c: simulate a transport-level S3 outage *after* restoring the
     // exact purchased V1. A live purchase and intact KEK must not bypass HEAD;
@@ -588,6 +739,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         "provider outage does not revoke or refund a durable purchase"
     );
 
+    unavailable.shutdown().await;
+
     // The external recovery KEK must be supplied independently of the DB
     // and S3 data. Missing/wrong KEK fails closed, never exposes a V1 grant.
     assert!(matches!(
@@ -607,6 +760,8 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
+    wrong.shutdown().await;
+    println!("DEPLOY07C_MISSING_WRONG_KEYS_AND_PROVIDER_DENIED");
     let reader_keys = ContentKeyring::with_v2(kek, key_v2()).unwrap();
     let correct = app_with_keyring(url, c, reader_keys).await;
     assert_eq!(
@@ -632,6 +787,23 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::FORBIDDEN,
         "a stolen purchase ID cannot grant a V1 after disaster recovery"
     );
+    // Both buyers have a legitimate right, but only to their own purchased
+    // version. A valid session and a different real purchase ID cannot swap it.
+    for (actor, other_purchase) in [(buyer, purchase_v2_id), (buyer_v2, purchase_id)] {
+        assert_eq!(
+            grant(
+                &correct,
+                chapter,
+                Some(actor),
+                Some(csrf),
+                &json!({"purchase_id":other_purchase.to_string()}).to_string(),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN,
+        );
+    }
+    println!("DEPLOY07C_CROSS_PURCHASE_AND_ANONYMOUS_DENIED");
     let accepted = grant(&correct, chapter, Some(buyer), Some(csrf), "{}").await;
     assert_eq!(accepted.status(), StatusCode::OK);
     assert_eq!(
@@ -670,6 +842,30 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         }),
     );
 
+    if revoke_after_grants {
+        verify_post_restore_revocations(url, &correct).await;
+    }
+    correct.shutdown().await;
+}
+
+async fn verify_post_restore_revocations(url: &str, correct: &GrantServer) {
+    let snapshot = state();
+    let chapter = snapshot["chapter_id"].as_i64().unwrap();
+    let buyer = snapshot["buyer_cookie"].as_str().unwrap();
+    let buyer_v2 = snapshot["buyer_v2_cookie"].as_str().unwrap();
+    let csrf = snapshot["csrf"].as_str().unwrap();
+    let purchase_id = snapshot["purchase_id"].as_i64().unwrap();
+    let purchase_v2_id = snapshot["purchase_v2_id"].as_i64().unwrap();
+    // Check that both rights are live immediately before the negative control.
+    // This prevents an unrelated provider failure from masquerading as revocation.
+    for session in [buyer, buyer_v2] {
+        assert_eq!(
+            grant(correct, chapter, Some(session), Some(csrf), "{}")
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
     // A refund in the restored database must reject further signed grants.
     pg(
         url,
@@ -680,15 +876,16 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         ),
     );
     assert_eq!(
-        grant(&correct, chapter, Some(buyer), Some(csrf), "{}")
+        grant(correct, chapter, Some(buyer), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        grant(&correct, chapter, Some(buyer_v2), Some(csrf), "{}")
+        grant(correct, chapter, Some(buyer_v2), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
+    println!("DEPLOY07C_BOTH_RESTORED_REFUNDS_DENIED");
 }

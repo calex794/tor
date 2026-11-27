@@ -796,6 +796,13 @@ pub(super) async fn assert_session_navigation(app: &Router, session: &str) {
         assert!(header.contains("action=\"/logout\""), "{path}");
         assert!(!header.contains("href=\"/login\""), "{path}");
         assert!(!header.contains("href=\"/register\""), "{path}");
+        for target in ["/me/books/new", "/me/library", "/me", "/me/books"] {
+            assert_eq!(
+                header.matches(&format!("href=\"{target}\"")).count(),
+                2,
+                "{path}: {target} must occur in desktop and mobile navigation"
+            );
+        }
     }
     let forged = format!("tor-dev-session={}", "A".repeat(43));
     for cookies in ["", forged.as_str()] {
@@ -810,7 +817,13 @@ pub(super) async fn assert_session_navigation(app: &Router, session: &str) {
             .next()
             .unwrap();
         assert!(header.contains("href=\"/login\""));
-        assert!(header.contains("href=\"/register\""));
+        assert!(!header.contains("href=\"/register\""));
+        assert_eq!(header.matches("href=\"/login\"").count(), 2);
+        assert!(html.contains("id=\"tor-auth-dialog\""));
         assert!(!header.contains("action=\"/logout\""));
+        for target in ["/me/books/new", "/me/library", "/me", "/me/books"] {
+            assert!(!header.contains(&format!("href=\"{target}\"")));
+        }
+        assert_eq!(header.matches("href=\"/catalog\"").count(), 2);
     }
 }

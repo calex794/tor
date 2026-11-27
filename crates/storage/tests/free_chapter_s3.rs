@@ -17,7 +17,7 @@ use tor_storage::{
 
 #[tokio::test]
 #[ignore = "requires disposable loopback MinIO, never a remote provider"]
-async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
+async fn s349_free_markdown_signed_get_expiry_replay_and_corruption_denial() {
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("local MinIO");
     assert!(
         endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
@@ -87,19 +87,50 @@ async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
     assert!(status.status.success());
     assert_eq!(String::from_utf8(status.stdout).unwrap(), "403");
 
-    let signed = store
-        .presign_verified(&object, Duration::from_secs(90))
-        .await
-        .unwrap();
+    // Exercise the same real SINGLE capability before and after expiration.
+    // Use the shortest supported test TTL; do not change the reader's TTL.
+    let ttl = Duration::from_secs(30);
+    let signed = store.presign_verified(&object, ttl).await.unwrap();
+    // Anchor after signing, then allow for MinIO's whole-second clock.
+    let after_expiry = tokio::time::Instant::now() + ttl + Duration::from_secs(2);
     let url = serde_json::to_value(signed).unwrap();
     let url = url.as_str().unwrap();
     assert!(url.contains("X-Amz-Signature="));
+    assert!(url
+        .split(['?', '&'])
+        .any(|field| field == "X-Amz-Expires=30"));
     let fetched = std::process::Command::new("curl")
-        .args(["--fail", "--silent", "--show-error", url])
+        .args(["--disable", "--fail", "--silent", "--max-time", "5", url])
         .output()
         .unwrap();
-    assert!(fetched.status.success());
+    assert!(fetched.status.success(), "fresh signed GET failed");
     assert_eq!(fetched.stdout, text.as_bytes());
+
+    tokio::time::sleep_until(after_expiry).await;
+    let expired = std::process::Command::new("curl")
+        .args([
+            "--disable",
+            "--silent",
+            "--max-time",
+            "5",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            url,
+        ])
+        .output()
+        .unwrap();
+    assert!(expired.status.success(), "expired GET probe failed");
+    assert_eq!(
+        expired.stdout, b"403",
+        "a new GET must deny the expired URL"
+    );
+    assert_eq!(
+        store.get_verified(&object).await.unwrap(),
+        text.as_bytes(),
+        "the same object remains available to the authorized store"
+    );
 
     // Even a forged Content-Type and checksum metadata cannot conceal
     // wrong bytes when the B publisher requires GET verification.

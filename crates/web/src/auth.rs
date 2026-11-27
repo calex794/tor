@@ -237,7 +237,7 @@ fn router_inner(
         Router::new()
     };
     let app = Router::new()
-        .merge(admin_entry::storage_routes())
+        .merge(admin_entry::routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())
@@ -248,14 +248,7 @@ fn router_inner(
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
-        .route(
-            "/register",
-            get(account_form_http::show_registration).post(account_form_http::register),
-        )
-        .route(
-            "/login",
-            get(account_form_http::show_login).post(account_form_http::login),
-        )
+        .merge(account_form_http::router())
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(account_home::show))
         .route("/odmen", get(admin_entry::page))
@@ -588,7 +581,7 @@ async fn save_place(
     {
         Ok(()) => private_response(
             Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
-            &[],
+            &session_security::activity_cookies(&state, &headers).await,
         ),
         Err(ProgressError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(ProgressError::NotFound) => deny(StatusCode::NOT_FOUND),

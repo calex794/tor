@@ -29,14 +29,14 @@ versions. The bootstrap resolved and committed an audited candidate lockfile. Su
 runs require the committed file from the outset: missing or stale lockfiles
 fail closed. `cargo metadata --locked --all-features` verifies the manifests
 against the snapshot, and byte comparison plus `git diff` detect changes.
-Update the lockfile explicitly when dependencies change. The active manual
-production packaging and FREE S3 candidate workflows now require a tracked,
-nonempty, unchanged Cargo.lock and `cargo build --release --locked` for each
-binary. They preserve its SHA-256 as build evidence and fail before signing or
-transfer if the lockfile differs. Existing feature profiles and signed binary
-manifest remain unchanged. The lockfile checksum is a CI evidence artifact,
-not a new server-side signed-manifest field. A locked build is not a fresh
-advisory scan or proof of a deployed binary.
+Update the lockfile explicitly when dependencies change. The manual production
+packaging (both v1 and v2) and FREE S3 candidate workflows require a tracked,
+nonempty, unchanged Cargo.lock and locked builds for every binary. The shared
+production web helper retains its exact reviewed complete S3 capability profile;
+compiled capabilities are not permission to activate a provider. The FREE
+candidate remains build-only. Both workflows retain the lockfile SHA-256 as
+build evidence before signing or transfer; no server manifest or runtime policy
+change. A locked build is not a fresh advisory scan or deployment proof.
 
 The independent audit is registered in the workflow-wiring inventory. It does
 not replace integration suites or add a main-push/deployment workflow.

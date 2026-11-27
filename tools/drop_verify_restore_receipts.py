@@ -82,15 +82,37 @@ def compare_restored_pack(manifest, expected_digest, receipts, restored_root):
             or not 26 <= pack_size <= 16 * 1024 * 1024 or not 1 <= sidecar_size <= 1024 * 1024):
         raise Refused("invalid PACK or manifest pair")
 
+    return compare_restored_selection(
+        manifest, expected_digest, rows, restored_root, "PACK or manifest",
+    )
+
+
+def compare_restored_single(manifest, expected_digest, receipts, restored_root):
+    rows = list(islice(receipt_rows(receipts), 2))
+    if len(rows) != 1:
+        raise Refused("expected exactly one SINGLE receipt")
+    validate_single_receipt(*rows[0][:2])
+    return compare_restored_selection(
+        manifest, expected_digest, rows, restored_root, "SINGLE",
+    )
+
+
+def validate_single_receipt(key, size):
+    if (not re.fullmatch(r"private/free-chapters/[1-9][0-9]{0,18}/[1-9][0-9]{0,18}[.]md", key)
+            or not 1 <= size <= 200_000):
+        raise Refused("invalid FREE SINGLE receipt")
+
+
+def compare_restored_selection(manifest, expected_digest, rows, restored_root, label):
     expected = {key: (size, digest) for key, size, digest in rows}
     retained = load_retained_manifest(manifest, expected_digest)
     backed = {obj["key"]: (obj["size"], obj["sha256"]) for obj in retained
               if obj["key"] in expected}
     if backed != expected:
-        raise Refused("PACK receipts differ from the retained manifest")
+        raise Refused(f"{'PACK' if label == 'PACK or manifest' else label} receipts differ from the retained manifest")
     actual = inventory(restored_root, expected_sizes={key: size for key, size, _ in rows})
     if {obj["key"]: (obj["size"], obj["sha256"]) for obj in actual} != expected:
-        raise Refused("restored PACK or manifest bytes mismatch")
+        raise Refused(f"restored {label} bytes mismatch")
     return len(rows)
 
 
@@ -98,13 +120,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--expected-manifest-sha256", required=True)
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--restored-pack-root",
         help="verify only the exact PACK and sidecar staged under this directory",
     )
+    selection.add_argument(
+        "--restored-single-root",
+        help="verify only one exact FREE SINGLE staged under this directory",
+    )
     args = parser.parse_args()
     try:
-        if args.restored_pack_root is None:
+        if args.restored_single_root is not None:
+            total = compare_restored_single(
+                args.manifest, args.expected_manifest_sha256, sys.stdin,
+                root_directory(args.restored_single_root),
+            )
+            result = "TOR_D001_SINGLE_BACKUP_VERIFIED"
+        elif args.restored_pack_root is None:
             total = compare(args.manifest, args.expected_manifest_sha256, sys.stdin)
             result = "TOR_DROP_RESTORE_RECEIPTS_VERIFIED"
         else:

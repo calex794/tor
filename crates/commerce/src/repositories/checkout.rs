@@ -2,6 +2,7 @@
 //! No public funding route or payment provider. Only the owner can request a buy.
 mod age;
 mod batch;
+mod offer_locks;
 mod offers;
 pub use offers::PublishedChapterOffer;
 pub(crate) mod revenue;
@@ -70,6 +71,14 @@ impl CheckoutRepository for PgCheckout {
         }
 
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
+
+        // B-owned publishing takes the Book lock before Chapter/version
+        // locks. The command INSERT itself takes FK KEY SHARE locks on both
+        // Chapter and expected version, so fencing after the claim is too late.
+        // A separate statement also gives the offer read a post-wait snapshot.
+        offer_locks::lock_books(&mut tx, &[chapter])
+            .await
+            .map_err(unavailable)?;
 
         // The unique (actor, key) claim serializes concurrent retries on every
         // replica. A failed checkout rolls the claim back with the wallet.

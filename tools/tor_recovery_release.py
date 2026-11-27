@@ -202,8 +202,78 @@ def verify_release(bundle, commit, manifest_pin, signers_file, signer_pin,
                         handle.write(data)
 
 
+def verify_release_v2(bundle, commit, manifest_pin, signers_file, signer_pin,
+                      stage_root=None):
+    """Reuse v2 exact-set signed import, with RECOVERY-01 independent pins.
+
+    Verify-only uses a private temporary copy, removed at exit; persistent
+    recovery stages are atomic and all files are deliberately mode 0600.
+    Nothing is installed or executed, and no network or current-main check
+    is involved. The legacy verifier remains usable on its own.
+    """
+    import import_offline_release as offline
+    import release_bundle_v2 as v2
+
+    if not HEX_COMMIT.fullmatch(commit):
+        raise Refused("independently approved full release SHA required")
+    require_digest(manifest_pin)
+    require_digest(signer_pin)
+    # Snapshot exactly the independently pinned signer bytes. Never verify
+    # against a mutable signer file after checking its digest.
+    signers = metadata(signers_file)
+    if sha256(signers) != signer_pin:
+        raise Refused("independent signer pin mismatch")
+
+    if stage_root is not None:
+        info = stage_root.lstat()
+        if (not stage_root.is_absolute() or
+                stage_root.resolve(strict=True) != stage_root or
+                not stat.S_ISDIR(info.st_mode) or
+                info.st_uid != os.geteuid() or info.st_mode & 0o077):
+            raise Refused("v2 recovery staging root must be canonical and private")
+
+    def import_into(parent, pinned_signers):
+        try:
+            offline.import_release(bundle, parent / "verified", commit,
+                                   pinned_signers, manifest_pin)
+        except offline.ImportError as exc:
+            raise Refused("independent manifest pin or offline import refused") from exc
+        except v2.BundleError as exc:
+            raise Refused("signed v2 payload verification refused") from exc
+        verified = parent / "verified"
+        # No executable permissions in the published recovery stage. Any
+        # later installation has to reverify and deliberately restore modes.
+        for name in v2.FILES:
+            path = verified / name
+            with path.open("rb") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                os.fsync(handle.fileno())
+            os.rename(path, parent / name)
+        verified.rmdir()
+        v2.verify(parent, commit, pinned_signers)
+
+    with tempfile.TemporaryDirectory(prefix="tor-recovery-v2-") as temp:
+        scratch = Path(temp)
+        pinned = scratch / "pinned-signers"
+        fd = os.open(pinned, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(signers)
+        if stage_root is None:
+            # The input directory is never modified. Verification needs
+            # enough private scratch disk for one bounded complete bundle.
+            candidate = scratch / "check"
+            candidate.mkdir(mode=0o700)
+            import_into(candidate, pinned)
+        else:
+            destination = stage_root / ("tor-recovery-" + commit)
+            with v2.candidate(destination) as candidate:
+                import_into(candidate, pinned)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--format", choices=("v1", "v2"), default="v1",
+                        help="independently approved manifest format; no auto-downgrade")
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--manifest-sha256", required=True)
@@ -212,9 +282,10 @@ def main():
     parser.add_argument("--stage-root", type=Path)
     args = parser.parse_args()
     try:
-        verify_release(args.bundle, args.sha, args.manifest_sha256,
-                       args.allowed_signers, args.signers_sha256, args.stage_root)
-    except (Refused, OSError, subprocess.SubprocessError) as error:
+        verifier = verify_release if args.format == "v1" else verify_release_v2
+        verifier(args.bundle, args.sha, args.manifest_sha256,
+                 args.allowed_signers, args.signers_sha256, args.stage_root)
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         detail = str(error) if isinstance(error, Refused) else "local verification/staging failed"
         print("TOR_RECOVERY_RELEASE_REFUSED: " + detail, file=sys.stderr)
         return 2

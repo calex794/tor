@@ -4,6 +4,7 @@ A cross-workstream merge must never silently drop a merged, disabled-by-default
 security surface and its disposable PG/HTTP acceptance job.
 """
 from pathlib import Path
+from ci_workflow_sources import expand_pg_runtime
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,7 +59,7 @@ class S020GatedEditorSurvival(unittest.TestCase):
         )
         for path in (".github/workflows/tor-integration.yml",
                      ".github/workflows/tor-pg-runtime.yml"):
-            self.assertEqual(self.read(path).count(PG_TEST), 1, path)
+            self.assertEqual(expand_pg_runtime(self.read(path)).count(PG_TEST), 1, path)
         self.assertIn(
             "s020_owner_age_editor_real_chromium_mobile_and_desktop",
             self.read("crates/web/tests/s020_age_editor_browser_pg.rs"),
@@ -68,7 +69,7 @@ class S020GatedEditorSurvival(unittest.TestCase):
         self.assertIn("S020 owner age editor Chromium PASS: desktop, mobile, grant, revoke", browser)
         for path in (".github/workflows/tor-integration.yml",
                      ".github/workflows/tor-pg-runtime.yml"):
-            self.assertEqual(self.read(path).count(BROWSER_PG_TEST), 1, path)
+            self.assertEqual(expand_pg_runtime(self.read(path)).count(BROWSER_PG_TEST), 1, path)
         registry = self.read("crates/route_intelligence/src/domain/routes.rs")
         self.assertIn(f'RouteRegistration::new("{ROUTE}", "GET"', registry)
         self.assertIn(f'RouteRegistration::new("{ROUTE}", "POST"', registry)

@@ -30,32 +30,41 @@ done
 exec 9>/run/lock/tor-one-click-release.lock
 flock -n 9 || refuse 'another TOR release is running'
 
-# Verify the candidate is the *present* main. The pinned go-live script also
-# checks twice (before SQLx and before changing the service).
-main_sha=$(
-  curl -fsSL --retry 2 --max-time 15 \
-    -H 'Accept: application/vnd.github+json' \
-    https://api.github.com/repos/calex794/tor/git/ref/heads/main |
-  python3 -c '
-import json
-import re
-import sys
-body = json.load(sys.stdin)
-ref = body.get("ref")
-sha = body.get("object", {}).get("sha", "")
-if ref != "refs/heads/main" or not re.fullmatch(r"[a-f0-9]{40}", sha):
-    sys.exit(1)
-print(sha)
-'
-) || refuse 'cannot verify current GitHub main'
-[[ "$main_sha" == "$sha" ]] || refuse 'GitHub main advanced; run the button again'
+# Under the same root release lock, require active <= candidate <= main.
+# The root-installed verifier is never taken from the writable inbox.
+guard=/usr/local/sbin/tor-release-ancestry
+[[ -f "$guard" && ! -L "$guard" &&
+   $(stat -c '%U:%G:%a' "$guard") == root:root:755 ]] ||
+  refuse 'trusted ancestry guard missing; run the reviewed root bootstrap'
+python3 -I "$guard" "$sha" --from-active || refuse 'unsafe release ancestry'
 
-systemctl is-active --quiet tor-web.service ||
-  refuse 'existing website is not active'
 systemctl is-active --quiet postgresql@18-main.service ||
   refuse 'PostgreSQL is not active'
-[[ $(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz) == ok ]] ||
-  refuse 'existing website is not healthy; manual recovery required'
+
+# TOR_RECOVERY_APPROVAL_BEGIN
+# The SSH user cannot create this root-only one-shot approval. The normal
+# sudo entry point still accepts exactly one SHA and no recovery options.
+require_recovery_approval() {
+  local approval="$1" expected="$2"
+  [[ ! -L "$(dirname "$approval")" &&
+     $(stat -c '%U:%G:%a' "$(dirname "$approval")" 2>/dev/null) == root:root:700 &&
+     -f "$approval" && ! -L "$approval" &&
+     $(stat -c '%U:%G:%a:%h' "$approval" 2>/dev/null) == root:root:600:1 ]] &&
+    cmp -s "$approval" <(printf '%s\n' "$expected")
+}
+# TOR_RECOVERY_APPROVAL_END
+
+recovery=0
+approval=/etc/tor/tor-release-recovery.sha
+if ! systemctl is-active --quiet tor-web.service ||
+   [[ $(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz 2>/dev/null || true) != ok ]]; then
+  require_recovery_approval "$approval" "$sha" ||
+    refuse 'existing website is not healthy; exact-SHA root recovery approval required'
+  recovery=1
+else
+  [[ ! -e "$approval" && ! -L "$approval" ]] ||
+    refuse 'website is healthy; remove stale recovery approval before normal release'
+fi
 [[ $(cat /var/lib/tor-release/pg-activated) == PG_ACTIVATED ]] ||
   refuse 'verified PostgreSQL production activation is missing'
 config=/etc/systemd/system/tor-web.service.d/20-postgres.conf
@@ -159,7 +168,7 @@ ssh-keygen -Y verify -f "$signers" -I tor-release -n tor-release \
 [[ $(stat -c '%a' "$target") == 755 ]] ||
   refuse 'server process cannot traverse release directory'
 
-if [[ "$previous" == "$target" ]]; then
+if [[ "$previous" == "$target" && "$recovery" == 0 ]]; then
   echo "TOR_ALREADY_ACTIVE $sha"
   exit 0
 fi
@@ -174,7 +183,17 @@ curl --fail --silent --show-error --location --retry 2 --max-time 20 \
   -o "$runner" || refuse 'cannot retrieve pinned go-live'
 bash -n "$runner" || refuse 'pinned go-live shell is invalid'
 printf 'TOR_RELEASE_PREPARED %s\n' "$sha"
-bash "$runner" "$sha"
+if [[ "$recovery" == 1 ]]; then
+  # Consume only after all signed artifact verification and forward-main proof.
+  # A failed recovery needs a new explicit operator approval, never a replay.
+  require_recovery_approval "$approval" "$sha" ||
+    refuse 'root recovery approval changed during verification'
+  rm -f -- "$approval"
+  echo "TOR_RECOVERY_APPROVED $sha"
+  bash "$runner" "$sha" --recover --forward
+else
+  bash "$runner" "$sha" --forward
+fi
 [[ $(readlink -f /opt/tor/current) == "$target" ]] ||
   refuse 'activated release symlink does not match candidate'
 [[ $(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz) == ok ]] ||

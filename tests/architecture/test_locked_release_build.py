@@ -18,7 +18,7 @@ PROFILES = {
         "tor-one-click-release.yml",
         "Собрать сайт, миграции и писатель трасс на GitHub",
         [
-            "build --release --locked -p tor-web",
+            "build --locked --release -p tor-web --features s3-covers,s3-free,s3-paid,s3-chapter-import",
             "build --release --locked -p tor-migrations --bin tor-migrate",
             "build --release --locked -p tor-observability --bin tor-trace-store",
         ],
@@ -67,6 +67,8 @@ class LockedReleaseBuildTests(unittest.TestCase):
             git("config", "user.email", "fixture@example.invalid")
             (repo / "tools").mkdir()
             (repo / "tools/check_feature_layout.py").write_text("pass\n")
+            (repo / "tools/build_tor_production_web.sh").write_bytes(
+                (ROOT / "tools/build_tor_production_web.sh").read_bytes())
             lock = repo / "Cargo.lock"
             if mode != "untracked":
                 lock.write_bytes(b"" if mode == "empty" else LOCK)
@@ -86,7 +88,8 @@ class LockedReleaseBuildTests(unittest.TestCase):
                 '#!/bin/bash\n'
                 'set -eu\n'
                 'printf "%s\\n" "$*" >> "$BUILD_CALLS"\n'
-                'test "$1" = build && test "$2" = --release && test "$3" = --locked\n'
+                'test "$1" = build && { [[ "$2:$3" == --release:--locked ]] || '
+                '[[ "$2:$3" == --locked:--release ]]; }\n'
                 'if [[ "$LOCK_MODE" == stale ]]; then exit 101; fi\n'
                 'case "$5" in\n'
                 '  tor-web) name=tor-web ;;\n'
@@ -95,7 +98,9 @@ class LockedReleaseBuildTests(unittest.TestCase):
                 '  *) exit 2 ;;\n'
                 'esac\n'
                 'mkdir -p target/release\n'
-                'printf "fixture\\n" > "target/release/$name"\n'
+                'printf "%s\\n" "#!/bin/bash" '
+                '"echo TOR_RELEASE_CAPABILITIES s3-covers=true s3-free=true s3-paid=true s3-chapter-import=true" '
+                '> "target/release/$name"\n'
                 'chmod +x "target/release/$name"\n'
                 'if [[ "$LOCK_MODE" == tamper ]]; then printf "# tampered\\n" >> Cargo.lock; fi\n'
             )
@@ -135,9 +140,14 @@ class LockedReleaseBuildTests(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 body = (ROOT / ".github/workflows" / workflow).read_text()
                 block = build_block(workflow, name)
-                commands = [x.replace('"', "") for x in re.findall(r"(?m)^cargo (.*)$", block)]
+                helper = "bash tools/build_tor_production_web.sh"
+                first_build = helper if helper in block else "cargo build"
+                expanded = block.replace(helper, (ROOT / "tools/build_tor_production_web.sh").read_text())
+                commands = [x.replace('"', "").replace("'", "")
+                            for x in re.findall(r"(?m)^cargo (.*)$", expanded)]
                 self.assertEqual(commands, expected)
-                self.assertLess(block.index("git diff --exit-code HEAD -- Cargo.lock"), block.index("cargo build"))
+                self.assertLess(block.index("git diff --exit-code HEAD -- Cargo.lock"),
+                                block.index(first_build))
                 self.assertLess(block.rindex("cargo build"), block.index("cmp Cargo.lock"))
                 self.assertLess(block.index("cmp Cargo.lock"), block.index("sha256sum Cargo.lock"))
                 self.assertIn("tor-release-lock.sha256", body.split("uses: actions/upload-artifact@v4", 1)[1])

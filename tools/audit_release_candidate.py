@@ -16,7 +16,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS
+from release_ancestry import AncestryError, require_on_main
+
+from ci_test_map import (
+    CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS,
+    SUITE_JOB_MATRICES, suite_api_job_names,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -89,15 +94,24 @@ def evaluate_ci(
             or set(expected.values()) != {"rules.yml", CI_WORKFLOW}
             or len(expected) != 2):
         raise EvidenceError("incomplete or unreviewed automatic workflow registry")
-    if len(SUITE_JOB_IDS) != len(SUITES) or len(set(SUITE_JOB_IDS.values())) != len(SUITES):
+    if (set(SUITE_JOB_IDS) != set(SUITES)
+            or len(set(SUITE_JOB_IDS.values())) != len(SUITES)
+            or not set(SUITE_JOB_MATRICES) <= set(SUITES)):
         raise EvidenceError("duplicate or incomplete suite-job registry")
+    suite_jobs = suite_api_job_names()
+    all_suite_jobs = [name for names in suite_jobs.values() for name in names]
+    if (any(not names for names in suite_jobs.values())
+            or len(all_suite_jobs) != len(set(all_suite_jobs))
+            or set(all_suite_jobs) & {"select", "select / select", "preflight", CI_REQUIRED_JOB}):
+        raise EvidenceError("duplicate, empty or conflicting suite API job registry")
     current = latest_push_runs(runs, sha)
     blockers: list[str] = []
     verified: list[str] = []
     checks: dict[str, dict] = {}
     suite_checks = {
-        suite: {"job": job_id, "state": "missing"}
-        for suite, job_id in SUITE_JOB_IDS.items()
+        suite: {"job": SUITE_JOB_IDS[suite], "state": "missing",
+                "jobs": dict.fromkeys(names, "missing")}
+        for suite, names in suite_jobs.items()
     }
     for title, filename in sorted(expected.items()):
         run = current.get(title)
@@ -136,13 +150,20 @@ def evaluate_ci(
                 continue
             # Preflight is an obligatory job, not an extra suite or an ignorable
             # wrapper. Require its success alongside selector, suites and gate.
-            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB, "preflight"}
-            for suite, job_id in SUITE_JOB_IDS.items():
-                job = by_name.get(job_id)
-                if job is not None:
-                    state = ("verified" if job.get("status") == "completed"
-                             and job.get("conclusion") == "success" else "blocked")
-                    suite_checks[suite] = {"job": job_id, "state": state}
+            required = set(all_suite_jobs) | selectors | {CI_REQUIRED_JOB, "preflight"}
+            for suite, job_names in suite_jobs.items():
+                states = suite_checks[suite]["jobs"]
+                for job_name in job_names:
+                    job = by_name.get(job_name)
+                    if job is not None:
+                        states[job_name] = (
+                            "verified" if job.get("status") == "completed"
+                            and job.get("conclusion") == "success" else "blocked"
+                        )
+                suite_checks[suite]["state"] = (
+                    "blocked" if "blocked" in states.values() else
+                    "missing" if "missing" in states.values() else "verified"
+                )
         missing, unexpected = sorted(required - set(names)), sorted(set(names) - required)
         if missing or unexpected:
             if filename == CI_WORKFLOW and len(names) == 1 and is_selector(jobs[0]):
@@ -221,17 +242,31 @@ def require_current_main(api: GitHub, sha: str) -> None:
         raise EvidenceError("candidate is not the current main SHA")
 
 
-def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
+def require_pinned_main(api: GitHub, sha: str) -> None:
+    try:
+        require_on_main(api.get, sha)
+    except AncestryError as exc:
+        raise EvidenceError(str(exc)) from exc
+
+
+def collect(api: GitHub, sha: str, root: Path = ROOT, *, pinned_main=False) -> dict:
     if not SHA.fullmatch(sha):
         raise EvidenceError("invalid release candidate SHA")
-    # A frequently updated main can move while required job evidence is fetched.
-    require_current_main(api, sha)
-    payload = api.get(f"/repos/{REPO}/actions/runs",
-                      {"head_sha": sha, "event": "push", "per_page": 100})
+    # Standalone audits stay strict. The one-click release may pin a main
+    # ancestor, but must prove main membership before AND after collection.
+    guard = require_pinned_main if pinned_main else require_current_main
+    guard(api, sha)
+    params = {"head_sha": sha, "event": "push", "per_page": 100}
+    if pinned_main:
+        params["branch"] = "main"
+    payload = api.get(f"/repos/{REPO}/actions/runs", params)
     runs = payload.get("workflow_runs")
     if (not isinstance(runs, list) or not isinstance(payload.get("total_count"), int)
             or payload["total_count"] != len(runs) or len(runs) > 100):
         raise EvidenceError("incomplete GitHub workflow pagination")
+    if pinned_main and any(not isinstance(row, dict) or row.get("head_branch") != "main"
+                           for row in runs):
+        raise EvidenceError("pinned release requires main push workflow evidence")
     expected = workflow_names(root)
     latest = latest_push_runs(runs, sha)
     jobs: dict[int, list[dict]] = {}
@@ -246,7 +281,7 @@ def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
                 or response["total_count"] != len(values) or len(values) > 100):
             raise EvidenceError("incomplete GitHub job pagination")
         jobs[record["id"]] = values
-    require_current_main(api, sha)
+    guard(api, sha)
     return evaluate_ci(runs, jobs, sha, expected)
 
 

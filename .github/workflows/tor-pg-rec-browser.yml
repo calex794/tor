@@ -61,30 +61,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Feature boundary checks
-        run: python3 tools/check_feature_layout.py
-      - name: Prepare isolated database
-        run: bash tools/ci_prepare_isolated_pg.sh
-      - name: Apply real SQLx migrations twice
-        run: |
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-      - name: Prepare explicit legacy and installed-upgrade analytics databases
-        if: ${{ matrix.lane == 'historical' }}
-        run: |
-          bash tools/ci_prepare_legacy_analytics.sh
-          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
-          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
-      - name: Installed 190 to current analytics retirement with canonical and preference preservation
-        if: ${{ matrix.lane == 'historical' }}
-        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
-      - name: REC13 real Chromium and historical HTTP acceptance
-        env:
-          TOR_REC13_LANE: ${{ matrix.lane }}
-        run: bash tools/rec13_browser_acceptance.sh
-      - name: 100k catalogue contextual model PostgreSQL acceptance
-        if: ${{ matrix.lane == 'current' }}
-        run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1
+      - name: Run shared PostgreSQL REC13 browser acceptance
+        uses: ./.github/actions/pg-rec-browser
+        with:
+          lane: ${{ matrix.lane }}
       - name: Confirm committed source was tested
         if: always()
         run: git diff --exit-code

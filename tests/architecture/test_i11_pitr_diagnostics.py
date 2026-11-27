@@ -51,6 +51,14 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual(len(drill.time_start_diagnostics(
             '\n'.join(prefix + str(i) for i in range(20)))), 8)
 
+    def test_operator_replay_diagnostics_remain_bounded_and_redacted(self):
+        prefix = 'I11_PITR_TIME_START operator-replay '
+        self.assertEqual(drill.time_start_diagnostics(prefix + 'FATAL: could not start'),
+                         [prefix + 'FATAL: could not start'])
+        self.assertEqual(drill.time_start_diagnostics(prefix + 'ERROR: password=private'), [])
+        self.assertEqual(drill.time_start_diagnostics(prefix + 'ERROR: ' + 'a' * 64),
+                         [prefix + 'ERROR: [redacted]'])
+
     def test_control_characters_cannot_escape_into_log(self):
         self.assertNotIn('\x1b', client_diagnostics('ERROR: \x1b[31mfailed')[0])
 

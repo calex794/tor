@@ -1,7 +1,7 @@
 //! Revision-checked cross-device position API. No paid text is serialized.
 #![forbid(unsafe_code)]
 
-use super::{deny, session_user, AuthState};
+use super::{deny, session_security::activity_cookies, session_user, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
@@ -225,7 +225,7 @@ pub(super) async fn put_free(
     {
         Ok(receipt) => private_response(
             Json(response(chapter_id, version_id, Some(place), Some(receipt))),
-            &[],
+            &activity_cookies(&state, &headers).await,
         ),
         Err(error) => deny(status(error)),
     }
@@ -301,7 +301,7 @@ pub(super) async fn put_archived_free(
     {
         Ok(receipt) => private_response(
             Json(response(chapter_id, version_id, Some(place), Some(receipt))),
-            &[],
+            &activity_cookies(&state, &headers).await,
         ),
         Err(error) => deny(status(error)),
     }
@@ -404,7 +404,7 @@ pub(super) async fn put_purchased(
             }
             private_response(
                 Json(response(chapter_id, version_id, Some(place), Some(receipt))),
-                &[],
+                &activity_cookies(&state, &headers).await,
             )
         }
         Err(error) => deny(status(error)),

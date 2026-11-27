@@ -1,8 +1,10 @@
 //! Bounded opt-in cleanup for private package covers only.
 //! Not enabled during startup; invoke explicitly from trusted operations.
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tor_commerce::repositories::layer_cover_cleanup::PgPackageCoverVariantRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
+
+use crate::cover_private_cleanup::removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PackageCoverCleanupResult {
@@ -38,31 +40,17 @@ impl PackageCoverVariantCleanup {
         for item in claims {
             // Never accept arbitrary storage keys: only the exact PG-backed
             // retired cover variant, checked again on claim, is used.
-            let action = tokio::time::timeout(
-                Duration::from_secs(12),
+            if finish_private_removal(
+                PRIVATE_REMOVAL_TIMEOUT,
                 self.storage
                     .remove_private_staging_variant(&item.storage_key),
+                self.ledger.removed(item.id, item.lease_epoch),
+                self.ledger.retry(item.id, item.lease_epoch),
             )
-            .await;
-            if matches!(action, Ok(Ok(()))) {
-                if !self
-                    .ledger
-                    .removed(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
+            .await?
+            {
                 result.removed += 1;
             } else {
-                if !self
-                    .ledger
-                    .retry(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
                 result.deferred += 1;
             }
         }

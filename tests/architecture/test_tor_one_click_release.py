@@ -103,7 +103,7 @@ class OneClickReleaseTests(unittest.TestCase):
             WORKFLOW.index("Установить SSH"),
         )
         self.assertLess(
-            WORKFLOW.index("Запретить установку устаревшего коммита"),
+            WORKFLOW.index("Повторно проверить CI и принадлежность выпуска main"),
             WORKFLOW.index("sudo -n /usr/local/sbin/tor-one-click-release"),
         )
         self.assertIn("StrictHostKeyChecking=yes", WORKFLOW)
@@ -124,10 +124,17 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertIn("flock -n 9", HELPER)
 
     def test_pinned_sha_and_hashes_before_go_live(self):
-        self.assertLess(HELPER.index("main_sha=$("), HELPER.index('bash "$runner" "$sha"'))
+        self.assertLess(HELPER.index('python3 -I "$guard" "$sha" --from-active'),
+                        HELPER.index('bash "$runner" "$sha"'))
+        self.assertEqual(WORKFLOW.count("--pinned-main"), 2)
+        self.assertNotIn("git ls-remote origin refs/heads/main", WORKFLOW)
+        self.assertIn('bash "$runner" "$sha" --forward', HELPER)
+        self.assertIn('bash "$runner" "$sha" --recover --forward', HELPER)
         self.assertLess(HELPER.index("sha256sum -c --status tor-web.sha256"), HELPER.index('bash "$runner" "$sha"'))
         self.assertLess(HELPER.index("sha256sum -c --status tor-migrate.sha256"), HELPER.index('bash "$runner" "$sha"'))
-        self.assertIn("https://api.github.com/repos/calex794/tor/git/ref/heads/main", HELPER)
+        self.assertIn("guard=/usr/local/sbin/tor-release-ancestry", HELPER)
+        self.assertIn('python3 -I "$guard" "$sha" --from-active', GO_LIVE)
+        self.assertIn('install -o root -g root -m 0755 "$guard_download" "$guard"', BOOTSTRAP)
         self.assertIn("/opt/tor/incoming/$sha", HELPER)
         self.assertIn("https://raw.githubusercontent.com/calex794/tor/$sha/ops/go-live-postgres-vps.sh", HELPER)
         self.assertIn("require_current_main_sha", GO_LIVE)
