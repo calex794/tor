@@ -208,41 +208,66 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shared_submission_form_keeps_required_fields_and_rejects_unknown_fields() {
-        let form: AppealForm = serde_json::from_str(
-            r#"{"csrf_token":"csrf","command_key":"key","reason":" reason "}"#,
+    fn form_request(body: &'static str) -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::builder()
+            .method("POST")
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(axum::body::Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn shared_submission_form_keeps_required_fields_and_rejects_unknown_fields() {
+        use axum::extract::{Form, FromRequest};
+
+        let Form(form) = Form::<AppealForm>::from_request(
+            form_request("csrf_token=csrf&command_key=key&reason=+reason+"),
+            &(),
         )
+        .await
         .unwrap();
         assert_eq!(form.csrf_token, "csrf");
         assert_eq!(form.command_key, "key");
         assert_eq!(form.reason, " reason ");
         for malformed in [
-            r#"{"command_key":"key","reason":"reason"}"#,
-            r#"{"csrf_token":"csrf","reason":"reason"}"#,
-            r#"{"csrf_token":"csrf","command_key":"key"}"#,
-            r#"{"csrf_token":"csrf","command_key":"key","reason":"reason","extra":1}"#,
+            "command_key=key&reason=reason",
+            "csrf_token=csrf&reason=reason",
+            "csrf_token=csrf&command_key=key",
+            "csrf_token=csrf&command_key=key&reason=reason&extra=1",
+            "csrf_token=csrf&command_key=key&reason=reason&reason=other",
         ] {
-            assert!(serde_json::from_str::<AppealForm>(malformed).is_err());
+            assert!(Form::<AppealForm>::from_request(form_request(malformed), &())
+                .await
+                .is_err());
         }
     }
 
-    #[test]
-    fn shared_decision_form_keeps_required_fields_and_rejects_unknown_fields() {
-        let form: DecisionForm = serde_json::from_str(
-            r#"{"csrf_token":"csrf","decision":"restored","note":" note "}"#,
+    #[tokio::test]
+    async fn shared_decision_form_keeps_required_fields_and_rejects_unknown_fields() {
+        use axum::extract::{Form, FromRequest};
+
+        let Form(form) = Form::<DecisionForm>::from_request(
+            form_request("csrf_token=csrf&decision=restored&note=+note+"),
+            &(),
         )
+        .await
         .unwrap();
         assert_eq!(form.csrf_token, "csrf");
         assert_eq!(form.decision, "restored");
         assert_eq!(form.note, " note ");
         for malformed in [
-            r#"{"decision":"restored","note":"note"}"#,
-            r#"{"csrf_token":"csrf","note":"note"}"#,
-            r#"{"csrf_token":"csrf","decision":"restored"}"#,
-            r#"{"csrf_token":"csrf","decision":"restored","note":"note","extra":1}"#,
+            "decision=restored&note=note",
+            "csrf_token=csrf&note=note",
+            "csrf_token=csrf&decision=restored",
+            "csrf_token=csrf&decision=restored&note=note&extra=1",
+            "csrf_token=csrf&decision=restored&note=note&decision=denied",
         ] {
-            assert!(serde_json::from_str::<DecisionForm>(malformed).is_err());
+            assert!(Form::<DecisionForm>::from_request(form_request(malformed), &())
+                .await
+                .is_err());
         }
     }
 }
