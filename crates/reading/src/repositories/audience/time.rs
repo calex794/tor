@@ -1,4 +1,4 @@
-use super::{unavailable, AudienceError, PgAudience};
+use super::{unavailable, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::time::{
     validate, ReadingTimeCell, ReadingTimeCounts, ReadingTimeHour, ReadingTimePeriod,
     ReadingTimeReport,
@@ -13,13 +13,7 @@ impl PgAudience {
         zone: &str,
     ) -> Result<ReadingTimeReport, AudienceError> {
         validate(days, zone)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
-            .execute(&mut *tx).await.map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementAndLock).await?;
         let rows = sqlx::query(include_str!("time.sql"))
             .bind(days)
             .bind(zone)

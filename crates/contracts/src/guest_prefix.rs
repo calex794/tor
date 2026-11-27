@@ -116,7 +116,11 @@ impl GuestPrefix {
         if !matches!(percent, 10 | 20 | 30 | 50) {
             return Err(GuestPrefixError::InvalidPercent);
         }
-        let end = cut(&self.prefix, limit(self.visible_scalar_count, percent), true);
+        let end = cut(
+            &self.prefix,
+            limit(self.visible_scalar_count, percent),
+            true,
+        );
         Ok(&self.prefix[..end])
     }
 }

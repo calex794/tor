@@ -76,7 +76,10 @@ async fn auth_read_prefix_fences_old_editions_policy_and_wrong_source() {
         Some(GuestPrefix::from_source(source).unwrap().maximum_prefix())
     );
 
-    let body = format!("SECOND edition visible beginning. {} V2_TAIL", "слово ".repeat(100));
+    let body = format!(
+        "SECOND edition visible beginning. {} V2_TAIL",
+        "слово ".repeat(100)
+    );
     let command = update(
         book,
         first.chapter_id,

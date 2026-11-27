@@ -36,13 +36,12 @@ async fn lock_session(
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Forbidden)?;
     // A: account first, then session, matching password rotation/revocation.
-    let account: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
-    )
-    .bind(actor)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| AuthorError::Unavailable)?;
+    let account: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE")
+            .bind(actor)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
     if account.is_none() {
         return Err(AuthorError::Forbidden);
     }

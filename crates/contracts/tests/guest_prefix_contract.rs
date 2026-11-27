@@ -10,7 +10,10 @@ fn auth_read_prefix_uses_reader_tokens_not_link_destinations() {
         "слово ".repeat(100)
     );
     let projection = GuestPrefix::from_source(&source).unwrap();
-    let visible = format!("Глава\n\nПривет текст\n\n{}HIDDEN_TAIL", "слово ".repeat(100));
+    let visible = format!(
+        "Глава\n\nПривет текст\n\n{}HIDDEN_TAIL",
+        "слово ".repeat(100)
+    );
     assert_eq!(projection.visible_scalar_count(), visible.chars().count());
     for percent in [10, 20, 30, 50] {
         let excerpt = projection.excerpt(percent).unwrap();

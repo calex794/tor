@@ -52,14 +52,12 @@ async fn auth_read_owner_policy_cas_and_closed_rollout() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO book_members(book_id,user_id,role) VALUES($1,$2,'translator')",
-    )
-    .bind(book)
-    .bind(translator)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES($1,$2,'translator')")
+        .bind(book)
+        .bind(translator)
+        .execute(&pool)
+        .await
+        .unwrap();
     let repo = PgAuthoring::new(pool.clone());
     let initial = ManagedGuestReading {
         policy: GuestReadingPolicy::default(),
@@ -127,7 +125,9 @@ async fn auth_read_owner_policy_cas_and_closed_rollout() {
         repo.replace_guest_reading(&owner_session, book, 1, other),
     );
     let winner = match (left, right) {
-        (Ok(winner), Err(AuthorError::Conflict)) | (Err(AuthorError::Conflict), Ok(winner)) => winner,
+        (Ok(winner), Err(AuthorError::Conflict)) | (Err(AuthorError::Conflict), Ok(winner)) => {
+            winner
+        }
         result => panic!("expected exactly one CAS winner: {result:?}"),
     };
     assert_eq!(winner.revision, 2);
@@ -174,7 +174,10 @@ async fn auth_read_owner_policy_cas_and_closed_rollout() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(unchanged, ("draft".into(), "basic".into(), "open".into(), 2));
+    assert_eq!(
+        unchanged,
+        ("draft".into(), "basic".into(), "open".into(), 2)
+    );
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(book)
         .execute(&pool)

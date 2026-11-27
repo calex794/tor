@@ -127,8 +127,8 @@ impl PgGuestPrefix {
             return Ok(GuestPrefixPreparation::NoExcerpt);
         };
 
-        let count = i32::try_from(projection.visible_scalar_count())
-            .map_err(|_| AuthorError::Invalid)?;
+        let count =
+            i32::try_from(projection.visible_scalar_count()).map_err(|_| AuthorError::Invalid)?;
         let prefix = projection.maximum_prefix();
         let prefix_hash: [u8; 32] = Sha256::digest(prefix.as_bytes()).into();
         let result = sqlx::query(

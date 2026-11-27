@@ -1,4 +1,4 @@
-use super::{counts, unavailable, AudienceError, PgAudience};
+use super::{counts, unavailable, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::canonical::{
     CanonicalQuery, CanonicalRankReport, CanonicalRankRow, CANONICAL_PAGE_SIZE,
     COMPARISON_MIN_PAIRS,
@@ -16,15 +16,7 @@ impl PgAudience {
         if query.after_id.is_some() || query.after_label.is_some() {
             return Err(AudienceError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementAndLock).await?;
         let records = sqlx::query(super::RANK_SQL)
             .bind(query.days)
             .bind(&query.genre)
