@@ -1,0 +1,48 @@
+/* Native modal, with the same form fields and design tokens as the account pages. */
+.tor-auth-dialog {
+  box-sizing: border-box;
+  width: min(460px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 24px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: var(--radius-lg, 16px);
+  background: var(--bg-surface, #fff);
+  color: var(--text-main, #111827);
+  overflow: auto;
+  box-shadow: 0 18px 70px rgb(0 0 0 / 25%);
+}
+.tor-auth-dialog::backdrop { background: rgb(15 23 42 / 55%); }
+.tor-auth-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tor-auth-dialog__header h2 { font-size: 1.3rem; margin: 0; }
+.tor-auth-dialog__close {
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border: 0; border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; font-size: 1.65rem; cursor: pointer;
+}
+.tor-auth-dialog__modes {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px; margin-top: 16px; padding: 4px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 10px;
+}
+.tor-auth-dialog__modes button {
+  min-height: 42px; padding: 8px; border: 1px solid transparent;
+  border-radius: 7px; background: transparent; color: inherit;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.tor-auth-dialog__modes button[aria-pressed="true"] {
+  background: var(--primary-color, #4f46e5);
+  color: var(--primary-contrast, #fff);
+}
+.tor-auth-dialog button:disabled { opacity: .65; cursor: wait; }
+.tor-auth-dialog button:focus-visible, .tor-auth-dialog a:focus-visible {
+  outline: 2px solid var(--primary-color, #4f46e5); outline-offset: 2px;
+}
+.tor-auth-dialog .auth-form { margin-top: 16px; gap: 6px; }
+.tor-auth-dialog .auth-form input:not([type="hidden"]) { box-sizing: border-box; margin-bottom: 4px; }
+.tor-auth-dialog__status:empty { display: none; }
+.tor-auth-dialog__status, .tor-auth-dialog__error { margin: 14px 0 0; font-size: .9rem; overflow-wrap: anywhere; }
+.tor-auth-dialog__error { border: 1px solid #c2410c; border-radius: 8px; padding: 10px; }
+.tor-auth-dialog__links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; font-size: .9rem; }
+.tor-auth-dialog__links a { color: var(--text-main, #111827); text-decoration: underline; }
+@media (max-width: 480px) { .tor-auth-dialog { padding: 16px; } }
