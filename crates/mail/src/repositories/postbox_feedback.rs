@@ -85,7 +85,12 @@ impl PgPostboxFeedback {
     ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
         let started = Instant::now();
         let marker = self
-            .prepare_inner(grant.claim(), identity_id, Some(token_hash), Some((grant, keys)))
+            .prepare_inner(
+                grant.claim(),
+                identity_id,
+                Some(token_hash),
+                Some((grant, keys)),
+            )
             .await?;
         Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, Some(*token_hash), started)))
     }

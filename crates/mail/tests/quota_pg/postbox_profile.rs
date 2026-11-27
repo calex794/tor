@@ -320,7 +320,10 @@ async fn exercise_launch_fence(
             .unwrap(),
         QuotaDecision::DispatchNotAuthorized
     );
-    assert!(queue.finish(probe_claim, MailOutcome::Cancelled).await.unwrap());
+    assert!(queue
+        .finish(probe_claim, MailOutcome::Cancelled)
+        .await
+        .unwrap());
     assert_eq!(
         LaunchFence::new().permit_reservation(&active, scope),
         Err(LaunchError::Stopped)
