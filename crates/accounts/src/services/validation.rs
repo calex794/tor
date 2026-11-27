@@ -19,7 +19,10 @@ pub fn registration(
     if !(1..=80).contains(&length) || display_name.chars().any(char::is_control) {
         return Err("Имя должно содержать от 1 до 80 символов");
     }
-    if display_name.to_ascii_lowercase().contains(&email.to_ascii_lowercase()) {
+    if display_name
+        .to_ascii_lowercase()
+        .contains(&email.to_ascii_lowercase())
+    {
         return Err("Не используйте свою электронную почту в публичном имени");
     }
     if !(12..=128).contains(&password.chars().count()) || password.len() > 512 {

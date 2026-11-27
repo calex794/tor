@@ -217,15 +217,7 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
         assert_eq!(response.status(), StatusCode::CONFLICT);
         assert_eq!(json(response).await["error"]["code"], "HANDLE_LOCKED");
     }
-    let settings = call(
-        &app,
-        "GET",
-        "/me/settings",
-        &cookies,
-        ORIGIN,
-        String::new(),
-    )
-    .await;
+    let settings = call(&app, "GET", "/me/settings", &cookies, ORIGIN, String::new()).await;
     assert_eq!(settings.status(), StatusCode::OK);
     let html = to_bytes(settings.into_body(), 64 * 1024).await.unwrap();
     let html = std::str::from_utf8(&html).unwrap();
