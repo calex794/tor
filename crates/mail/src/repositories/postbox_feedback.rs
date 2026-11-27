@@ -1,8 +1,9 @@
 //! Durable Postbox correlation; no public endpoint or provider credentials.
 use super::suppression::record_attempt;
 use crate::domain::{
+    launch::LaunchSnapshot,
     postbox::{valid_id, PostboxEvent},
-    quota::identity::QuotaKeySigner,
+    quota::{identity::QuotaKeySigner, QuotaKeys},
     suppression::{AttemptRef, FeedbackDecision},
     MailClaim,
 };
@@ -40,6 +41,28 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(claim, identity_id, None).await
+    }
+
+    /// Final durable send-start fence for the actual dispatch path.
+    /// Caller holds local authority and must check it again before SMTP.
+    pub async fn prepare_for_dispatch(
+        &self,
+        claim: MailClaim,
+        identity_id: &str,
+        keys: QuotaKeys,
+        expected: &LaunchSnapshot,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.prepare_inner(claim, identity_id, Some((keys, expected)))
+            .await
+    }
+
+    async fn prepare_inner(
+        &self,
+        claim: MailClaim,
+        identity_id: &str,
+        expected: Option<(QuotaKeys, &LaunchSnapshot)>,
+    ) -> Result<Option<String>, sqlx::Error> {
         if !valid_id(identity_id) {
             return Err(sqlx::Error::Protocol("invalid Postbox identity".to_owned()));
         }
@@ -53,6 +76,27 @@ impl PgPostboxFeedback {
             tx.rollback().await?;
             return Ok(None);
         };
+        let (activation_digest, recipient_key) = if let Some((keys, snapshot)) = expected {
+            let identity: Option<String> = sqlx::query_scalar(
+                "SELECT identity_id FROM mail_postbox_profile WHERE singleton",
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if binding.as_slice() != keys.key_binding()
+                || identity.as_deref() != Some(identity_id)
+                || !super::launch::dispatch_matches(&mut tx, snapshot, false).await?
+            {
+                tx.rollback().await?;
+                return Ok(None);
+            }
+            (snapshot.activation_digest, Some(*keys.recipient()))
+        } else {
+            if super::launch::has_activation_receipt(&mut tx).await? {
+                tx.rollback().await?;
+                return Ok(None);
+            }
+            (None, None)
+        };
         if !super::cost::submission_enabled(&mut tx, claim).await? {
             tx.rollback().await?;
             return Ok(None);
@@ -65,6 +109,8 @@ impl PgPostboxFeedback {
                AND m.generation=r.generation \
              WHERE m.id=$1 AND m.generation=$2 AND m.purpose=$3 AND m.event_id=$4 \
                AND m.recipient_user_id=$5 AND m.status='leased' \
+               AND r.activation_digest IS NOT DISTINCT FROM $9::bytea \
+               AND ($10::bytea IS NULL OR r.recipient_key=$10) \
                AND m.lease_until>clock_timestamp() \
                AND r.reserved_at>clock_timestamp()-interval '120 seconds' \
                AND r.reserved_at<=clock_timestamp() \
@@ -84,6 +130,8 @@ impl PgPostboxFeedback {
         .bind(identity_id)
         .bind(&binding)
         .bind(&marker)
+        .bind(activation_digest.as_ref().map(|value| value.as_slice()))
+        .bind(recipient_key.as_ref().map(|value| value.as_slice()))
         .execute(&mut *tx)
         .await?
         .rows_affected();

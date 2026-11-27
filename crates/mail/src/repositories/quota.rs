@@ -1,5 +1,6 @@
 //! PostgreSQL serialization point for all outbound quota reservations.
 use crate::domain::{
+    launch::LaunchSnapshot,
     quota::{
         QuotaDecision, QuotaKeys, DAILY_LIMIT, REGISTRATION_IP_DAILY, REGISTRATION_RECIPIENT_DAILY,
         TRANSACTIONAL_RESERVE,
@@ -28,6 +29,27 @@ impl PgMailQuota {
         claim: MailClaim,
         keys: QuotaKeys,
     ) -> Result<QuotaDecision, sqlx::Error> {
+        self.reserve_inner(claim, keys, None).await
+    }
+
+    /// The actual dispatch path additionally binds the exact active receipt
+    /// and observed monthly counter. Never use the offline reserve method
+    /// for an activated runtime.
+    pub async fn reserve_for_dispatch(
+        &self,
+        claim: MailClaim,
+        keys: QuotaKeys,
+        expected: &LaunchSnapshot,
+    ) -> Result<QuotaDecision, sqlx::Error> {
+        self.reserve_inner(claim, keys, Some(expected)).await
+    }
+
+    async fn reserve_inner(
+        &self,
+        claim: MailClaim,
+        keys: QuotaKeys,
+        expected: Option<&LaunchSnapshot>,
+    ) -> Result<QuotaDecision, sqlx::Error> {
         if claim.intent.purpose == MailPurpose::RegistrationConfirmation
             && !keys.matches_registration(claim.intent)
         {
@@ -41,6 +63,19 @@ impl PgMailQuota {
         )
         .fetch_one(&mut *tx)
         .await?;
+        let activation_digest = if let Some(expected) = expected {
+            if !super::launch::dispatch_matches(&mut tx, expected, true).await? {
+                tx.rollback().await?;
+                return Ok(QuotaDecision::CostEmergencyStop);
+            }
+            expected.activation_digest
+        } else {
+            if super::launch::has_activation_receipt(&mut tx).await? {
+                tx.rollback().await?;
+                return Ok(QuotaDecision::CostEmergencyStop);
+            }
+            None
+        };
 
         let active = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM mail_outbox WHERE id=$1 AND generation=$2 \
@@ -148,6 +183,22 @@ impl PgMailQuota {
                 // commit when admission is denied. No SMTP permit is issued.
                 tx.rollback().await?;
                 return Ok(cost);
+            }
+            if let Some(digest) = activation_digest {
+                let bound = sqlx::query(
+                    "UPDATE mail_send_reservations SET activation_digest=$3
+                     WHERE outbox_id=$1 AND generation=$2 AND activation_digest IS NULL",
+                )
+                .bind(claim.id)
+                .bind(claim.generation)
+                .bind(digest.as_slice())
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if bound != 1 {
+                    tx.rollback().await?;
+                    return Ok(QuotaDecision::CostEmergencyStop);
+                }
             }
         }
         tx.commit().await?;
