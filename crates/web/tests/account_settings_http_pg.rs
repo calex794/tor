@@ -118,6 +118,8 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
     let p = json(response).await;
     assert_eq!(p["id"], alice_id.to_string());
     assert!(p.get("password_hash").is_none());
+    assert!(p.get("email").is_none());
+    assert!(p.get("email_normalized").is_none());
     let csrf = p["csrf_token"].as_str().unwrap();
     let cookies = format!("tor-dev-session={alice}; {csrf_cookie}");
     let payload = serde_json::json!({"expected_revision":0,"display_name":"Alice updated","handle":format!("http{alice_id}"),"adult_enabled":true,"csrf_token":csrf});
@@ -197,6 +199,38 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
             .display_name,
         "Bob"
     );
+    for handle in [String::new(), format!("replacement{alice_id}")] {
+        let request = serde_json::json!({
+            "expected_revision": 1,
+            "handle": handle,
+            "csrf_token": csrf
+        });
+        let response = call(
+            &app,
+            "PATCH",
+            "/api/v1/me",
+            &cookies,
+            ORIGIN,
+            request.to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(json(response).await["error"]["code"], "HANDLE_LOCKED");
+    }
+    let settings = call(
+        &app,
+        "GET",
+        "/me/settings",
+        &cookies,
+        ORIGIN,
+        String::new(),
+    )
+    .await;
+    assert_eq!(settings.status(), StatusCode::OK);
+    let html = to_bytes(settings.into_body(), 64 * 1024).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains(&format!("@http{alice_id}")));
+    assert!(!html.contains("name=\"handle\""));
     let change = serde_json::json!({"current_password":"OriginalSecurePassword2026","new_password":"NewSecurePassword2026","csrf_token":csrf});
     let changed = call(
         &app,

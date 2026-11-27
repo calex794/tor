@@ -7,6 +7,8 @@ use crate::services::profile::ProfileUpdate;
 pub enum ProfileError {
     Stale,
     Duplicate,
+    HandleLocked,
+    PrivateEmail,
     Unavailable,
 }
 impl From<sqlx::Error> for ProfileError {
@@ -78,24 +80,43 @@ impl PgAccounts {
         update: &ProfileUpdate,
     ) -> Result<i64, ProfileError> {
         let mut tx = self.pool().begin().await?;
-        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await?;
-        let revision: Option<i64> =
-            sqlx::query_scalar("SELECT revision FROM account_settings WHERE user_id=$1")
+        let email: String = sqlx::query_scalar(
+            "SELECT email_normalized FROM users WHERE id=$1 FOR UPDATE",
+        )
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        let (revision, current_handle): (i64, Option<String>) =
+            sqlx::query_as("SELECT revision,handle FROM account_settings WHERE user_id=$1")
                 .bind(actor)
                 .fetch_optional(&mut *tx)
-                .await?;
-        if revision.unwrap_or(0) != update.expected_revision {
+                .await?
+                .unwrap_or((0, None));
+        if revision != update.expected_revision {
             return Err(ProfileError::Stale);
+        }
+        // The first successful claim is permanent on the free settings path.
+        // Locking the account serializes claims and other profile writes.
+        if let (Some(current), Some(requested)) =
+            (current_handle.as_deref(), update.handle.as_deref())
+        {
+            if current != requested {
+                return Err(ProfileError::HandleLocked);
+            }
+        }
+        if update
+            .display_name
+            .as_ref()
+            .is_some_and(|name| name.to_ascii_lowercase().contains(&email.to_ascii_lowercase()))
+        {
+            return Err(ProfileError::PrivateEmail);
         }
         sqlx::query("UPDATE users SET display_name=COALESCE($2,display_name),adult_enabled=COALESCE($3,adult_enabled) WHERE id=$1")
             .bind(actor).bind(&update.display_name).bind(update.adult_enabled).execute(&mut *tx).await?;
         let next: i64 = sqlx::query_scalar(
             "INSERT INTO account_settings(user_id,handle) VALUES($1,NULLIF($2,''))
              ON CONFLICT(user_id) DO UPDATE SET
-               handle=CASE WHEN $2::text IS NULL THEN account_settings.handle ELSE NULLIF($2,'') END,
+               handle=COALESCE(account_settings.handle,NULLIF($2,'')),
                revision=account_settings.revision+1,updated_at=now() RETURNING revision",
         ).bind(actor).bind(&update.handle).fetch_one(&mut *tx).await?;
         tx.commit().await?;
