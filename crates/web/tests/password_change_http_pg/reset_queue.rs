@@ -1,5 +1,5 @@
 use super::*;
-use std::{ffi::OsString, time::Duration};
+use std::{ffi::OsString, process::Command, time::Duration};
 use tor_contracts::{
     auth::UserId,
     mail::{MailIntent, MailPurpose},
@@ -35,6 +35,33 @@ impl Drop for Environment {
     }
 }
 
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:"));
+    assert_eq!(
+        url.rsplit_once('@').map(|(_, target)| target),
+        Some("127.0.0.1:5432/tor_ci")
+    );
+    let output = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .env("PGCONNECT_TIMEOUT", "5")
+        .env("PGOPTIONS", "-c statement_timeout=3000 -c lock_timeout=3000")
+        .output()
+        .expect("disposable PostgreSQL fixture requires psql");
+    assert!(output.status.success(), "fixture SQL failed");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 fn app(catalog: &PgCatalog, accounts: &PgAccounts) -> Router {
     tor_web::router_with_postgres_reading_auth(
         catalog.clone(),
@@ -49,9 +76,11 @@ fn app(catalog: &PgCatalog, accounts: &PgAccounts) -> Router {
 #[ignore = "requires isolated PostgreSQL 18 tor_ci; no mail sender"]
 async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
-    let options: sqlx::postgres::PgConnectOptions = url.parse().unwrap();
-    assert_eq!(options.get_host(), "127.0.0.1");
-    assert_eq!(options.get_database(), Some("tor_ci"));
+    assert!(url.starts_with("postgresql://tor_app:"));
+    assert_eq!(
+        url.rsplit_once('@').map(|(_, target)| target),
+        Some("127.0.0.1:5432/tor_ci")
+    );
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let db = accounts.pool();
@@ -72,9 +101,7 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     )
     .await;
     assert!(html(disabled).await.contains("временно недоступно"));
-    assert!(
-        tor_web::flow_runtime::start_password_reset_handoff(Some(accounts.clone())).is_none()
-    );
+    assert!(tor_web::flow_runtime::start_password_reset_handoff(Some(accounts.clone())).is_none());
 
     std::env::set_var("TOR_MAIL_QUOTA_KEY", &key);
     let app = app(&catalog, &accounts);
@@ -117,14 +144,13 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     )
     .await;
     assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM account_password_reset_mail_requests WHERE user_id=$1",
-    )
-    .bind(user)
-    .fetch_one(db)
-    .await
-    .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM account_password_reset_mail_requests WHERE user_id={user}"),
+        ),
+        "0"
+    );
 
     let mut known = from_peer(
         request("POST", "/forgot-password", &form, &cookies, ORIGIN),
@@ -154,15 +180,12 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
 
     let event_id = tokio::time::timeout(Duration::from_secs(8), async {
         loop {
-            let id: Option<i64> = sqlx::query_scalar(
-                "SELECT id FROM account_password_reset_mail_requests WHERE user_id=$1",
-            )
-            .bind(user)
-            .fetch_optional(db)
-            .await
-            .unwrap();
-            if let Some(id) = id {
-                break id;
+            let pending = accounts
+                .pending_password_reset_mail_intents(100)
+                .await
+                .unwrap();
+            if let Some(intent) = pending.iter().find(|intent| intent.recipient.get() == user) {
+                break intent.event_id.get();
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
@@ -194,15 +217,14 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
         tor_web::flow_runtime::start_password_reset_handoff(Some(accounts.clone())).unwrap();
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
-            let forwarded: bool = sqlx::query_scalar(
-                "SELECT forwarded_at IS NOT NULL FROM account_password_reset_mail_requests \
-                 WHERE id=$1",
-            )
-            .bind(event_id)
-            .fetch_one(db)
-            .await
-            .unwrap();
-            if forwarded {
+            let forwarded = pg(
+                &url,
+                &format!(
+                    "SELECT forwarded_at IS NOT NULL FROM account_password_reset_mail_requests \
+                     WHERE id={event_id}"
+                ),
+            );
+            if forwarded == "t" {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -212,26 +234,27 @@ async fn a_07_reset_queue_http_generic_ack_and_restart_handoff() {
     .expect("handoff must recover a lost acknowledgement");
     worker.abort();
     let _ = worker.await;
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM mail_outbox WHERE purpose='password_reset' \
-         AND event_id=$1 AND recipient_user_id=$2 AND status='pending'",
-    )
-    .bind(event_id)
-    .bind(user)
-    .fetch_one(db)
-    .await
-    .unwrap();
-    assert_eq!(count, 1);
-    let proofs: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM password_reset_tokens WHERE user_id=$1")
-            .bind(user)
-            .fetch_one(db)
-            .await
-            .unwrap();
-    assert_eq!(proofs, 1);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM mail_outbox WHERE purpose='password_reset' \
+                 AND event_id={event_id} AND recipient_user_id={user} AND status='pending'"
+            ),
+        ),
+        "1"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM password_reset_tokens WHERE user_id={user}"),
+        ),
+        "1"
+    );
     assert!(accounts
         .live_reset_password_hash(&old_proof)
         .await
         .unwrap()
         .is_some());
+    pg(&url, &format!("DELETE FROM users WHERE id={user}"));
 }

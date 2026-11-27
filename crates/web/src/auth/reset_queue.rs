@@ -64,21 +64,29 @@ impl ResetQueue {
     }
 }
 
-async fn handoff_once(accounts: &PgAccounts, queue: &PgMailQueue) -> Result<(), sqlx::Error> {
-    for intent in accounts.pending_password_reset_mail_intents(100).await? {
+async fn handoff_once(accounts: &PgAccounts, queue: &PgMailQueue) -> Result<(), ()> {
+    let pending = accounts
+        .pending_password_reset_mail_intents(100)
+        .await
+        .map_err(|_| ())?;
+    for intent in pending {
         // The worker still must re-resolve the source after claim and
         // immediately before proof issuance. This is only a durable reference.
         if accounts
             .resolve_password_reset_mail_request(intent)
-            .await?
+            .await
+            .map_err(|_| ())?
             .is_none()
         {
             continue;
         }
         // Both Ok(true) and Ok(false) prove the unique reference exists;
         // errors/timeouts do not acknowledge the source.
-        queue.enqueue(intent).await?;
-        accounts.mark_password_reset_mail_enqueued(intent).await?;
+        queue.enqueue(intent).await.map_err(|_| ())?;
+        accounts
+            .mark_password_reset_mail_enqueued(intent)
+            .await
+            .map_err(|_| ())?;
     }
     Ok(())
 }
