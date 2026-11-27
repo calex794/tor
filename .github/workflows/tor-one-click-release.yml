@@ -92,7 +92,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
-          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          opts=(-F /dev/null -i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts" -o ConnectTimeout=5)
           protocol=$(ssh "${opts[@]}" "$destination" '
             set -eu
             marker=/var/lib/tor-release/release-format
@@ -186,7 +186,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
-          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          opts=(-F /dev/null -i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts" -o ConnectTimeout=5)
           inbox="/opt/tor/incoming/$TARGET_SHA"
           ssh "${opts[@]}" "$destination" \
             "test -d /opt/tor/incoming && test -w /opt/tor/incoming && mkdir -p '$inbox' && chmod 0700 '$inbox'" || {
@@ -238,7 +238,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
-          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          opts=(-F /dev/null -i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts" -o ConnectTimeout=5)
           inbox="/opt/tor/incoming/v2/$TARGET_SHA"
           ssh "${opts[@]}" "$destination" "umask 077; test -d /opt/tor/incoming && test -w /opt/tor/incoming && mkdir -p '$inbox' && test ! -L '$inbox' && chmod 0700 '$inbox'"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-v2/"* "$destination:$inbox/"
@@ -268,7 +268,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
-          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          opts=(-F /dev/null -i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts" -o ConnectTimeout=5)
           if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
             ssh "${opts[@]}" "$destination" "grep -Fxq '# TOR RELEASE PROTOCOL 2' /usr/local/sbin/tor-one-click-release && test \"\$(cat /var/lib/tor-release/release-format)\" = 2 && sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'" | tee "$RUNNER_TEMP/tor-v2-deploy.log"
             grep -Fxq "TOR_ONE_CLICK_RELEASE_V2_OK $TARGET_SHA" "$RUNNER_TEMP/tor-v2-deploy.log" ||
@@ -294,14 +294,15 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
-          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          opts=(-F /dev/null -i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts" -o ConnectTimeout=5)
           ssh "${opts[@]}" "$destination" \
             "test \"\$(readlink -f /opt/tor/current)\" = '/opt/tor/releases/$TARGET_SHA' &&
              systemctl is-active --quiet tor-web.service &&
-             test \"\$(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz)\" = ok &&
+             test \"\$(curl --disable -fsS --noproxy '*' --max-time 5 http://127.0.0.1:3000/readyz)\" = ok &&
              test \"\$(cat /var/lib/tor-release/pg-activated)\" = PG_ACTIVATED"
           if [[ "$TOR_RELEASE_PROTOCOL" == v2 ]]; then
-            ssh "${opts[@]}" "$destination" "test \"\$(readlink -f /var/lib/tor-edge/current)\" = '/var/lib/tor-edge/releases/$TARGET_SHA'"
+            ssh "${opts[@]}" "$destination" "test \"\$(readlink -f /var/lib/tor-edge/current)\" = '/var/lib/tor-edge/releases/$TARGET_SHA' &&
+             test \"\$(curl --disable -fsS --noproxy '*' --max-time 5 --resolve pandaolate.ru:443:127.0.0.1 https://pandaolate.ru/readyz)\" = ok"
           fi
           echo "TOR_DEPLOYED_OK $TARGET_SHA"
 

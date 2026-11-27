@@ -62,3 +62,33 @@ V2 installs its own private root-owned copy of this module; the signed
 activation shell rechecks ancestry before migrations and before cutover.
 Manual clean activation, admission and bootstrap still require exact current
 main. Offline historical recovery verification has no live main dependency.
+
+## Healthy baseline requirement (DEPLOY-08c)
+
+Legacy helper replacement is not an outage recovery mechanism. Before
+staging, immediately before replacing the v1 wrapper, and again before
+publishing the v2 marker, require the already activated PostgreSQL policy,
+inactive Trace Store, the same root-controlled current release, live Rust
+inode, direct and local HTTPS readiness, and the expected systemd identity.
+This reuses the executor's database-policy guard; it never requires a v2
+signature on the already-running legacy app. If an initial preflight fails,
+the old wrapper is untouched, and the existing v1 emergency recovery route
+remains available. A failure after wrapper replacement remains a fail-closed
+partial adoption; root must inspect and repair the baseline before retrying.
+There is no automatic downgrade or new outage activation command here.
+Actual production v2 emergency recovery is still pending.
+
+## DEPLOY-08g — transport acceptance parity
+
+All five actual workflow SSH/SCP connection groups use the same exclusive
+host-key source as the accepted loopback fixture: -F /dev/null,
+GlobalKnownHostsFile=/dev/null, the explicitly pinned UserKnownHostsFile,
+StrictHostKeyChecking=yes, BatchMode=yes, IdentitiesOnly=yes and a bounded
+connection timeout. No machine/user SSH configuration or global known-hosts
+file may silently authorize a different server. The final workflow check
+also requires local certificate-verified HTTPS readiness for v2, through
+127.0.0.1 with the actual Pandaolate TLS name, in addition to the direct HTTP,
+PG_ACTIVATED, systemd and exact app/edge SHA witnesses. Curl configuration
+files and proxy environment cannot substitute for these local probes.
+The disposable SSH lab repeats the unprivileged remote witness and checks
+that a stale SHA is refused. No production deployment or helper upgrade.
