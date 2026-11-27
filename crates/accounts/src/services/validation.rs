@@ -125,7 +125,9 @@ mod tests {
         assert!(!a.display_name.contains("private"));
         assert!(registration_with_optional_name("invalid", None, password).is_err());
         assert!(registration_with_optional_name("private@example.com", None, "short").is_err());
-        assert!(registration_with_optional_name("private@example.com", Some(""), password).is_err());
+        assert!(
+            registration_with_optional_name("private@example.com", Some(""), password).is_err()
+        );
         assert_eq!(
             registration_with_optional_name("private@example.com", Some("Автор"), password)
                 .unwrap()
