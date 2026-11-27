@@ -5,10 +5,13 @@ umask 077
 export LC_ALL=C
 [[ ${TOR_I11_DISPOSABLE_CONTAINER:-} == yes && -f /.dockerenv ]] || exit 2
 [[ $(id -u) != 0 ]] || exit 2
+[[ ${TOR_I11_FINANCE_SHA256:-} =~ ^[0-9a-f]{64}$ ]] || exit 2
+[[ $TOR_I11_FINANCE_SHA256 != "$(printf '%064d' 0)" ]] || exit 2
 export PATH="/usr/lib/postgresql/18/bin:$PATH"
 work=$(mktemp -d /tmp/tor-i11-pitr.XXXXXXXX)
 source_dir="$work/source"
 restore_dir="$work/restored"
+app_dir="$work/app-restored"
 mkdir -p "$work"/{repo,log,lock,spool,source-socket,restore-socket,bad-socket}
 time_root="$work/time-recovery"
 time_dir="$time_root/pgdata"
@@ -39,7 +42,7 @@ CONFIG
 cleanup() {
   local status=$?
   trap - EXIT
-  for dir in "$source_dir" "$restore_dir" "$work/bad-target" "$time_dir"; do
+  for dir in "$source_dir" "$restore_dir" "$work/bad-target" "$time_dir" "$app_dir"; do
     if [[ -f "$dir/postmaster.pid" ]]; then
       pg_ctl -D "$dir" -m immediate -w -t 10 stop >/dev/null 2>&1 || status=1
     fi
@@ -65,6 +68,20 @@ for name in ('wrong-key', 'restore', 'bad-restore', 'time-restore'):
             text = re.sub(r'[^\x20-\x7e]', '?', text)[:360]
             print(f'I11_PITR_DIAGNOSTIC {name} {match[1]} {text}')
             break
+# Only bounded first SQL error per synthetic finance phase, without commands,
+# DETAIL or data rows. The host applies its existing client redaction too.
+for name in ('finance-import', 'finance-witness', 'finance-later', 'finance-restored-witness'):
+    path = Path(root) / 'log' / (name + '.log')
+    if not path.is_file():
+        continue
+    for line in path.read_text(errors='replace').splitlines():
+        match = re.search(r'(?:^|: )(ERROR:|FATAL:|PANIC:)\s*(.*)', line)
+        if match:
+            text = match[2].replace(key, '[redacted]').replace(root, '[temp]')
+            if not re.search(r'(?i)(?:cipher|password|secret|token)', text):
+                text = re.sub(r'[^\x20-\x7e]', '?', text)[:300]
+                print(match[1] + ' ' + name + ': ' + text)
+            break
 # Synthetic fixture only. Publish bounded startup diagnostics, never raw logs.
 for name in ('time-start', 'time-pgctl', 'time-readiness', 'operator-replay'):
     path = (Path(root) / 'time-recovery/pglog/pg-paused-replay.log'
@@ -89,13 +106,14 @@ PY
 # code nor an open socket proves that WAL replay has finished and SQL works.
 wait_for_primary() {
   local deadline=$((SECONDS + ${1:-30})) state
+  local data_dir=${2:-$restore_dir} sql_function=${3:-restored_sql}
   while ((SECONDS < deadline)); do
-    if ! pg_ctl -D "$restore_dir" status >/dev/null 2>&1; then
+    if ! pg_ctl -D "$data_dir" status >/dev/null 2>&1; then
       echo 'FAIL: restored PostgreSQL exited before primary readiness' >&2
       return 1
     fi
     if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' \
-        restored_sql -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
+        "$sql_function" -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
       case "$state" in
         f) return 0 ;;
         t) ;; # A readable standby is still not the requested promoted database.
@@ -125,7 +143,14 @@ trap cleanup EXIT
 trap 'report_failure "$LINENO"' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
-initdb -D "$source_dir" -U postgres --auth=trust >"$work/log/initdb.log"
+# Bounded allowlisted synthetic dump, PACK bytes and session tokens are
+# runtime-only. No fixture data is copied to the image or a host mount.
+head -c 70254593 >"$work/runtime.tar"
+python3 /opt/tor-i11-tools/i11_pitr_http_fixture.py "$work"
+rm -- "$work/runtime.tar"
+# LC_ALL=C controls test output, not the database encoding. Real TOR
+# migrations require Unicode normalization, so never inherit SQL_ASCII.
+initdb -D "$source_dir" -U postgres --auth=trust --locale=C --encoding=UTF8 >"$work/log/initdb.log"
 cat >> "$source_dir/postgresql.conf" <<CONFIG
 listen_addresses = ''
 port = 55432
@@ -147,10 +172,15 @@ backrest stanza-create >"$work/log/stanza.log" 2>&1
 backrest check >"$work/log/check.log" 2>&1
 sql <<'SQL' >/dev/null
 CREATE ROLE i11_reader NOLOGIN;
+CREATE ROLE tor_migrator NOLOGIN;
+CREATE ROLE tor_app NOLOGIN;
+CREATE DATABASE tor_ci OWNER tor_migrator;
 CREATE TABLE public.i11_recovery_markers (id text PRIMARY KEY);
 REVOKE ALL ON TABLE public.i11_recovery_markers FROM PUBLIC;
 INSERT INTO public.i11_recovery_markers VALUES ('base_snapshot');
 SQL
+[[ $(sql -d tor_ci -c "SELECT current_setting('server_encoding')='UTF8' AND normalize(U&'e\\0301', NFC)=U&'\\00E9'") == t ]]
+[[ $(sql -d tor_ci -c "SELECT to_regclass('public.reader_wallet_accounts') IS NULL") == t ]]
 backrest --type=full backup >"$work/log/backup.log" 2>&1
 backrest --output=json info >"$work/info.json"
 label=$(python3 - "$work/info.json" <<'PY'
@@ -169,6 +199,18 @@ sql -c "INSERT INTO public.i11_recovery_markers VALUES ('before_target');" >/dev
 sql -c "SELECT pg_create_restore_point('tor_i11_target');" >/dev/null
 sql -c "INSERT INTO public.i11_recovery_markers VALUES ('after_target');" >/dev/null
 [[ $(sql -c 'SELECT count(*) FROM public.i11_recovery_markers') == 3 ]]
+# RECOVERY-10b: import the actual migrated TOR fixture and real D-08
+# checkout snapshot AFTER the physical base backup AND named target.
+# This is a logical import into the source, not a new checkout execution.
+# The later PITR MUST replay this committed schema/data import from WAL.
+pg_restore --host="$work/source-socket" --port=55432 --username=postgres \
+  --dbname=tor_ci --role=tor_migrator --no-owner --single-transaction --exit-on-error \
+  "$work/fixture.dump" >"$work/log/finance-import.log" 2>&1
+rm -- "$work/fixture.dump"
+source_finance=$(sql -d tor_ci -q -c 'SET ROLE tor_app' \
+  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql 2>"$work/log/finance-witness.log")
+[[ -n "$source_finance" ]]
+[[ $(printf '%s' "$source_finance" | sha256sum | cut -d ' ' -f 1) == "$TOR_I11_FINANCE_SHA256" ]]
 # Choose a real whole-second UTC point strictly between two transactions.
 # These markers occur after the named-target case, so its proof is unchanged.
 sql -c "INSERT INTO public.i11_recovery_markers VALUES ('time_before');" >/dev/null
@@ -178,6 +220,24 @@ timeline=$(sql -c 'SELECT timeline_id FROM pg_control_checkpoint()')
 [[ $timeline == 1 ]]
 sql -c "SELECT pg_sleep_until('$time_target'::timestamptz + interval '1 second')" >/dev/null
 sql -c "INSERT INTO public.i11_recovery_markers VALUES ('time_after');" >/dev/null
+# Commit a separate LATER synthetic wallet adjustment in the real schema.
+# This direct fixture-only SQL is NOT proof of a real funding provider.
+sql -d tor_ci -q <<'SQL' >"$work/log/finance-later.log" 2>&1
+BEGIN;
+SET LOCAL ROLE tor_app;
+WITH changed AS (
+    UPDATE reader_wallet_accounts
+    SET balance_minor=balance_minor+100
+    WHERE user_id=(SELECT id FROM users WHERE email_normalized='d08_buyer_single@example.test')
+      AND balance_minor=750
+    RETURNING user_id,balance_minor
+)
+INSERT INTO reader_wallet_entries(user_id,kind,delta_minor,balance_after_minor,reference)
+SELECT user_id,'verified_funding',100,balance_minor,'ci:recovery10b:after-target'
+FROM changed;
+COMMIT;
+SQL
+[[ $(sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries e JOIN users u ON u.id=e.user_id JOIN reader_wallet_accounts a ON a.user_id=u.id WHERE u.email_normalized='d08_buyer_single@example.test' AND e.reference='ci:recovery10b:after-target' AND e.delta_minor=100 AND e.balance_after_minor=850 AND a.balance_minor=850") == 1 ]]
 [[ $(sql -c 'SELECT count(*) FROM public.i11_recovery_markers') == 5 ]]
 sql -c 'SELECT pg_switch_wal();' >/dev/null
 backrest check >"$work/log/final-archive-check.log" 2>&1
@@ -206,11 +266,13 @@ restored_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/restore-socket" -p 554
 wait_for_primary 30
 [[ $(restored_sql -c 'SELECT pg_is_in_recovery()') == f ]]
 [[ $(restored_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'base_snapshot,before_target' ]]
+[[ $(restored_sql -d tor_ci -c "SELECT to_regclass('public.reader_wallet_accounts') IS NULL") == t ]]
 if restored_sql -c 'SET ROLE i11_reader; SELECT * FROM public.i11_recovery_markers' >"$work/log/acl.log" 2>&1; then
   echo 'FAIL: restored role acquired forbidden table access' >&2
   exit 1
 fi
 grep -q 'permission denied for table i11_recovery_markers' "$work/log/acl.log"
+pg_ctl -D "$restore_dir" -m fast -w -t 30 stop >/dev/null
 # Keep hot standby off, then observe the eventual process exit and exact fatal.
 # pg_ctl may return success in STANDBY before the unreachable target is detected.
 backrest --pg1-path="$work/bad-target" --set="$label" --type=name \
@@ -287,6 +349,15 @@ done
 [[ $(time_sql -c "SELECT current_setting('listen_addresses')='' AND current_setting('archive_mode')='off' AND current_setting('primary_conninfo')=''") == t ]]
 [[ $(time_sql -c "SELECT current_setting('config_file')='$time_root/config/pg-startup/postgresql.conf' AND current_setting('data_directory')='$time_dir' AND current_setting('port')='15435'") == t ]]
 [[ $(time_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
+[[ $(time_sql -d tor_ci -c "SELECT current_setting('server_encoding')='UTF8' AND normalize(U&'e\\0301', NFC)=U&'\\00E9'") == t ]]
+# The same read-only witness runs as the real app role on the recovered
+# TOR database. It requires all original purchase/finance rows and 750,
+# not the later 850 balance; compare exact stable row snapshots as well.
+restored_finance=$(time_sql -d tor_ci -q -c 'SET ROLE tor_app' \
+  -f /opt/tor-i11-tools/i11_finance_restore_facts.sql 2>"$work/log/finance-restored-witness.log")
+[[ -n "$restored_finance" && "$restored_finance" == "$source_finance" ]]
+[[ $(printf '%s' "$restored_finance" | sha256sum | cut -d ' ' -f 1) == "$TOR_I11_FINANCE_SHA256" ]]
+[[ $(time_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]
 [[ $(time_sql -c "SELECT pg_last_xact_replay_timestamp() < '$time_target'::timestamptz") == t ]]
 [[ $(time_sql -c "SELECT pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'") == t ]]
 pg_ctl -D "$time_dir" -m fast -w -t 30 stop >/dev/null
@@ -299,10 +370,34 @@ stage_time_target
 python3 /opt/tor-i11-tools/i11_pitr_run_paused.py "$work" "$label" "$time_target" "$timeline"
 [[ -s "$time_root/evidence/pg-paused-replay-receipt.json" ]]
 [[ ! -e "$time_dir/postmaster.pid" && -f "$time_dir/recovery.signal" ]]
+# RECOVERY-10e-a: a third fresh restore at the same exclusive UTC cutoff.
+# The earlier paused-review copies are not promoted or used for app writes.
+mkdir -p "$work/app-socket"
+pgbackrest --config="$conf" --stanza=tor --pg1-path="$app_dir" \
+  --set="$label" --type=time --target="$time_target" --target-timeline="$timeline" \
+  --target-exclusive --target-action=promote restore >"$work/log/app-restore.log" 2>&1
+pg_ctl -D "$app_dir" -l "$work/log/app-start.log" -w -t 30 \
+  -o "-c listen_addresses=127.0.0.1 -c port=15436 -c unix_socket_directories=$work/app-socket -c archive_mode=off -c hot_standby=off" start >/dev/null
+app_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/app-socket" -p 15436 -U postgres -d postgres "$@"; }
+wait_for_primary 30 "$app_dir" app_sql
+[[ $(app_sql -c 'SELECT pg_is_in_recovery()') == f ]]
+[[ $(app_sql -c "SELECT current_setting('data_directory')='$app_dir' AND current_setting('listen_addresses')='127.0.0.1' AND current_setting('archive_mode')='off'") == t ]]
+[[ $(app_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'after_target,base_snapshot,before_target,time_before' ]]
+[[ $(app_sql -d tor_ci -c "SELECT count(*) FROM reader_wallet_entries WHERE reference='ci:recovery10b:after-target'") == 0 ]]
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+[[ -n "$app_finance" && "$app_finance" == "$source_finance" ]]
+# Only the isolated promoted app copy enables LOGIN. Actual restored grants
+# are retained; source and pause copies stay unchanged.
+app_sql -c 'ALTER ROLE tor_app LOGIN' >/dev/null
+[[ $(app_sql -c "SELECT NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication FROM pg_roles WHERE rolname='tor_app'") == t ]]
+bash /opt/tor-i11-tools/i11_pitr_http.sh "$work"
+app_finance=$(app_sql -d tor_ci -q -c 'SET ROLE tor_app' -f /opt/tor-i11-tools/i11_finance_restore_facts.sql)
+[[ "$app_finance" == "$source_finance" ]]
+pg_ctl -D "$app_dir" -m fast -w -t 30 stop >/dev/null
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
-    'schema_version': 3, 'scope': 'isolated_container_fixture',
+    'schema_version': 7, 'scope': 'isolated_container_fixture',
     'postgres_version': sys.argv[2], 'pgbackrest_version': sys.argv[3],
     'backup_label': sys.argv[4], 'source_removed': True,
     'base_marker_restored': True, 'post_backup_wal_marker_restored': True,
@@ -314,6 +409,13 @@ print(json.dumps({
     'utc_target_no_promotion_verified': True,
     'generated_startup_config_verified_and_used': True,
     'operator_paused_replay_helpers_verified': True,
+    'tor_checkout_finance_replayed_from_wal': True,
+    'original_finance_snapshot_digest_matched': True,
+    'tor_refund_finance_and_revocation_replayed_from_wal': True,
+    'tor_historical_paid_free_layer_rows_replayed_from_wal': True,
+    'post_target_wallet_change_excluded': True,
+    'physical_http_primary_cutoff_verified': True,
+    'physical_free_layer_pack_http_verified': True,
     'drill_elapsed_seconds': round(time.monotonic() - float(sys.argv[1]), 3),
     'production_tested': False, 'offsite_tested': False,
     'application_acl_tested': False, 'rpo_slo_proven': False,

@@ -14,10 +14,13 @@ use axum::{
 };
 use serde::Deserialize;
 use std::time::Duration;
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::{
+    repositories::step_up::StepUpIssueError,
+    services::security::{session_token_digest, verify_password_for_step_up},
+};
 use tor_storage::repositories::admin_s3_profiles::{
-    valid_access_key, valid_bucket, valid_secret_key, AdminS3Error, PgAdminS3Profiles,
-    YANDEX_ENDPOINT, YANDEX_REGION,
+    connection_intent_digest, valid_access_key, valid_bucket, valid_secret_key, AdminS3Error,
+    PgAdminS3Profiles, YANDEX_ENDPOINT, YANDEX_REGION,
 };
 use zeroize::Zeroizing;
 
@@ -28,6 +31,8 @@ struct ConnectionForm {
     bucket: String,
     access_key_id: String,
     secret_access_key: String,
+    #[serde(default)]
+    current_password: String,
 }
 
 fn local_http_origin(origin: &str) -> bool {
@@ -40,7 +45,7 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new().route("/odmen/storage/s3", get(page).post(save))
 }
 
-async fn operator(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
+async fn operator(state: &AuthState, headers: &HeaderMap) -> Result<([u8; 32], i64), StatusCode> {
     let token = state
         .cookies
         .session_token(headers)
@@ -55,7 +60,7 @@ async fn operator(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], St
     if !actor.administrator {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(digest)
+    Ok((digest, actor.actor.user_id.get()))
 }
 
 async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
@@ -101,6 +106,8 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          maxlength=\"128\" required autocomplete=\"new-password\"></label>\
          <label>Secret Access Key <input type=\"password\" name=\"secret_access_key\" \
          maxlength=\"256\" required autocomplete=\"new-password\"></label>\
+         <label>Текущий пароль администратора <input type=\"password\" name=\"current_password\" \
+         maxlength=\"512\" required autocomplete=\"current-password\"></label>\
          <button type=\"submit\">Проверить и сохранить</button></form>\
          <p>Проверка выполняет только безопасный запрос HEAD к бакету. \
          Она не загружает и не удаляет файлы и не доказывает неизменяемость \
@@ -125,9 +132,10 @@ async fn save(
     // No debug/trace/error response may format their contents.
     let access = Zeroizing::new(form.access_key_id);
     let secret = Zeroizing::new(form.secret_access_key);
+    let password = Zeroizing::new(form.current_password);
     let bucket = form.bucket;
     let csrf = form.csrf_token;
-    let digest = match operator(&state, &headers).await {
+    let (digest, actor) = match operator(&state, &headers).await {
         Ok(value) => value,
         Err(status) => return deny(status),
     };
@@ -141,10 +149,49 @@ async fn save(
     if !valid_bucket(&bucket) || !valid_access_key(&access) || !valid_secret_key(&secret) {
         return deny(StatusCode::BAD_REQUEST);
     }
+    if password.is_empty() || password.len() > 512 {
+        return deny(StatusCode::UNAUTHORIZED);
+    }
+    let attempt_key = session_token_digest(&format!("auth:s3-stepup:{actor}"));
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::TOO_MANY_REQUESTS),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let hash = match state.accounts.password_hash_for_user(actor).await {
+        Ok(Some(hash)) => Zeroizing::new(hash),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let verified_password = match state
+        .password_jobs
+        .run(move || verify_password_for_step_up(&password, &hash))
+        .await
+    {
+        Ok(Some(proof)) => proof,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
     // Refuse to use submitted S3 credentials if they cannot be encrypted.
     if !PgAdminS3Profiles::master_key_ready() {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     }
+    let intent = connection_intent_digest(&bucket, &access, &secret);
+    let proof = match state
+        .accounts
+        .issue_administrator_s3_step_up(actor, &digest, &verified_password, &intent)
+        .await
+    {
+        Ok(token) => Zeroizing::new(token),
+        Err(StepUpIssueError::Forbidden) => return deny(StatusCode::FORBIDDEN),
+        Err(StepUpIssueError::StepUpRequired) => return deny(StatusCode::UNAUTHORIZED),
+        Err(StepUpIssueError::InvalidIntent) => return deny(StatusCode::BAD_REQUEST),
+        Err(StepUpIssueError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     // Never inherit GitHub/VPS credentials when testing the *submitted* pair.
     // Use the fixed Yandex endpoint to prevent credential-exfiltrating SSRF.
     let credentials = aws_sdk_s3::config::Credentials::new(
@@ -176,15 +223,19 @@ async fn save(
     }
     let profiles = PgAdminS3Profiles::new(state.accounts.pool().clone());
     match profiles
-        .save_verified(&digest, &bucket, &access, &secret)
+        .save_verified(&digest, &proof, &bucket, &access, &secret)
         .await
     {
-        Ok(()) => private_response(Redirect::to("/odmen/storage/s3"), &[]),
+        Ok(()) => {
+            let _ = state.accounts.clear_auth_attempt(&attempt_key).await;
+            private_response(Redirect::to("/odmen/storage/s3"), &[])
+        }
         Err(AdminS3Error::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AdminS3Error::MasterKeyMissing | AdminS3Error::Unavailable) => {
             deny(StatusCode::SERVICE_UNAVAILABLE)
         }
         Err(AdminS3Error::Forbidden) => deny(StatusCode::FORBIDDEN),
+        Err(AdminS3Error::StepUpRequired) => deny(StatusCode::UNAUTHORIZED),
     }
 }
 

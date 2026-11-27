@@ -81,6 +81,13 @@ sha_v2="$(psql "$TEST_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 \
   exit 1
 }
 
+paid_snapshot() {
+  case "$1" in "$TEST_DATABASE_URL"|"$S334_RESTORED_DATABASE_URL") ;; *) return 2;; esac
+  psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -f tools/i11_s334_paid_recovery_facts.sql
+}
+source_paid_snapshot="$(paid_snapshot "$TEST_DATABASE_URL")"
+[[ -n "$source_paid_snapshot" ]] || { echo 'FAIL: empty S334 purchase witness' >&2; exit 1; }
+
 # Back up both parts: SQLx/Purchases/PG storage registry + immutable ciphertext.
 # KEK remains a third independent local recovery input and is NEVER uploaded.
 docker run --rm --network host \
@@ -176,11 +183,31 @@ if psql "$S334_RESTORED_DATABASE_URL" -X -v ON_ERROR_STOP=1 -q \
   exit 1
 fi
 
+restored_paid_snapshot="$(paid_snapshot "$S334_RESTORED_DATABASE_URL")"
+[[ -n "$restored_paid_snapshot" && "$restored_paid_snapshot" == "$source_paid_snapshot" ]] || {
+  echo 'FAIL: recovered encrypted V1/V2 purchase, wallet or storage receipt differs' >&2
+  exit 1
+}
+echo 'DEPLOY07C_PAID_V1_V2_DB_EXACT_OK'
+
 # Rust must first reject missing S3, then recover the exact V1 ciphertext from
 # the backup bucket, reject missing/wrong KEK, verify D/B/G rights, issue V1.
 cargo test -p tor-web --features s3-paid \
   --test s334_paid_restore_pg_s3 s3_34_verify_restored_paid_v1_and_rejected_keys \
-  -- --ignored --exact --test-threads=1
+  -- --ignored --exact --test-threads=1 --show-output
+
+# The actual HTTP test just revoked both restored purchases. A pre-refund
+# acceptance snapshot must now refuse the restored fixture, but not source.
+if paid_snapshot "$S334_RESTORED_DATABASE_URL" >"$work/revoked-witness.log" 2>&1; then
+  echo 'FAIL: revoked purchases passed pre-refund witness' >&2
+  exit 1
+fi
+grep -Fq 'S334 unexpected pre-refund revocation' "$work/revoked-witness.log"
+[[ "$(paid_snapshot "$TEST_DATABASE_URL")" == "$source_paid_snapshot" ]] || {
+  echo 'FAIL: isolated restore/refund mutated source purchase witness' >&2
+  exit 1
+}
+echo 'DEPLOY07C_PAID_SOURCE_UNCHANGED_OK'
 
 # The browser-compatible decryption must work with the *new* scoped grant
 # issued after recovery, never with a cached pre-disaster bearer URL.

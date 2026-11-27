@@ -249,6 +249,13 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
         &token,
     );
     let (a, b) = tokio::join!(send(app, left_request), send(app, right_request));
+    for reply in [&a, &b] {
+        if reply.status() == StatusCode::OK {
+            assert_eq!(cookie(reply, "tor-dev-session="), session);
+        } else {
+            assert!(!reply.headers().contains_key(header::SET_COOKIE));
+        }
+    }
     let statuses = [a.status(), b.status()];
     assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::OK).count(), 1);
     assert_eq!(
@@ -271,6 +278,7 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
     )
     .await;
     assert_eq!(state.status(), StatusCode::OK);
+    assert!(!state.headers().contains_key(header::SET_COOKIE));
     let body = body_of(state).await;
     assert!(body.contains(r#""revision":3"#));
     assert!(body.contains(r#""char_offset":2"#) || body.contains(r#""char_offset":3"#));

@@ -38,6 +38,13 @@ class ReadinessGuards(unittest.TestCase):
                                 'wait_for_primary 2')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_app_copy_uses_same_guard_but_its_own_sql_and_data_directory(self):
+        definitions = '''pg_ctl() { [[ $2 == "$work/app-restored" ]]; }
+restored_sql() { echo invalid; }
+app_sql() { echo f; }'''
+        result = self.run_shell(definitions, 'wait_for_primary 2 "$work/app-restored" app_sql')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_retries_connection_rejection_and_standby_before_promotion(self):
         definitions = '''pg_ctl() { return 0; }
 restored_sql() {
@@ -97,11 +104,16 @@ pg_ctl() { count=$((count + 1)); ((count < 3)); }'''
         self.assertIn('stayed running', result.stderr)
 
     def test_both_guards_are_invoked_before_success_report(self):
-        self.assertEqual(SCRIPT.count('wait_for_primary 30'), 1)
+        self.assertEqual(SCRIPT.count('wait_for_primary 30\n'), 1)
+        self.assertEqual(SCRIPT.count('wait_for_primary 30 "$app_dir" app_sql'), 1)
         self.assertEqual(SCRIPT.count('wait_for_target_failure 30'), 1)
         self.assertLess(SCRIPT.index('wait_for_primary 30'), SCRIPT.index('string_agg'))
         self.assertLess(SCRIPT.index('wait_for_target_failure 30'), SCRIPT.index("'source_removed': True"))
-        self.assertEqual(SCRIPT.count('-c hot_standby=off'), 2)
+        earlier, app = SCRIPT.split('# RECOVERY-10e-a:', 1)
+        self.assertEqual(earlier.count('-c hot_standby=off'), 2)
+        self.assertEqual(app.count('-c hot_standby=off'), 1)
+        self.assertLess(app.index('wait_for_primary 30 "$app_dir" app_sql'),
+                        app.index('bash /opt/tor-i11-tools/i11_pitr_http.sh'))
 
 
 if __name__ == '__main__':

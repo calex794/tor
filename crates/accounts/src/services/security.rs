@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 
 const SESSION_TOKEN_BYTES: usize = 32;
 
+/// Browser idle lifetime and minimum interval between persistent renewals.
+pub const SESSION_AGE_SECONDS: u32 = 30 * 24 * 60 * 60;
+pub const SESSION_RENEWAL_INTERVAL_SECONDS: u32 = 24 * 60 * 60;
+
 /// Uses the Argon2id default parameters and an OS-generated unique salt.
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
     let salt = SaltString::generate(&mut OsRng);

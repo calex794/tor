@@ -2,7 +2,6 @@
 // FLOW retirement: real reading must not extend enabled legacy return tracking.
 // Explicit historical fixtures test the labelled report separately from live C progress.
 const {chromium} = require('playwright');
-const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,20 +17,11 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
   throw new Error('Returns acceptance requires disposable loopback legacy analytics baseline 191');
 }
 fs.mkdirSync(shots, {recursive:true});
+const {sql,scalar,csrf,privateResponse,chapter,progress,metric} =
+  require('./audience_returns_pg_helpers.cjs')({db,base,boundedSql:false,requireReaderUrl:false});
 const legacy = require('./audience_retirement_fixtures.cjs')({sql,scalar,base});
 const preview = require('./ci_browser_preview.cjs');
 
-function sql(statement) {
-  return execFileSync('psql', ['-X','-A','-t','-q','-v','ON_ERROR_STOP=1',
-    '--dbname',db,'--command',statement], {
-    encoding:'utf8', env:{...process.env, PGOPTIONS:'-c statement_timeout=5000 -c lock_timeout=2000'},
-  }).trim();
-}
-function scalar(statement) {
-  const raw = sql(statement);
-  assert.match(raw, /^\d+$/, 'numeric database evidence');
-  return Number(raw);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка возвращения');
@@ -44,48 +34,6 @@ async function register(page, email) {
 async function retiredConsent(page, enabled) {
   await legacy.retiredConsent(page,enabled);
 }
-async function csrf(page) {
-  const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
-  assert.ok(value,'normal authenticated forms issue the CSRF cookie');
-  return value;
-}
-async function privateResponse(response, status=200) {
-  assert.equal(response.status(),status);
-  const headers = await response.allHeaders();
-  assert.equal(headers['cache-control'],'no-store');
-  assert.match(headers['x-robots-tag'],/noindex/);
-  assert.match(headers['x-robots-tag'],/nofollow/);
-}
-function chapter(book, number) {
-  const chapter = scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-    VALUES(${book},${number},'Return chapter ${number}','public','free',0) RETURNING id`);
-  const version = scalar(`INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-    VALUES(${chapter},1,E'Readable first paragraph.\\n\\nSecond paragraph.') RETURNING id`);
-  sql(`INSERT INTO chapter_publications(chapter_id,version_id) VALUES(${chapter},${version})`);
-  return {book,chapter,version};
-}
-async function progress(page, fixture, offset, expected=200) {
-  assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(),200);
-  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(),200);
-  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady==='1');
-  return page.evaluate(async ({chapter,version,offset,expected,csrf}) => {
-    const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
-      credentials:'same-origin',cache:'no-store',
-    });
-    if (!state.ok) throw new Error('C position lookup rejected: '+state.status);
-    const revision = (await state.json()).revision;
-    const response = await fetch('/api/v1/me/progress/free', {
-      method:'PUT',credentials:'same-origin',
-      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
-      body:JSON.stringify({chapter_id:String(chapter),version_id:String(version),
-        block_id:1,char_offset:offset,expected_revision:revision}),
-    });
-    if (response.status !== expected) {
-      throw new Error(`C progress ${response.status}, expected ${expected}`);
-    }
-    return response.status;
-  },{...fixture,offset,expected,csrf:await csrf(page)});
-}
 function daysFor(user) {
   return scalar(`SELECT count(*) FROM reader_activity_days
     WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=${user})`);
@@ -93,9 +41,6 @@ function daysFor(user) {
 function cohortsFor(user) {
   return scalar(`SELECT count(*) FROM reader_return_subjects
     WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=${user}) AND cohort_day IS NOT NULL`);
-}
-async function metric(locator,key) {
-  return (await locator.locator(`[data-metric='${key}']`).innerText()).trim();
 }
 async function report(page,days=90) {
   await privateResponse(await page.goto(base+'/odmen/audience/returns?days='+days));

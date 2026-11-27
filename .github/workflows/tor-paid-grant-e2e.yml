@@ -51,72 +51,17 @@ jobs:
           node-version: '22'
       - name: Install PostgreSQL client
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
       - name: Prepare disposable tor_ci with separate app/migrator privileges
-        run: |
-          set -euo pipefail
-          psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
-          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
-          CREATE DATABASE tor_ci OWNER tor_migrator;
-          SQL
-          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
-          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
-          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+        run: bash tools/ci_paid_e2e_prepare_pg.sh
       - name: Start checksum-verified upstream MinIO on loopback
-        run: |
-          set -euo pipefail
-          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release" --output "$RUNNER_TEMP/$release"
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
-          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
-          test "$(printf '%s' "$expected" | wc -c)" -eq 64
-          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
-          test "$actual" = "$expected"
-          chmod 700 "$RUNNER_TEMP/$release"
-          mkdir -p "$RUNNER_TEMP/tor-paid-minio"
-          MINIO_API_CORS_ALLOW_ORIGIN=http://127.0.0.1:3098 \
-          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
-            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-paid-minio" \
-              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
-              > "$RUNNER_TEMP/tor-paid-minio.log" 2>&1 &
-          ready=0
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != 1 ]; then
-            tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log"
-            exit 1
-          fi
+        run: bash tools/ci_paid_e2e_start_minio.sh
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
-          npm install --no-save playwright@1.56.1
           # ubuntu-24.04 has the shared libraries required by default headless
           # Chromium. Avoid retrying optional fonts over apt mirrors.
-          npx playwright install --only-shell chromium
           # Fail closed if the real browser cannot launch on this runner.
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         id: foundation
         env:
@@ -124,50 +69,7 @@ jobs:
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
           TOR_PAID_READER_SHOTS: ${{ runner.temp }}/tor-paid-reader-visual
-        run: |
-          set -euo pipefail
-          export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
-          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
-          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH" "$foundation_log"' EXIT
-          python3 tools/check_feature_layout.py
-          cargo fmt -p tor-web -- --check
-          node --check tools/paid_grant_webcrypto_e2e.mjs
-          node --check tools/layer_reader_minio_chromium_e2e.cjs
-          node --check tools/paid_reader_minio_chromium_e2e.cjs
-          node --check tools/s035_contiguous_paid_browser.cjs
-          node --check tools/paid_reader_private_media_browser.cjs
-          node --check tools/drop_06b_pack_chromium.cjs
-          node --check tools/d05_layer_toc_chromium.cjs
-          node --check tools/d05_layer_free_live_chromium.cjs
-          node --check tools/d05_four_live_layer_chromium.cjs
-          node --check tools/d05_four_archived_layer_live_chromium.cjs
-          node tools/drop_06b_pack_chromium.cjs
-          # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
-          # without public /reader links, escaped titles, or full PACK URLs.
-          node tools/d05_layer_toc_chromium.cjs
-          cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg --features s3-free -- --ignored --test-threads=1
-          node tools/layer_reader_minio_chromium_e2e.cjs
-          # Keep the 30s S3 URL checks next to their fixture, never after slow Cargo tests.
-          node tools/paid_grant_webcrypto_e2e.mjs
-          node tools/paid_reader_minio_chromium_e2e.cjs
-          node tools/paid_reader_private_media_browser.cjs
-          cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
-          # free_author_s3_pg includes the DROP-04b/06b PG18+MinIO cases;
-          # do not rerun the same fixed-identity fixtures in this database.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
-          # D-05/#1022: a real old Layer buyer opens immutable FREE V1
-          # from private SINGLE after owner deletion and moderator approval.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free,s3-paid --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
-          # DROP-07a: actual-byte evidence only, on this disposable PG/MinIO.
-          # These checks cannot authorize orphan classification or S3 DELETE.
-          cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-books --test free_inventory_cycles_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output | tee "$foundation_log"
-          cargo test -p tor-storage --features s3 --test free_expected_inventory_s3 -- --ignored --test-threads=1 --show-output
-          bash tools/drop_04d_worker_ci.sh | tee -a "$foundation_log"
-          python3 tools/verify_ci_gate.py record-foundation paid-private-e2e "$foundation_log"
+        run: bash tools/ci_paid_e2e_acceptance.sh
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4

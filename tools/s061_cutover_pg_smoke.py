@@ -281,9 +281,17 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
         s3_env = AWS_ENV
     original_catalog = catalog_snapshot(database)
     require(all(original_catalog.values()), "S061 catalog fixture must populate every check")
+    from s061_session_continuity import seed_sessions, assert_sessions, session_snapshot
+
+    session_witness = seed_sessions(sql, database, "s061-catalog@example.invalid")
+    session_stages = []
 
     def assert_release(port: int, stage: str) -> None:
         assert_http(port, public_id, private_id)
+        assert_sessions(port, session_witness)
+        require(session_snapshot(sql, database, session_witness) == session_witness["snapshot"],
+                "S061 session facts changed during release transition")
+        session_stages.append(stage)
         if chapter is not None:
             assert_chapter(port, chapter)
             status, html = http(port, f"/reader/{paid_chapter}")
@@ -406,6 +414,7 @@ def exercise_releases(runner_temp: Path, binary: Path, previous_binary: Path,
                 "previous_source_sha": os.environ.get("TOR_S061_PREVIOUS_SHA", "") if distinct else "",
                 "populated_catalog_verified": True,
                 "saved_v1_s3_read_stages": saved_s3_stages,
+                "session_continuity_stages": session_stages,
                 "added_migrations": sorted(upgraded.keys() - before.keys()),
                 "no_production_or_tls_staging_claim": True,
                 "events": events,

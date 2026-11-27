@@ -352,7 +352,12 @@ async fn verify_restored_active_cover() {
 
     // The restored app uses a fresh bucket. The source still exists but
     // must not be used as a fallback, and no image may be regenerated.
-    client.create_bucket().bucket(RESTORED).send().await.unwrap();
+    client
+        .create_bucket()
+        .bucket(RESTORED)
+        .send()
+        .await
+        .unwrap();
     let restored = S3CoverStore::new(client.clone(), RESTORED.into()).unwrap();
     let vault = S3CoverStore::new(client.clone(), VAULT.into()).unwrap();
     let app = tor_web::router_with_postgres_reading_covers(
@@ -378,7 +383,10 @@ async fn verify_restored_active_cover() {
     assert!(String::from_utf8_lossy(&page).contains("FND05 recovered cover book"));
     pg(
         RESTORED_DB,
-        format!("UPDATE books SET admin_hold=TRUE WHERE id={}", manifest.book),
+        format!(
+            "UPDATE books SET admin_hold=TRUE WHERE id={}",
+            manifest.book
+        ),
     )
     .await;
     for variant in &manifest.variants {
