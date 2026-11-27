@@ -5,6 +5,7 @@ use crate::paid_delivery::PositiveId;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MailPurpose {
     RegistrationConfirmation,
+    PasswordReset,
     SupportReply,
     ProjectNews,
 }
@@ -13,6 +14,7 @@ impl MailPurpose {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::RegistrationConfirmation => "registration_confirmation",
+            Self::PasswordReset => "password_reset",
             Self::SupportReply => "support_reply",
             Self::ProjectNews => "project_news",
         }
@@ -21,6 +23,7 @@ impl MailPurpose {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "registration_confirmation" => Some(Self::RegistrationConfirmation),
+            "password_reset" => Some(Self::PasswordReset),
             "support_reply" => Some(Self::SupportReply),
             "project_news" => Some(Self::ProjectNews),
             _ => None,
@@ -53,14 +56,31 @@ pub struct RegistrationMailEvidence {
     pub source: SignupMailSource,
 }
 
+/// Server-owned password recovery request identity, never accepted from HTTP.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct PasswordResetMailSource {
+    pub recipient_key: [u8; 32],
+    pub request_ip_key: Option<[u8; 32]>,
+    pub key_binding: [u8; 32],
+}
+
+/// Accounts must resolve a live committed request before returning evidence.
+/// This contains no reset token or plaintext address/IP.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct PasswordResetMailEvidence {
+    pub intent: MailIntent,
+    pub source: PasswordResetMailSource,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn only_three_notification_purposes_are_supported() {
+    fn only_explicit_notification_purposes_are_supported() {
         for purpose in [
             MailPurpose::RegistrationConfirmation,
+            MailPurpose::PasswordReset,
             MailPurpose::SupportReply,
             MailPurpose::ProjectNews,
         ] {

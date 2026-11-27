@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_contracts::{
     auth::UserId,
-    mail::{MailIntent, MailPurpose, RegistrationMailEvidence},
+    mail::{MailIntent, MailPurpose, PasswordResetMailEvidence, RegistrationMailEvidence},
     paid_delivery::PositiveId,
 };
 use tor_mail::{
@@ -39,6 +39,21 @@ fn registration_keys(claim: MailClaim, recipient: u8, ip: Option<u8>, secret: &s
             RegistrationMailEvidence {
                 user_id: claim.intent.recipient,
                 source: captured.signup_source(),
+            },
+        )
+        .unwrap()
+}
+
+fn reset_keys(claim: MailClaim, recipient: u8, ip: Option<u8>) -> QuotaKeys {
+    let signer = QuotaKeySigner::from_hex(&"4f".repeat(32)).unwrap();
+    let address = format!("mail-quota-fixture-{recipient}@example.invalid");
+    signer
+        .keys_for_password_reset(
+            claim.intent,
+            &address,
+            PasswordResetMailEvidence {
+                intent: claim.intent,
+                source: keys(recipient, ip).password_reset_source(),
             },
         )
         .unwrap()
@@ -183,6 +198,8 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
     let registration = claim(&queue, user, 3, RegistrationConfirmation).await;
     let news = claim(&queue, user, 4, ProjectNews).await;
     let support = claim(&queue, user, 5, SupportReply).await;
+    let reset = claim(&queue, user, 6, PasswordReset).await;
+    let other_reset = claim(&queue, user, 7, PasswordReset).await;
 
     clear(&pool).await;
     seed(&pool, 3, RegistrationConfirmation, keys(3, Some(3)), 180).await;
@@ -270,6 +287,94 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
         Reserved
     );
 
+    // Reset and signup have separate recipient/IP windows, but the same
+    // provider-wide budget, pacing, suppression and nonrefundable costs.
+    clear(&pool).await;
+    assert_eq!(
+        quota.reserve(reset, keys(8, Some(8))).await.unwrap(),
+        PasswordResetEvidenceRequired
+    );
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(other_reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        PasswordResetEvidenceRequired
+    );
+    seed(&pool, 3, PasswordReset, keys(8, Some(8)), 180).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(9)))
+            .await
+            .unwrap(),
+        PasswordResetRecipientDaily
+    );
+    clear(&pool).await;
+    seed(&pool, 1, PasswordReset, keys(8, Some(8)), 60).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(9)))
+            .await
+            .unwrap(),
+        PasswordResetRecipientCooldown
+    );
+    clear(&pool).await;
+    seed(&pool, 10, PasswordReset, keys(9, Some(8)), 180).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        PasswordResetIpDaily
+    );
+    clear(&pool).await;
+    seed(&pool, 10, PasswordReset, keys(9, None), 180).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, None))
+            .await
+            .unwrap(),
+        PasswordResetIpDaily
+    );
+    clear(&pool).await;
+    seed(&pool, 200, ProjectNews, keys(7, None), 180).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        GlobalDailyLimit
+    );
+    clear(&pool).await;
+    seed(&pool, 150, ProjectNews, keys(7, None), 180).await;
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        Reserved
+    );
+    assert_eq!(
+        quota
+            .reserve(reset, reset_keys(reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        AlreadyReserved
+    );
+    clear(&pool).await;
+    seed(&pool, 3, RegistrationConfirmation, keys(8, Some(8)), 180).await;
+    assert_eq!(
+        quota
+            .reserve(other_reset, reset_keys(other_reset, 8, Some(8)))
+            .await
+            .unwrap(),
+        Reserved
+    );
+    sqlx::query("DELETE FROM mail_send_reservations WHERE purpose='registration_confirmation'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // Removing the account must not refund the recent provider attempt.
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(user.get())
@@ -289,4 +394,5 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
 mod cost;
 mod postbox_feedback;
 mod reconciliation;
+mod reset_proof;
 mod suppression;

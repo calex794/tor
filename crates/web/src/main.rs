@@ -580,6 +580,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut backgrounds = tor_web::flow_signal_worker::start(pending_security_retention.clone());
     let (app, observations) =
         tor_web::flow_exposure::start_managed(app, pending_security_retention.clone()).await;
+    backgrounds.extend(tor_web::flow_runtime::start_password_reset_handoff(
+        pending_security_retention.clone(),
+    ));
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
     backgrounds.extend(

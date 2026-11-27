@@ -34,7 +34,11 @@ pub(super) struct ConfirmForm {
 pub(super) async fn request_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::reset_request_form(&csrf, state.reset_delivery.is_some(), None),
+        pages::reset_request_form(
+            &csrf,
+            state.reset_queue.is_some() || state.reset_delivery.is_some(),
+            None,
+        ),
         &cookies,
     )
 }
@@ -52,43 +56,54 @@ pub(super) async fn request(
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
-    let Some(delivery) = state.reset_delivery.clone() else {
+    if state.reset_queue.is_none() && state.reset_delivery.is_none() {
         return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-    };
+    }
     let email = match normalize_email(&form.email) {
         Ok(email) => email,
         Err(_) => return private_response(StatusCode::UNPROCESSABLE_ENTITY, &[]),
     };
+    let verified_ip = login_limiter::verified_client_ip(peer.0.ip(), &headers);
     if let Err(status) = login_limiter::limit(&state, "reset-request", &email, &headers, peer).await
     {
         return private_response(status, &[]);
     }
-    let Some(permit) = delivery.reserve() else {
-        return private_response(StatusCode::TOO_MANY_REQUESTS, &[]);
-    };
-    // All account lookup and delivery happen after the identical HTTP response path.
-    // A bounded slot is acquired for known and unknown identities alike.
     let accounts = state.accounts.clone();
-    tokio::spawn(async move {
-        if let Ok(Some(user)) = accounts.find_user(&email).await {
-            let token = generate_session_token();
-            if matches!(
-                accounts
-                    .issue_password_reset(
-                        user.id,
-                        &user.password_hash,
-                        &session_token_digest(&token)
-                    )
-                    .await,
-                Ok(true)
-            ) && !delivery.send(user.email_normalized, token, permit).await
-            {
-                eprintln!("TOR_RESET_DELIVERY_UNAVAILABLE");
+    if let Some(queue) = state.reset_queue.clone() {
+        // Reserve bounded capacity before any account lookup. Both known and
+        // unknown identities follow the same immediate HTTP response path.
+        let Some(permit) = queue.reserve() else {
+            return private_response(StatusCode::TOO_MANY_REQUESTS, &[]);
+        };
+        tokio::spawn(async move {
+            queue.capture(accounts, email, verified_ip, permit).await;
+        });
+    } else if let Some(delivery) = state.reset_delivery.clone() {
+        // Historical loopback fixture only; the new queue never uses sendmail.
+        let Some(permit) = delivery.reserve() else {
+            return private_response(StatusCode::TOO_MANY_REQUESTS, &[]);
+        };
+        tokio::spawn(async move {
+            if let Ok(Some(user)) = accounts.find_user(&email).await {
+                let token = generate_session_token();
+                if matches!(
+                    accounts
+                        .issue_password_reset(
+                            user.id,
+                            &user.password_hash,
+                            &session_token_digest(&token)
+                        )
+                        .await,
+                    Ok(true)
+                ) && !delivery.send(user.email_normalized, token, permit).await
+                {
+                    eprintln!("TOR_RESET_DELIVERY_UNAVAILABLE");
+                }
             }
-        }
-    });
+        });
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::reset_request_form(&csrf, true, Some("Если учётная запись существует, на её адрес будет отправлена ссылка для смены пароля.")), &cookies)
+    private_response(pages::reset_request_form(&csrf, true, Some("Если учётная запись существует и отправка доступна, на её адрес будет отправлена ссылка для смены пароля.")), &cookies)
 }
 
 // Only the reset document enables reviewed same-origin JS; inline JS stays forbidden.
@@ -131,7 +146,7 @@ pub(super) async fn confirm(
     {
         return confirm_response(StatusCode::FORBIDDEN, &[]);
     }
-    if state.reset_delivery.is_none() {
+    if state.reset_queue.is_none() && state.reset_delivery.is_none() {
         return confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
     }
     // Apply the same independent identity/IP limits to known, expired and forged proofs.
