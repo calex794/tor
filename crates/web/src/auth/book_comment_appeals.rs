@@ -1,30 +1,15 @@
 //! S049: author appeal and independent administrator review for hidden Book comments.
-use super::{deny, page, session_user, status, ShareState};
+use super::{
+    appeal_markup::{author_action, AppealForm, AppealTarget, DecisionForm},
+    deny, page, session_user, status, ShareState,
+};
 use axum::{
     extract::{Form, Path, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
 };
-use serde::Deserialize;
 use std::fmt::Write;
-use tor_accounts::services::security::generate_session_token;
 use tor_social::repositories::book_comment_appeals::PgBookCommentAppeals;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct AppealForm {
-    csrf_token: String,
-    command_key: String,
-    reason: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct DecisionForm {
-    csrf_token: String,
-    decision: String,
-    note: String,
-}
 
 fn store(s: &ShareState) -> PgBookCommentAppeals {
     PgBookCommentAppeals::new(s.accounts.pool().clone())
@@ -57,19 +42,13 @@ pub(super) async fn author_page(State(s): State<ShareState>, headers: HeaderMap)
             item.comment_id, item.book_id, item.hide_event_id
         )
         .expect("bounded appeal history markup");
-        if let Some(state) = item.appeal_state {
-            let label = super::appeal_markup::state_label(&state);
-            write!(body, "<p>{label}</p>").expect("static label");
-        } else if item.visibility == "hidden" {
-            body.push_str(&super::appeal_markup::submit_form(
-                super::appeal_markup::AppealTarget::Book,
-                item.hide_event_id,
-                &csrf,
-                &generate_session_token(),
-            ));
-        } else {
-            body.push_str("<p>Комментарий уже не скрыт; апелляция недоступна.</p>");
-        }
+        body.push_str(&author_action(
+            AppealTarget::Book,
+            item.hide_event_id,
+            item.appeal_state.as_deref(),
+            &item.visibility,
+            &csrf,
+        ));
         body.push_str("</article>");
     }
     body.push_str("</div></section>");

@@ -1,31 +1,16 @@
 //! S049: author appeal and independent administrator review of hidden free-edition comments.
 //! Never returns chapter text, selected quotes, or read grants.
-use super::{deny, page, session_user, status, ShareState};
+use super::{
+    appeal_markup::{author_action, AppealForm, AppealTarget, DecisionForm},
+    deny, page, session_user, status, ShareState,
+};
 use axum::{
     extract::{Form, Path, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
 };
-use serde::Deserialize;
 use std::fmt::Write;
-use tor_accounts::services::security::generate_session_token;
 use tor_social::repositories::free_comment_appeals::PgFreeCommentAppeals;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct AppealForm {
-    csrf_token: String,
-    command_key: String,
-    reason: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct DecisionForm {
-    csrf_token: String,
-    decision: String,
-    note: String,
-}
 
 fn store(s: &ShareState) -> PgFreeCommentAppeals {
     PgFreeCommentAppeals::new(s.accounts.pool().clone())
@@ -59,19 +44,13 @@ pub(super) async fn author_page(State(s): State<ShareState>, headers: HeaderMap)
             item.comment_id, item.chapter_id, item.version_id, item.hide_event_id,
         )
         .expect("bounded author free-appeal history");
-        if let Some(state) = item.appeal_state {
-            let label = super::appeal_markup::state_label(&state);
-            write!(body, "<p>{label}</p>").expect("static appeal state");
-        } else if item.visibility == "hidden" {
-            body.push_str(&super::appeal_markup::submit_form(
-                super::appeal_markup::AppealTarget::Free,
-                item.hide_event_id,
-                &csrf,
-                &generate_session_token(),
-            ));
-        } else {
-            body.push_str("<p>Комментарий уже не скрыт.</p>");
-        }
+        body.push_str(&author_action(
+            AppealTarget::Free,
+            item.hide_event_id,
+            item.appeal_state.as_deref(),
+            &item.visibility,
+            &csrf,
+        ));
         body.push_str("</article>");
     }
     body.push_str("</div></section>");
