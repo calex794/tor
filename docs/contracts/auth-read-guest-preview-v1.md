@@ -142,6 +142,11 @@ is verified from the immutable PG body only during preparation, never during
 guest delivery. Exact duplicate preparation is idempotent; inconsistent
 existing rows fail closed. Derivative rows may be removed/rebuilt without
 changing an edition; they add no independent retention or entitlement.
+The D-001 installed foreign-key inventory explicitly classifies the exact
+validated composite FK with ON DELETE CASCADE as derived-guest-prefix.
+The regression checks logical, reader-retained and physical edition counts
+are unchanged by projection preparation. This classification does not grant
+physical deletion authority, change existing pin checks or modify GC.
 Automatic publication/import/schedule and fenced backfill wiring remain a
 separate slice; no read route or activation is introduced by this storage slice.
 

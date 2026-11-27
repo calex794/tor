@@ -63,10 +63,27 @@ async fn auth_read_prefix_fences_old_editions_policy_and_wrong_source() {
         repo.prepare_current(first, "different source").await,
         Err(AuthorError::Conflict)
     );
+    let retention_before: (i64, i64, i64) = sqlx::query_as(
+        "SELECT logical_editions,reader_retained_editions,physical_materializations
+         FROM d001_chapter_logical_counts WHERE chapter_id=$1",
+    )
+    .bind(first.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         repo.prepare_current(first, source).await,
         Ok(GuestPrefixPreparation::Stored)
     );
+    let retention_after: (i64, i64, i64) = sqlx::query_as(
+        "SELECT logical_editions,reader_retained_editions,physical_materializations
+         FROM d001_chapter_logical_counts WHERE chapter_id=$1",
+    )
+    .bind(first.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retention_before, retention_after);
     assert_eq!(
         repo.prepare_current(first, source).await,
         Ok(GuestPrefixPreparation::AlreadyStored)
