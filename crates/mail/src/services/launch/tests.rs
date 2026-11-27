@@ -52,7 +52,8 @@ fn restored_enabled_database_and_new_process_are_stopped() {
     gate.permit_reservation(&current, LaunchScope::Dispatch)
         .unwrap();
     current.reserved_attempts += 1;
-    gate.consume_counter(&current, LaunchScope::Dispatch).unwrap();
+    gate.consume_counter(&current, LaunchScope::Dispatch)
+        .unwrap();
     let restarted = LaunchFence::new();
     assert_eq!(
         restarted.permit_reservation(&current, LaunchScope::Dispatch),
@@ -183,7 +184,8 @@ fn restart_rollover_profile_revision_or_counter_rollback_latches_stop() {
 fn each_send_start_requires_new_committed_counter_and_explicit_stop_works() {
     let (gate, mut current) = armed(LaunchScope::Dispatch);
     current.reserved_attempts += 1;
-    gate.consume_counter(&current, LaunchScope::Dispatch).unwrap();
+    gate.consume_counter(&current, LaunchScope::Dispatch)
+        .unwrap();
     assert_eq!(
         gate.consume_counter(&current, LaunchScope::Dispatch),
         Err(LaunchError::Conflict)
@@ -278,7 +280,10 @@ fn dispatch_grant_is_exact_counter_bound_and_local_stop_wins() {
         current: snapshot.clone(),
     };
     gate.stop().unwrap();
-    assert_eq!(gate.consume_dispatch_start(start), Err(LaunchError::Stopped));
+    assert_eq!(
+        gate.consume_dispatch_start(start),
+        Err(LaunchError::Stopped)
+    );
     let (gate, snapshot) = armed(LaunchScope::OperatorTest(13));
     assert!(matches!(
         gate.authorize_dispatch(&snapshot, claim),

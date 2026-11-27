@@ -85,9 +85,7 @@ impl PgPostboxFeedback {
         let marker = self
             .prepare_inner(grant.claim(), identity_id, Some(token_hash), Some(grant))
             .await?;
-        Ok(marker.map(|marker| {
-            PreparedDispatch::new(grant, marker, Some(*token_hash), started)
-        }))
+        Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, Some(*token_hash), started)))
     }
 
     async fn prepare_inner(

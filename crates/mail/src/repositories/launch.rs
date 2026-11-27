@@ -178,7 +178,9 @@ pub(super) async fn dispatch_matches(
 
 /// Historical standalone admission methods exist for offline acceptance,
 /// not for a currently activated live profile (including operator test).
-pub(super) async fn legacy_allowed(tx: &mut Transaction<'_, Postgres>) -> Result<bool, sqlx::Error> {
+pub(super) async fn legacy_allowed(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT NOT EXISTS(SELECT 1 FROM mail_cost_policy p \
          JOIN mail_launch_activation_audit a ON a.new_revision=p.revision \
