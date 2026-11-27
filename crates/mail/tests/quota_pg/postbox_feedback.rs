@@ -87,21 +87,36 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
 
     for event in [
         complaint("wrong-identity", "foreign", &message, &marker, &address),
-        complaint("wrong-recipient", &identity, &message, &marker, "other@example.invalid"),
+        complaint(
+            "wrong-recipient",
+            &identity,
+            &message,
+            &marker,
+            "other@example.invalid",
+        ),
         complaint("missing-marker", &identity, &message, "", &address),
     ] {
         assert_eq!(
-            restarted.record_verified_event(&event, &signer).await.unwrap(),
+            restarted
+                .record_verified_event(&event, &signer)
+                .await
+                .unwrap(),
             PostboxDecision::Uncorrelated
         );
     }
     let good = complaint("event-1", &identity, &message, &marker, &address);
     assert_eq!(
-        restarted.record_verified_event(&good, &signer).await.unwrap(),
+        restarted
+            .record_verified_event(&good, &signer)
+            .await
+            .unwrap(),
         PostboxDecision::Feedback(FeedbackDecision::Applied)
     );
     assert_eq!(
-        restarted.record_verified_event(&good, &signer).await.unwrap(),
+        restarted
+            .record_verified_event(&good, &signer)
+            .await
+            .unwrap(),
         PostboxDecision::Duplicate
     );
     assert!(feedback
@@ -114,12 +129,18 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
         .unwrap());
     let wrong_message = complaint("event-2", &identity, "conflict", &marker, &address);
     assert_eq!(
-        feedback.record_verified_event(&wrong_message, &signer).await.unwrap(),
+        feedback
+            .record_verified_event(&wrong_message, &signer)
+            .await
+            .unwrap(),
         PostboxDecision::Uncorrelated
     );
     let by_receipt = complaint("event-3", &identity, &message, "", &address);
     assert_eq!(
-        feedback.record_verified_event(&by_receipt, &signer).await.unwrap(),
+        feedback
+            .record_verified_event(&by_receipt, &signer)
+            .await
+            .unwrap(),
         PostboxDecision::Feedback(FeedbackDecision::Unchanged)
     );
     let next = claim(&queue, user, 2, MailPurpose::SupportReply).await;
@@ -139,7 +160,10 @@ async fn mail_01_g2a_late_feedback_correlates_after_quota_pruning_and_restart() 
         .unwrap();
     assert_eq!(feedback.prune_expired().await.unwrap(), 1);
     assert_eq!(
-        feedback.record_verified_event(&good, &signer).await.unwrap(),
+        feedback
+            .record_verified_event(&good, &signer)
+            .await
+            .unwrap(),
         PostboxDecision::Uncorrelated
     );
     sqlx::query("DELETE FROM mail_recipient_suppression WHERE recipient_key=$1")
