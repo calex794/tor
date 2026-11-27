@@ -12,19 +12,29 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::{
+    repositories::step_up::StepUpIssueError,
+    services::security::{session_token_digest, verify_password_for_step_up},
+};
+use tor_mail::domain::postbox_profile::{ProfileIdentity, ProfileSecrets};
 use tor_mail::repositories::cost::{
     admin::{CostAdminError, CostAdminView, LimitChange, MonthReconciliation},
     PgMailCost,
 };
 
+use zeroize::Zeroizing;
+
+mod profile;
 mod view;
+use profile::{ProbeForm, ProfileForm};
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/odmen/system-mail", get(page).post(save))
         .route("/odmen/system-mail/stop", post(stop))
         .route("/odmen/system-mail/reconcile", post(reconcile))
+        .route("/odmen/system-mail/profile", post(save_profile))
+        .route("/odmen/system-mail/probe", post(probe_profile))
 }
 
 #[derive(Deserialize)]
@@ -132,12 +142,23 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(value) => value,
         Err(error) => return deny(status(error)),
     };
+    let saved = match profile::store(&state).admin_view(&digest).await {
+        Ok(value) => value,
+        Err(error) => return deny(profile::status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut body = view::body(&current, &csrf);
+    body.push_str(&profile::body(
+        &saved,
+        &csrf,
+        profile::master_key().is_ok() && profile::secure_origin(&state),
+        current.snapshot.limits.enabled,
+    ));
     let mut response = private_response(
         pages::layout(
             "Системная почта",
             "Локальная оценка бюджета Postbox",
-            &view::body(&current, &csrf),
+            &body,
         ),
         &cookies,
     );
@@ -225,4 +246,164 @@ async fn reconcile(
         Ok(()) => private_response(Redirect::to("/odmen/system-mail"), &[]),
         Err(error) => deny(status(error)),
     }
+}
+
+async fn save_profile(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<ProfileForm>,
+) -> Response {
+    let password = Zeroizing::new(form.current_password);
+    let secrets = ProfileSecrets::new(form.access, form.secret);
+    let digest = match operator(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    if !valid_csrf(&state, &headers, &form.csrf_token) || !profile::secure_origin(&state) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Ok(secrets) = secrets else {
+        return deny(StatusCode::BAD_REQUEST);
+    };
+    let Ok(identity) = ProfileIdentity::new(form.identity_id, form.sender) else {
+        return deny(StatusCode::BAD_REQUEST);
+    };
+    let Some(next_revision) = form.revision.checked_add(1).filter(|value| *value > 1) else {
+        return deny(StatusCode::BAD_REQUEST);
+    };
+    let master = match profile::master_key() {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    let actor = match state.accounts.session_actor(&digest).await {
+        Ok(Some(value)) if value.administrator => value.actor.user_id.get(),
+        Ok(_) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if password.is_empty() || password.len() > 512 {
+        return deny(StatusCode::UNAUTHORIZED);
+    }
+    let attempt_key = session_token_digest(&format!("auth:postbox-stepup:{actor}"));
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::TOO_MANY_REQUESTS),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let hash = match state.accounts.password_hash_for_user(actor).await {
+        Ok(Some(hash)) => Zeroizing::new(hash),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let verified = match state
+        .password_jobs
+        .run(move || verify_password_for_step_up(&password, &hash))
+        .await
+    {
+        Ok(Some(value)) => value,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    let candidate = match master.seal(identity, next_revision, &secrets) {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let proof = match state
+        .accounts
+        .issue_administrator_postbox_step_up(
+            actor,
+            &digest,
+            &verified,
+            form.revision,
+            &candidate.intent_digest(),
+        )
+        .await
+    {
+        Ok(token) => Zeroizing::new(token),
+        Err(StepUpIssueError::Forbidden) => return deny(StatusCode::NOT_FOUND),
+        Err(StepUpIssueError::StepUpRequired) => return deny(StatusCode::UNAUTHORIZED),
+        Err(StepUpIssueError::InvalidIntent) => return deny(StatusCode::BAD_REQUEST),
+        Err(StepUpIssueError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    match profile::store(&state)
+        .admin_save_candidate(&digest, &proof, form.revision, &candidate)
+        .await
+    {
+        Ok(()) => {
+            let _ = state.accounts.clear_auth_attempt(&attempt_key).await;
+            private_response(Redirect::to("/odmen/system-mail"), &[])
+        }
+        Err(error) => deny(profile::status(error)),
+    }
+}
+
+async fn probe_profile(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<ProbeForm>,
+) -> Response {
+    let digest = match operator(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    if !valid_csrf(&state, &headers, &form.csrf_token) || !profile::secure_origin(&state) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let master = match profile::master_key() {
+        Ok(value) => value,
+        Err(error) => return deny(error),
+    };
+    let actor = match state.accounts.session_actor(&digest).await {
+        Ok(Some(value)) if value.administrator => value.actor.user_id.get(),
+        Ok(_) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let attempt_key = session_token_digest(&format!("mail:postbox-probe:{actor}"));
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 3, 60)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::TOO_MANY_REQUESTS),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let store = profile::store(&state);
+    let candidate = match store.admin_load_candidate(&digest, form.revision).await {
+        Ok(value) => value,
+        Err(error) => return deny(profile::status(error)),
+    };
+    let secrets = match master.open(&candidate) {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    use tor_mail::services::postbox::{PostboxCredentials, PostboxTransport};
+    let credentials = match PostboxCredentials::new(secrets.access().into(), secrets.secret().into()) {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let transport = match PostboxTransport::new(candidate.identity().sender()) {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if transport.probe(&credentials).await.is_err() {
+        return deny(StatusCode::BAD_GATEWAY);
+    }
+    if let Err(error) = store.admin_confirm_probe(&digest, &candidate).await {
+        return deny(profile::status(error));
+    }
+    private_response(
+        pages::layout(
+            "Проверка Postbox",
+            "SMTP-аутентификация",
+            "<section class=\"section\"><div class=\"container\"><h1>Проверка пройдена</h1>\
+             <p>TLS, аутентификация и NOOP успешны. Письмо не отправлялось. \
+             Это не подтверждает право отправителя на конкретный адрес или доставляемость. \
+             Отправка не включена.</p><p><a href=\"/odmen/system-mail\">Вернуться</a></p></div></section>",
+        ),
+        &[],
+    )
 }

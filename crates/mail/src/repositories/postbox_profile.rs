@@ -146,8 +146,7 @@ impl PgPostboxProfile {
     }
 
     /// Internal administrator probe adapter, not an HTTP response model.
-    /// No network I/O while the DB lock is held. Future probe recording
-    /// must compare this exact revision again after completing network I/O.
+    /// No network I/O while the DB lock is held.
     pub async fn admin_load_candidate(
         &self,
         digest: &[u8; 32],
@@ -178,6 +177,36 @@ impl PgPostboxProfile {
         }
         tx.commit().await?;
         Ok(result)
+    }
+
+    /// Recheck authority, stop policy and the exact sealed candidate after
+    /// network I/O. This is informational, not a persisted activation proof.
+    pub async fn admin_confirm_probe(
+        &self,
+        digest: &[u8; 32],
+        candidate: &SealedProfile,
+    ) -> Result<(), ProfileError> {
+        let mut tx = self.pool.begin().await?;
+        let _actor = operator(&mut tx, digest).await?;
+        stopped(&mut tx).await?;
+        let exact: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM mail_postbox_profile WHERE singleton
+             AND revision=$1 AND identity_id=$2 AND sender=$3
+             AND key_version=$4 AND nonce=$5 AND ciphertext=$6)",
+        )
+        .bind(candidate.revision())
+        .bind(candidate.identity().identity_id())
+        .bind(candidate.identity().sender())
+        .bind(candidate.key_version())
+        .bind(candidate.nonce.as_slice())
+        .bind(&candidate.ciphertext)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exact {
+            return Err(ProfileError::Conflict);
+        }
+        tx.commit().await?;
+        Ok(())
     }
 }
 
