@@ -1,5 +1,5 @@
 //! Obtain one coherent observation under the shared quota lock.
-//! Read-only: never initializes a month, enables sending or writes a receipt.
+//! Snapshot reads never initialize a month or write a receipt; activation is separate.
 use crate::domain::{
     cost::{CostLimits, CostSnapshot, MonthUsage},
     launch::{LaunchBinding, LaunchSnapshot},
@@ -7,9 +7,9 @@ use crate::domain::{
     quota::QuotaDecision,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use tor_contracts::mail::MailPurpose;
 
 mod activation;
-use tor_contracts::mail::MailPurpose;
 
 #[derive(Clone)]
 pub struct PgMailLaunch {
@@ -106,6 +106,14 @@ fn decode(row: sqlx::postgres::PgRow) -> Result<LaunchSnapshot, sqlx::Error> {
         reconciled_attempts,
     };
     let reserved_attempts = usage.reserved_attempts;
+    let receipt_profile: Option<Vec<u8>> = row.try_get("activation_profile_digest")?;
+    let activation_digest = if receipt_profile.as_deref() == Some(binding.profile_digest.as_slice()) {
+        row.try_get::<Option<Vec<u8>>, _>("activation_digest")?
+            .map(|value| value.try_into().map_err(|_| invalid()))
+            .transpose()?
+    } else {
+        None
+    };
     let cost = CostSnapshot {
         limits,
         usage: Some(usage),
@@ -116,10 +124,7 @@ fn decode(row: sqlx::postgres::PgRow) -> Result<LaunchSnapshot, sqlx::Error> {
     Ok(LaunchSnapshot {
         binding,
         policy_revision: row.try_get("policy_revision")?,
-        activation_digest: row
-            .try_get::<Option<Vec<u8>>, _>("activation_digest")?
-            .map(|value| value.try_into().map_err(|_| invalid()))
-            .transpose()?,
+        activation_digest,
         enabled: row.try_get("enabled")?,
         boundary_pause,
         reserved_attempts,
@@ -142,7 +147,8 @@ SELECT (extract(epoch FROM pg_postmaster_start_time())*1000000)::bigint AS postm
          AS boundary_pause,
        a.new_revision AS reconciliation_revision,a.evidence_sha256,a.new_reserved_attempts,
        f.revision AS profile_revision,f.identity_id,f.sender,f.key_version,f.nonce,f.ciphertext,
-       CASE WHEN p.enabled THEN l.intent_digest END AS activation_digest
+       CASE WHEN p.enabled THEN l.intent_digest END AS activation_digest,
+       CASE WHEN p.enabled THEN l.profile_digest END AS activation_profile_digest
 FROM stamp s
 JOIN mail_cost_months m ON m.month_start=date_trunc('month',s.local_at)::date
 CROSS JOIN mail_cost_policy p

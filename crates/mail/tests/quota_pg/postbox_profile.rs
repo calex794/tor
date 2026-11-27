@@ -282,10 +282,7 @@ async fn exercise_launch_fence(
     .execute(pool)
     .await
     .unwrap();
-    launch
-        .admin_activate(digest, &proof, &intent)
-        .await
-        .unwrap();
+    launch.admin_activate(digest, &proof, &intent).await.unwrap();
     assert_eq!(
         launch.admin_activate(digest, &proof, &intent).await,
         Err(ProfileError::Conflict)

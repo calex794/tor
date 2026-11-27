@@ -3,11 +3,7 @@
 pub use crate::domain::launch::LaunchScope;
 use crate::domain::launch::{ActivationIntent, LaunchSnapshot, REVIEW_LIMIT};
 use rand::{rngs::OsRng, RngCore};
-use std::{
-    mem,
-    sync::Mutex,
-    time::Instant,
-};
+use std::{mem, sync::Mutex, time::Instant};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
