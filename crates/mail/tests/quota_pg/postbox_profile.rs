@@ -338,15 +338,7 @@ async fn exercise_launch_fence(
         Err(LaunchError::Stopped)
     ));
     cost.admin_stop(digest).await.unwrap();
-    exercise_dispatch_grant(
-        pool,
-        digest,
-        profile_digest,
-        actor,
-        reconciliation,
-        &month,
-    )
-    .await;
+    exercise_dispatch_grant(pool, digest, profile_digest, actor, reconciliation, &month).await;
     cost.admin_stop(digest).await.unwrap();
     sqlx::query("DELETE FROM mail_cost_months")
         .execute(pool)

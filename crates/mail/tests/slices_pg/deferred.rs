@@ -76,9 +76,9 @@ async fn mail_01_deferred_queue_is_bounded_and_never_replays_charged_claims() {
         };
         assert_eq!(
             restarted
-            .defer_unreserved(claim, DeferReason::GlobalPace)
-            .await
-            .unwrap(),
+                .defer_unreserved(claim, DeferReason::GlobalPace)
+                .await
+                .unwrap(),
             expected
         );
     }
