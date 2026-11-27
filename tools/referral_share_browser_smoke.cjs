@@ -1,4 +1,5 @@
 // F-09/S052: Chromium proof of first-touch referral link, signup and private UI.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,11 +17,11 @@ async function register(context, email, name) {
   const page = await context.newPage();
   const response = await page.goto(base + '/register');
   assert(response && response.status() === 200, 'registration form unavailable');
-  await page.getByLabel('Отображаемое имя').fill(name);
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('TestReferralPassword2026');
   await page.getByRole('button', { name: 'Создать учётную запись' }).click();
   await page.waitForURL(base + '/me');
+  await setFixtureDisplayName(page, name);
   return page;
 }
 
@@ -155,7 +156,6 @@ async function referralStats(page) {
     assert(afterSecond && afterSecond.value === firstCookie.value,
       'second referral overwrote first-touch visitor identity');
 
-    await visitor.getByLabel('Отображаемое имя').fill('Приглашённый');
     await visitor.getByLabel('Электронная почта')
       .fill('referral.invited.' + unique + '@example.invalid');
     await visitor.getByLabel('Пароль (12–128 символов)')
@@ -180,7 +180,6 @@ async function referralStats(page) {
       'later link took credit for another inviter');
     // Complete a second registration originating from ?ref on the book.
     await bookVisitor.goto(base + '/register');
-    await bookVisitor.getByLabel('Отображаемое имя').fill('Читатель книги');
     await bookVisitor.getByLabel('Электронная почта')
       .fill('referral.book.' + unique + '@example.invalid');
     await bookVisitor.getByLabel('Пароль (12–128 символов)')

@@ -24,7 +24,6 @@ const preview = require('./ci_browser_preview.cjs');
 
 async function register(page, email) {
   await page.goto(base+'/register');
-  await page.getByLabel('Отображаемое имя').fill('Проверка возвращения к книге');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('AudienceBookReturnsPassword2026');
   await page.getByRole('button',{name:'Создать учётную запись'}).click();

@@ -65,7 +65,6 @@ async function feed(context,seed){const response=await context.request.get(base+
   const admin=await browser.newContext({viewport:{width:1440,height:900},javaScriptEnabled:false});
   const page=await admin.newPage();
   await page.goto(base+'/register');
-  await page.getByLabel('\u041e\u0442\u043e\u0431\u0440\u0430\u0436\u0430\u0435\u043c\u043e\u0435 \u0438\u043c\u044f').fill('Contextual model operator');
   const email=`contextual-browser-${stamp}@tor-ci.example`;
   await page.getByLabel('\u042d\u043b\u0435\u043a\u0442\u0440\u043e\u043d\u043d\u0430\u044f \u043f\u043e\u0447\u0442\u0430').fill(email);
   await page.getByLabel('\u041f\u0430\u0440\u043e\u043b\u044c (12\u2013128 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432)').fill('ContextualBrowserPassword2026');

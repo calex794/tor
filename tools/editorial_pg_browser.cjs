@@ -82,7 +82,6 @@ async function observedCard(page,card,campaign,before,response,events){
   browser=await chromium.launch({headless:true});
   const admin=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});const page=await admin.newPage();
   await page.goto(base+'/register');
-  await page.getByLabel('Отображаемое имя').fill('Редактор продвижения');
   const email=`editorial-browser-${stamp}@example.invalid`;
   await page.getByLabel('Электронная почта').fill(email);await page.getByLabel('Пароль (12–128 символов)').fill('EditorialBrowserPassword2026');
   await page.getByRole('button',{name:'Создать учётную запись'}).click();await page.waitForURL('**/me');
