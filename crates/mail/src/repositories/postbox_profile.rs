@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use tor_contracts::auth::POSTBOX_PROFILE_STEP_UP_SCOPE;
 
+type CandidateRow = (String, String, i32, Vec<u8>, Vec<u8>);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileError {
     Invalid,
@@ -90,6 +92,7 @@ impl PgPostboxProfile {
         .fetch_one(&mut *tx)
         .await?;
         if revision != expected_revision {
+            tx.rollback().await?;
             return Err(ProfileError::Conflict);
         }
         let consumed = sqlx::query(
@@ -111,6 +114,7 @@ impl PgPostboxProfile {
         .await?
         .rows_affected();
         if consumed != 1 {
+            tx.rollback().await?;
             return Err(ProfileError::StepUpRequired);
         }
         let changed = sqlx::query(
@@ -129,6 +133,7 @@ impl PgPostboxProfile {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(ProfileError::Conflict);
         }
         sqlx::query(
@@ -155,15 +160,17 @@ impl PgPostboxProfile {
         let mut tx = self.pool.begin().await?;
         let _actor = operator(&mut tx, digest).await?;
         stopped(&mut tx).await?;
-        let row: Option<(String, String, i32, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        let row: Option<CandidateRow> = sqlx::query_as(
             "SELECT identity_id,sender,key_version,nonce,ciphertext FROM mail_postbox_profile
              WHERE singleton AND revision=$1 AND ciphertext IS NOT NULL",
         )
         .bind(expected_revision)
         .fetch_optional(&mut *tx)
         .await?;
-        let (identity, sender, key_version, nonce, ciphertext) =
-            row.ok_or(ProfileError::Conflict)?;
+        let Some((identity, sender, key_version, nonce, ciphertext)) = row else {
+            tx.rollback().await?;
+            return Err(ProfileError::Conflict);
+        };
         let result = SealedProfile {
             identity: ProfileIdentity::new(identity, sender)
                 .map_err(|_| ProfileError::Unavailable)?,
@@ -203,6 +210,7 @@ impl PgPostboxProfile {
         .fetch_one(&mut *tx)
         .await?;
         if !exact {
+            tx.rollback().await?;
             return Err(ProfileError::Conflict);
         }
         tx.commit().await?;

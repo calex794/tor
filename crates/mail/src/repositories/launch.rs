@@ -12,6 +12,8 @@ use tor_contracts::mail::MailPurpose;
 
 mod activation;
 
+type DispatchProfileRow = (String, String, i64, i32, Vec<u8>, Vec<u8>);
+
 #[derive(Clone)]
 pub struct PgMailLaunch {
     pool: PgPool,
@@ -44,7 +46,7 @@ impl PgMailLaunch {
         if !dispatch_matches(&mut tx, grant, false).await? {
             return Ok(None);
         }
-        let row: (String, String, i64, i32, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        let row: DispatchProfileRow = sqlx::query_as(
             "SELECT identity_id,sender,revision,key_version,nonce,ciphertext \
              FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
         )

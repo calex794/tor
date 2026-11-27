@@ -69,7 +69,7 @@ impl PgMailQueue {
                  (status='deferred' AND next_attempt_at<=clock_timestamp())) \
                ORDER BY (purpose='project_news'), id LIMIT 1 FOR UPDATE SKIP LOCKED) \
              UPDATE mail_outbox m SET status='leased', generation=m.generation+1, \
-               next_attempt_at=NULL,lease_until=clock_timestamp()+interval '120 seconds' \
+               next_attempt_at=NULL,defer_reason=NULL,lease_until=clock_timestamp()+interval '120 seconds' \
                FROM picked WHERE m.id=picked.id \
              RETURNING m.id,m.generation,m.purpose,m.event_id,m.recipient_user_id",
         )

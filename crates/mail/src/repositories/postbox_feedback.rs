@@ -3,7 +3,7 @@ use super::suppression::record_attempt;
 use crate::domain::{
     launch::{DispatchGrant, PreparedDispatch},
     postbox::{valid_id, PostboxEvent},
-    quota::identity::QuotaKeySigner,
+    quota::{identity::QuotaKeySigner, QuotaKeys},
     suppression::{AttemptRef, FeedbackDecision},
     MailClaim, MailOutcome,
 };
@@ -60,15 +60,16 @@ impl PgPostboxFeedback {
             .await
     }
 
-    /// For non-reset dispatch, the exact grant must own the charged row.
+    /// For non-reset dispatch, require the exact charged recipient key.
     pub async fn prepare_dispatch(
         &self,
         grant: &DispatchGrant,
         identity_id: &str,
+        keys: QuotaKeys,
     ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
         let started = Instant::now();
         let marker = self
-            .prepare_inner(grant.claim(), identity_id, None, Some(grant))
+            .prepare_inner(grant.claim(), identity_id, None, Some((grant, keys)))
             .await?;
         Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, None, started)))
     }
@@ -80,10 +81,11 @@ impl PgPostboxFeedback {
         grant: &DispatchGrant,
         identity_id: &str,
         token_hash: &[u8; 32],
+        keys: QuotaKeys,
     ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
         let started = Instant::now();
         let marker = self
-            .prepare_inner(grant.claim(), identity_id, Some(token_hash), Some(grant))
+            .prepare_inner(grant.claim(), identity_id, Some(token_hash), Some((grant, keys)))
             .await?;
         Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, Some(*token_hash), started)))
     }
@@ -93,7 +95,7 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
         reset_token_hash: Option<&[u8; 32]>,
-        grant: Option<&DispatchGrant>,
+        grant: Option<(&DispatchGrant, QuotaKeys)>,
     ) -> Result<Option<String>, sqlx::Error> {
         if (claim.intent.purpose == MailPurpose::PasswordReset) != reset_token_hash.is_some() {
             return Ok(None);
@@ -129,8 +131,15 @@ impl PgPostboxFeedback {
             tx.rollback().await?;
             return Ok(None);
         }
-        let launch_digest = if let Some(grant) = grant {
-            if !super::launch::dispatch_matches(&mut tx, grant, true).await? {
+        let launch_digest = if let Some((grant, keys)) = grant {
+            if binding.as_slice() != keys.key_binding()
+                || (claim.intent.purpose == MailPurpose::PasswordReset
+                    && !keys.matches_password_reset(claim.intent))
+                || (claim.intent.purpose == MailPurpose::RegistrationConfirmation
+                    && !keys.matches_registration(claim.intent))
+                || !super::launch::dispatch_matches(&mut tx, grant, true).await?
+            {
+                tx.rollback().await?;
                 return Ok(None);
             }
             let exact_identity: bool = sqlx::query_scalar(
@@ -141,14 +150,17 @@ impl PgPostboxFeedback {
             .fetch_one(&mut *tx)
             .await?;
             if !exact_identity {
+                tx.rollback().await?;
                 return Ok(None);
             }
             let Some(digest) = grant.digest() else {
+                tx.rollback().await?;
                 return Ok(None);
             };
             Some(digest.as_slice())
         } else {
             if !super::launch::legacy_allowed(&mut tx).await? {
+                tx.rollback().await?;
                 return Ok(None);
             }
             None
@@ -162,6 +174,7 @@ impl PgPostboxFeedback {
              WHERE m.id=$1 AND m.generation=$2 AND m.purpose=$3 AND m.event_id=$4 \
                AND m.recipient_user_id=$5 AND m.status='leased' \
                AND r.launch_intent_digest IS NOT DISTINCT FROM $9 \
+               AND ($10::bytea IS NULL OR r.recipient_key=$10) \
                AND m.lease_until>clock_timestamp() \
                AND (($9::bytea IS NULL AND m.purpose<>'password_reset') OR \
                     m.lease_until>clock_timestamp()+interval '25 seconds') \
@@ -184,6 +197,7 @@ impl PgPostboxFeedback {
         .bind(&binding)
         .bind(&marker)
         .bind(launch_digest)
+        .bind(grant.as_ref().map(|(_, keys)| keys.recipient().as_slice()))
         .execute(&mut *tx)
         .await?
         .rows_affected();

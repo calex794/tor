@@ -33,6 +33,7 @@ impl PgMailQueue {
         .fetch_optional(&mut *tx)
         .await?;
         if active.is_none() {
+            tx.rollback().await?;
             return Ok(Stale);
         }
         let charged: bool = sqlx::query_scalar(
@@ -43,6 +44,7 @@ impl PgMailQueue {
         .fetch_one(&mut *tx)
         .await?;
         if charged {
+            tx.rollback().await?;
             return Ok(Charged);
         }
         let status: Option<String> = sqlx::query_scalar(
@@ -58,13 +60,15 @@ impl PgMailQueue {
             UPDATE mail_outbox m SET
               status=CASE WHEN d.retry THEN 'deferred' ELSE 'failed' END,
               next_attempt_at=CASE WHEN d.retry THEN d.next_at ELSE NULL END,
+              defer_reason=$5,
               lease_until=NULL,finished_at=CASE WHEN d.retry THEN NULL ELSE d.at END
             FROM decision d WHERE m.id=d.id RETURNING m.status"#,
         )
         .bind(claim.id)
         .bind(claim.generation)
-        .bind(reason.seconds())
+        .bind(reason.seconds(claim.generation))
         .bind(MAX_CLAIMS)
+        .bind(reason.as_str())
         .fetch_optional(&mut *tx)
         .await?;
         let decision = match status.as_deref() {

@@ -39,7 +39,8 @@ fn form(csrf: &str, revision: i64, limit: i64) -> String {
     )
 }
 
-#[tokio::test]
+// The synchronous psql fixture must not block SQLx's rollback driver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires migrated disposable PostgreSQL tor_ci"]
 async fn mail_01_h2_admin_http_limits_stop_and_audit() {
     let url = env::var("TEST_DATABASE_URL").unwrap();
@@ -337,7 +338,8 @@ async fn mail_01_h2_admin_http_limits_stop_and_audit() {
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }
 
-#[tokio::test]
+// The synchronous psql fixture must not block SQLx's rollback driver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires migrated disposable PostgreSQL tor_ci and CI-only master key"]
 async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     use tor_accounts::services::security::hash_password;

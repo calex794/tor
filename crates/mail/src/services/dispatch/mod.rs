@@ -4,7 +4,7 @@ use crate::{
     domain::{
         dispatch::{DeferDecision, DeferReason},
         postbox_profile::ProfileMasterKey,
-        quota::{QuotaDecision, QuotaKeys},
+        quota::QuotaKeys,
         MailClaim, MailOutcome,
     },
     repositories::{
@@ -240,7 +240,7 @@ impl DispatchWorker {
         let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let Some(prepared) = self
             .feedback
-            .prepare_password_reset_dispatch(&grant, identity, &digest)
+            .prepare_password_reset_dispatch(&grant, identity, &digest, current.keys)
             .await
             .map_err(|_| ())?
         else {

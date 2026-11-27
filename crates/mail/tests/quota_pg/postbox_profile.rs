@@ -305,15 +305,22 @@ async fn exercise_launch_fence(
     .await
     .unwrap();
     assert_eq!(receipt, ("operator_test".to_owned(), Some(actor)));
-    let probe_claim = MailClaim {
-        id: 1,
-        generation: 1,
-        intent: MailIntent {
-            purpose: MailPurpose::SupportReply,
-            event_id: PositiveId::new(1).unwrap(),
-            recipient: UserId::new(actor).unwrap(),
-        },
-    };
+    let queue = PgMailQueue::new(pool.clone());
+    let probe_claim = claim(
+        &queue,
+        UserId::new(actor).unwrap(),
+        901,
+        MailPurpose::SupportReply,
+    )
+    .await;
+    assert_eq!(
+        PgMailQuota::new(pool.clone())
+            .reserve(probe_claim, super::keys(19, None))
+            .await
+            .unwrap(),
+        QuotaDecision::DispatchNotAuthorized
+    );
+    assert!(queue.finish(probe_claim, MailOutcome::Cancelled).await.unwrap());
     assert_eq!(
         LaunchFence::new().permit_reservation(&active, scope),
         Err(LaunchError::Stopped)
@@ -456,7 +463,7 @@ async fn exercise_dispatch_grant(
     );
     let reset_hash: [u8; 32] = Sha256::digest(activation).into();
     assert!(feedback
-        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash, keys)
         .await
         .unwrap()
         .is_none());
@@ -486,7 +493,7 @@ async fn exercise_dispatch_grant(
         QuotaDecision::DispatchNotAuthorized
     );
     assert!(feedback
-        .prepare_dispatch(&other_grant, "ci-identity")
+        .prepare_dispatch(&other_grant, "ci-identity", super::keys(19, None))
         .await
         .unwrap()
         .is_none());
@@ -496,19 +503,25 @@ async fn exercise_dispatch_grant(
         .unwrap()
         .is_none());
     assert!(feedback
-        .prepare_password_reset_dispatch(&grant, "wrong-identity", &reset_hash)
+        .prepare_password_reset_dispatch(&grant, "wrong-identity", &reset_hash, keys)
+        .await
+        .unwrap()
+        .is_none());
+    let wrong = super::reset_keys(reset, 250, None);
+    assert!(feedback
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash, wrong)
         .await
         .unwrap()
         .is_none());
     let prepared = feedback
-        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash, keys)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(prepared.claim(), reset);
     assert!(prepared.marker().starts_with("<tor-"));
     assert!(feedback
-        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash)
+        .prepare_password_reset_dispatch(&grant, "ci-identity", &reset_hash, keys)
         .await
         .unwrap()
         .is_none());

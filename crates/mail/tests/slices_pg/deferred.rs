@@ -52,6 +52,14 @@ async fn mail_01_deferred_queue_is_bounded_and_never_replays_charged_claims() {
             .unwrap(),
         DeferDecision::Deferred
     );
+    let (state, reason): (String, String) =
+        sqlx::query_as("SELECT status,defer_reason FROM mail_outbox WHERE id=$1")
+            .bind(first.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "deferred");
+    assert_eq!(reason, "dns_unavailable");
     let restarted = PgMailQueue::new(PgPool::connect(&url).await.unwrap());
     assert!(restarted.claim_next_for(&purposes).await.unwrap().is_none());
     assert!(!queue.enqueue(reset).await.unwrap());
@@ -82,6 +90,24 @@ async fn mail_01_deferred_queue_is_bounded_and_never_replays_charged_claims() {
             expected
         );
     }
+    assert!(queue.claim_next_for(&purposes).await.unwrap().is_none());
+    let expired_intent = intent(MailPurpose::PasswordReset, user + 2);
+    assert!(queue.enqueue(expired_intent).await.unwrap());
+    let expired = queue.claim_next_for(&purposes).await.unwrap().unwrap();
+    sqlx::query(
+        "UPDATE mail_outbox SET created_at=clock_timestamp()-interval '9 minutes 50 seconds' WHERE id=$1",
+    )
+    .bind(expired.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        queue
+            .defer_unreserved(expired, DeferReason::DnsUnavailable)
+            .await
+            .unwrap(),
+        DeferDecision::Exhausted
+    );
     assert!(queue.claim_next_for(&purposes).await.unwrap().is_none());
     let charged_intent = intent(MailPurpose::PasswordReset, user + 1);
     assert!(queue.enqueue(charged_intent).await.unwrap());
