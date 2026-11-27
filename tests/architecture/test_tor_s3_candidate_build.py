@@ -32,7 +32,7 @@ class S3CandidateBuildTests(unittest.TestCase):
 
     def test_exact_free_s3_build_profile_and_evidence_not_binary(self):
         self.assertIn(
-            'cargo build --release -p tor-web --features "s3-free,s3-chapter-import,s3-covers"',
+            'cargo build --release --locked -p tor-web --features "s3-free,s3-chapter-import,s3-covers"',
             WORKFLOW,
         )
         self.assertNotIn('"s3-free,s3-chapter-import,s3-covers,s3-paid"', WORKFLOW)
