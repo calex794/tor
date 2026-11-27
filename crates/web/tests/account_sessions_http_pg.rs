@@ -73,8 +73,13 @@ async fn register(app: &Router, email: &str, display_name: &str) -> String {
     assert_eq!(page.status(), StatusCode::OK);
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
     let body = body_of(page).await;
+    let digest = session_token_digest(email);
+    let handle = format!(
+        "{display_name}_{:016x}",
+        u64::from_be_bytes(digest[..8].try_into().unwrap())
+    );
     let form = format!(
-        "email={email}&display_name={display_name}&password=LongSecurePassword2026&csrf_token={}",
+        "email={email}&handle={handle}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={}",
         csrf(&body)
     );
     let created = send(

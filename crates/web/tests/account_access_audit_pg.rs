@@ -108,7 +108,7 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
     let email = format!("audit-{nonce}@example.invalid");
     let (csrf_cookie, csrf) = fetch_csrf(&app, "/register").await;
     let registration = format!(
-        "email=audit-{nonce}%40example.invalid&display_name=AuditReader&password=LongSecurePassword2026&csrf_token={csrf}"
+        "email=audit-{nonce}%40example.invalid&handle=audit_{nonce}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}"
     );
     let created = send(
         &app,

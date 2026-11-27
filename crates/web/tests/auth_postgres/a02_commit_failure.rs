@@ -92,7 +92,7 @@ async fn a_02_deferred_registration_commit_error_rolls_back_account_and_session(
     let html = body_of(page).await;
     let csrf = csrf_token(&html);
     let form = format!(
-        "email={form_email}&display_name=CommitReader&password=LongSecurePassword2026&csrf_token={csrf}"
+        "email={form_email}&handle=commit_{nonce}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}"
     );
 
     // This isolated trigger is evaluated only at COMMIT. It observes a login
@@ -238,7 +238,7 @@ async fn a_02_committed_registration_lost_http_ack_recovers_without_duplicate() 
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
     let csrf = csrf_token(&body_of(page).await).to_owned();
     let form = format!(
-        "email={}&display_name=AckLostReader&password=LongSecurePassword2026&csrf_token={csrf}",
+        "email={}&handle=ack_{nonce}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}",
         email.replace('@', "%40")
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

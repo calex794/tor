@@ -12,14 +12,19 @@ const nonce=Date.now().toString();
 const email=`a-browser-${nonce}@example.invalid`;
 const shots=process.env.TOR_COVER_BROWSER_SHOTS;
 
-async function register(browser,mail,name) {
+async function register(browser,mail,handle) {
   const context=await browser.newContext({viewport:{width:1440,height:1000}});
   const page=await context.newPage();
   await page.goto(`${base}/register`);
-  await page.locator('[name=display_name]').fill(name);
+  await page.locator('[name=handle]').fill(handle);
   await page.locator('[name=email]').fill(mail);
   await page.locator('[name=password]').fill(password);
+  await page.locator('[name=confirm_password]').fill(password);
   await Promise.all([page.waitForURL(`${base}/me`),page.locator('form[action="/register"] button').click()]);
+  const profile=await (await context.request.get(`${base}/api/v1/me`)).json();
+  assert.equal(profile.handle,handle);
+  assert.equal(profile.display_name,handle);
+  assert.equal(profile.revision,1);
   return {context,page};
 }
 
@@ -62,9 +67,11 @@ async function inspectAccountNavigation(page,width) {
   const browser=await chromium.launch({headless:true});
   try {
     await honeypotBrowser(browser,base,email,password);
-    const alice=await register(browser,email,'A browser reader');
+    const handle=`reader_${nonce}`;
+    const alice=await register(browser,email,handle);
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
-    const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
+    const bobHandle=`reader_b_${nonce}`;
+    const bob=await register(browser,`b-browser-${nonce}@example.invalid`,bobHandle);
     const second=await login(browser,email,password);
     for (const url of ['/me/library','/me/settings','/me/settings/password',
       '/me/security/sessions','/me/books','/me/books/new']) {
@@ -159,17 +166,11 @@ async function inspectAccountNavigation(page,width) {
     const settingsPost=()=>alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/settings`);
     await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Сохранить настройки',exact:true}).click()]);
     await alice.page.waitForLoadState('networkidle');
-    let profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
+    const profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
     assert.equal(profile.display_name,'Updated A reader');assert.equal(profile.adult_enabled,true);
-    assert.equal(profile.revision,1);assert(!('password_hash' in profile));
+    assert.equal(profile.revision,2);assert(!('password_hash' in profile));
     assert(!('email' in profile));assert(!('email_normalized' in profile));
-    assert.equal(profile.handle,null);
-    const handle=`reader_${nonce}`;
-    await alice.page.locator('[name=handle]').fill(handle);
-    await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Закрепить логин',exact:true}).click()]);
-    await alice.page.waitForLoadState('networkidle');
-    profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
-    assert.equal(profile.handle,handle);assert.equal(profile.revision,2);
+    assert.equal(profile.handle,handle);
     assert.equal(await alice.page.locator('[name=handle]').count(),0);
     assert(await alice.page.getByText('@'+handle,{exact:true}).isVisible());
     for(const replacement of ['',`other_${nonce}`]) {
@@ -181,7 +182,7 @@ async function inspectAccountNavigation(page,width) {
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:stale})).status(),409);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:profile.revision}})).status(),403);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{...stale,user_id:'1'}})).status(),422);
-    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,'B browser reader');
+    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,bobHandle);
     await fs.mkdir(shots,{recursive:true});
     for(const width of [1440,390]) {
       await alice.page.setViewportSize({width,height:1000});

@@ -122,7 +122,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("register-password-hint"));
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
-    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
+    let form = "email=tor_ci_account%40example.com&handle=CIReader&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
     assert_eq!(
         send(&app, request("POST", "/register", &form, "", ORIGIN))
             .await
@@ -928,7 +928,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         );
     }
 
-    assert!(private_html.contains("CIReader"));
+    assert!(private_html.contains("cireader"));
     assert!(!private_html.contains("LongSecurePassword2026"));
     assert!(private_html.contains("href=\"/me\""));
 

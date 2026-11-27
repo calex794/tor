@@ -1,6 +1,11 @@
 //! Dedicated real-PostgreSQL account validation checks. Never tests production data.
 use super::*;
 
+fn signup_handle(email: &str) -> String {
+    let digest = tor_accounts::services::security::session_token_digest(email);
+    format!("r{:016x}", u64::from_be_bytes(digest[..8].try_into().unwrap()))
+}
+
 pub(super) async fn assert_anonymous_library_sign_in(app: &Router) {
     let library = send(app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(library.status(), StatusCode::SEE_OTHER);
@@ -59,7 +64,7 @@ pub(super) async fn login_returns_to_public_reader(app: &Router, logged: &Respon
 
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
     let weak_password = format!(
-        "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"
+        "email=tor_ci_account%40example.com&handle=CIReader&password=1234&confirm_password=1234&csrf_token={csrf}"
     );
     let invalid = send(
         app,
@@ -74,9 +79,37 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     assert!(invalid_html.contains("Пароль должен содержать от 12 до 128 символов"));
     assert!(invalid_html.contains("value=\"tor_ci_account@example.com\""));
     assert!(!invalid_html.contains("value=\"1234\""));
+    // Missing or mismatched confirmation must fail even without JavaScript.
+    for (fields, message) in [
+        (
+            "password=LongSecurePassword2026&confirm_password=LongSecurePassword2026",
+            "Укажите логин",
+        ),
+        (
+            "handle=CIReader&password=LongSecurePassword2026",
+            "Пароли не совпадают",
+        ),
+        (
+            "handle=CIReader&password=LongSecurePassword2026&confirm_password=DifferentPassword2026",
+            "Пароли не совпадают",
+        ),
+    ] {
+        let form = format!("email=tor_ci_account%40example.com&{fields}&csrf_token={csrf}");
+        let denied = send(
+            app,
+            request("POST", "/register", &form, csrf_cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
+        let html = body_of(denied).await;
+        assert!(html.contains(message));
+        assert!(!html.contains("LongSecurePassword2026"));
+        assert!(!html.contains("DifferentPassword2026"));
+    }
     // Untrusted input is escaped even when the server rejects a weak password.
     let unsafe_name =
-        format!("email=x%40example.com&display_name=%3Cscript%3E&password=1234&csrf_token={csrf}");
+        format!("email=x%40example.com&handle=%3Cscript%3E&password=1234&confirm_password=1234&csrf_token={csrf}");
     let bad_name = send(
         app,
         request("POST", "/register", &unsafe_name, csrf_cookie, ORIGIN),
@@ -100,7 +133,7 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     );
     assert_eq!(body_of(decoy).await, "");
     let form = format!(
-        "email=tor_ci_honeypot%40example.invalid&display_name=Trap&password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
+        "email=tor_ci_honeypot%40example.invalid&handle=trap&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
     );
     let blocked = send(
         app,
@@ -130,8 +163,9 @@ async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, emai
         ("unknown_invite_2026", "Код приглашения не найден"),
     ] {
         let form = format!(
-            "email={}&display_name=CIReader&password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}",
-            email.replace('@', "%40")
+            "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}",
+            email.replace('@', "%40"),
+            signup_handle(email)
         );
         let response = send(app, request("POST", "/register", &form, cookies, ORIGIN)).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -189,8 +223,9 @@ async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
     // Retrying without the invalid manual code must succeed with the same
     // guest identity; this also proves the failed POST did not create a user.
     let form = format!(
-        "email={}&display_name=CIReader&password=LongSecurePassword2026&csrf_token={csrf}",
+        "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}",
         email.replace('@', "%40"),
+        signup_handle(&email),
     );
     let response = send(&app, request("POST", "/register", &form, &cookies, ORIGIN)).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -212,7 +247,13 @@ async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
 }
 
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
-    let duplicate = send(app, request("POST", "/register", form, csrf_cookie, ORIGIN)).await;
+    let duplicate_email_form = form.replace("handle=CIReader", "handle=other_cireader");
+    assert_ne!(duplicate_email_form, form);
+    let duplicate = send(
+        app,
+        request("POST", "/register", &duplicate_email_form, csrf_cookie, ORIGIN),
+    )
+    .await;
     assert_eq!(
         duplicate.status(),
         StatusCode::CONFLICT,
@@ -226,6 +267,20 @@ pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie
     assert!(error_html.contains("href=\"/register\""));
     assert!(error_html.contains("href=\"/login\""));
     assert!(!error_html.contains("tor_ci_account@example.com"));
+    let duplicate_handle_form = form
+        .replace("email=tor_ci_account%40example.com", "email=tor_ci_other%40example.com")
+        .replace("handle=CIReader", "handle=CIREADER");
+    assert_ne!(duplicate_handle_form, form);
+    let duplicate_handle = send(
+        app,
+        request("POST", "/register", &duplicate_handle_form, csrf_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(duplicate_handle.status(), StatusCode::CONFLICT);
+    assert_eq!(duplicate_handle.headers()[header::CACHE_CONTROL], "no-store");
+    let html = body_of(duplicate_handle).await;
+    assert!(!html.contains("tor_ci_other@example.com"));
+    assert!(!html.contains("LongSecurePassword2026"));
 }
 
 pub(super) async fn rejected_login(app: &Router, bad_login: &str, login_csrf_cookie: &str) {
@@ -305,8 +360,9 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     let register_body = body_of(register_page).await;
     let register_csrf = csrf_token(&register_body);
     let owner_form = format!(
-        "email={}&display_name=Owner&password=LongSecurePassword2026&csrf_token={register_csrf}",
+        "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={register_csrf}",
         owner_email.replace('@', "%40"),
+        signup_handle(&owner_email),
     );
     let registered = send(
         &app,
@@ -547,8 +603,9 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     let guest_csrf = csrf_token(&guest_html);
     let invited_email = format!("f09-invited-{stamp}@example.invalid");
     let invited_form = format!(
-        "email={}&display_name=Invited&password=LongSecurePassword2026&csrf_token={guest_csrf}",
+        "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={guest_csrf}",
         invited_email.replace('@', "%40"),
+        signup_handle(&invited_email),
     );
     let invited = send(
         &app,
@@ -624,8 +681,9 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
         let csrf_cookie = cookie(&register, "tor-dev-csrf=");
         let csrf = csrf_token(&body_of(register).await).to_owned();
         let form = format!(
-            "email={}&display_name=F09Reader&password=LongSecurePassword2026&csrf_token={csrf}",
+            "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}",
             email.replace('@', "%40"),
+            signup_handle(&email),
         );
         let registered = send(
             &app,
@@ -741,8 +799,9 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     let csrf = csrf_token(&body_of(register).await).to_owned();
     let invited_email = format!("f09-book-invited-{stamp}@example.invalid");
     let form = format!(
-        "email={}&display_name=BookGuest&password=LongSecurePassword2026&csrf_token={csrf}",
+        "email={}&handle={}&password=LongSecurePassword2026&confirm_password=LongSecurePassword2026&csrf_token={csrf}",
         invited_email.replace('@', "%40"),
+        signup_handle(&invited_email),
     );
     let new_user = send(
         &app,
