@@ -34,7 +34,6 @@ const literal=s => "'" + String(s).replace(/'/g,"''") + "'";
 const one = (table,col,id) => scalar(`SELECT count(*) FROM ${table} WHERE ${col}=${id}`);
 async function register(page,email) {
   assert.equal((await page.goto(base+'/register')).status(),200);
-  await page.getByLabel('Отображаемое имя').fill('Surprise Chromium QA');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('SurpriseBrowserAcceptancePass2026');
   await page.getByRole('button',{name:'Создать учётную запись'}).click();

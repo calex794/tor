@@ -212,7 +212,6 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
     });
     const email = 'loop2.reader.' + viewport + '.' + Date.now() + '@example.test';
     const password = 'DiscoveryReader2026Pass';
-    await reader.getByLabel('Отображаемое имя').fill('Читатель поиска');
     await reader.getByLabel('Электронная почта').fill(email);
     await reader.getByLabel('Пароль (12–128 символов)').fill(password);
     await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
@@ -271,7 +270,6 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
 async function draftBook(page, viewport) {
   const title = 'Книга поиска F03 ' + viewport;
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill('Автор поиска ' + viewport);
   await page.getByLabel('Электронная почта').fill('f03.browser.' + viewport + '@example.test');
   await page.getByLabel('Пароль (12–128 символов)').fill('SearchBrowserPassword2026');
   await page.getByRole('button', { name: 'Создать учётную запись' }).click();
