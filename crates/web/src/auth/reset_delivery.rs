@@ -1,4 +1,4 @@
-//! I/G adapter for explicitly configured local MTA handoff. Never log reset secrets.
+//! Historical loopback test MTA adapter. Never log reset secrets.
 use std::{
     io::Write,
     path::PathBuf,
@@ -26,7 +26,7 @@ impl ResetDelivery {
         if !command.is_absolute()
             || !command.is_file()
             || !safe_mailbox(&from)
-            || !(origin.starts_with("https://") || origin.starts_with("http://127.0.0.1:"))
+            || !origin.starts_with("http://127.0.0.1:")
             || origin.chars().any(char::is_whitespace)
             || origin.contains(['#', '?', '\r', '\n'])
         {

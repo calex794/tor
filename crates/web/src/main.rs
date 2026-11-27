@@ -580,12 +580,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut backgrounds = tor_web::flow_signal_worker::start(pending_security_retention.clone());
     let (app, observations) =
         tor_web::flow_exposure::start_managed(app, pending_security_retention.clone()).await;
+    let reset_handoff = if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+        tor_web::start_password_reset_handoff(pending_security_retention.clone())
+    } else {
+        None
+    };
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
     backgrounds.extend(
-        [account_retention, contextual_builder, seo_import]
-            .into_iter()
-            .flatten(),
+        [
+            account_retention,
+            contextual_builder,
+            seo_import,
+            reset_handoff,
+        ]
+        .into_iter()
+        .flatten(),
     );
     tor_web::flow_runtime::serve(listener, app, html_collector, observations, backgrounds).await?;
     Ok(())

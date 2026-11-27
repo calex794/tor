@@ -267,3 +267,6 @@ async fn password_rotation_impl() {
     let admitted = login(&app, &email, NEW_PASSWORD).await;
     assert_eq!(admitted.status(), StatusCode::SEE_OTHER);
 }
+
+#[path = "password_change_http_pg/reset_queue.rs"]
+mod reset_queue;

@@ -114,6 +114,7 @@ mod referral_routes;
 mod registration_mail;
 mod reply_read_state;
 mod reset_delivery;
+pub(crate) mod reset_queue;
 mod saved_free_chapters;
 pub(crate) mod security_retention;
 mod session_security;
@@ -152,7 +153,14 @@ fn router_inner(
     authors: AuthorPublishers,
 ) -> Router {
     let (paid_author, free_author) = authors;
-    let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
+    let reset_queue = reset_queue::ResetQueue::from_env();
+    // Selecting the queue, even with invalid configuration, must never
+    // silently fall back to the historical local MTA.
+    let reset_delivery = if reset_queue::queue_selected() {
+        None
+    } else {
+        reset_delivery::ResetDelivery::from_env(&origin)
+    };
     let notification_proof_delivery = notification_proof_delivery::ProofDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
@@ -204,6 +212,7 @@ fn router_inner(
         ),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
+        reset_queue,
         notification_proof_delivery,
         notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
