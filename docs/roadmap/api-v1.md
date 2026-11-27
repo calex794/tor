@@ -1,5 +1,7 @@
 # TOR — HTTP API v1: выбранные маршруты, поля, статусы и контракты
 
+> **Planned AUTH-READ v1 (#1349):** [book-level guest excerpt contract](../contracts/auth-read-guest-preview-v1.md). Default-open existing reader API remains unchanged; restricted guest reader beyond the configured open chapter prefix returns a bounded excerpt instead of any full source or grant, with authenticated full FREE reading at the same chapter URL. New owner settings endpoint is proposed, not mounted.
+
 **Назначение:** исполнителям A–H не придумывать имена маршрутов, сериализацию, ограничения и семантику ошибок. Этот документ — **контракт для новой реализации TOR**, а не утверждение, что маршруты уже доступны. Сохраняемые из `bokarust` HTML URL указаны в [decisions-v1](decisions-v1.md); они вызывают те же службы, что JSON API. Поле `id` в новых JSON API — положительная десятичная строка, время — UTC RFC3339; деньги — целое число копеек.
 
 ## Общие договорённости
