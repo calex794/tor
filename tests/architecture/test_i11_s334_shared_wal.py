@@ -13,6 +13,9 @@ class SharedS334Wal(unittest.TestCase):
         shell = path.read_text()
         self.assertIn("s3_34_seed_paid_v1_and_publish_v2", shell)
         self.assertIn("export RUNNER_TEMP=\"$work\"", shell)
+        self.assertIn('HOME="$work/s334-minio/home"', shell)
+        self.assertIn('server "$work/s334-minio/data"', shell)
+        self.assertIn('rm -rf -- "$work/pack-fixture" "$work/single-fixture" "$work/s334-minio"', shell)
         self.assertLess(shell.index("\ns334_seed_and_archive\n"),
                         shell.index('source_finance="$(finance_snapshot'))
         self.assertLess(shell.index('source_finance="$(finance_snapshot'),

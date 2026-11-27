@@ -123,10 +123,10 @@ s334_seed_and_archive() (
     echo 'REFUSE: S334 source MinIO port already in use' >&2
     exit 1
   fi
-  mkdir -m 700 "$work/s334-minio"
+  mkdir -m 700 "$work/s334-minio" "$work/s334-minio/home" "$work/s334-minio/data"
   release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-  HOME="$work" MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
-    MINIO_BROWSER=off MINIO_UPDATE=off "$work/../$release" server "$work/s334-minio" \
+  HOME="$work/s334-minio/home" MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
+    MINIO_BROWSER=off MINIO_UPDATE=off "$work/../$release" server "$work/s334-minio/data" \
     --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
     >"$work/s334-minio.log" 2>&1 &
   source_pid=$!

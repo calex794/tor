@@ -176,7 +176,7 @@ class FoundationLogTests(unittest.TestCase):
         ]
         self.assertEqual(verify_foundation_log(job, log, SHA), f"{SHA}:{job}")
         with self.assertRaisesRegex(GateError, "WAL recovery"):
-            verify_foundation_log(job, log[:-1], SHA)
+            verify_foundation_log(job, [line for line in log if not line.startswith("I11_PITR_ISOLATED_DRILL_OK ")], SHA)
         paid = "purchased-v1-recovery"
         with self.assertRaisesRegex(GateError, "purchased V1 and KEK"):
             verify_foundation_log(paid, log, SHA)
