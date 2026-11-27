@@ -25,7 +25,7 @@ enum Reply {
     Accept,
     AcceptWithoutId,
     RejectAuthentication,
-    UnexpectedAuthenticationReply,
+    UnexpectedAuthenticationCode,
     TemporaryRecipient,
     PermanentData,
     LostAck,
@@ -96,7 +96,7 @@ async fn loopback(reply: Reply) -> (SocketAddr, JoinHandle<bool>) {
             respond(&mut stream, b"535 5.7.8 Authentication rejected\r\n").await;
             return false;
         }
-        if matches!(reply, Reply::UnexpectedAuthenticationReply) {
+        if matches!(reply, Reply::UnexpectedAuthenticationCode) {
             respond(&mut stream, b"250 Unexpected reply\r\n").await;
             return false;
         }
@@ -272,7 +272,7 @@ async fn certificate_mismatch_and_authentication_failure_never_submit() {
 
 #[tokio::test]
 async fn unexpected_positive_auth_reply_cannot_authorize_submission() {
-    let (address, server) = loopback(Reply::UnexpectedAuthenticationReply).await;
+    let (address, server) = loopback(Reply::UnexpectedAuthenticationCode).await;
     assert!(matches!(
         transport("localhost")
             .connect_at(address, &credentials(), Duration::from_secs(3))
