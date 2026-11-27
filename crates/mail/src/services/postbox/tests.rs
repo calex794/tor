@@ -300,3 +300,52 @@ async fn authenticated_probe_only_uses_noop() {
         .unwrap()
         .unwrap());
 }
+
+#[tokio::test]
+async fn password_reset_message_uses_the_same_authenticated_smtps_transport() {
+    let (address, server) = loopback(Reply::Accept).await;
+    let transport = transport("localhost");
+    let origin = ResetOrigin::new("https://books.example").unwrap();
+    let token = "A".repeat(43);
+    let message = transport
+        .prepare_reset_message(&origin, "reader@example.com", &token, &marker())
+        .unwrap();
+    let session = transport
+        .connect_at(address, &credentials(), Duration::from_secs(3))
+        .await
+        .unwrap();
+    let result = session
+        .submit_with_limit(message, Duration::from_secs(3))
+        .await;
+    assert_eq!(result.terminal_outcome(), MailOutcome::Accepted);
+    assert_eq!(result.accepted_id(), Some("receipt-123"));
+    assert!(timeout(Duration::from_secs(4), server)
+        .await
+        .unwrap()
+        .unwrap());
+}
+
+#[test]
+fn reset_delivery_classification_never_retries_uncertain_or_positive_ack() {
+    assert_eq!(
+        Submission::Uncertain.terminal_outcome(),
+        MailOutcome::Uncertain
+    );
+    assert_eq!(
+        Submission::TemporaryRejected.terminal_outcome(),
+        MailOutcome::Failed
+    );
+    assert_eq!(
+        Submission::PermanentRejected.terminal_outcome(),
+        MailOutcome::Failed
+    );
+    assert_eq!(
+        Submission::InvalidPreparedSender.terminal_outcome(),
+        MailOutcome::Cancelled
+    );
+    let accepted = Submission::Accepted {
+        provider_message_id: None,
+    };
+    assert_eq!(accepted.terminal_outcome(), MailOutcome::Accepted);
+    assert_eq!(accepted.accepted_id(), None);
+}
