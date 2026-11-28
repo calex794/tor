@@ -3,6 +3,24 @@
 use super::{unavailable, PgNotifications};
 use crate::domain::MailError;
 
+/// Shared static predicates for inventory and strictly scoped repair.
+/// The outer SQL aliases are n (notification) and e (source event).
+pub(super) const MARKER_SQL: &str = "(strpos(n.title,'@')>0 OR strpos(n.body,'@')>0
+    OR strpos(n.url,'@')>0 OR strpos(lower(n.url),'%40')>0)";
+pub(super) const CANONICAL_EVENT_SQL: &str = "e.id IS NOT NULL
+    AND e.payload->>'actor_user_id'=n.actor_user_id::text
+    AND e.payload->>'recipient_user_id'=n.recipient_user_id::text
+    AND n.kind=CASE e.event_type
+      WHEN 'social.mail.created' THEN 'mail'
+      WHEN 'social.group_mail.created' THEN 'mail'
+      WHEN 'social.group_creator_transfer.proposed' THEN 'mail'
+      WHEN 'social.friendship.requested' THEN 'friendship'
+      WHEN 'social.friendship.accepted' THEN 'friendship'
+      WHEN 'social.friendship.removed' THEN 'friendship'
+      WHEN 'reader.chapter.released' THEN 'chapter_created'
+      WHEN 'reader.chapter.updated' THEN 'chapter_updated'
+    END";
+
 /// Aggregate counts over one bounded primary-key interval. Markers are
 /// indicators, not proof that a notification contains a private mailbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,42 +56,28 @@ impl PgNotifications {
         if after_id < 0 || through_id < after_id || !(1..=1000).contains(&limit) {
             return Err(MailError::Invalid);
         }
+        let sql = format!(
+            "WITH batch AS MATERIALIZED (
+                SELECT n.id,n.kind,n.recipient_user_id,n.actor_user_id,n.source_event_id,
+                       {MARKER_SQL} AS marked
+                FROM user_notifications n
+                WHERE n.id>$1 AND n.id<=$2
+                ORDER BY n.id LIMIT $3
+             )
+             SELECT max(n.id), count(*),
+                    count(*) FILTER (WHERE n.marked),
+                    count(*) FILTER (WHERE n.marked AND {CANONICAL_EVENT_SQL})
+             FROM batch n
+             LEFT JOIN outbox_events e ON n.marked AND e.id=n.source_event_id",
+        );
         let (last_scanned_id, scanned, marked, actor_event_matched) =
-            sqlx::query_as::<_, (Option<i64>, i64, i64, i64)>(
-                "WITH batch AS MATERIALIZED (
-                    SELECT id,kind,recipient_user_id,actor_user_id,source_event_id,
-                           (strpos(title,'@')>0 OR strpos(body,'@')>0
-                            OR strpos(url,'@')>0 OR strpos(lower(url),'%40')>0) AS marked
-                    FROM user_notifications
-                    WHERE id>$1 AND id<=$2
-                    ORDER BY id LIMIT $3
-                 )
-                 SELECT max(n.id), count(*),
-                        count(*) FILTER (WHERE n.marked),
-                        count(*) FILTER (
-                          WHERE n.marked AND e.id IS NOT NULL
-                            AND e.payload->>'actor_user_id'=n.actor_user_id::text
-                            AND e.payload->>'recipient_user_id'=n.recipient_user_id::text
-                            AND n.kind=CASE e.event_type
-                              WHEN 'social.mail.created' THEN 'mail'
-                              WHEN 'social.group_mail.created' THEN 'mail'
-                              WHEN 'social.group_creator_transfer.proposed' THEN 'mail'
-                              WHEN 'social.friendship.requested' THEN 'friendship'
-                              WHEN 'social.friendship.accepted' THEN 'friendship'
-                              WHEN 'social.friendship.removed' THEN 'friendship'
-                              WHEN 'reader.chapter.released' THEN 'chapter_created'
-                              WHEN 'reader.chapter.updated' THEN 'chapter_updated'
-                            END
-                        )
-                 FROM batch n
-                 LEFT JOIN outbox_events e ON n.marked AND e.id=n.source_event_id",
-            )
-            .bind(after_id)
-            .bind(through_id)
-            .bind(i64::from(limit))
-            .fetch_one(&self.pool)
-            .await
-            .map_err(unavailable)?;
+            sqlx::query_as::<_, (Option<i64>, i64, i64, i64)>(sqlx::AssertSqlSafe(sql))
+                .bind(after_id)
+                .bind(through_id)
+                .bind(i64::from(limit))
+                .fetch_one(&self.pool)
+                .await
+                .map_err(unavailable)?;
         Ok(LegacyNotificationAuditBatch {
             last_scanned_id,
             scanned,
