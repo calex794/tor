@@ -457,12 +457,18 @@ pub(super) async fn login(
             Ok(key) => key,
             Err(status) => return login_admission::rate_error(status, &mut observed),
         };
-    let admission = match login_admission::admit(&state, &identity, submitted_key, audit, &mut observed)
-        .await
+    let admission = match login_admission::admit(
+        &state,
+        &identity,
+        submitted_key,
+        audit,
+        &mut observed,
+    )
+    .await
     {
-            Ok(admission) => admission,
-            Err(response) => return response,
-        };
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
     let login_admission::Admission {
         stored,
         spray,

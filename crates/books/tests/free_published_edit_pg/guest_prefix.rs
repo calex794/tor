@@ -11,13 +11,13 @@ use tor_books::{
 };
 use tor_contracts::guest_prefix::{GuestPrefix, GUEST_PREFIX_ALGORITHM};
 
-async fn pool() -> PgPool {
+pub(super) async fn pool() -> PgPool {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG CI URL");
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     PgPool::connect(&url).await.unwrap()
 }
 
-async fn prepare_book(pool: &PgPool, book: i64) {
+pub(super) async fn prepare_book(pool: &PgPool, book: i64) {
     // Legacy fixtures have NULL age tier (B-09). Set the known public tier
     // explicitly for this isolated fixture; never change production defaults.
     // The SQL rollout fence remains closed.

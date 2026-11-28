@@ -3,8 +3,11 @@
 //! bytes; no storage I/O or full body allocation occurs under the book lock.
 use crate::services::authoring::AuthorError;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use tor_contracts::guest_prefix::{GuestPrefix, GuestPrefixError, GUEST_PREFIX_ALGORITHM};
+
+mod sweep;
+pub use sweep::{GuestPrefixPage, MAX_GUEST_PREFIX_SWEEP_PAGE};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GuestPrefixTarget {
@@ -24,6 +27,28 @@ pub enum GuestPrefixPreparation {
 #[derive(Clone)]
 pub struct PgGuestPrefix {
     pool: PgPool,
+}
+
+async fn lock_prepared_book(
+    tx: &mut Transaction<'_, Postgres>,
+    book_id: i64,
+    revision: i64,
+) -> Result<i32, AuthorError> {
+    sqlx::query_scalar(
+        "SELECT guest_open_through_chapter_no FROM books
+         WHERE id=$1 AND guest_policy_revision=$2
+           AND guest_policy_revision>0 AND visibility='public'
+           AND visibility_status='active' AND access_level='basic'
+           AND NOT admin_hold AND NOT is_deleted
+           AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+         FOR SHARE",
+    )
+    .bind(book_id)
+    .bind(revision)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?
+    .ok_or(AuthorError::Conflict)
 }
 
 impl PgGuestPrefix {
@@ -64,21 +89,7 @@ impl PgGuestPrefix {
             .map_err(|_| AuthorError::Unavailable)?;
         // Existing B lock order: book before chapter/publication. No work
         // is committed for stale settings, held/hidden books or later versions.
-        let cutoff: i32 = sqlx::query_scalar(
-            "SELECT guest_open_through_chapter_no FROM books
-             WHERE id=$1 AND guest_policy_revision=$2
-               AND guest_policy_revision>0 AND visibility='public'
-               AND visibility_status='active' AND access_level='basic'
-               AND NOT admin_hold AND NOT is_deleted
-               AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
-             FOR SHARE",
-        )
-        .bind(target.book_id)
-        .bind(target.policy_revision)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?
-        .ok_or(AuthorError::Conflict)?;
+        let cutoff = lock_prepared_book(&mut tx, target.book_id, target.policy_revision).await?;
         let exact: Option<i64> = sqlx::query_scalar(
             "SELECT v.id FROM chapters c
              JOIN chapter_publications p ON p.chapter_id=c.id
@@ -107,35 +118,24 @@ impl PgGuestPrefix {
             return Err(AuthorError::Conflict);
         }
 
-        let Some(projection) = projection else {
-            // Unsupported literal markup must never reuse a prior derivative.
-            // A conflicting row is an invariant failure, not a public fallback.
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM chapter_version_guest_prefixes
-                 WHERE chapter_id=$1 AND version_id=$2 AND algorithm_version=$3)",
-            )
-            .bind(target.chapter_id)
-            .bind(target.version_id)
-            .bind(GUEST_PREFIX_ALGORITHM)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-            if exists {
-                return Err(AuthorError::Conflict);
-            }
-            tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-            return Ok(GuestPrefixPreparation::NoExcerpt);
+        // Unsupported literal markup is a terminal derivative result, not a
+        // missing row. Persist only its source identity and an empty prefix.
+        // A ready but tiny chapter may also have an empty prefix.
+        let (status, count, prefix) = match &projection {
+            Some(projection) => (
+                "ready",
+                i32::try_from(projection.visible_scalar_count())
+                    .map_err(|_| AuthorError::Invalid)?,
+                projection.maximum_prefix(),
+            ),
+            None => ("unsupported", 0, ""),
         };
-
-        let count =
-            i32::try_from(projection.visible_scalar_count()).map_err(|_| AuthorError::Invalid)?;
-        let prefix = projection.maximum_prefix();
         let prefix_hash: [u8; 32] = Sha256::digest(prefix.as_bytes()).into();
         let result = sqlx::query(
             "INSERT INTO chapter_version_guest_prefixes
                  (chapter_id,version_id,algorithm_version,source_sha256,
-                  visible_scalar_count,prefix_text,prefix_sha256)
-             VALUES($1,$2,$3,$4,$5,$6,$7)
+                  visible_scalar_count,prefix_text,prefix_sha256,projection_status)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT(chapter_id,version_id,algorithm_version) DO NOTHING",
         )
         .bind(target.chapter_id)
@@ -145,6 +145,7 @@ impl PgGuestPrefix {
         .bind(count)
         .bind(prefix)
         .bind(prefix_hash.as_slice())
+        .bind(status)
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
@@ -157,7 +158,7 @@ impl PgGuestPrefix {
                 "SELECT EXISTS(SELECT 1 FROM chapter_version_guest_prefixes
                  WHERE chapter_id=$1 AND version_id=$2 AND algorithm_version=$3
                    AND source_sha256=$4 AND visible_scalar_count=$5
-                   AND prefix_text=$6 AND prefix_sha256=$7)",
+                   AND prefix_text=$6 AND prefix_sha256=$7 AND projection_status=$8)",
             )
             .bind(target.chapter_id)
             .bind(target.version_id)
@@ -166,6 +167,7 @@ impl PgGuestPrefix {
             .bind(count)
             .bind(prefix)
             .bind(prefix_hash.as_slice())
+            .bind(status)
             .fetch_one(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
@@ -175,6 +177,10 @@ impl PgGuestPrefix {
             GuestPrefixPreparation::AlreadyStored
         };
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-        Ok(outcome)
+        if projection.is_none() {
+            Ok(GuestPrefixPreparation::NoExcerpt)
+        } else {
+            Ok(outcome)
+        }
     }
 }
