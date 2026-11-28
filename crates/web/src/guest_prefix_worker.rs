@@ -1,5 +1,5 @@
 //! AUTH-READ: internal one-claim source preparation bridge, not an HTTP API.
-//! Scheduling, lease acknowledgement and retry policy are intentionally separate.
+//! Consumer settlement is separate from source acquisition; no startup loop.
 use std::time::Duration;
 use tor_books::{
     repositories::guest_prefix::{
@@ -7,6 +7,9 @@ use tor_books::{
     },
     services::authoring::AuthorError,
 };
+
+mod consumer;
+pub use consumer::{GuestPrefixConsumer, GuestPrefixWorkerOutcome};
 
 #[cfg(feature = "s3-free")]
 mod remote;

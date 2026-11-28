@@ -145,6 +145,43 @@ impl PgGuestPrefix {
         })
     }
 
+    /// Only a strictly newer book policy revision permanently supersedes
+    /// this exact revision-bound event. Holds, unpublished chapters, missing
+    /// storage and version-pointer changes are not permanent proof.
+    /// The G acknowledgement still requires the live epoch independently.
+    pub async fn claimed_policy_superseded(
+        &self,
+        job: &GuestPrefixJob,
+    ) -> Result<bool, AuthorError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM outbox_events e
+                JOIN books b ON b.id=$6
+                WHERE e.id=$1::uuid AND e.lease_epoch=$2 AND e.payload=$3
+                  AND e.event_type=$4 AND e.required_consumers=ARRAY[$5::text]
+                  AND e.schema_version=1 AND e.aggregate_kind='chapter'
+                  AND e.aggregate_id=$7 AND e.dedupe_key=$8
+                  AND e.lease_until>clock_timestamp()
+                  AND e.delivered_at IS NULL AND e.dead_at IS NULL
+                  AND NOT EXISTS(SELECT 1 FROM event_deliveries d
+                                 WHERE d.event_id=e.id AND d.consumer=$5)
+                  AND b.guest_policy_revision>$9
+             )",
+        )
+        .bind(&job.event_id)
+        .bind(job.epoch)
+        .bind(&job.payload)
+        .bind(GUEST_PREFIX_EVENT)
+        .bind(GUEST_PREFIX_CONSUMER)
+        .bind(job.target.book_id)
+        .bind(job.target.chapter_id)
+        .bind(dedupe_key(job.target))
+        .bind(job.target.policy_revision)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)
+    }
+
     /// Resolve a claim returned by the existing G PgOutbox. This is not
     /// sufficient source authority: the next read must check live B facts.
     pub async fn claimed_job(

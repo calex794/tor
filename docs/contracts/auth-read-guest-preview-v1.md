@@ -198,10 +198,23 @@ cannot substitute different bytes for the immutable edition SHA. No public
 grant, signing, progress capture or storage call from a guest request.
 The PG-only bridge uses the same claim fence without requiring S3.
 None means there is no currently eligible live claim; it is not itself
-an acknowledgement or a permanent obsolete classification. Worker
-dispatch, obsolete-vs-retry handling, automatic scheduling, dead-letter
-recovery and repair of a missing previously delivered derivative remain
-explicit follow-ups.
+an acknowledgement or a permanent obsolete classification.
+
+02c3a introduces a one-attempt G consumer over the existing PgOutbox.
+It claims only GuestPrefixPrepare/guest_prefix_prepare_v1, loads the
+validated event, invokes the legacy or configured verified storage bridge,
+and acknowledges only a committed/idempotent derivative or a proven
+strictly newer book policy revision. A changed publication pointer, hold,
+temporary loss of eligibility, missing source and transient errors remain
+retryable; these do not silently become successful receipts. The existing
+outbox provides exponential retry, bounded attempts, dead-letter and epoch
+checks. Malformed events are dead-lettered without a delivery receipt;
+a lost epoch is reported as stale, not successful. Neither source text
+nor payload is logged by the consumer. Scheduler integration, automatic
+publication hooks, bounded book discovery and repair of dead/delivered
+missing derivatives remain required before activation. In particular,
+a temporary hold can outlast the existing retry budget; a future repair
+operation must make that case recoverable without erasing receipts.
 Unsupported literal markup is persisted as an immutable terminal
 projection_status=unsupported with empty text, zero count and the exact
 source hash; a valid empty/tiny projection is status=ready. Retries only

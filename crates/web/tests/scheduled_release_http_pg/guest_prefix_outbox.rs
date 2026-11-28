@@ -10,21 +10,17 @@ use tor_books::{
         postgres::PgAuthoring,
         PgCatalog,
     },
-    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
+    services::authoring::{save_chapter, AuthorError, SaveChapterRequest, SavedChapter},
 };
 use tor_ingest::repositories::outbox::{OutboxError, PgOutbox};
-use tor_web::guest_prefix_worker::prepare_legacy_job;
+use tor_web::guest_prefix_worker::{
+    prepare_legacy_job, GuestPrefixConsumer, GuestPrefixWorkerOutcome,
+};
 
-#[tokio::test]
-#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
-async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
+async fn fixture() -> (String, PgCatalog, i64, i64) {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG CI");
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:"));
     let catalog = PgCatalog::connect(&url).await.unwrap();
-    let pool = catalog.pool();
-    let author = PgAuthoring::new(pool.clone());
-    let prefix = PgGuestPrefix::new(pool.clone());
-    let outbox = PgOutbox::new(pool);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -50,25 +46,47 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
     )
     .parse()
     .unwrap();
-    let source = "Visible beginning. The private tail belongs only to the full chapter.";
-    let saved = author
+    (url, catalog, owner, book)
+}
+
+async fn publish(
+    author: &PgAuthoring,
+    owner: i64,
+    book: i64,
+    number: i32,
+    key: char,
+    source: &str,
+) -> SavedChapter {
+    author
         .create_published_free_chapter(
             owner,
             &save_chapter(SaveChapterRequest {
                 book_id: book as u64,
                 chapter_id: None,
-                number: 7,
+                number,
                 expected_revision: 0,
                 title: "Guest prefix outbox",
                 body: source,
                 access: "free",
                 price_amount: 0,
-                command_key: &"a".repeat(43),
+                command_key: &key.to_string().repeat(43),
             })
             .unwrap(),
         )
         .await
-        .unwrap();
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
+    let (url, catalog, owner, book) = fixture().await;
+    let pool = catalog.pool();
+    let author = PgAuthoring::new(pool.clone());
+    let prefix = PgGuestPrefix::new(pool.clone());
+    let outbox = PgOutbox::new(pool);
+    let source = "Visible beginning. The private tail belongs only to the full chapter.";
+    let saved = publish(&author, owner, book, 7, 'a', source).await;
     let page = prefix.enqueue_missing_page(book, 1, 0, 64).await.unwrap();
     assert_eq!(page.enqueued, 1);
     assert_eq!(page.next_after_chapter_no, None);
@@ -199,5 +217,155 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
             )
         ),
         "1"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn auth_read_consumer_retries_holds_and_settles_only_proved_outcomes() {
+    let (url, catalog, owner, book) = fixture().await;
+    let author = PgAuthoring::new(catalog.pool().clone());
+    let prefix = PgGuestPrefix::new(catalog.pool().clone());
+    let worker = GuestPrefixConsumer::new(&catalog);
+    let source = "Visible beginning. The private tail belongs only to the full chapter.";
+    let saved = publish(&author, owner, book, 7, 'a', source).await;
+    assert_eq!(
+        prefix
+            .enqueue_missing_page(book, 1, 0, 64)
+            .await
+            .unwrap()
+            .enqueued,
+        1
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::RetryScheduled
+    );
+    let queued = |chapter: i64| {
+        pg(
+            &url,
+            &format!(
+                "SELECT attempts::text || ':' || (delivered_at IS NOT NULL)::text
+                         || ':' || (dead_at IS NOT NULL)::text
+                         || ':' || (lease_until IS NULL)::text
+                 FROM outbox_events WHERE event_type='GuestPrefixPrepare'
+                   AND aggregate_id={chapter} ORDER BY created_at,id LIMIT 1"
+            ),
+        )
+    };
+    assert_eq!(queued(saved.chapter_id), "1:false:false:true");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_version_guest_prefixes WHERE version_id={}",
+                saved.version_id
+            )
+        ),
+        "0"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=FALSE WHERE id={book}"),
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET next_attempt_at=clock_timestamp()
+             WHERE event_type='GuestPrefixPrepare' AND aggregate_id={}",
+            saved.chapter_id
+        ),
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::Prepared(GuestPrefixPreparation::Stored)
+    );
+    assert_eq!(queued(saved.chapter_id), "2:true:false:true");
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::Idle
+    );
+
+    let next = publish(&author, owner, book, 8, 'b', source).await;
+    assert_eq!(
+        prefix
+            .enqueue_missing_page(book, 1, 0, 64)
+            .await
+            .unwrap()
+            .enqueued,
+        1
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET guest_policy_revision=2 WHERE id={book}"),
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::Superseded
+    );
+    assert_eq!(queued(next.chapter_id), "1:true:false:true");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_version_guest_prefixes WHERE version_id={}",
+                next.version_id
+            )
+        ),
+        "0"
+    );
+    assert_eq!(
+        prefix
+            .enqueue_missing_page(book, 2, 0, 64)
+            .await
+            .unwrap()
+            .enqueued,
+        1
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::Prepared(GuestPrefixPreparation::Stored)
+    );
+
+    let invalid = pg(
+        &url,
+        &format!(
+            "INSERT INTO outbox_events(event_type,schema_version,aggregate_kind,
+                                       aggregate_id,dedupe_key,payload,required_consumers)
+             VALUES('GuestPrefixPrepare',1,'chapter',{},'ci:auth-read-invalid:{book}',
+                    jsonb_build_object('bad','payload'),ARRAY['guest_prefix_prepare_v1'])
+             RETURNING id::text",
+            next.chapter_id
+        ),
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::DeadLetter
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT (dead_at IS NOT NULL AND delivered_at IS NULL
+                          AND lease_until IS NULL)::text
+                 FROM outbox_events WHERE id='{invalid}'::uuid"
+            ),
+        ),
+        "true"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM event_deliveries WHERE event_id='{invalid}'::uuid"),
+        ),
+        "0"
+    );
+    assert_eq!(
+        worker.run_one_legacy().await.unwrap(),
+        GuestPrefixWorkerOutcome::Idle
     );
 }
