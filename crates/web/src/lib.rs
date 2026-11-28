@@ -49,6 +49,7 @@ mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
 pub mod mail_dispatch_preflight;
+pub mod mail_dispatch_runtime;
 pub mod package_cover_cleanup;
 mod recommendation_http;
 pub mod recommendation_worker;
@@ -91,6 +92,7 @@ pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+mod site_health;
 mod site_icons;
 mod toc_window_http;
 pub mod yandex_cdn_purge;
@@ -145,22 +147,6 @@ async fn text_issue_script() -> Response {
         include_str!("../assets/newboo-text-issues.js"),
     )
         .into_response()
-}
-async fn health() -> &'static str {
-    "ok"
-}
-async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
-    if let Some(catalog) = state.postgres {
-        if catalog.probe().await.is_err() {
-            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
-        }
-    }
-    if let Some(reader) = state.reader {
-        if reader.probe().await.is_err() {
-            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
-        }
-    }
-    (StatusCode::OK, "ok") // demo mode has neither PG adapter
 }
 async fn public_cards(
     repo: &dyn PublicBookRepository,
@@ -547,8 +533,8 @@ fn make_router_with_paid_checkout(
             "/assets/brand/pandaolate-header-dark.png",
             get(pages::brand_logo_dark),
         )
-        .route("/healthz", get(health))
-        .route("/readyz", get(ready))
+        .route("/healthz", get(site_health::health))
+        .route("/readyz", get(site_health::ready))
         .route("/metrics", get(observability::metrics_endpoint))
         .route("/ops/traces", get(operator_traces::page))
         .route("/ops/overview", get(operator_overview::page));
