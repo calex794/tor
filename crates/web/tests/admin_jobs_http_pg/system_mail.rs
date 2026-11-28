@@ -355,7 +355,7 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
-        PgAccounts::from_pool(pool.clone()),
+        PgAccounts::from_pool(pool),
         false,
         ORIGIN.to_owned(),
     );
@@ -477,7 +477,7 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         ),
         "1"
     );
-    exercise_local_stop(&app, &pool, &session, &csrf).await;
+    exercise_local_stop(&app, &url, &session, &csrf).await;
     pg(&url, "DELETE FROM mail_cost_months");
     pg(
         &url,
@@ -491,7 +491,7 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
 }
 
-async fn exercise_local_stop(app: &Router, pool: &sqlx::PgPool, session: &str, csrf: &str) {
+async fn exercise_local_stop(app: &Router, url: &str, session: &str, csrf: &str) {
     use tor_mail::{
         domain::cost::MonthUsage,
         repositories::{
@@ -502,25 +502,26 @@ async fn exercise_local_stop(app: &Router, pool: &sqlx::PgPool, session: &str, c
     };
 
     let digest = session_token_digest(session);
+    let catalog = PgCatalog::connect(url).await.unwrap();
+    let pool = catalog.pool();
     let cost = PgMailCost::new(pool.clone());
     let current = cost.admin_view(&digest).await.unwrap();
-    let month: String = sqlx::query_scalar(
+    let month = pg(
+        url,
         "SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date::text",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    let known: i64 = sqlx::query_scalar(
+    );
+    let known: i64 = pg(
+        url,
         "SELECT count(*) FROM (
          SELECT outbox_id,generation FROM mail_send_reservations
-         WHERE reserved_at>=($1::date::timestamp AT TIME ZONE 'Europe/Moscow')
+         WHERE reserved_at>=date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+           AT TIME ZONE 'Europe/Moscow'
          UNION SELECT outbox_id,generation FROM mail_feedback_attempts
-         WHERE reserved_at>=($1::date::timestamp AT TIME ZONE 'Europe/Moscow')
+         WHERE reserved_at>=date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+           AT TIME ZONE 'Europe/Moscow'
          ) attempts",
     )
-    .bind(&month)
-    .fetch_one(pool)
-    .await
+    .parse()
     .unwrap();
     let mut usage = current.snapshot.usage.unwrap_or(MonthUsage {
         month_start: month,
