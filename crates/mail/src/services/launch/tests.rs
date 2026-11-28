@@ -474,3 +474,59 @@ fn operator_test_requires_exact_actor_session_and_live_process() {
         Err(LaunchError::Conflict)
     ));
 }
+
+#[test]
+fn operator_test_witness_is_process_bound_fresh_and_single_use() {
+    use crate::domain::launch::{OperatorTestGrant, OperatorTestStart};
+    let (gate, current) = armed(LaunchScope::OperatorTest(7));
+    let grant = gate.authorize_operator_test(&current, 7, &SESSION).unwrap();
+    let mut charged = current.clone();
+    charged.reserved_attempts += 1;
+    let witness = |observed| OperatorTestStart {
+        grant: OperatorTestGrant {
+            actor: grant.actor,
+            session: grant.session,
+            before: grant.before.clone(),
+            started: grant.started,
+        },
+        current: charged.clone(),
+        outbox_id: 1,
+        recipient: "fixture@example.invalid".into(),
+        recipient_key: [6; 32],
+        key_binding: [7; 32],
+        identity: "fixture".into(),
+        marker: format!("<tor-{}@pandaolate.ru>", "a".repeat(64)),
+        observed,
+    };
+    assert!(matches!(
+        LaunchFence::new().consume_operator_test_start(witness(Instant::now())),
+        Err(LaunchError::Stopped)
+    ));
+    assert!(gate
+        .consume_operator_test_start(witness(Instant::now()))
+        .is_ok());
+    assert!(matches!(
+        gate.consume_operator_test_start(witness(Instant::now())),
+        Err(LaunchError::Stopped)
+    ));
+
+    let (gate, current) = armed(LaunchScope::OperatorTest(7));
+    let grant = gate.authorize_operator_test(&current, 7, &SESSION).unwrap();
+    let mut charged = current;
+    charged.reserved_attempts += 1;
+    let stale = OperatorTestStart {
+        grant,
+        current: charged,
+        outbox_id: 2,
+        recipient: "fixture@example.invalid".into(),
+        recipient_key: [6; 32],
+        key_binding: [7; 32],
+        identity: "fixture".into(),
+        marker: format!("<tor-{}@pandaolate.ru>", "b".repeat(64)),
+        observed: Instant::now() - std::time::Duration::from_secs(5),
+    };
+    assert!(matches!(
+        gate.consume_operator_test_start(stale),
+        Err(LaunchError::Conflict)
+    ));
+}

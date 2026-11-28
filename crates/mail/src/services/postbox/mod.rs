@@ -212,6 +212,20 @@ impl PostboxTransport {
         })
     }
 
+    /// Fixed non-transactional diagnostic, no user text, links or reset proof.
+    pub(crate) fn prepare_operator_test(
+        &self,
+        recipient: &str,
+        marker: &str,
+    ) -> Result<PreparedPostboxMessage, PrepareFailure> {
+        self.prepare(
+            recipient,
+            "TOR: test of system mail",
+            "This is a one-time operator test of the TOR system mail transport. No action is required.",
+            marker,
+        )
+    }
+
     /// Connect and authenticate without sending any message. The worker must
     /// check the final DB/source/budget fence again before consuming the
     /// authenticated session in submit().

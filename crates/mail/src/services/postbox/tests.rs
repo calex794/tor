@@ -349,3 +349,29 @@ fn reset_delivery_classification_never_retries_uncertain_or_positive_ack() {
     assert_eq!(accepted.terminal_outcome(), MailOutcome::Accepted);
     assert_eq!(accepted.accepted_id(), None);
 }
+
+#[tokio::test]
+async fn operator_test_fixed_message_uses_single_authenticated_smtps_session() {
+    let (address, server) = loopback(Reply::Accept).await;
+    let transport = transport("localhost");
+    let message = transport
+        .prepare_operator_test("reader@example.com", &marker())
+        .unwrap();
+    let wire = String::from_utf8(message.message.formatted()).unwrap();
+    assert!(wire.contains("Subject: TOR: test of system mail"));
+    assert!(wire.contains(&marker()));
+    assert!(!wire.contains("Bcc:"));
+    let connection = transport
+        .connect_at(address, &credentials(), Duration::from_secs(3))
+        .await
+        .unwrap();
+    let result = connection
+        .submit_with_limit(message, Duration::from_secs(3))
+        .await;
+    assert_eq!(result.terminal_outcome(), MailOutcome::Accepted);
+    assert_eq!(result.accepted_id(), Some("receipt-123"));
+    assert!(timeout(Duration::from_secs(4), server)
+        .await
+        .unwrap()
+        .unwrap());
+}

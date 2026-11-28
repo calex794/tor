@@ -1,6 +1,6 @@
 //! One-shot test admission. A charged reservation is not a send-start witness.
 use super::{LaunchSnapshot, REVIEW_LIMIT};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Non-serializable process grant for one administrator's explicit test.
 /// A database snapshot or arbitrary monthly count cannot recreate it.
@@ -39,4 +39,39 @@ impl OperatorTestGrant {
             && current.within_budget
             && current.activation_digest.is_some()
     }
+}
+
+/// Exact, freshly committed correlation and charged reservation. No public
+/// constructor, clone, serialization or restoration from a database counter.
+pub struct OperatorTestStart {
+    pub(crate) grant: OperatorTestGrant,
+    pub(crate) current: LaunchSnapshot,
+    pub(crate) outbox_id: i64,
+    pub(crate) recipient: String,
+    pub(crate) recipient_key: [u8; 32],
+    pub(crate) key_binding: [u8; 32],
+    pub(crate) identity: String,
+    pub(crate) marker: String,
+    pub(crate) observed: Instant,
+}
+
+impl OperatorTestStart {
+    pub fn recipient(&self) -> &str {
+        &self.recipient
+    }
+
+    pub fn marker(&self) -> &str {
+        &self.marker
+    }
+
+    pub(crate) fn fresh(&self) -> bool {
+        self.observed.elapsed() < Duration::from_secs(4)
+            && self.grant.matches_reserved(&self.current)
+    }
+}
+
+/// Returned only by the local one-shot fence, immediately before submit.
+/// This proves permission, never delivery. It is not reusable send authority.
+pub struct OperatorTestCompletion {
+    pub(crate) start: OperatorTestStart,
 }

@@ -10,6 +10,7 @@ use crate::{
 use sqlx::{Postgres, Transaction};
 
 mod reservation;
+mod send;
 pub use reservation::{OperatorTestReservation, OperatorTestReserveError};
 
 /// Private transient context: no Debug, serialization, or HTTP form constructor.
@@ -38,7 +39,7 @@ impl PgMailLaunch {
         allowlisted_recipient: &str,
     ) -> Result<OperatorTestContext, ProfileError> {
         let mut tx = self.pool.begin().await?;
-        let (current, context) = checked_context(&mut tx, grant, allowlisted_recipient).await?;
+        let (current, context) = checked_context(&mut tx, grant, allowlisted_recipient, false).await?;
         tx.commit().await?;
         if !grant.matches(&current) {
             return Err(ProfileError::Conflict);
@@ -52,6 +53,7 @@ async fn checked_context(
     tx: &mut Transaction<'_, Postgres>,
     grant: &OperatorTestGrant,
     allowlisted_recipient: &str,
+    reserved: bool,
 ) -> Result<(LaunchSnapshot, OperatorTestContext), ProfileError> {
     let actor = operator(tx, &grant.session).await?;
     if actor != grant.actor() {
@@ -59,7 +61,12 @@ async fn checked_context(
     }
     lock_guard(tx).await?;
     let current = load(tx).await?.ok_or(ProfileError::Conflict)?;
-    if !grant.matches(&current) {
+    let matches = if reserved {
+        grant.matches_reserved(&current)
+    } else {
+        grant.matches(&current)
+    };
+    if !matches {
         return Err(ProfileError::Conflict);
     }
     let digest = current.activation_digest.ok_or(ProfileError::Conflict)?;

@@ -381,7 +381,7 @@ async fn exercise_launch_fence(
         .execute(pool)
         .await
         .unwrap();
-    operator_test::exercise(pool, &launch, &grant, &recipient, &active).await;
+    operator_test::exercise(pool, &launch, &fence, &grant, &recipient, &active).await;
     let reserved = launch.snapshot().await.unwrap().unwrap();
     assert!(matches!(
         launch.operator_test_context(&grant, &recipient).await,

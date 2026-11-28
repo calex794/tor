@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 pub(crate) const REVIEW_LIMIT: Duration = Duration::from_secs(300);
 
 mod operator_test;
-pub use operator_test::OperatorTestGrant;
+pub use operator_test::{OperatorTestCompletion, OperatorTestGrant, OperatorTestStart};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchScope {
