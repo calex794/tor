@@ -141,12 +141,25 @@ fn test_authority_is_one_use_and_not_a_dispatch_grant() {
     let (gate, active) = armed(scope);
     snapshot = active;
     gate.permit_reservation(&snapshot, scope).unwrap();
-    snapshot.reserved_attempts += 1;
-    gate.consume_start(&snapshot, scope).unwrap();
+    let grant = gate
+        .authorize_operator_test(&snapshot, 7, &SESSION)
+        .unwrap();
+    assert_eq!(grant.actor(), 7);
+    assert_eq!(gate.precheck_operator_test(&grant, &snapshot), Ok(()));
+    assert!(matches!(
+        gate.authorize_operator_test(&snapshot, 7, &SESSION),
+        Err(LaunchError::Stopped)
+    ));
+    assert!(!gate.dispatch_armed());
+    assert_eq!(gate.precheck_operator_test(&grant, &snapshot), Ok(()));
     snapshot.reserved_attempts += 1;
     assert_eq!(
+        gate.precheck_operator_test(&grant, &snapshot),
+        Err(LaunchError::Conflict)
+    );
+    assert_eq!(
         gate.consume_start(&snapshot, scope),
-        Err(LaunchError::Stopped)
+        Err(LaunchError::Conflict)
     );
 }
 
@@ -418,4 +431,46 @@ fn review_precheck_is_exact_non_consuming_and_never_arms_dispatch() {
         gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
         Err(LaunchError::Stopped)
     );
+}
+
+#[test]
+fn operator_test_requires_exact_actor_session_and_live_process() {
+    let scope = LaunchScope::OperatorTest(7);
+    let (gate, current) = armed(scope);
+    assert!(matches!(
+        gate.authorize_operator_test(&current, 8, &SESSION),
+        Err(LaunchError::Conflict)
+    ));
+    let (gate, current) = armed(scope);
+    assert!(matches!(
+        gate.authorize_operator_test(&current, 7, &[8; 32]),
+        Err(LaunchError::Conflict)
+    ));
+    let (gate, current) = armed(scope);
+    let mut state = gate.state.lock().unwrap();
+    let State::Armed(approval) = &mut *state else {
+        panic!("missing approval");
+    };
+    approval.started -= REVIEW_LIMIT;
+    drop(state);
+    assert!(matches!(
+        gate.authorize_operator_test(&current, 7, &SESSION),
+        Err(LaunchError::Conflict)
+    ));
+    let (gate, current) = armed(scope);
+    let grant = gate.authorize_operator_test(&current, 7, &SESSION).unwrap();
+    assert_eq!(
+        LaunchFence::new().precheck_operator_test(&grant, &current),
+        Err(LaunchError::Stopped)
+    );
+    gate.retire().unwrap();
+    assert_eq!(
+        gate.precheck_operator_test(&grant, &current),
+        Err(LaunchError::Stopped)
+    );
+    let (gate, current) = armed(LaunchScope::Dispatch);
+    assert!(matches!(
+        gate.authorize_operator_test(&current, 7, &SESSION),
+        Err(LaunchError::Conflict)
+    ));
 }
