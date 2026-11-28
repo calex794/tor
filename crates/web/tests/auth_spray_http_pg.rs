@@ -234,19 +234,45 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
     }
     assert!(bodies.windows(2).all(|pair| pair[0] == pair[1]));
 
-    // The observable spray threshold must not depend on private alias linkage.
-    for identity in [&known, &handle, &unknown, &missing_handle] {
-        let target = signer.target(identity);
-        let seen: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM auth_spray_targets
-             WHERE scope='ip' AND source_key=$1 AND target_key=$2)",
-        )
-        .bind(ip.as_slice())
-        .bind(target.as_slice())
-        .fetch_one(&pool)
+    // Test the observable source fence through its existing repository API.
+    // Two aliases must count as distinct submitted targets even when both
+    // are privately throttled. No SQL or new test-only repository API in web.
+    let peer = [198, 51, 100, 97];
+    let (fresh_ip, fresh_net) = signer.source(SocketAddr::from((peer, 40002)).ip());
+    for i in 0..18 {
+        let target = signer.target(&format!("fence-{nonce}-{}@example.invalid", i % 10));
+        accounts
+            .record_spray_failure(&fresh_ip, &fresh_net, &target, true)
+            .await
+            .unwrap();
+    }
+    assert!(accounts
+        .spray_retry_after(&fresh_ip)
         .await
-        .unwrap();
-        assert!(seen);
+        .unwrap()
+        .is_none());
+    std::env::set_var("TOR_AUTH_SPRAY_MODE", "enforce");
+    for (index, identity) in [&known, &handle].into_iter().enumerate() {
+        let mut req = request(
+            "POST",
+            "/login",
+            &login_form(identity, csrf),
+            &cookie,
+            ORIGIN,
+        );
+        req.extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from((peer, 40002))));
+        let denied = send(&app, req).await;
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        assert!(denied.headers().get(header::SET_COOKIE).is_none());
+        assert_eq!(
+            accounts
+                .spray_retry_after(&fresh_ip)
+                .await
+                .unwrap()
+                .is_some(),
+            index == 1
+        );
     }
     std::env::remove_var("TOR_AUTH_SPRAY_MODE");
     std::env::remove_var("TOR_AUTH_SPRAY_KEY");

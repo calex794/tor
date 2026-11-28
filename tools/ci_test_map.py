@@ -341,6 +341,7 @@ READING_ANALYTICS_TEST_FILES = frozenset({
 })
 TEST_SUITES.update({path: {"rust", "reading_analytics"} for path in READING_ANALYTICS_TEST_FILES})
 TEST_SUITES["crates/web/tests/support/audience_return_dates.rs"] = {"rust", "reading_analytics"}
+TEST_SUITES["crates/web/tests/support/audience_http_fixture.rs"] = {"rust", "reading_analytics"}
 # REUSE-07A: both FLOW entry points consume these exact shared test sources.
 for path in (
     "crates/web/tests/support/flow_http_fixture.rs",
