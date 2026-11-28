@@ -8,6 +8,7 @@ pub use postgres::PgAccounts;
 pub mod admin_sessions;
 pub mod authority;
 mod credentials;
+pub mod email_ownership;
 pub mod moderation_book_history;
 pub mod moderation_books;
 pub mod moderation_overdue_inbox;

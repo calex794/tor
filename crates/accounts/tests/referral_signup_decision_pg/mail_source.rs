@@ -137,3 +137,133 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
             .unwrap();
     }
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL 18 tor_ci"]
+async fn mail_05_email_ownership_is_one_use_and_bound_to_live_mailbox() {
+    let db = pool().await;
+    let accounts = PgAccounts::from_pool(db.clone());
+    let email = unique_email("mail-ownership");
+    let id = signup(&accounts, &email, None, None).await.unwrap();
+    let other_id = signup(&accounts, &unique_email("mail-other"), None, None)
+        .await
+        .unwrap();
+    let user = UserId::new(id).unwrap();
+    let other = UserId::new(other_id).unwrap();
+    let candidate = accounts.mailbox_candidate(user).await.unwrap().unwrap();
+    assert_eq!(candidate.transport_address(), email);
+    assert!(accounts
+        .verified_mail_delivery_address(user)
+        .await
+        .unwrap()
+        .is_none());
+
+    let first = session_token_digest(&generate_session_token());
+    let second = session_token_digest(&generate_session_token());
+    assert!(accounts
+        .issue_email_ownership_proof(&candidate, &first)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .issue_email_ownership_proof(&candidate, &second)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .consume_email_ownership_proof(other, &first)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &second)
+        .await
+        .unwrap());
+    sqlx::query(
+        "UPDATE account_email_ownership
+         SET issued_at=statement_timestamp()-interval '31 minutes',
+             expires_at=statement_timestamp()-interval '1 minute'
+         WHERE user_id=$1",
+    )
+    .bind(id)
+    .execute(&db)
+    .await
+    .unwrap();
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &first)
+        .await
+        .unwrap());
+    assert!(accounts
+        .issue_email_ownership_proof(&candidate, &second)
+        .await
+        .unwrap());
+    let (a, b) = tokio::join!(
+        accounts.consume_email_ownership_proof(user, &second),
+        accounts.consume_email_ownership_proof(user, &second)
+    );
+    assert_ne!(a.unwrap(), b.unwrap());
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &second)
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts
+            .verified_mail_delivery_address(user)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(email.as_str())
+    );
+    assert!(!accounts
+        .issue_email_ownership_proof(&candidate, &first)
+        .await
+        .unwrap());
+
+    // A changed address invalidates proof and outstanding source. Changing
+    // it back does not resurrect the previous verified ownership.
+    sqlx::query("UPDATE users SET email_normalized=$2 WHERE id=$1")
+        .bind(id)
+        .bind(unique_email("mail-changed"))
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(!accounts
+        .issue_email_ownership_proof(&candidate, &first)
+        .await
+        .unwrap());
+    sqlx::query("UPDATE users SET email_normalized=$2 WHERE id=$1")
+        .bind(id)
+        .bind(&email)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(accounts
+        .verified_mail_delivery_address(user)
+        .await
+        .unwrap()
+        .is_none());
+    let fresh = accounts.mailbox_candidate(user).await.unwrap().unwrap();
+    let third = session_token_digest(&generate_session_token());
+    assert!(accounts
+        .issue_email_ownership_proof(&fresh, &third)
+        .await
+        .unwrap());
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &third)
+        .await
+        .unwrap());
+    for id in [id, other_id] {
+        sqlx::query("DELETE FROM users WHERE id=$1")
+            .bind(id)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+}
