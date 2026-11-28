@@ -1,0 +1,9 @@
+# MAIL 5b — canonical registration preparation and final start
+
+This draft combines the exact canonical dispatcher #1367 and independent account proof/source #1381. It is not a second dispatcher. The generic preparation API cannot prepare a registration message without its distinct proof. The registration preparation port uses the same quota/cost guard, exact DispatchGrant, account-first locks, profile identity, reservation and feedback marker. It invokes the account-owned SQL proof port in the existing preparation transaction, rolling back both proof and marker on failure. The prepared witness holds only the proof digest and non-reused mailbox revision.
+
+The final database send-start check now also requires the exact unconsumed, unexpired proof, current mailbox digest/revision, live signup source, reservation generation, captured recipient/IP/key binding, and the same marker and activation checks. A changed mailbox or source cannot reach the single-use SMTP start boundary. Disposable PostgreSQL tests extend the existing real dispatch-activation fixture, covering uncharged, generic bypass, stale revision, duplicate proof, valid start and invalidation after preparation.
+
+No new worker, queue polling, SMTP templates, HTTP confirmation route, automatic source selection, proof finalization or activation is installed. The canonical worker still claims password reset only. Before enabling registration, implement exact terminal outcome/proof revocation (retain ambiguous or accepted proof), the trusted registration source/producer, fragment-based proof entry and final HTTP authorization. No real mail or deployment.
+
+Merge only after #1367, #1381 and other dependent canonical lifecycle branches are accepted and the integrated head passes all CI. Retarget to the current accepted common implementation before merge.

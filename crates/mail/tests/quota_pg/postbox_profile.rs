@@ -542,6 +542,7 @@ async fn exercise_dispatch_grant(
         .await
         .unwrap());
     assert!(queue.finish(other, MailOutcome::Cancelled).await.unwrap());
+    super::registration_dispatch::exercise_registration_dispatch(pool, &fence).await;
     let current = launch.snapshot().await.unwrap().unwrap();
     assert_eq!(
         fence.consume_start(&current, LaunchScope::Dispatch),
