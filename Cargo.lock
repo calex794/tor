@@ -3633,6 +3633,8 @@ dependencies = [
 name = "tor-mail"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
  "hex",
  "hmac 0.12.1",
  "lettre",

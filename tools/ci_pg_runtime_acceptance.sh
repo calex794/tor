@@ -54,7 +54,8 @@ if [[ "$CI_PG_SHARD" == "foundation" ]]; then
   cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
   cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
   cargo test -p tor-ingest --test outbox_pg -- --ignored --test-threads=1
-  cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
+  # Public deterministic encryption fixture, only for this disposable HTTP suite.
+  TOR_POSTBOX_PROFILE_KEY_VERSION=1 TOR_POSTBOX_PROFILE_MASTER_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc= cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
   cargo test -p tor-web --test cover_worker_pg -- --ignored
   cargo test -p tor-books --test postgres_catalog -- --ignored
   cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1

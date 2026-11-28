@@ -34,6 +34,7 @@ impl PgMailCost {
         let actor = operator(&mut tx, digest).await?;
         lock_guard(&mut tx).await?;
         if revision(&mut tx).await? != expected_revision {
+            tx.rollback().await?;
             return Err(Conflict);
         }
         let current: String = sqlx::query_scalar(
@@ -42,15 +43,18 @@ impl PgMailCost {
         .fetch_one(&mut *tx)
         .await?;
         if next.month_start != current {
+            tx.rollback().await?;
             return Err(Conflict);
         }
         let snapshot = load(&mut tx).await?.ok_or(Unavailable)?;
         if snapshot.limits.enabled || snapshot.boundary_pause {
+            tx.rollback().await?;
             return Err(Conflict);
         }
         let old = snapshot.usage;
         if let Some(previous) = &old {
             if previous.month_start != current || previous.estimate_kopecks(0).is_none() {
+                tx.rollback().await?;
                 return Err(Unavailable);
             }
             if next.free_allowance > previous.free_allowance
@@ -58,6 +62,7 @@ impl PgMailCost {
                 || next.rate_per_thousand < previous.rate_per_thousand
                 || next.reserved_attempts < previous.reserved_attempts
             {
+                tx.rollback().await?;
                 return Err(Invalid);
             }
         }
@@ -77,6 +82,7 @@ impl PgMailCost {
         .fetch_one(&mut *tx)
         .await?;
         if next.reserved_attempts < known {
+            tx.rollback().await?;
             return Err(Invalid);
         }
 
@@ -96,6 +102,7 @@ impl PgMailCost {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(Conflict);
         }
 
