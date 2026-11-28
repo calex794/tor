@@ -467,7 +467,7 @@ pub(super) async fn login(
     .await
     {
         Ok(admission) => admission,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let login_admission::Admission {
         stored,

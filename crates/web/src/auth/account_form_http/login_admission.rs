@@ -39,7 +39,7 @@ pub(super) async fn admit(
     submitted_key: [u8; 32],
     audit: LoginAuditContext,
     observed: &mut auth_observation::RequestObservation,
-) -> Result<Admission, Response> {
+) -> Result<Admission, Box<Response>> {
     // The route has already charged the IP and submitted identifier.
     // Preserve the source spray fence before resolving the account.
     let source = match login_limiter::spray_start(state, audit.verified_ip).await {
@@ -47,11 +47,11 @@ pub(super) async fn admit(
         Err(login_limiter::SprayError::Locked(seconds)) => {
             observed.report(auth_observation::Outcome::RateLimited, None);
             observability::record_login_outcome(LoginOutcome::RateLimited);
-            return Err(spray_rate_error(seconds));
+            return Err(Box::new(spray_rate_error(seconds)));
         }
         Err(login_limiter::SprayError::Unavailable) => {
             eprintln!("TOR_AUTH_UNAVAILABLE stage=spray_preflight");
-            return Err(rate_error(StatusCode::SERVICE_UNAVAILABLE, observed));
+            return Err(Box::new(rate_error(StatusCode::SERVICE_UNAVAILABLE, observed)));
         }
     };
     let stored = state
@@ -60,7 +60,7 @@ pub(super) async fn admit(
         .await
         .map_err(|_| {
             observed.report(auth_observation::Outcome::Unavailable, None);
-            login_storage_error(LoginOutcome::LookupUnavailable)
+            Box::new(login_storage_error(LoginOutcome::LookupUnavailable))
         })?;
     let canonical = stored
         .as_ref()
@@ -75,7 +75,7 @@ pub(super) async fn admit(
     } else {
         login_limiter::limit_identity(state, "login", canonical)
             .await
-            .map_err(|status| rate_error(status, observed))?
+            .map_err(|status| Box::new(rate_error(status, observed)))?
     };
     let spray = source.map(|source| source.for_target(canonical));
     Ok(Admission {
