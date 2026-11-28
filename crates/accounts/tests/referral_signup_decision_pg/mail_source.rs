@@ -239,6 +239,10 @@ async fn mail_05_email_ownership_is_one_use_and_bound_to_live_mailbox() {
         .await
         .unwrap()
         .is_none());
+    assert!(!accounts
+        .issue_email_ownership_proof(&candidate, &first)
+        .await
+        .unwrap());
     let fresh = accounts.mailbox_candidate(user).await.unwrap().unwrap();
     let third = session_token_digest(&generate_session_token());
     assert!(accounts
@@ -267,3 +271,6 @@ async fn mail_05_email_ownership_is_one_use_and_bound_to_live_mailbox() {
             .unwrap();
     }
 }
+
+#[path = "registration_delivery.rs"]
+mod registration_delivery;

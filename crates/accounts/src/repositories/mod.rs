@@ -21,6 +21,7 @@ pub mod book_step_up;
 mod password_reset;
 pub mod profile;
 pub mod recipient_dns;
+mod registration_delivery;
 mod registration_mail;
 pub mod security_history;
 mod security_retention;

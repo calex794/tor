@@ -7,10 +7,20 @@ use tor_contracts::auth::UserId;
 pub struct MailboxCandidate {
     user_id: UserId,
     address_sha256: [u8; 32],
+    revision: i64,
     transport: String,
 }
 
 impl MailboxCandidate {
+    pub(super) fn from_account(user_id: UserId, address: &str, revision: i64) -> Option<Self> {
+        Some(Self {
+            user_id,
+            address_sha256: session_token_digest(address),
+            revision,
+            transport: delivery_address(address).ok()?,
+        })
+    }
+
     pub fn transport_address(&self) -> &str {
         &self.transport
     }
@@ -22,19 +32,15 @@ impl PgAccounts {
         &self,
         user_id: UserId,
     ) -> Result<Option<MailboxCandidate>, sqlx::Error> {
-        let address: Option<String> = sqlx::query_scalar(
-            "SELECT email_normalized FROM users WHERE id=$1 AND account_state='active'",
+        let row: Option<(String, i64)> = sqlx::query_as(
+            "SELECT email_normalized,mail_ownership_revision
+             FROM users WHERE id=$1 AND account_state='active'",
         )
         .bind(user_id.get())
         .fetch_optional(self.pool())
         .await?;
-        Ok(address.and_then(|address| {
-            let transport = delivery_address(&address).ok()?;
-            Some(MailboxCandidate {
-                user_id,
-                address_sha256: session_token_digest(&address),
-                transport,
-            })
+        Ok(row.and_then(|(address, revision)| {
+            MailboxCandidate::from_account(user_id, &address, revision)
         }))
     }
 
@@ -52,15 +58,17 @@ impl PgAccounts {
             return Ok(false);
         }
         let mut tx = self.pool().begin().await?;
-        let current: Option<String> = sqlx::query_scalar(
-            "SELECT email_normalized FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        let current: Option<(String, i64)> = sqlx::query_as(
+            "SELECT email_normalized,mail_ownership_revision
+             FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
         )
         .bind(expected.user_id.get())
         .fetch_optional(&mut *tx)
         .await?;
-        if !current
-            .is_some_and(|address| session_token_digest(&address) == expected.address_sha256)
-        {
+        if !current.is_some_and(|(address, revision)| {
+            revision == expected.revision
+                && session_token_digest(&address) == expected.address_sha256
+        }) {
             return Ok(false);
         }
         let saved: Option<i64> = sqlx::query_scalar(
