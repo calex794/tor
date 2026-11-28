@@ -30,6 +30,7 @@ enum State {
     Reviewing(Review),
     Confirming([u8; 32]),
     Armed(Approval),
+    Testing(TestApproval),
 }
 
 struct Review {
@@ -45,7 +46,12 @@ struct Approval {
     scope: LaunchScope,
     high_water: i64,
     activation_digest: [u8; 32],
+    session: [u8; 32],
+    started: Instant,
 }
+
+mod operator_test;
+use operator_test::TestApproval;
 
 /// A DB backup cannot restore this state. Every new process is stopped,
 /// even if its database contains an enabled policy and old audit receipts.
@@ -200,6 +206,8 @@ impl LaunchFence {
             reviewed: intent.reviewed,
             scope: intent.scope,
             activation_digest: digest,
+            session: intent.session,
+            started: intent.started,
         };
         if !matches_approval(&approval, current, approval.scope)
             || current.reserved_attempts != approval.high_water
@@ -259,23 +267,16 @@ impl LaunchFence {
         self.consume_counter(&start.current, LaunchScope::Dispatch)
     }
 
-    /// Called only after an exact claim/attempt reservation commits and the
-    /// durable send-start/feedback gate succeeds. Fetch a fresh observation
-    /// immediately before submission; never hold SQL locks across SMTP.
-    /// A replayed/decreasing counter or different mode invalidates approval.
-    /// One dispatch worker must serialize this check and actual send start.
+    /// Compatibility denial: a raw monthly counter is never evidence of
+    /// an exact reservation, in either dispatch or operator-test mode.
+    /// Operator tests must acquire their own one-shot typed grant first.
     pub fn consume_start(
         &self,
-        current: &LaunchSnapshot,
-        scope: LaunchScope,
+        _current: &LaunchSnapshot,
+        _scope: LaunchScope,
     ) -> Result<(), LaunchError> {
-        // Dispatch must present the exact prepared DB witness; a naked
-        // counter or a reservation grant cannot authorize a message.
-        if scope == LaunchScope::Dispatch {
-            self.stop()?;
-            return Err(LaunchError::Conflict);
-        }
-        self.consume_counter(current, scope)
+        self.stop()?;
+        Err(LaunchError::Conflict)
     }
 
     fn consume_counter(

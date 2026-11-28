@@ -344,6 +344,34 @@ async fn exercise_launch_fence(
         Err(LaunchError::Stopped)
     );
     fence.permit_reservation(&active, scope).unwrap();
+    let grant = fence.authorize_operator_test(&active, actor, digest).unwrap();
+    let recipient: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(actor)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        launch.operator_test_context(&grant, "foreign@example.invalid").await,
+        Err(ProfileError::Forbidden)
+    ));
+    let context = launch.operator_test_context(&grant, &recipient).await.unwrap();
+    assert_eq!(context.recipient(), recipient);
+    assert_eq!(&context.profile().intent_digest(), profile_digest);
+    assert!(launch.snapshot().await.unwrap().unwrap() == active);
+    sqlx::query("UPDATE account_roles SET is_active=false WHERE user_id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        launch.operator_test_context(&grant, &recipient).await,
+        Err(ProfileError::Forbidden)
+    ));
+    sqlx::query("UPDATE account_roles SET is_active=true WHERE user_id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE mail_cost_months SET reserved_attempts=reserved_attempts+1 WHERE month_start=$1::date",
     )
@@ -352,7 +380,14 @@ async fn exercise_launch_fence(
     .await
     .unwrap();
     let reserved = launch.snapshot().await.unwrap().unwrap();
-    fence.consume_start(&reserved, scope).unwrap();
+    assert!(matches!(
+        launch.operator_test_context(&grant, &recipient).await,
+        Err(ProfileError::Conflict)
+    ));
+    assert_eq!(
+        fence.consume_start(&reserved, scope),
+        Err(LaunchError::Conflict)
+    );
     assert_eq!(
         fence.permit_reservation(&reserved, scope),
         Err(LaunchError::Stopped)
