@@ -7,12 +7,15 @@
 server {
     listen 80 default_server;
     server_name _;
+    access_log off;
     return 444;
 }
 
 server {
     listen 80;
     server_name pandaolate.ru;
+    # A legacy profile path can contain a mailbox even before TLS redirection.
+    access_log off;
 
     # Certificate issuance is a separate manual prerequisite.
     location ^~ /.well-known/acme-challenge/ {
@@ -27,6 +30,7 @@ server {
 # Reject TLS with an unknown SNI instead of proxying an unrecognized host.
 server {
     listen 443 ssl default_server;
+    access_log off;
     ssl_reject_handshake on;
 }
 
