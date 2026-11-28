@@ -109,6 +109,34 @@ impl LaunchFence {
         Ok(challenge)
     }
 
+    /// Reject stale/foreign challenges before any provider I/O or password work.
+    /// Non-consuming and advisory only: confirm_review and the database
+    /// transaction must repeat their own full checks after the probe.
+    pub fn precheck_review(
+        &self,
+        challenge: &[u8; 32],
+        session: &[u8; 32],
+        current: &LaunchSnapshot,
+        scope: LaunchScope,
+        external_evidence: &[u8; 32],
+    ) -> Result<(), LaunchError> {
+        let state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
+        let State::Reviewing(review) = &*state else {
+            return Err(LaunchError::Stopped);
+        };
+        if review.started.elapsed() >= REVIEW_LIMIT
+            || &review.challenge != challenge
+            || &review.session != session
+            || review.scope != scope
+            || &review.snapshot != current
+            || !current.ready_for_review()
+            || current.evidence() != external_evidence
+        {
+            return Err(LaunchError::Conflict);
+        }
+        Ok(())
+    }
+
     /// Caller rechecks live administrator authority, successful non-sending
     /// probe of this exact profile, and independently reviewed billing/restore
     /// evidence. The hash is a reference, NOT proof of authenticity. This

@@ -209,6 +209,10 @@ async fn exercise_launch_fence(
         .await
         .unwrap();
     assert!(launch.snapshot().await.unwrap().is_none());
+    assert!(matches!(
+        launch.admin_review_candidate(digest).await,
+        Err(ProfileError::Conflict)
+    ));
     let month: String = sqlx::query_scalar(
         "SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date::text",
     )
@@ -246,6 +250,13 @@ async fn exercise_launch_fence(
     assert_eq!(stopped.month(), month);
     assert_eq!(stopped.profile_digest(), profile_digest);
     assert_eq!(stopped.evidence(), &reconciliation.evidence_sha256);
+    let (review, candidate) = launch.admin_review_candidate(digest).await.unwrap();
+    assert!(review == stopped);
+    assert_eq!(&candidate.intent_digest(), profile_digest);
+    assert!(matches!(
+        launch.admin_review_candidate(&[0; 32]).await,
+        Err(ProfileError::Forbidden)
+    ));
     let scope = LaunchScope::OperatorTest(actor);
     let fence = LaunchFence::new();
     let challenge = fence.begin_review(&stopped, scope, *digest).unwrap();
@@ -291,6 +302,10 @@ async fn exercise_launch_fence(
         Err(ProfileError::Conflict)
     );
     let active = launch.snapshot().await.unwrap().unwrap();
+    assert!(matches!(
+        launch.admin_review_candidate(digest).await,
+        Err(ProfileError::Conflict)
+    ));
     assert_eq!(
         fence.permit_reservation(&active, scope),
         Err(LaunchError::Stopped)
