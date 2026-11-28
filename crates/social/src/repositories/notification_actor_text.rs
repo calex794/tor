@@ -22,11 +22,9 @@ pub(super) fn project(
     let profile_url = || {
         if let Some(handle) = handle.filter(|value| {
             (3..=32).contains(&value.len())
-                && value
-                    .bytes()
-                    .all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.".contains(&byte)
-                    })
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.".contains(&byte)
+                })
         }) {
             return format!("/users/by-handle/{handle}");
         }
@@ -100,8 +98,13 @@ mod tests {
         assert_eq!(row.3, "/notifications");
         let row = project("social.friendship.accepted", Some("Алиса"), None, Some(1)).unwrap();
         assert_eq!(row.3, "/users/%D0%90%D0%BB%D0%B8%D1%81%D0%B0");
-        let row = project("social.friendship.accepted", mailbox, Some("alice"), Some(1))
-            .unwrap();
+        let row = project(
+            "social.friendship.accepted",
+            mailbox,
+            Some("alice"),
+            Some(1),
+        )
+        .unwrap();
         assert_eq!(row.3, "/users/by-handle/alice");
         assert!(!row.2.contains('@'));
         let row = project("social.friendship.accepted", None, Some("../x"), Some(1)).unwrap();
