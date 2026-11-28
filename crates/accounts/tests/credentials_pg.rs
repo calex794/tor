@@ -722,3 +722,128 @@ async fn auth_07_session_renewal_small_pool_and_large_history_pg() {
     pool.close().await;
     setup.close().await;
 }
+
+/// Alias resolution and password verification are separate from issuance.
+/// The free settings path cannot move or clear a claimed handle. A stale
+/// alias still must not mint a session if the persisted binding changed.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_03_login_alias_is_rechecked_under_account_lock() {
+    use tor_accounts::services::{login_identity::login_identity, profile::ProfileUpdate};
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(pool);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let email = format!("alias-{nonce}@example.invalid");
+    let handle = format!("a{nonce:x}");
+    let password = "AliasFixturePassword2026";
+    let original = session_token_digest(&format!("alias-original-{nonce}"));
+    let fresh = session_token_digest(&format!("alias-fresh-{nonce}"));
+    let stale = session_token_digest(&format!("alias-stale-{nonce}"));
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let audit = LoginAuditContext {
+        verified_ip: None,
+        agent_family: UserAgentFamily::Unknown,
+        event_kind: LoginEventKind::Registration,
+    };
+    let user = accounts
+        .register_with_session(&email, "Reader", "$argon2id$fixture", &original, ttl)
+        .await
+        .unwrap();
+    let alias = login_identity(&handle.to_uppercase(), password).unwrap();
+    let email_key = login_identity(&email, password).unwrap();
+    let profile = accounts.profile(user).await.unwrap().unwrap();
+    assert!(profile.handle.is_none());
+    assert_eq!(profile.revision, 0);
+    assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
+    assert_eq!(
+        accounts
+            .find_user_by_login(&email_key)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        user
+    );
+    let mut claim = ProfileUpdate {
+        display_name: None,
+        handle: Some(handle.to_uppercase()),
+        adult_enabled: None,
+        expected_revision: 0,
+    };
+    claim.validate().unwrap();
+    assert_eq!(accounts.update_profile(user, &claim).await.unwrap(), 1);
+    let a = accounts.find_user_by_login(&alias).await.unwrap().unwrap();
+    let b = accounts
+        .find_user_by_login(&email_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(a.id, user);
+    assert_eq!(a.id, b.id);
+    assert_eq!(a.email_normalized, b.email_normalized);
+    let login_audit = LoginAuditContext {
+        event_kind: LoginEventKind::PasswordLogin,
+        ..audit
+    };
+    assert!(accounts
+        .insert_verified_session_for_login(user, &a.password_hash, &fresh, ttl, login_audit, &alias)
+        .await
+        .unwrap());
+    assert!(matches!(
+        accounts
+            .update_profile(
+                user,
+                &ProfileUpdate {
+                    display_name: Some("Changed display name".into()),
+                    handle: Some(String::new()),
+                    adult_enabled: None,
+                    expected_revision: 1,
+                },
+            )
+            .await,
+        Err(tor_accounts::repositories::profile::ProfileError::HandleLocked)
+    ));
+    assert_eq!(
+        accounts
+            .find_user_by_login(&alias)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        user
+    );
+    // Fixture-only change emulates a stale proof after an operator repair.
+    // The production free settings path above cannot change this binding.
+    sqlx::query("UPDATE account_settings SET handle=NULL WHERE user_id=$1")
+        .bind(user)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    assert!(accounts.find_user_by_login(&alias).await.unwrap().is_none());
+    assert!(!accounts
+        .insert_verified_session_for_login(user, &a.password_hash, &stale, ttl, login_audit, &alias)
+        .await
+        .unwrap());
+    assert_eq!(accounts.active_session_user(&stale).await.unwrap(), None);
+    assert!(accounts
+        .insert_verified_session_for_login(
+            user,
+            &b.password_hash,
+            &stale,
+            ttl,
+            login_audit,
+            &email_key,
+        )
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts.active_session_user(&stale).await.unwrap(),
+        Some(user)
+    );
+}

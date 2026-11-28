@@ -1,4 +1,5 @@
 pub mod auth_observation;
+pub mod login_identity;
 pub mod profile;
 pub mod recipient_dns;
 pub mod recipient_dns_cache;
