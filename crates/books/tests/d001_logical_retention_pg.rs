@@ -537,6 +537,15 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
             "missing installed constraint for {want_table}: {want_class}"
         );
     }
+    // A rebuildable excerpt follows authorized physical deletion; it must
+    // never become a reader pin or an independent retention obligation.
+    assert!(rows.iter().any(|row| {
+        row.0 == "public"
+            && row.1 == "chapter_version_guest_prefixes"
+            && row.5
+            && row.6 == "c"
+            && row.7 == "derived-guest-prefix"
+    }));
     let unreviewed = rows.iter().filter(|row| row.7 == "unreviewed").count();
     // This check stops schema review on any unknown edge. It is never a
     // deletion, ACL or retention gate; review of soft references is separate.
