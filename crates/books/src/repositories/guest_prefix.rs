@@ -6,7 +6,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use tor_contracts::guest_prefix::{GuestPrefix, GuestPrefixError, GUEST_PREFIX_ALGORITHM};
 
+mod queue;
 mod sweep;
+pub use queue::{GuestPrefixJob, GuestPrefixQueuedPage, GUEST_PREFIX_CONSUMER, GUEST_PREFIX_EVENT};
 pub use sweep::{GuestPrefixPage, MAX_GUEST_PREFIX_SWEEP_PAGE};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +68,26 @@ impl PgGuestPrefix {
         target: GuestPrefixTarget,
         verified_source: &str,
     ) -> Result<GuestPrefixPreparation, AuthorError> {
+        self.prepare_inner(target, verified_source, None).await
+    }
+
+    /// The background consumer must use this entrypoint, not prepare_current.
+    /// A valid source and an obsolete claim are never enough to write.
+    pub async fn prepare_claimed(
+        &self,
+        job: &GuestPrefixJob,
+        verified_source: &str,
+    ) -> Result<GuestPrefixPreparation, AuthorError> {
+        self.prepare_inner(job.target(), verified_source, Some(job))
+            .await
+    }
+
+    async fn prepare_inner(
+        &self,
+        target: GuestPrefixTarget,
+        verified_source: &str,
+        job: Option<&GuestPrefixJob>,
+    ) -> Result<GuestPrefixPreparation, AuthorError> {
         if target.book_id <= 0
             || target.chapter_id <= 0
             || target.version_id <= 0
@@ -116,6 +138,12 @@ impl PgGuestPrefix {
         .map_err(|_| AuthorError::Unavailable)?;
         if exact != Some(target.version_id) {
             return Err(AuthorError::Conflict);
+        }
+
+        // Book/chapter/publication locks precede the outbox lock. The
+        // successor cannot claim this row while we commit the exact result.
+        if let Some(job) = job {
+            queue::lock_live_claim(&mut tx, job, &source_hash).await?;
         }
 
         // Unsupported literal markup is a terminal derivative result, not a
@@ -176,6 +204,9 @@ impl PgGuestPrefix {
             }
             GuestPrefixPreparation::AlreadyStored
         };
+        if let Some(job) = job {
+            queue::lock_live_claim(&mut tx, job, &source_hash).await?;
+        }
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         if projection.is_none() {
             Ok(GuestPrefixPreparation::NoExcerpt)
