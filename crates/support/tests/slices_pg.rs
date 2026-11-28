@@ -497,3 +497,6 @@ async fn e_11_close_reopen_serializes_admin_actions_and_requester_messages() {
         ]
     );
 }
+
+#[path = "slices_pg/mail_source.rs"]
+mod mail_source;
