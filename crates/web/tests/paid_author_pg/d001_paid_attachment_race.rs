@@ -20,6 +20,9 @@ use tor_storage::{
     },
 };
 
+#[path = "d001_paid_swap_attachment_race.rs"]
+mod d001_paid_swap_attachment_race;
+
 // Keep one disposable psql session alive to hold a fixture row. The web
 // crate deliberately does not depend on the PostgreSQL client library.
 struct RowGate(Child);
