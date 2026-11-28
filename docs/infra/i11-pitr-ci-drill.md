@@ -213,3 +213,22 @@ non-redirecting HTTP client and scoped server lifetime. Preserve the existing
 logical restore, ciphertext, key, revocation and WebCrypto assertions. This
 change does not yet join S334 to the physical PITR fixture; schema 7 and the
 independent-host acceptance boundary are unchanged.
+
+## RECOVERY-10e-c1: shared sealed archive and exact S334 WAL snapshot
+
+Seed the actual S334 paid V1/V2 checkouts, with independent KEKs, in the
+same disposable `tor_ci` as the existing sealed recovery fixture. Use a
+separate loopback source MinIO; copy only verified ciphertext to the existing
+backup vault, deny anonymous access, delete both source objects, and retrieve
+the exact archived bytes against the original PostgreSQL registry SHA-256.
+Keep both KEKs and the synthetic session fixture only in the private CI work
+folder. Never transfer either key or session file to the vault or image.
+
+The existing read-only finance snapshot now also runs the independent S334
+witness. Compare the composite exact snapshot before backup, after sealed
+logical restore, after physical import, during paused WAL replay, and before
+and after FREE/Layer HTTP on the promoted copy. Require the original digest
+and both new exact CI log markers. This does not yet execute PAID HTTP,
+WebCrypto or paid revocation controls inside the physical sandbox. Report
+schema remains 7; schema 8 is reserved for that complete integration. No
+production keys, production changes, offsite/SLO claim or deployment.
