@@ -23,10 +23,10 @@ mod read_policy;
 #[path = "notification_revision_counts.rs"]
 mod revision_counts;
 pub use daily_chapter_digest::DailyChapterDigestEntry;
-#[path = "notification_profile_url.rs"]
-mod profile_url;
 #[path = "notification_privacy_audit.rs"]
 mod privacy_audit;
+#[path = "notification_profile_url.rs"]
+mod profile_url;
 pub use privacy_audit::LegacyNotificationAuditBatch;
 
 type NotificationRow = (
