@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
-    services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
+    services::{GetPublicBook, PublicBookRepository},
 };
 use tor_reading::{repositories::PgReader, services::ReadingError};
 pub mod achievement_consumer;
@@ -91,8 +91,9 @@ pub mod paid_author_publish;
 pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
 mod paid_reader_router;
+mod public_catalog_cards;
+use public_catalog_cards::public_cards;
 mod public_reader_http;
-mod site_health;
 mod site_icons;
 mod toc_window_http;
 pub mod yandex_cdn_purge;
@@ -148,27 +149,21 @@ async fn text_issue_script() -> Response {
     )
         .into_response()
 }
-async fn public_cards(
-    repo: &dyn PublicBookRepository,
-    limit: usize,
-) -> Result<Vec<pages::PublicBookCard>, StatusCode> {
-    let result = ListPublicBooks::new(repo)
-        .execute(limit)
-        .await
-        .map_err(|error| match error {
-            CatalogError::InvalidLimit => StatusCode::BAD_REQUEST,
-            CatalogError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-        })?;
-    Ok(result
-        .into_iter()
-        .map(|book| pages::PublicBookCard {
-            id: book.id(),
-            title: book.title().to_owned(),
-            language: book.key().target_language().to_owned(),
-            author_name: None,
-            genres: Vec::new(),
-        })
-        .collect())
+async fn health() -> &'static str {
+    "ok"
+}
+async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
+    if let Some(catalog) = state.postgres {
+        if catalog.probe().await.is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+        }
+    }
+    if let Some(reader) = state.reader {
+        if reader.probe().await.is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+        }
+    }
+    (StatusCode::OK, "ok") // demo mode has neither PG adapter
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -533,8 +528,8 @@ fn make_router_with_paid_checkout(
             "/assets/brand/pandaolate-header-dark.png",
             get(pages::brand_logo_dark),
         )
-        .route("/healthz", get(site_health::health))
-        .route("/readyz", get(site_health::ready))
+        .route("/healthz", get(health))
+        .route("/readyz", get(ready))
         .route("/metrics", get(observability::metrics_endpoint))
         .route("/ops/traces", get(operator_traces::page))
         .route("/ops/overview", get(operator_overview::page));
