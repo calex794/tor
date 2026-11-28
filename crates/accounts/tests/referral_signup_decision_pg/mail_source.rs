@@ -137,3 +137,141 @@ async fn mail_01_f2b_signup_evidence_is_atomic_and_session_independent() {
             .unwrap();
     }
 }
+
+// Test-only seed of the account-owned record. Production issuance has no
+// standalone repository method; the actual charged SQL port is tested in tor-mail.
+async fn seed_ownership(pool: &sqlx::PgPool, user: UserId, digest: &[u8; 32]) {
+    sqlx::query(
+        "INSERT INTO account_email_ownership
+            (user_id,address_sha256,mailbox_revision,outbox_id,generation,
+             challenge_sha256,issued_at,expires_at)
+         SELECT id,sha256(convert_to(email_normalized,'UTF8')),mail_ownership_revision,
+                id,1,$2,statement_timestamp(),statement_timestamp()+interval '30 minutes'
+         FROM users WHERE id=$1",
+    )
+    .bind(user.get())
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL 18 tor_ci"]
+async fn mail_05_email_ownership_is_one_use_and_bound_to_live_mailbox() {
+    let db = pool().await;
+    let accounts = PgAccounts::from_pool(db.clone());
+    let email = unique_email("mail-ownership");
+    let id = signup(&accounts, &email, None, None).await.unwrap();
+    let other_id = signup(&accounts, &unique_email("mail-other"), None, None)
+        .await
+        .unwrap();
+    let user = UserId::new(id).unwrap();
+    let other = UserId::new(other_id).unwrap();
+    let candidate = accounts.mailbox_candidate(user).await.unwrap().unwrap();
+    assert_eq!(candidate.transport_address(), email);
+    assert!(accounts
+        .verified_mail_delivery_address(user)
+        .await
+        .unwrap()
+        .is_none());
+
+    let first = session_token_digest(&generate_session_token());
+    let second = session_token_digest(&generate_session_token());
+    seed_ownership(&db, user, &first).await;
+    assert!(!accounts
+        .consume_email_ownership_proof(other, &first)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &second)
+        .await
+        .unwrap());
+    sqlx::query(
+        "UPDATE account_email_ownership
+         SET issued_at=statement_timestamp()-interval '31 minutes',
+             expires_at=statement_timestamp()-interval '1 minute'
+         WHERE user_id=$1",
+    )
+    .bind(id)
+    .execute(&db)
+    .await
+    .unwrap();
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &first)
+        .await
+        .unwrap());
+    sqlx::query("DELETE FROM account_email_ownership WHERE user_id=$1")
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    seed_ownership(&db, user, &second).await;
+    let (a, b) = tokio::join!(
+        accounts.consume_email_ownership_proof(user, &second),
+        accounts.consume_email_ownership_proof(user, &second)
+    );
+    assert_ne!(a.unwrap(), b.unwrap());
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &second)
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts
+            .verified_mail_delivery_address(user)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(email.as_str())
+    );
+    // A changed address invalidates proof and outstanding source. Changing
+    // it back does not resurrect the previous verified ownership.
+    sqlx::query("UPDATE users SET email_normalized=$2 WHERE id=$1")
+        .bind(id)
+        .bind(unique_email("mail-changed"))
+        .execute(&db)
+        .await
+        .unwrap();
+    let changed = accounts.mailbox_candidate(user).await.unwrap().unwrap();
+    assert!(!candidate.same_mailbox(&changed));
+    sqlx::query("UPDATE users SET email_normalized=$2 WHERE id=$1")
+        .bind(id)
+        .bind(&email)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(accounts
+        .verified_mail_delivery_address(user)
+        .await
+        .unwrap()
+        .is_none());
+    let fresh = accounts.mailbox_candidate(user).await.unwrap().unwrap();
+    assert!(!candidate.same_mailbox(&fresh));
+    assert_ne!(candidate.revision(), fresh.revision());
+    let third = session_token_digest(&generate_session_token());
+    seed_ownership(&db, user, &third).await;
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(!accounts
+        .consume_email_ownership_proof(user, &third)
+        .await
+        .unwrap());
+    for id in [id, other_id] {
+        sqlx::query("DELETE FROM users WHERE id=$1")
+            .bind(id)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+}
+
+#[path = "registration_delivery.rs"]
+mod registration_delivery;
