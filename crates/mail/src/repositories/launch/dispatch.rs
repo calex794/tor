@@ -1,7 +1,10 @@
 //! Caller holds the common quota guard throughout validation and mutation.
-use super::load;
-use crate::domain::launch::LaunchSnapshot;
-use sqlx::{Postgres, Transaction};
+use super::{invalid, load, lock_guard, PgMailLaunch};
+use crate::domain::{
+    launch::LaunchSnapshot,
+    postbox_profile::{ProfileIdentity, SealedProfile},
+};
+use sqlx::{Postgres, Row, Transaction};
 
 pub(in crate::repositories) async fn has_activation_receipt(
     tx: &mut Transaction<'_, Postgres>,
@@ -48,4 +51,43 @@ pub(in crate::repositories) async fn dispatch_matches(
     .bind(digest.as_slice())
     .fetch_one(&mut **tx)
     .await
+}
+
+impl PgMailLaunch {
+    /// Internal worker read only. The sealed profile must match the exact
+    /// active dispatch snapshot; it is never an administrator response.
+    pub async fn dispatch_profile(
+        &self,
+        expected: &LaunchSnapshot,
+    ) -> Result<Option<SealedProfile>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        lock_guard(&mut tx).await?;
+        if !dispatch_matches(&mut tx, expected, true).await? {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT revision,identity_id,sender,key_version,nonce,ciphertext
+             FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let candidate = SealedProfile {
+            identity: ProfileIdentity::new(row.try_get("identity_id")?, row.try_get("sender")?)
+                .map_err(|_| invalid())?,
+            revision: row.try_get("revision")?,
+            key_version: row.try_get("key_version")?,
+            nonce: row
+                .try_get::<Vec<u8>, _>("nonce")?
+                .try_into()
+                .map_err(|_| invalid())?,
+            ciphertext: row.try_get("ciphertext")?,
+        };
+        if !candidate.valid() || &candidate.intent_digest() != expected.profile_digest() {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(candidate))
+    }
 }

@@ -241,3 +241,27 @@ fn missing_or_different_receipt_and_skipped_counter_are_not_accepted() {
         Err(LaunchError::Conflict)
     );
 }
+
+#[test]
+fn dispatch_slot_is_exclusive_and_never_uses_test_authority() {
+    let (test_gate, active) = armed(LaunchScope::OperatorTest(7));
+    assert!(matches!(
+        test_gate.try_dispatch_run(),
+        Err(LaunchError::Stopped)
+    ));
+    test_gate
+        .permit_reservation(&active, LaunchScope::OperatorTest(7))
+        .unwrap();
+
+    let (gate, _) = armed(LaunchScope::Dispatch);
+    let slot = gate.try_dispatch_run().unwrap().unwrap();
+    assert!(gate.try_dispatch_run().unwrap().is_none());
+    gate.stop().unwrap();
+    assert!(matches!(gate.try_dispatch_run(), Err(LaunchError::Stopped)));
+    drop(slot);
+    assert!(!gate.dispatch_running.load(Ordering::Acquire));
+
+    let (gate, _) = armed(LaunchScope::Dispatch);
+    drop(gate.try_dispatch_run().unwrap().unwrap());
+    assert!(gate.try_dispatch_run().unwrap().is_some());
+}
