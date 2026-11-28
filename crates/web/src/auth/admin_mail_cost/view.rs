@@ -1,7 +1,7 @@
 //! Render only aggregate local estimates and numeric operator controls.
 use super::{pages, CostAdminView};
 
-fn money(value: i64) -> String {
+pub(super) fn money(value: i64) -> String {
     format!("{}.{:02} ₽", value / 100, value % 100)
 }
 
@@ -83,7 +83,7 @@ pub(super) fn body(view: &CostAdminView, csrf: &str) -> String {
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <button type=\"submit\">Остановить отправку</button></form>\
          <p>Остановка запрещает новые допуски; уже начатая отправка может завершиться. \
-         Включение почты пока недоступно из этой формы. \
+         Включение почты требует отдельного подтверждения. \
          Пороговые предупреждения отображаются здесь, внешняя доставка уведомлений не подключена.</p>\
          {reconciliation}</div></section>",
         view.revision,

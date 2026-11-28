@@ -3,8 +3,9 @@ use super::{pages, AuthState};
 use axum::http::{StatusCode, Uri};
 use serde::Deserialize;
 use tor_mail::{
-    domain::postbox_profile::ProfileMasterKey,
+    domain::postbox_profile::{ProfileMasterKey, SealedProfile},
     repositories::postbox_profile::{PgPostboxProfile, ProfileError, ProfileView},
+    services::postbox::{PostboxCredentials, PostboxTransport},
 };
 
 #[derive(Deserialize)]
@@ -50,6 +51,24 @@ pub(super) fn secure_origin(state: &AuthState) -> bool {
             uri.scheme_str() == Some("http")
                 && matches!(uri.host(), Some("127.0.0.1" | "localhost"))
         })
+}
+
+/// Shared bounded authentication/NOOP probe; never submits a message.
+pub(super) async fn probe_candidate(
+    master: &ProfileMasterKey,
+    candidate: &SealedProfile,
+) -> Result<(), StatusCode> {
+    let secrets = master
+        .open(candidate)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let credentials = PostboxCredentials::new(secrets.access().into(), secrets.secret().into())
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let transport = PostboxTransport::new(candidate.identity().sender())
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    transport
+        .probe(&credentials)
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)
 }
 
 pub(super) fn body(view: &ProfileView, csrf: &str, key_ready: bool, enabled: bool) -> String {

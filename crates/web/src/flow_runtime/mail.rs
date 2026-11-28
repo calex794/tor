@@ -27,6 +27,10 @@ pub(crate) struct MailControl {
 }
 
 impl MailControl {
+    pub(crate) fn fence(&self) -> &LaunchFence {
+        &self.fence
+    }
+
     pub(crate) fn stop(&self) -> Result<(), LaunchError> {
         self.fence.stop()
     }
