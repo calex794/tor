@@ -7,11 +7,13 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tor_contracts::guest_prefix::{GuestPrefix, GuestPrefixError, GUEST_PREFIX_ALGORITHM};
 
 mod queue;
+mod scheduler;
 mod sweep;
 pub use queue::{
     GuestPrefixJob, GuestPrefixQueuedPage, GuestPrefixSource, GuestPrefixStoredSource,
     GUEST_PREFIX_CONSUMER, GUEST_PREFIX_EVENT,
 };
+pub use scheduler::{GuestPrefixSweepCursor, GuestPrefixSweepStep, MAX_GUEST_PREFIX_BOOK_PAGE};
 pub use sweep::{GuestPrefixPage, MAX_GUEST_PREFIX_SWEEP_PAGE};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

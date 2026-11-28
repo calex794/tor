@@ -215,6 +215,15 @@ publication hooks, bounded book discovery and repair of dead/delivered
 missing derivatives remain required before activation. In particular,
 a temporary hold can outlast the existing retry budget; a future repair
 operation must make that case recoverable without erasing receipts.
+02c3b1 adds one internal catalog sweep step: at most 32 existing book IDs
+are examined before eligibility filtering, then a later step uses the existing
+64-chapter producer for the selected exact policy revision. The explicit
+metadata-only book/chapter cursor advances after empty pages and stale books;
+transient errors preserve the caller's prior cursor. Repeated passes discover
+later publications; duplicates use the existing exact dedupe key. No source
+body or S3 read, automatic startup, durable checkpoint, publication hook or
+repair of terminal outbox rows is added by this slice. These remain mandatory
+before mode activation.
 Unsupported literal markup is persisted as an immutable terminal
 projection_status=unsupported with empty text, zero count and the exact
 source hash; a valid empty/tiny projection is status=ready. Retries only

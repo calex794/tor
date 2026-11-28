@@ -17,7 +17,7 @@ use tor_web::guest_prefix_worker::{
     prepare_legacy_job, GuestPrefixConsumer, GuestPrefixWorkerOutcome,
 };
 
-async fn fixture() -> (String, PgCatalog, i64, i64) {
+pub(super) async fn fixture() -> (String, PgCatalog, i64, i64) {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG CI");
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:"));
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -49,7 +49,7 @@ async fn fixture() -> (String, PgCatalog, i64, i64) {
     (url, catalog, owner, book)
 }
 
-async fn publish(
+pub(super) async fn publish(
     author: &PgAuthoring,
     owner: i64,
     book: i64,
