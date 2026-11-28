@@ -25,6 +25,30 @@ pub(super) async fn page(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    render_profile(state, headers, recipient, name, None).await
+}
+
+pub(super) async fn by_handle(
+    State(state): State<AuthState>,
+    Path(handle): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let (recipient, name, canonical_handle) =
+        match state.accounts.public_profile_by_handle(&handle).await {
+            Ok(Some(row)) => row,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    render_profile(state, headers, recipient, name, Some(canonical_handle)).await
+}
+
+async fn render_profile(
+    state: AuthState,
+    headers: HeaderMap,
+    recipient: i64,
+    name: String,
+    handle: Option<String>,
+) -> Response {
     let visitor = match session_user(&state, &headers).await {
         Ok(value) => value,
         Err(status) => return deny(status),
@@ -85,11 +109,14 @@ pub(super) async fn page(
             action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/block\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">Заблокировать</button></form>"));
         }
     }
+    let handle_label = handle.map_or_else(String::new, |handle| {
+        format!("<p>@{}</p>", pages::escape_html(&handle))
+    });
     let html = pages::layout(
         "Публичный профиль",
         "Профиль участника.",
         &format!(
-        "<section class=\"me-page\"><div class=\"container\"><h1>{}</h1>{action}</div></section>",
+        "<section class=\"me-page\"><div class=\"container\"><h1>{}</h1>{handle_label}{action}</div></section>",
         pages::escape_html(&name)
     ),
     );

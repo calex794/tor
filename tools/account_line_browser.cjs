@@ -175,6 +175,25 @@ async function inspectAccountNavigation(page,width) {
     assert.equal(profile.handle,handle);assert.equal(profile.revision,2);
     assert.equal(await alice.page.locator('[name=handle]').count(),0);
     assert(await alice.page.getByText('@'+handle,{exact:true}).isVisible());
+    const profilePath=`/users/by-handle/${handle}`;
+    const profileLink=alice.page.getByRole('link',{name:'Открыть публичный профиль'});
+    assert.equal(await profileLink.getAttribute('href'),profilePath);
+    await profileLink.click();
+    await alice.page.waitForURL(base+profilePath);
+    assert(await alice.page.getByRole('heading',{name:'Updated A reader',exact:true}).isVisible());
+    assert.equal(await alice.page.getByRole('button',{name:'Почта',exact:true}).count(),0);
+    const guestPage=await guest.newPage();
+    try {
+      const result=await guestPage.goto(base+profilePath);
+      assert.equal(result.status(),200);
+      assert.equal(result.headers()['cache-control'],'no-store');
+      assert(await guestPage.getByRole('heading',{name:'Updated A reader',exact:true}).isVisible());
+      assert.equal(await guestPage.getByRole('button',{name:'Почта',exact:true}).count(),0);
+      assert(!(await guestPage.content()).includes(email));
+    } finally {await guestPage.close();}
+    await bob.page.goto(base+profilePath);
+    assert(await bob.page.getByRole('button',{name:'Почта',exact:true}).isVisible());
+    await alice.page.goto(base+'/me/settings');
     for(const replacement of ['',`other_${nonce}`]) {
       const locked=await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{expected_revision:profile.revision,handle:replacement,csrf_token:profile.csrf_token}});
       assert.equal(locked.status(),409);
