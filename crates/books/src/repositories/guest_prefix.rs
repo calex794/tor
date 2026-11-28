@@ -8,7 +8,10 @@ use tor_contracts::guest_prefix::{GuestPrefix, GuestPrefixError, GUEST_PREFIX_AL
 
 mod queue;
 mod sweep;
-pub use queue::{GuestPrefixJob, GuestPrefixQueuedPage, GUEST_PREFIX_CONSUMER, GUEST_PREFIX_EVENT};
+pub use queue::{
+    GuestPrefixJob, GuestPrefixQueuedPage, GuestPrefixSource, GuestPrefixStoredSource,
+    GUEST_PREFIX_CONSUMER, GUEST_PREFIX_EVENT,
+};
 pub use sweep::{GuestPrefixPage, MAX_GUEST_PREFIX_SWEEP_PAGE};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

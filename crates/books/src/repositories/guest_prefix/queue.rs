@@ -7,6 +7,9 @@ use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use tor_contracts::guest_prefix::GUEST_PREFIX_ALGORITHM;
 
+mod source;
+pub use source::{GuestPrefixSource, GuestPrefixStoredSource};
+
 pub const GUEST_PREFIX_EVENT: &str = "GuestPrefixPrepare";
 pub const GUEST_PREFIX_CONSUMER: &str = "guest_prefix_prepare_v1";
 
