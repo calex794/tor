@@ -1,6 +1,6 @@
 # AUTH-UI-03b — email and claimed-handle login admission
 
-Status: draft; 03b1 only separates existing peer and submitted-identity admission. No HTTP behavior changes, schema changes or deployment in this slice. Depends on AUTH-UI-03a (#1345) and the accepted profile privacy contract (#1365).
+Status: draft; 03b1 separates existing peer and submitted-identity admission and implements the private account budget plus transactional reset in the repository. No HTTP behavior changes, schema changes or deployment in this slice. Depends on AUTH-UI-03a (#1345) and the accepted profile privacy contract (#1365).
 
 ## Product contract
 
@@ -17,6 +17,12 @@ Status: draft; 03b1 only separates existing peer and submitted-identity admissio
 5. The existing spray source lock is independent of the submitted-identity limit. Review target pseudonym semantics explicitly: counting resolved aliases as one target can expose linkage through an observable source lock threshold. Do not silently use a canonical mailbox as a publicly distinguishable spray target. Maintain source admission and abuse detection; prove equivalent public responses and document residual correlation risk before enabling handle login.
 6. Revalidate the requested alias and password hash under the account lock during session issuance. Reset successful-attempt counters only for the authenticated identity/account; examine ordering and transaction failure so stale proofs cannot clear another account's budget.
 7. Existing diagnostic telemetry must remain opt-in, keyed and bounded; no raw mailbox, handle, password, cookie or hash in logs or response bodies.
+
+## Repository slice (pending CI)
+
+- Reuses the existing atomic `auth_attempts` storage with an independent hashed user-ID namespace and separate unresolved-identity fallback. The public submitted key remains byte-for-byte unchanged.
+- Both private and proven submitted counters reset within the transaction that revalidates the alias/password hash and issues a session. Stale proofs and insertion failure cannot reset either counter.
+- Tests exercise key separation, concurrent attempts at the limit, a stale alias, rollback on duplicate session token and successful reset. The current HTTP handler does not yet invoke the new budget.
 
 ## Required acceptance (not yet implemented)
 

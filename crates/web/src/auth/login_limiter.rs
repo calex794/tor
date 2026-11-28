@@ -5,8 +5,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use std::net::{IpAddr, SocketAddr};
-use tor_accounts::services::auth_observation::AuthObservationSigner;
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::services::{
+    auth_observation::AuthObservationSigner, login_identity::submitted_attempt_key,
+    security::session_token_digest,
+};
 
 /// Only use X-Real-IP from a verified loopback reverse proxy when the
 /// operator has configured Nginx to overwrite it with $remote_addr.
@@ -77,7 +79,7 @@ pub(super) async fn limit_identity(
     action: &str,
     identity: &str,
 ) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{identity}"));
+    let identity_key = submitted_attempt_key(action, identity);
     // Never fall back to a global loopback IP counter. Account-specific
     // throttling and the bounded Argon2 worker still apply in this case.
     let identity_ok = state
