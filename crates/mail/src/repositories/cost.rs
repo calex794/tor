@@ -73,11 +73,22 @@ pub(super) async fn record_reservation(
     tx: &mut Transaction<'_, Postgres>,
     claim: MailClaim,
 ) -> Result<QuotaDecision, sqlx::Error> {
+    record_ledger_reservation(tx, claim.id, claim.generation, claim.intent.purpose).await
+}
+
+/// Shared monthly charge for an already inserted exact ledger reference.
+/// Operator tests use nonessential-news admission limits, not the news purpose.
+pub(super) async fn record_ledger_reservation(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+    generation: i32,
+    cost_purpose: tor_contracts::mail::MailPurpose,
+) -> Result<QuotaDecision, sqlx::Error> {
     use QuotaDecision::*;
     let Some(snapshot) = load(tx).await? else {
         return Ok(CostStateUnavailable);
     };
-    let decision = snapshot.admission(claim.intent.purpose);
+    let decision = snapshot.admission(cost_purpose);
     if decision != Reserved {
         return Ok(decision);
     }
@@ -96,8 +107,8 @@ pub(super) async fn record_reservation(
     )
     .bind(&usage.month_start)
     .bind(usage.reserved_attempts)
-    .bind(claim.id)
-    .bind(claim.generation)
+    .bind(id)
+    .bind(generation)
     .execute(&mut **tx)
     .await?
     .rows_affected();

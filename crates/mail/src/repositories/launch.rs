@@ -12,7 +12,7 @@ use tor_contracts::mail::MailPurpose;
 
 mod activation;
 mod operator_test;
-pub use operator_test::OperatorTestContext;
+pub use operator_test::{OperatorTestContext, OperatorTestReservation, OperatorTestReserveError};
 
 type DispatchProfileRow = (String, String, i64, i32, Vec<u8>, Vec<u8>);
 

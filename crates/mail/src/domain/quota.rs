@@ -7,6 +7,7 @@ pub const REGISTRATION_RECIPIENT_DAILY: i64 = 3;
 pub const REGISTRATION_IP_DAILY: i64 = 10;
 pub const PASSWORD_RESET_RECIPIENT_DAILY: i64 = 3;
 pub const PASSWORD_RESET_IP_DAILY: i64 = 10;
+pub const OPERATOR_TEST_RECIPIENT_DAILY: i64 = 3;
 
 /// Opaque keyed digests, not raw mailbox or IP. Construct only through
 /// the versioned signer; do not deserialize from untrusted inputs.
@@ -83,6 +84,8 @@ pub enum QuotaDecision {
     PasswordResetRecipientDaily,
     PasswordResetRecipientCooldown,
     PasswordResetIpDaily,
+    OperatorTestDaily,
+    OperatorTestCooldown,
 }
 
 impl QuotaDecision {
@@ -98,6 +101,8 @@ impl QuotaDecision {
             "reset_recipient_daily" => Some(Self::PasswordResetRecipientDaily),
             "reset_recipient_cooldown" => Some(Self::PasswordResetRecipientCooldown),
             "reset_ip_daily" => Some(Self::PasswordResetIpDaily),
+            "operator_test_daily" => Some(Self::OperatorTestDaily),
+            "operator_test_cooldown" => Some(Self::OperatorTestCooldown),
             "stale_claim" => Some(Self::StaleClaim),
             _ => None,
         }
