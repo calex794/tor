@@ -7,6 +7,8 @@ mod candidate_profile;
 mod catalog_concurrency;
 #[path = "drop_04d_worker_pg_minio/catalog_import.rs"]
 mod catalog_import;
+#[path = "drop_04d_worker_pg_minio/guest_prefix.rs"]
+mod guest_prefix;
 #[path = "drop_04d_worker_pg_minio/support.rs"]
 mod support;
 use std::time::Instant;

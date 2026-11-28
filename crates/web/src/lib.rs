@@ -44,6 +44,7 @@ pub mod flow_exposure;
 mod flow_navigation;
 pub mod flow_runtime;
 pub mod flow_signal_worker;
+pub mod guest_prefix_worker;
 mod header_nav;
 mod homepage_updates;
 mod layer_reader_assets;
@@ -251,7 +252,6 @@ async fn book_toc(
 async fn book_error(state: &AppState, status: StatusCode) -> Response {
     book_error_pages::public_book_error(state, status).await
 }
-
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,

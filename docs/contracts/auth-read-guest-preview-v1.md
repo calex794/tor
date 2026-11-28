@@ -177,10 +177,31 @@ cannot claim the locked row mid-commit. A lost acknowledgement permits an
 identical idempotent retry via PgOutbox, not a second derivative. Unfenced
 prepare_current is retained only for trusted direct preparation and tests;
 the background consumer must call prepare_claimed. The existing G consumer
-owns acknowledgement/retry. The next slice must bind source retrieval,
-obsolete-vs-retry classification, verified SINGLE/PACK I/O and worker
-dispatch; automatic scheduling, dead-letter recovery and repair of a
-missing previously delivered derivative remain explicit follow-ups.
+owns acknowledgement/retry.
+
+02c2b binds source retrieval without mounting a reader route or starting a
+worker. B resolves the exact live claimed event and current eligible FREE
+edition in one PG snapshot. For legacy editions only, return the bounded
+immutable PG body and verify its registered digest when present. For
+bodyless editions require the stored SHA, select the active generation,
+and reuse the B active_verified_free_range proof for PACK. Without an
+active pointer, only an admitted exact S349 SINGLE receipt is valid.
+An active PACK cannot fall back to SINGLE. Wrong/missing metadata is an
+error, not an obsolete success. B repeats the snapshot after PACK proof.
+The internal web bridge uses existing G FreeChapterStore verified GET /
+bounded PACK Range + decode, checks the configured bucket, exact length,
+SHA and UTF-8, and repeats B source/placement/lease resolution after I/O
+within one 20-second monotonic budget. It then invokes prepare_claimed,
+whose write transaction again checks current publication, policy, source
+digest and live claim. A placement change after the last source recheck
+cannot substitute different bytes for the immutable edition SHA. No public
+grant, signing, progress capture or storage call from a guest request.
+The PG-only bridge uses the same claim fence without requiring S3.
+None means there is no currently eligible live claim; it is not itself
+an acknowledgement or a permanent obsolete classification. Worker
+dispatch, obsolete-vs-retry handling, automatic scheduling, dead-letter
+recovery and repair of a missing previously delivered derivative remain
+explicit follow-ups.
 Unsupported literal markup is persisted as an immutable terminal
 projection_status=unsupported with empty text, zero count and the exact
 source hash; a valid empty/tiny projection is status=ready. Retries only

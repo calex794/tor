@@ -13,6 +13,7 @@ use tor_books::{
     services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_ingest::repositories::outbox::{OutboxError, PgOutbox};
+use tor_web::guest_prefix_worker::prepare_legacy_job;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
@@ -138,6 +139,7 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
         prefix.prepare_claimed(&job, source).await,
         Err(AuthorError::Conflict)
     );
+    assert_eq!(prepare_legacy_job(&prefix, &job).await, Ok(None));
     assert_eq!(
         pg(
             &url,
@@ -160,12 +162,12 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        prefix.prepare_claimed(&job, source).await,
-        Ok(GuestPrefixPreparation::Stored)
+        prepare_legacy_job(&prefix, &job).await,
+        Ok(Some(GuestPrefixPreparation::Stored))
     );
     assert_eq!(
-        prefix.prepare_claimed(&job, source).await,
-        Ok(GuestPrefixPreparation::AlreadyStored)
+        prepare_legacy_job(&prefix, &job).await,
+        Ok(Some(GuestPrefixPreparation::AlreadyStored))
     );
     assert!(outbox
         .acknowledge(&second.id, second.lease_epoch, GUEST_PREFIX_CONSUMER)
