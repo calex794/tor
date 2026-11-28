@@ -847,3 +847,6 @@ async fn auth_03_login_alias_is_rechecked_under_account_lock() {
         Some(user)
     );
 }
+
+#[path = "credentials_pg/login_budget.rs"]
+mod login_budget;

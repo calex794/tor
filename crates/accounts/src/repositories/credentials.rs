@@ -1,6 +1,9 @@
 //! Credential writes lock the account before sessions to serialize login and rotation.
 use super::postgres::{PgAccounts, StoredUser, INSERT_AUDITED_SESSION};
-use crate::{domain::access_audit::LoginAuditContext, services::login_identity::LoginIdentity};
+use crate::{
+    domain::access_audit::LoginAuditContext,
+    services::login_identity::{account_attempt_key, submitted_attempt_key, LoginIdentity},
+};
 use std::num::NonZeroU32;
 
 /// Private audit data for a proven live session; deliberately not serializable.
@@ -22,9 +25,9 @@ pub struct PasswordRotation<'a> {
 }
 
 impl PgAccounts {
-    /// Resolve the login alias through its existing unique index. Callers must
-    /// use the resolved canonical email for the same identity/spray budget
-    /// as email login, and recheck the alias when issuing the session.
+    /// Resolve the login alias through its existing unique index. Charge the
+    /// independent submitted-identity and shared account budgets, and recheck
+    /// the alias when issuing the session. Never expose the resolved mailbox.
     pub async fn find_user_by_login(
         &self,
         identity: &LoginIdentity,
@@ -42,6 +45,18 @@ impl PgAccounts {
                 .await
             }
         }
+    }
+
+    /// Reserve one attempt in the private account budget. A resolved user ID
+    /// shares the same eight-attempt window across all aliases and processes.
+    /// The caller must not expose exhaustion as a distinct public response.
+    pub async fn permit_login_account_attempt(
+        &self,
+        user_id: Option<i64>,
+        identity: &LoginIdentity,
+    ) -> Result<bool, sqlx::Error> {
+        self.permit_auth_attempt(&account_attempt_key(user_id, identity), 8, 600)
+            .await
     }
 
     /// Internal audit lookup bound to a live session proof, not a public DTO.
@@ -167,6 +182,8 @@ impl PgAccounts {
 
     /// Recheck the requested alias under the account lock too. The profile
     /// writer uses the same lock, so a moved handle cannot mint a stale session.
+    /// Reset only the proven submitted and shared account budgets, atomically
+    /// with successful issuance; stale proofs and failed writes reset neither.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_verified_session_for_login(
         &self,
@@ -230,6 +247,15 @@ impl PgAccounts {
             };
         if !alias_matches {
             return Ok(false);
+        }
+        if let Some(identity) = identity {
+            let submitted = submitted_attempt_key("login", identity.as_str());
+            let account = account_attempt_key(Some(user_id), identity);
+            sqlx::query("DELETE FROM auth_attempts WHERE key_hash=$1 OR key_hash=$2")
+                .bind(submitted.as_slice())
+                .bind(account.as_slice())
+                .execute(&mut *tx)
+                .await?;
         }
         sqlx::query(INSERT_AUDITED_SESSION)
             .bind(user_id)
