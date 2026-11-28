@@ -6,7 +6,14 @@ use crate::domain::{
     MailClaim,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::{mem, sync::Mutex, time::Instant};
+use std::{
+    mem,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    time::Instant,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
@@ -45,6 +52,7 @@ struct Approval {
 #[derive(Default)]
 pub struct LaunchFence {
     state: Mutex<State>,
+    retired: AtomicBool,
     dispatch_serial: tokio::sync::Mutex<()>,
 }
 
@@ -76,6 +84,11 @@ impl LaunchFence {
     ) -> Result<[u8; 32], LaunchError> {
         let mut state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
         *state = State::Stopped;
+        // A server shutdown is irreversible within this process. Check
+        // under the same lock used to publish an approval.
+        if self.retired.load(Ordering::Relaxed) {
+            return Err(LaunchError::Stopped);
+        }
         if !snapshot.ready_for_review()
             || matches!(scope, LaunchScope::OperatorTest(id) if id <= 0)
             || session == [0; 32]
@@ -257,6 +270,15 @@ impl LaunchFence {
         }
         // OperatorTest consumes the entire approval, regardless of SMTP
         // result; it can never authorize a second attempt.
+        Ok(())
+    }
+
+    /// Permanently retire this process's launch authority before HTTP drain.
+    /// No later review or committed activation can resurrect it.
+    pub fn retire(&self) -> Result<(), LaunchError> {
+        let mut state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
+        self.retired.store(true, Ordering::Relaxed);
+        *state = State::Stopped;
         Ok(())
     }
 

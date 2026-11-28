@@ -1,5 +1,6 @@
 //! External system mail cost page; never touches the internal message system.
 use super::AuthState;
+use crate::flow_runtime::mail::MailControl;
 use crate::{
     auth_cookies::{deny, private_response},
     pages,
@@ -9,7 +10,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use serde::Deserialize;
 use tor_accounts::{
@@ -169,6 +170,16 @@ fn valid_csrf(state: &AuthState, headers: &HeaderMap, token: &str) -> bool {
     state.cookies.same_origin(headers) && state.cookies.valid_csrf(headers, token)
 }
 
+fn stop_local(control: Option<Extension<MailControl>>) {
+    if let Some(Extension(control)) = control {
+        // Poisoned local authority is already fail-closed; still perform
+        // the durable emergency stop or configuration transaction.
+        if control.stop().is_err() {
+            tracing::warn!("System mail local authority unavailable");
+        }
+    }
+}
+
 fn rubles(form: &LimitsForm) -> Option<LimitChange> {
     Some(LimitChange {
         warning_1: form.warning_1.checked_mul(100)?,
@@ -181,6 +192,7 @@ fn rubles(form: &LimitsForm) -> Option<LimitChange> {
 async fn save(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    control: Option<Extension<MailControl>>,
     Form(form): Form<LimitsForm>,
 ) -> Response {
     let digest = match operator(&state, &headers).await {
@@ -193,6 +205,7 @@ async fn save(
     let Some(limits) = rubles(&form) else {
         return deny(StatusCode::BAD_REQUEST);
     };
+    stop_local(control);
     match store(&state)
         .admin_save_limits(&digest, form.revision, limits)
         .await
@@ -205,6 +218,7 @@ async fn save(
 async fn stop(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    control: Option<Extension<MailControl>>,
     Form(form): Form<StopForm>,
 ) -> Response {
     let digest = match operator(&state, &headers).await {
@@ -214,6 +228,7 @@ async fn stop(
     if !valid_csrf(&state, &headers, &form.csrf_token) {
         return deny(StatusCode::FORBIDDEN);
     }
+    stop_local(control);
     match store(&state).admin_stop(&digest).await {
         Ok(()) => private_response(Redirect::to("/odmen/system-mail"), &[]),
         Err(error) => deny(status(error)),
@@ -223,6 +238,7 @@ async fn stop(
 async fn reconcile(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    control: Option<Extension<MailControl>>,
     Form(form): Form<ReconcileForm>,
 ) -> Response {
     let digest = match operator(&state, &headers).await {
@@ -235,6 +251,7 @@ async fn reconcile(
     let Some(request) = form.request() else {
         return deny(StatusCode::BAD_REQUEST);
     };
+    stop_local(control);
     match store(&state)
         .admin_reconcile_month(&digest, form.revision, &request)
         .await
@@ -247,6 +264,7 @@ async fn reconcile(
 async fn save_profile(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    control: Option<Extension<MailControl>>,
     Form(form): Form<ProfileForm>,
 ) -> Response {
     let password = Zeroizing::new(form.current_password);
@@ -324,6 +342,7 @@ async fn save_profile(
         Err(StepUpIssueError::InvalidIntent) => return deny(StatusCode::BAD_REQUEST),
         Err(StepUpIssueError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    stop_local(control);
     match profile::store(&state)
         .admin_save_candidate(&digest, &proof, form.revision, &candidate)
         .await

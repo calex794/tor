@@ -300,3 +300,41 @@ fn raw_counter_cannot_authorize_dispatch() {
         Err(LaunchError::Conflict)
     );
 }
+
+#[test]
+fn shutdown_retires_authority_and_rejects_late_activation() {
+    let gate = LaunchFence::new();
+    let mut snapshot = stopped();
+    let challenge = gate
+        .begin_review(&snapshot, LaunchScope::Dispatch, SESSION)
+        .unwrap();
+    let intent = gate
+        .confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            snapshot.evidence(),
+            snapshot.profile_digest(),
+        )
+        .unwrap();
+    let original = snapshot.clone();
+    snapshot.enabled = true;
+    snapshot.policy_revision += 1;
+    snapshot.activation_digest = Some(intent.proof_digest());
+    gate.retire().unwrap();
+    assert_eq!(
+        gate.complete_activation(intent, &snapshot),
+        Err(LaunchError::Stopped)
+    );
+    gate.stop().unwrap();
+    assert_eq!(
+        gate.begin_review(&original, LaunchScope::Dispatch, SESSION),
+        Err(LaunchError::Stopped)
+    );
+    let (active, snapshot) = armed(LaunchScope::Dispatch);
+    active.retire().unwrap();
+    assert_eq!(
+        active.permit_reservation(&snapshot, LaunchScope::Dispatch),
+        Err(LaunchError::Stopped)
+    );
+}

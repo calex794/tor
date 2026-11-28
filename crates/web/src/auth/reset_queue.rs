@@ -15,6 +15,17 @@ pub(super) fn queue_selected() -> bool {
     std::env::var_os("TOR_PASSWORD_RESET_QUEUE_ENABLED").is_some_and(|value| value != "0")
 }
 
+/// Shared exact ingress/worker configuration. Neither path logs the key.
+pub(crate) fn configured_signer() -> Option<Arc<QuotaKeySigner>> {
+    if std::env::var("TOR_PASSWORD_RESET_ENABLED").as_deref() != Ok("1")
+        || std::env::var("TOR_PASSWORD_RESET_QUEUE_ENABLED").as_deref() != Ok("1")
+    {
+        return None;
+    }
+    let key = Zeroizing::new(std::env::var("TOR_MAIL_QUOTA_KEY").ok()?);
+    Some(Arc::new(QuotaKeySigner::from_hex(key.as_str())?))
+}
+
 #[derive(Clone)]
 pub(super) struct ResetQueue {
     signer: Arc<QuotaKeySigner>,
@@ -23,14 +34,8 @@ pub(super) struct ResetQueue {
 
 impl ResetQueue {
     pub(super) fn from_env() -> Option<Self> {
-        if std::env::var("TOR_PASSWORD_RESET_ENABLED").as_deref() != Ok("1")
-            || std::env::var("TOR_PASSWORD_RESET_QUEUE_ENABLED").as_deref() != Ok("1")
-        {
-            return None;
-        }
-        let key = Zeroizing::new(std::env::var("TOR_MAIL_QUOTA_KEY").ok()?);
         Some(Self {
-            signer: Arc::new(QuotaKeySigner::from_hex(key.as_str())?),
+            signer: configured_signer()?,
             permits: Arc::new(Semaphore::new(4)),
         })
     }
