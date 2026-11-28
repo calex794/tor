@@ -112,7 +112,13 @@ pub struct PreparedDispatch {
     pub(crate) grant: DispatchGrant,
     pub(crate) marker: String,
     pub(crate) reset_hash: Option<[u8; 32]>,
+    pub(crate) registration: Option<RegistrationProof>,
     pub(crate) started: Instant,
+}
+
+pub(crate) struct RegistrationProof {
+    pub(crate) digest: [u8; 32],
+    pub(crate) mailbox_revision: i64,
 }
 
 impl PreparedDispatch {
@@ -129,8 +135,24 @@ impl PreparedDispatch {
             },
             marker,
             reset_hash,
+            registration: None,
             started,
         }
+    }
+
+    pub(crate) fn with_registration(
+        grant: &DispatchGrant,
+        marker: String,
+        digest: [u8; 32],
+        mailbox_revision: i64,
+        started: Instant,
+    ) -> Self {
+        let mut prepared = Self::new(grant, marker, None, started);
+        prepared.registration = Some(RegistrationProof {
+            digest,
+            mailbox_revision,
+        });
+        prepared
     }
 
     pub fn claim(&self) -> MailClaim {

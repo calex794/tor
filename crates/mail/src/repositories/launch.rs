@@ -126,6 +126,21 @@ impl PgMailLaunch {
                         AND p.credential_fingerprint=s.credential_fingerprint
                         AND p.credential_fingerprint=sha256(convert_to(u.password_hash,'UTF8'))
                   ))
+                  AND (m.purpose<>'registration_confirmation' OR EXISTS (
+                      SELECT 1 FROM account_email_ownership p
+                      JOIN account_registration_mail_sources s ON s.user_id=p.user_id
+                      WHERE p.user_id=u.id AND m.event_id=u.id
+                        AND p.outbox_id=m.id AND p.generation=m.generation
+                        AND p.challenge_sha256=$9 AND p.verified_at IS NULL
+                        AND p.expires_at>clock_timestamp()
+                        AND p.mailbox_revision=$10
+                        AND p.mailbox_revision=u.mail_ownership_revision
+                        AND p.address_sha256=sha256(convert_to(u.email_normalized,'UTF8'))
+                        AND s.created_at>clock_timestamp()-interval '24 hours'
+                        AND s.created_at<=clock_timestamp()
+                        AND s.recipient_key=r.recipient_key AND s.key_binding=g.key_binding
+                        AND s.registration_ip_key IS NOT DISTINCT FROM r.registration_ip_key
+                  ))
             )"#,
         )
         .bind(claim.id)
@@ -136,6 +151,8 @@ impl PgMailLaunch {
         .bind(digest.as_slice())
         .bind(marker)
         .bind(prepared.reset_hash.as_ref().map(|hash| hash.as_slice()))
+        .bind(prepared.registration.as_ref().map(|p| p.digest.as_slice()))
+        .bind(prepared.registration.as_ref().map(|p| p.mailbox_revision))
         .fetch_one(&mut *tx)
         .await?;
         if !exact {
