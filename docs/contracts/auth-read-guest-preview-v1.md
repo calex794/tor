@@ -132,6 +132,24 @@ most the stored prefix and never fetches the complete chapter per guest read.
 Do not expose N, internal projection digest, full source digest, byte offsets
 or content plan to guest as part of the preview response.
 
+02b persists one bounded derivative keyed by chapter_id, version_id and
+algorithm_version with exact source and prefix SHA-256. A trusted B/G worker
+must supply verified bytes for the current FREE edition, never an actor or
+browser-provided arbitrary version. Verify book policy revision, cutoff,
+publication and content hash under the book/chapter/publication locks before
+committing; stale or mismatched work cannot attach. Legacy NULL content_sha256
+is verified from the immutable PG body only during preparation, never during
+guest delivery. Exact duplicate preparation is idempotent; inconsistent
+existing rows fail closed. Derivative rows may be removed/rebuilt without
+changing an edition; they add no independent retention or entitlement.
+The D-001 installed foreign-key inventory explicitly classifies the exact
+validated composite FK with ON DELETE CASCADE as derived-guest-prefix.
+The regression checks logical, reader-retained and physical edition counts
+are unchanged by projection preparation. This classification does not grant
+physical deletion authority, change existing pin checks or modify GC.
+Automatic publication/import/schedule and fenced backfill wiring remain a
+separate slice; no read route or activation is introduced by this storage slice.
+
 New bodyless FREE full Markdown remains in verified S3 only; legacy PG text
 retains existing migration semantics. The projection is a small intentional
 derivative, rebuildable from source, never a substitute for source or an
