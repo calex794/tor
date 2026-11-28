@@ -25,3 +25,9 @@ The worker now depends on a redacted persistence adapter rather than SQLx types.
 ## Shared operator stop
 
 The web runtime owns one lazy process-local fence, shared by future activation and worker composition. Authenticated and CSRF-checked operator mutations (stop, validated budget change, reconciliation, exact-password-authorized profile save) revoke local authority before database mutation. A control mutex serializes these operations and revokes again after acquisition; future activation must share that mutex. No SQL or SMTP is performed under the fence's synchronous state mutex. A stopped database alone is not proof of process-local revocation; the HTTP regression explicitly tests a pending review with an already stopped database. The runtime still has no activation endpoint or automatic worker startup.
+
+## First trusted source: support replies
+
+The support repository resolves an exact message ID, registered conversation owner and matching successful administrator reply audit, without returning conversation text. The account repository reads the current active account's canonical transport address independently. The application source implements only SupportReply, renders a generic Russian notification and uses the trusted HTTPS application origin's /support path. It does not interpret unsupported purposes as permission to send. PostgreSQL acceptance checks owner mismatch, requester messages, deleted accounts and address changes. No guest mailbox, private conversation text, arbitrary recipient or browser-supplied link is accepted.
+
+This is a read/render adapter only. No enqueue hook, runtime activation or polling is installed. Active canonical mailbox syntax is not ownership proof; the dedicated account-verification and purpose-specific eligibility policy must be accepted before enabling live support notifications. Existing reader-news consent is not repurposed as general account verification.

@@ -50,6 +50,7 @@ mod layer_reader_assets;
 mod layer_reader_pages;
 pub mod mail_dispatch_preflight;
 pub mod mail_dispatch_runtime;
+pub mod mail_dispatch_source;
 pub mod package_cover_cleanup;
 mod recommendation_http;
 pub mod recommendation_worker;
