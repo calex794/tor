@@ -1,5 +1,8 @@
 //! FND-00g: real owner HTTP editor opens only exact current paid S3-only
 //! source, then saves immutable V2 without PostgreSQL body Markdown.
+#[path = "fnd00_runtime.rs"]
+mod fnd00_runtime;
+
 use super::*;
 use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
