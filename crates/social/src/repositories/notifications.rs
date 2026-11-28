@@ -37,6 +37,7 @@ type NotificationRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
 );
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,16 +196,20 @@ impl PgNotifications {
                            THEN source_actor.display_name END,
                       CASE WHEN notice_event.payload->>'recipient_user_id'=n.recipient_user_id::text
                              AND notice_event.payload->>'actor_user_id'=n.actor_user_id::text
-                           THEN notice_event.payload->>'object_id' END
+                           THEN notice_event.payload->>'object_id' END,
+                      source_settings.handle
                FROM user_notifications n
-               -- Reconstruct only mailbox-like legacy actor snapshots. The
-               -- event and actor IDs are authoritative, never the saved text.
+               -- Friendship links follow the canonical actor after a rename
+               -- or first handle claim. Other snapshots are repaired only
+               -- when marked with a mailbox. Never trust a saved identity.
                LEFT JOIN outbox_events notice_event ON notice_event.id=n.source_event_id
-                 AND (strpos(n.title,'@')>0 OR strpos(n.body,'@')>0
+                 AND (n.kind='friendship' OR strpos(n.title,'@')>0 OR strpos(n.body,'@')>0
                       OR strpos(n.url,'@')>0 OR strpos(lower(n.url),'%40')>0)
                LEFT JOIN users source_actor ON source_actor.id=n.actor_user_id
                  AND notice_event.payload->>'actor_user_id'=n.actor_user_id::text
                  AND notice_event.payload->>'recipient_user_id'=n.recipient_user_id::text
+               LEFT JOIN account_settings source_settings ON source_settings.user_id=source_actor.id
+                 AND source_actor.account_state='active'
                WHERE n.recipient_user_id=$1 AND ($2::bigint IS NULL OR n.id<$2)
                  AND {}
                  AND (
@@ -269,6 +274,7 @@ impl PgNotifications {
                     actor_text::project(
                         kind,
                         r.8.as_deref(),
+                        r.10.as_deref(),
                         r.9.as_deref().and_then(|id| id.parse().ok()),
                     )
                 }) {

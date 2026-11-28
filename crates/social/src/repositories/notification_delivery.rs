@@ -174,15 +174,19 @@ pub(super) async fn pending(pool: &PgPool, limit: u16) -> Result<usize, MailErro
                     "/me/stats/continuations".to_owned(),
                 )
             } else {
-                let name: Option<String> = sqlx::query_scalar(
-                    "SELECT CASE WHEN strpos(lower(display_name),email_normalized)=0
-                      THEN display_name END FROM users WHERE id=$1",
+                let (name, handle): (Option<String>, Option<String>) = sqlx::query_as(
+                    "SELECT CASE WHEN u.account_state='active'
+                                  AND strpos(lower(u.display_name),u.email_normalized)=0
+                                 THEN u.display_name END,
+                            CASE WHEN u.account_state='active' THEN s.handle END
+                     FROM users u LEFT JOIN account_settings s ON s.user_id=u.id
+                     WHERE u.id=$1",
                 )
                 .bind(actor)
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(unavailable)?;
-                actor_text::project(&kind, name.as_deref(), Some(object_id))
+                actor_text::project(&kind, name.as_deref(), handle.as_deref(), Some(object_id))
                     .expect("event_type is closed by SQL")
             };
             sqlx::query(

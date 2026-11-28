@@ -14,11 +14,22 @@ fn object_url(prefix: &str, object_id: Option<i64>) -> String {
 pub(super) fn project(
     kind: &str,
     public_name: Option<&str>,
+    handle: Option<&str>,
     object_id: Option<i64>,
 ) -> Option<ActorText> {
     let public_name = public_name.filter(|name| !name.contains('@'));
     let name = public_name.unwrap_or("Пользователь");
     let profile_url = || {
+        if let Some(handle) = handle.filter(|value| {
+            (3..=32).contains(&value.len())
+                && value
+                    .bytes()
+                    .all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.".contains(&byte)
+                    })
+        }) {
+            return format!("/users/by-handle/{handle}");
+        }
         public_name.map_or_else(
             || "/notifications".to_owned(),
             |name| format!("/users/{}", encode_segment(name)),
@@ -84,13 +95,19 @@ mod tests {
     #[test]
     fn actor_text_never_uses_mailbox_as_name_or_profile_link() {
         let mailbox = Some("private@example.test");
-        let row = project("social.friendship.requested", mailbox, Some(1)).unwrap();
+        let row = project("social.friendship.requested", mailbox, None, Some(1)).unwrap();
         assert_eq!(row.2, "Пользователь хочет добавить вас в друзья.");
         assert_eq!(row.3, "/notifications");
-        let row = project("social.friendship.accepted", Some("Алиса"), Some(1)).unwrap();
+        let row = project("social.friendship.accepted", Some("Алиса"), None, Some(1)).unwrap();
         assert_eq!(row.3, "/users/%D0%90%D0%BB%D0%B8%D1%81%D0%B0");
-        let row = project("social.mail.created", None, Some(72)).unwrap();
+        let row = project("social.friendship.accepted", mailbox, Some("alice"), Some(1))
+            .unwrap();
+        assert_eq!(row.3, "/users/by-handle/alice");
+        assert!(!row.2.contains('@'));
+        let row = project("social.friendship.accepted", None, Some("../x"), Some(1)).unwrap();
+        assert_eq!(row.3, "/notifications");
+        let row = project("social.mail.created", None, None, Some(72)).unwrap();
         assert_eq!(row.3, "/mail/72");
-        assert!(project("reader.continuation.requested", None, None).is_none());
+        assert!(project("reader.continuation.requested", None, None, None).is_none());
     }
 }

@@ -50,5 +50,44 @@ async fn auth_profile_03b_legacy_notification_mailbox_is_never_returned() {
     assert!(notifications.mark_read(recipient, repaired[0].id).await.unwrap());
     let after = notifications.list(recipient, None, 50).await.unwrap();
     assert!(after[0].is_read);
+
+    // A first handle claim and rename update the old friendship target,
+    // without changing event identity, recipient, ordering or read state.
+    let handle = format!("notice{sender}");
+    sqlx::query("INSERT INTO account_settings(user_id,handle) VALUES($1,$2)")
+        .bind(sender)
+        .bind(&handle)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET display_name='Renamed reader' WHERE id=$1")
+        .bind(sender)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let stable = format!("/users/by-handle/{handle}");
+    let rows = notifications.list(recipient, None, 50).await.unwrap();
+    let old_friend = after.iter().find(|row| row.kind == "friendship").unwrap();
+    let friend = rows.iter().find(|row| row.kind == "friendship").unwrap();
+    assert_eq!(friend.id, old_friend.id);
+    assert_eq!(friend.is_read, old_friend.is_read);
+    assert_eq!(friend.url, stable);
+    assert!(friend.body.contains("Renamed reader"));
+
+    friends.request(sender, outsider).await.unwrap();
+    for _ in 0..12 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let fresh = notifications.list(outsider, None, 50).await.unwrap();
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(fresh[0].url, stable);
+    let persisted_url: String = sqlx::query_scalar("SELECT url FROM user_notifications WHERE id=$1")
+        .bind(fresh[0].id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(persisted_url, stable);
     cleanup(&pool, &users).await;
 }
