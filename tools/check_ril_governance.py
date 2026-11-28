@@ -573,8 +573,31 @@ def _system_mail_policy(entry: dict[str, str], body: str,
             guarded = guarded and all(marker in helper for marker in (
                 "state.cookies.secure", 'uri.scheme_str() == Some("http")',
                 'matches!(uri.host(), Some("127.0.0.1" | "localhost"))',
-                'TOR_POSTBOX_PROFILE_MASTER_KEY', 'TOR_POSTBOX_PROFILE_KEY_VERSION',
             ))
+            # Follow the exact reviewed HTTP wrapper into the shared runtime
+            # loader. Environment names in unrelated code are not evidence.
+            wrapper = _functions(helper).get("master_key", "")
+            loader = _functions(functions.get("__mail_profile_runtime", "")).get(
+                "profile_master_key", ""
+            )
+            wrapper = re.sub(r"\s+", "", wrapper)
+            loader = re.sub(r"\s+", "", loader.split("#[cfg(", 1)[0])
+            guarded = guarded and "match profile::master_key()" in body and (
+                wrapper == (
+                    "pub(super)fnmaster_key()->Result<ProfileMasterKey,StatusCode>{"
+                    "crate::flow_runtime::mail::profile_master_key()"
+                    ".map_err(|_|StatusCode::SERVICE_UNAVAILABLE)}"
+                )
+                and loader == (
+                    "pub(crate)fnprofile_master_key()->Result<ProfileMasterKey,&'staticstr>{"
+                    'letunavailable="Postboxprofilemasterkeyunavailable";'
+                    'letversion=std::env::var("TOR_POSTBOX_PROFILE_KEY_VERSION")'
+                    '.map_err(|_|unavailable)?.parse::<i32>().map_err(|_|unavailable)?;'
+                    'letencoded=Zeroizing::new(std::env::var("TOR_POSTBOX_PROFILE_MASTER_KEY")'
+                    '.map_err(|_|unavailable)?);'
+                    'ProfileMasterKey::from_base64(version,&encoded).map_err(|_|unavailable)}'
+                )
+            )
             if entry["handler"] == "save_profile":
                 guarded = guarded and all(marker in body for marker in (
                     "permit_auth_attempt(&attempt_key, 6, 600)", "verify_password_for_step_up(&password, &hash)",
@@ -2583,6 +2606,7 @@ def check(root: Path = ROOT) -> list[str]:
                 ("__mail_month_reconciliation", "crates/mail/src/repositories/cost/admin/reconciliation.rs"),
                 ("__mail_profile_repository", "crates/mail/src/repositories/postbox_profile.rs"),
                 ("__mail_profile_http", "crates/web/src/auth/admin_mail_cost/profile.rs"),
+                ("__mail_profile_runtime", "crates/web/src/flow_runtime/mail.rs"),
                 ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
             ):
                 try:

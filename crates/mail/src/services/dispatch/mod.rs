@@ -128,7 +128,7 @@ impl DispatchWorker {
                 }
             }
         }
-        let _ = self.fence.stop();
+        let _ = self.fence.retire();
     }
 
     /// One bounded, serialized attempt. An error/timeout can mean a committed

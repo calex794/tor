@@ -2,7 +2,11 @@
 pub use crate::auth::reset_queue::{
     build_password_reset_dispatch, start_handoff as start_password_reset_handoff,
 };
-use axum::Router;
+use axum::{Extension, Router};
+use tor_accounts::repositories::PgAccounts;
+
+pub(crate) mod mail;
+use mail::ManagedMail;
 use std::{net::SocketAddr, time::Duration};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tor_books::repositories::PgCatalog;
@@ -67,19 +71,60 @@ impl Drop for HtmlCollector {
     }
 }
 
+/// Managed mail drains separately from ordinary cancellable background tasks.
+pub struct Backgrounds {
+    tasks: Vec<JoinHandle<()>>,
+    mail: Option<ManagedMail>,
+}
+
+impl Backgrounds {
+    pub fn start(accounts: Option<PgAccounts>) -> Result<Self, &'static str> {
+        let mail = ManagedMail::from_env(accounts.as_ref())?;
+        let mut tasks = crate::flow_signal_worker::start(accounts.clone());
+        tasks.extend(start_password_reset_handoff(accounts));
+        Ok(Self { tasks, mail })
+    }
+}
+
+impl Extend<JoinHandle<()>> for Backgrounds {
+    fn extend<T: IntoIterator<Item = JoinHandle<()>>>(&mut self, iter: T) {
+        self.tasks.extend(iter);
+    }
+}
+
 pub async fn serve(
     listener: TcpListener,
     app: Router,
     html: Option<HtmlCollector>,
     observations: Option<crate::flow_exposure::ObservationCollector>,
-    backgrounds: Vec<JoinHandle<()>>,
+    backgrounds: Backgrounds,
 ) -> std::io::Result<()> {
+    let Backgrounds { tasks, mail } = backgrounds;
+    // The operator endpoints and worker share exactly one process authority.
+    let app = if let Some(mail) = &mail {
+        app.layer(Extension(mail.control()))
+    } else {
+        app
+    };
+    let mail_stop = mail.as_ref().map(ManagedMail::stop_handle);
     let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        if let Some(stop) = mail_stop {
+            stop.request_stop();
+        }
+    })
     .await;
+    // Also cover listener errors. Never let a drained HTTP server start
+    // another SMTP transaction; wait for its current bounded attempt.
+    if let Some(mail) = mail {
+        if !mail.drain().await {
+            tracing::warn!("System mail stopped without a worker acknowledgement");
+        }
+    }
     // Axum returns only after accepting stopped and all in-flight requests completed.
     // A listener error, task abort or dropped control is never a terminal acknowledgement.
     if result.is_ok() {
@@ -109,7 +154,7 @@ pub async fn serve(
             }
         }
     }
-    for task in backgrounds {
+    for task in tasks {
         task.abort();
         let _ = task.await;
     }

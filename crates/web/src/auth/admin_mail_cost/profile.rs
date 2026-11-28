@@ -6,7 +6,6 @@ use tor_mail::{
     domain::postbox_profile::ProfileMasterKey,
     repositories::postbox_profile::{PgPostboxProfile, ProfileError, ProfileView},
 };
-use zeroize::Zeroizing;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,14 +41,7 @@ pub(super) fn status(error: ProfileError) -> StatusCode {
 }
 
 pub(super) fn master_key() -> Result<ProfileMasterKey, StatusCode> {
-    let unavailable = StatusCode::SERVICE_UNAVAILABLE;
-    let version = std::env::var("TOR_POSTBOX_PROFILE_KEY_VERSION")
-        .map_err(|_| unavailable)?
-        .parse::<i32>()
-        .map_err(|_| unavailable)?;
-    let encoded =
-        Zeroizing::new(std::env::var("TOR_POSTBOX_PROFILE_MASTER_KEY").map_err(|_| unavailable)?);
-    ProfileMasterKey::from_base64(version, &encoded).map_err(|_| unavailable)
+    crate::flow_runtime::mail::profile_master_key().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 pub(super) fn secure_origin(state: &AuthState) -> bool {
