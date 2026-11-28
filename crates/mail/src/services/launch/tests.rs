@@ -141,7 +141,9 @@ fn test_authority_is_one_use_and_not_a_dispatch_grant() {
     let (gate, active) = armed(scope);
     snapshot = active;
     gate.permit_reservation(&snapshot, scope).unwrap();
-    let grant = gate.authorize_operator_test(&snapshot, 7, &SESSION).unwrap();
+    let grant = gate
+        .authorize_operator_test(&snapshot, 7, &SESSION)
+        .unwrap();
     assert_eq!(grant.actor(), 7);
     assert_eq!(gate.precheck_operator_test(&grant, &snapshot), Ok(()));
     assert!(matches!(

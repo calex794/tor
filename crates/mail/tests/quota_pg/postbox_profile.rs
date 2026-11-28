@@ -344,17 +344,24 @@ async fn exercise_launch_fence(
         Err(LaunchError::Stopped)
     );
     fence.permit_reservation(&active, scope).unwrap();
-    let grant = fence.authorize_operator_test(&active, actor, digest).unwrap();
+    let grant = fence
+        .authorize_operator_test(&active, actor, digest)
+        .unwrap();
     let recipient: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
         .bind(actor)
         .fetch_one(pool)
         .await
         .unwrap();
     assert!(matches!(
-        launch.operator_test_context(&grant, "foreign@example.invalid").await,
+        launch
+            .operator_test_context(&grant, "foreign@example.invalid")
+            .await,
         Err(ProfileError::Forbidden)
     ));
-    let context = launch.operator_test_context(&grant, &recipient).await.unwrap();
+    let context = launch
+        .operator_test_context(&grant, &recipient)
+        .await
+        .unwrap();
     assert_eq!(context.recipient(), recipient);
     assert_eq!(&context.profile().intent_digest(), profile_digest);
     assert!(launch.snapshot().await.unwrap().unwrap() == active);
