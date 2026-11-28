@@ -41,8 +41,7 @@ pub(super) fn status(error: ProfileError) -> StatusCode {
 }
 
 pub(super) fn master_key() -> Result<ProfileMasterKey, StatusCode> {
-    crate::flow_runtime::mail::profile_master_key()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+    crate::flow_runtime::mail::profile_master_key().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 pub(super) fn secure_origin(state: &AuthState) -> bool {
