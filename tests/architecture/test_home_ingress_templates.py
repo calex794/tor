@@ -41,6 +41,36 @@ class HomeIngressTemplatesTests(unittest.TestCase):
         self.assertNotIn("proxy_cache ", edge)
         self.assertNotIn("proxy_pass http://127.0.0.1:3000;", edge)
 
+    def test_all_ingress_servers_disable_request_access_logs(self):
+        # The HTTP redirect and default hosts can receive old mailbox paths,
+        # not only the TLS application server. Do not rely on global defaults.
+        for filename, expected_servers in (
+            ("vps-site.nginx.conf.example", 4),
+            ("home-site.nginx.conf.example", 1),
+        ):
+            with self.subTest(filename=filename):
+                source = (SAMPLES / filename).read_text()
+                directives = [
+                    line.strip() for line in source.splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")
+                ]
+                blocks = "\n".join(directives).split("\nserver {\n")
+                if blocks[0].startswith("server {\n"):
+                    blocks[0] = blocks[0].removeprefix("server {\n")
+                else:
+                    self.assertEqual(blocks.pop(0), "")
+                self.assertEqual(len(blocks), expected_servers)
+                for block in blocks:
+                    # Only server-level policy is accepted; nested overrides
+                    # (including a logging location) would fail this guard.
+                    before_nested = block.split("location ", 1)[0]
+                    self.assertEqual(before_nested.count("access_log off;"), 1)
+                    self.assertEqual(
+                        [line for line in block.splitlines()
+                         if line.startswith("access_log ")],
+                        ["access_log off;"],
+                    )
+
     def test_home_http_and_pg_are_not_public(self):
         home = (SAMPLES / "home-site.nginx.conf.example").read_text()
         self.assertIn("listen 10.88.0.2:18081;", home)
