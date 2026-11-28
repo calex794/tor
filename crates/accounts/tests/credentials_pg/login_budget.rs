@@ -36,7 +36,12 @@ async fn auth_03_shared_account_attempts_and_atomic_reset() {
     assert_eq!(accounts.update_profile(user, &claim).await.unwrap(), 1);
     for alias in [&email, &handle] {
         assert_eq!(
-            accounts.find_user_by_login(alias).await.unwrap().unwrap().id,
+            accounts
+                .find_user_by_login(alias)
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
             user
         );
     }

@@ -69,7 +69,7 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
              ("traffic_storage_catalog", "books_import_authoring")),
             ("reading", 50, 50, "postgres_reading", "text_issues_pg",
              ("reading_library", "referrals_recommendations_social")),
-            ("commerce", 60, 55, "slices_pg d_02_", "ril_behavior_consent_pg",
+            ("commerce", 61, 56, "slices_pg d_02_", "ril_behavior_consent_pg",
              ("commerce_support", "http_security")),
         )
         for shard, count, timed, first, last, phases in cases:
@@ -92,6 +92,10 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
                         sum("--test admin_s3_step_up_pg " in row[0] for row in rows), 1
                     )
                 if shard == "commerce":
+                    self.assertEqual(
+                        sum(row[0] == "test -p tor-web --test auth_spray_http_pg -- --ignored --test-threads=1"
+                            for row in rows), 1
+                    )
                     disabled = next(row for row in rows if "d_06_swap_http_disabled_by_default" in row[0])
                     enabled = next(row for row in rows if "d_06_swap_http_preview_csrf_actor" in row[0])
                     self.assertEqual(disabled[1:3], ["unset", "unset"])
@@ -102,15 +106,19 @@ class SharedPgRuntimeAcceptanceTests(unittest.TestCase):
         for shard, match in (("foundation", "ril_rollups_pg"),
                              ("reading", "postgres_reading"),
                              ("commerce", "slices_pg d_02_"),
-                             ("commerce", "d_06_swap_http_disabled_by_default")):
+                             ("commerce", "d_06_swap_http_disabled_by_default"),
+                             ("commerce", "auth_spray_http_pg")):
             with self.subTest(shard=shard, match=match):
                 result, rows = self.invoke(shard, match)
                 self.assertEqual(result.returncode, 17)
                 self.assertIn(match, rows[-1][0])
                 self.assertNotIn("CI_PG_PHASE_SECONDS phase=http_security", result.stdout)
-                if "disabled_by_default" not in match:
+                if match not in ("d_06_swap_http_disabled_by_default", "auth_spray_http_pg"):
                     self.assertEqual(len(rows), 1)
                     self.assertIn("status=17", result.stdout)
+                if match == "auth_spray_http_pg":
+                    self.assertIn("status=17", result.stdout)
+                    self.assertFalse(any("ril_behavior_consent_pg" in row[0] for row in rows))
         for shard in ("", "all", "unknown"):
             result, rows = self.invoke(shard)
             self.assertEqual(result.returncode, 2)
