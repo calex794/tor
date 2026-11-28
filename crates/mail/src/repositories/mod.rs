@@ -1,4 +1,5 @@
 pub mod cost;
+pub mod dispatch;
 pub mod launch;
 pub mod postbox_feedback;
 pub mod postbox_profile;
@@ -6,6 +7,8 @@ pub mod quota;
 pub mod suppression;
 
 use crate::domain::{MailClaim, MailOutcome};
+
+mod scheduling;
 use sqlx::{PgPool, Row};
 use tor_contracts::{
     auth::UserId,
@@ -41,13 +44,36 @@ impl PgMailQueue {
     /// Short, atomic claim. Never hold a database transaction during SMTP.
     /// News is lower priority than account and support messages.
     pub async fn claim_next(&self) -> Result<Option<MailClaim>, sqlx::Error> {
+        self.claim_next_for(&[
+            MailPurpose::RegistrationConfirmation,
+            MailPurpose::PasswordReset,
+            MailPurpose::SupportReply,
+            MailPurpose::ProjectNews,
+        ])
+        .await
+    }
+
+    /// The common worker claims only purposes with an installed source
+    /// resolver. Unimplemented product flows are not silently discarded.
+    pub async fn claim_next_for(
+        &self,
+        purposes: &[MailPurpose],
+    ) -> Result<Option<MailClaim>, sqlx::Error> {
+        if purposes.is_empty() {
+            return Ok(None);
+        }
+        let purposes: Vec<String> = purposes.iter().map(|p| p.as_str().to_owned()).collect();
         let row = sqlx::query(
-            "WITH picked AS (SELECT id FROM mail_outbox WHERE status='pending' \
+            "WITH picked AS (SELECT id FROM mail_outbox \
+               WHERE purpose=ANY($1) AND (status='pending' OR \
+                 (status='deferred' AND next_attempt_at<=clock_timestamp())) \
                ORDER BY (purpose='project_news'), id LIMIT 1 FOR UPDATE SKIP LOCKED) \
              UPDATE mail_outbox m SET status='leased', generation=m.generation+1, \
-               lease_until=now()+interval '120 seconds' FROM picked WHERE m.id=picked.id \
+               next_attempt_at=NULL,defer_reason=NULL,lease_until=clock_timestamp()+interval '120 seconds' \
+               FROM picked WHERE m.id=picked.id \
              RETURNING m.id,m.generation,m.purpose,m.event_id,m.recipient_user_id",
         )
+        .bind(&purposes)
         .fetch_optional(&self.pool)
         .await?;
         row.map(|r| {
@@ -74,12 +100,16 @@ impl PgMailQueue {
         outcome: MailOutcome,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE mail_outbox SET status=$3, lease_until=NULL, finished_at=now() \
-             WHERE id=$1 AND generation=$2 AND status='leased' AND lease_until>now()",
+            "UPDATE mail_outbox SET status=$3, lease_until=NULL, finished_at=clock_timestamp() \
+             WHERE id=$1 AND generation=$2 AND purpose=$4 AND event_id=$5 AND recipient_user_id=$6 \
+               AND status='leased' AND lease_until>clock_timestamp()",
         )
         .bind(claim.id)
         .bind(claim.generation)
         .bind(outcome.as_str())
+        .bind(claim.intent.purpose.as_str())
+        .bind(claim.intent.event_id.get())
+        .bind(claim.intent.recipient.get())
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
@@ -90,8 +120,8 @@ impl PgMailQueue {
     pub async fn recover_expired(&self) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             "WITH expired AS (SELECT id FROM mail_outbox WHERE status='leased' \
-               AND lease_until<=now() ORDER BY lease_until,id LIMIT 100 FOR UPDATE SKIP LOCKED) \
-             UPDATE mail_outbox m SET status='uncertain', lease_until=NULL, finished_at=now() \
+               AND lease_until<=clock_timestamp() ORDER BY lease_until,id LIMIT 100 FOR UPDATE SKIP LOCKED) \
+             UPDATE mail_outbox m SET status='uncertain', lease_until=NULL, finished_at=clock_timestamp() \
              FROM expired WHERE m.id=expired.id",
         )
         .execute(&self.pool)

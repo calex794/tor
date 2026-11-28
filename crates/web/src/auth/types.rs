@@ -24,6 +24,7 @@ pub(super) struct AuthState {
     pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,
+    pub(super) reset_queue: Option<super::reset_queue::ResetQueue>,
     pub(super) notification_proof_delivery:
         Option<super::notification_proof_delivery::ProofDelivery>,
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,

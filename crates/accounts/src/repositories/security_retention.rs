@@ -71,6 +71,7 @@ impl PgAccounts {
         .execute(self.pool())
         .await?;
         self.prune_registration_mail_sources().await?;
+        self.prune_password_reset_mail_requests().await?;
         Ok(())
     }
 }

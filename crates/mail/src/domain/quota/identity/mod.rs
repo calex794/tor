@@ -64,6 +64,7 @@ impl QuotaKeySigner {
                 .map(|ip| self.ip_key(ip)),
             key_binding: self.digest(b"tor/mail/quota/v1/key-binding\0", b""),
             registration_intent: None,
+            reset_intent: None,
         })
     }
 
@@ -88,6 +89,30 @@ impl QuotaKeySigner {
         }
         keys.registration_ip = evidence.source.registration_ip_key;
         keys.registration_intent = Some(intent);
+        Ok(keys)
+    }
+
+    /// Use the original trusted request IP, not the current worker/HTTP peer.
+    /// The exact purpose, event ID, recipient, address and key must match.
+    pub fn keys_for_password_reset(
+        &self,
+        intent: tor_contracts::mail::MailIntent,
+        current_transport_address: &str,
+        evidence: tor_contracts::mail::PasswordResetMailEvidence,
+    ) -> Result<QuotaKeys, &'static str> {
+        if intent.purpose != tor_contracts::mail::MailPurpose::PasswordReset
+            || intent != evidence.intent
+        {
+            return Err("password reset mail evidence does not match intent");
+        }
+        let mut keys = self.keys(current_transport_address, None)?;
+        if keys.recipient != evidence.source.recipient_key
+            || keys.key_binding != evidence.source.key_binding
+        {
+            return Err("password reset mail evidence is no longer valid");
+        }
+        keys.registration_ip = evidence.source.request_ip_key;
+        keys.reset_intent = Some(intent);
         Ok(keys)
     }
 

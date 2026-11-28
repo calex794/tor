@@ -5,16 +5,19 @@ pub const DAILY_LIMIT: i64 = 200;
 pub const TRANSACTIONAL_RESERVE: i64 = 50;
 pub const REGISTRATION_RECIPIENT_DAILY: i64 = 3;
 pub const REGISTRATION_IP_DAILY: i64 = 10;
+pub const PASSWORD_RESET_RECIPIENT_DAILY: i64 = 3;
+pub const PASSWORD_RESET_IP_DAILY: i64 = 10;
 
 /// Opaque keyed digests, not raw mailbox or IP. Construct only through
 /// the versioned signer; do not deserialize from untrusted inputs.
-/// Unknown registration IPs share one restricted bucket; they never bypass it.
+/// Unknown signup/reset IPs share a restricted bucket for their purpose.
 #[derive(Clone, Copy)]
 pub struct QuotaKeys {
     recipient: [u8; 32],
     registration_ip: Option<[u8; 32]>,
     key_binding: [u8; 32],
     registration_intent: Option<tor_contracts::mail::MailIntent>,
+    reset_intent: Option<tor_contracts::mail::MailIntent>,
 }
 
 impl QuotaKeys {
@@ -38,8 +41,20 @@ impl QuotaKeys {
         }
     }
 
+    pub fn password_reset_source(&self) -> tor_contracts::mail::PasswordResetMailSource {
+        tor_contracts::mail::PasswordResetMailSource {
+            recipient_key: self.recipient,
+            request_ip_key: self.registration_ip,
+            key_binding: self.key_binding,
+        }
+    }
+
     pub(crate) fn matches_registration(&self, intent: tor_contracts::mail::MailIntent) -> bool {
         self.registration_intent == Some(intent)
+    }
+
+    pub(crate) fn matches_password_reset(&self, intent: tor_contracts::mail::MailIntent) -> bool {
+        self.reset_intent == Some(intent)
     }
 }
 
@@ -51,6 +66,8 @@ pub enum QuotaDecision {
     StaleClaim,
     KeyMismatch,
     RegistrationEvidenceRequired,
+    PasswordResetEvidenceRequired,
+    DispatchNotAuthorized,
     RecipientSuppressed(super::suppression::SuppressionReason),
     CostStateUnavailable,
     CostEmergencyStop,
@@ -63,6 +80,9 @@ pub enum QuotaDecision {
     RegistrationRecipientDaily,
     RegistrationRecipientCooldown,
     RegistrationIpDaily,
+    PasswordResetRecipientDaily,
+    PasswordResetRecipientCooldown,
+    PasswordResetIpDaily,
 }
 
 impl QuotaDecision {
@@ -75,6 +95,9 @@ impl QuotaDecision {
             "recipient_daily" => Some(Self::RegistrationRecipientDaily),
             "recipient_cooldown" => Some(Self::RegistrationRecipientCooldown),
             "ip_daily" => Some(Self::RegistrationIpDaily),
+            "reset_recipient_daily" => Some(Self::PasswordResetRecipientDaily),
+            "reset_recipient_cooldown" => Some(Self::PasswordResetRecipientCooldown),
+            "reset_ip_daily" => Some(Self::PasswordResetIpDaily),
             "stale_claim" => Some(Self::StaleClaim),
             _ => None,
         }
