@@ -42,7 +42,6 @@ function id(sql) {
 async function register(page, device, role) {
   const email = 's039-browser-' + device + '-' + role + '-' + stamp + '@tor-ci.example';
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill('S039 ' + role + ' ' + device);
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill(password);
   await page.getByRole('button', { name: 'Создать учётную запись' }).click();

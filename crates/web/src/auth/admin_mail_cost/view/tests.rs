@@ -32,7 +32,13 @@ fn shows_estimate_and_stop_without_activation_or_secret_fields() {
     assert!(html.contains("name=\"revision\" value=\"7\""));
     assert!(!html.contains("name=\"enabled\""));
     assert!(!html.contains("type=\"password\""));
+    assert!(html.contains("/odmen/system-mail/reconcile"));
+    assert!(html.contains("name=\"free_allowance\" min=\"0\" max=\"2000\" value=\"2000\""));
     let mut unavailable = view;
     unavailable.snapshot.usage = None;
-    assert!(body(&unavailable, "").contains("Месяц не сверён"));
+    let html = body(&unavailable, "");
+    assert!(html.contains("Месяц не сверён"));
+    assert!(html.contains("name=\"free_allowance\" min=\"0\" max=\"2000\" value=\"0\""));
+    unavailable.snapshot.limits.enabled = true;
+    assert!(!body(&unavailable, "").contains("/odmen/system-mail/reconcile"));
 }

@@ -104,7 +104,10 @@ impl PgMailCost {
                     monthly_limit: limits.monthly_limit,
                 },
             ),
-            Some(_) => return Err(CostAdminError::Conflict),
+            Some(_) => {
+                tx.rollback().await?;
+                return Err(CostAdminError::Conflict);
+            }
             None => (
                 "stop",
                 CostLimits {
@@ -155,6 +158,7 @@ impl PgMailCost {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(CostAdminError::Conflict);
         }
         tx.commit().await?;

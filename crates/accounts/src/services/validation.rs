@@ -34,6 +34,26 @@ pub fn registration(
     })
 }
 
+/// New registration clients may omit their public name. Generate an
+/// independent neutral name, never derive it from a private email address.
+/// The optional name preserves the existing named-client contract.
+pub fn registration_with_optional_name(
+    email: &str,
+    display_name: Option<&str>,
+    password: &str,
+) -> Result<NewAccount, &'static str> {
+    use rand::RngCore;
+
+    match display_name {
+        Some(name) => registration(email, name, password),
+        None => {
+            let suffix = rand::rngs::OsRng.next_u64();
+            let generated = format!("Читатель №{suffix:016x}");
+            registration(email, &generated, password)
+        }
+    }
+}
+
 /// The current password may be shorter (legacy users); the new one must
 /// meet the same policy as new registrations.
 pub fn password_change(
@@ -90,6 +110,30 @@ mod tests {
         assert!(registration("a@b", "A\nB", "мой_надежный_пароль").is_err());
         assert!(registration("a@b", "Автор", "short").is_err());
         assert!(registration("a@b", "Автор", &"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn nameless_registration_creates_independent_public_names() {
+        let password = "мой_надежный_пароль";
+        let a = registration_with_optional_name("private@example.com", None, password).unwrap();
+        let b = registration_with_optional_name("private@example.com", None, password).unwrap();
+        assert_eq!(a.email, "private@example.com");
+        let suffix = a.display_name.strip_prefix("Читатель №").unwrap();
+        assert_eq!(suffix.len(), 16);
+        assert!(suffix.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(a.display_name, b.display_name);
+        assert!(!a.display_name.contains("private"));
+        assert!(registration_with_optional_name("invalid", None, password).is_err());
+        assert!(registration_with_optional_name("private@example.com", None, "short").is_err());
+        assert!(
+            registration_with_optional_name("private@example.com", Some(""), password).is_err()
+        );
+        assert_eq!(
+            registration_with_optional_name("private@example.com", Some("Автор"), password)
+                .unwrap()
+                .display_name,
+            "Автор"
+        );
     }
 
     #[test]

@@ -1,4 +1,5 @@
 // S035: real Chromium native forms and disposable PostgreSQL 18 checkout.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 // Only tor_ci on loopback is permitted. No external funding or real purchases.
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
@@ -28,11 +29,11 @@ function id(sql) {
 }
 async function register(page, name, email) {
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill(name);
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('S035-ci-password-2026-long');
   await page.getByRole('button', { name: 'Создать учётную запись' }).click();
   await page.waitForURL('**/me');
+  await setFixtureDisplayName(page, name);
   return id("SELECT id FROM users WHERE email_normalized='" + email + "'");
 }
 function makeBook(seller, suffix) {
