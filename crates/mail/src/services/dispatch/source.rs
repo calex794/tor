@@ -68,15 +68,19 @@ impl ResolvedMail {
 /// Implementations must resolve committed event ownership, live account,
 /// current canonical delivery address and purpose-specific eligibility (news
 /// subscription, registration evidence, etc.) on *every* resolve call.
-/// Recipient preflight must check the delivery domain without SMTP submission.
 /// No implementation may turn a timeout/unknown result into eligibility.
 pub trait DispatchSource: Sync {
     fn resolve(
         &self,
         intent: MailIntent,
     ) -> impl Future<Output = Result<ResolvedMail, SourceFailure>> + Send;
+}
 
-    fn preflight(
+/// One shared recipient-policy/DNS adapter, independent of event ownership.
+/// A success must apply to the exact canonical transport mailbox checked;
+/// a timeout or unknown result is never eligibility.
+pub trait DispatchPreflight: Sync {
+    fn check(
         &self,
         recipient: &str,
     ) -> impl Future<Output = Result<(), PreflightFailure>> + Send;

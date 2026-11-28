@@ -2,7 +2,7 @@
 mod policy;
 mod source;
 
-pub use source::{DispatchSource, PreflightFailure, ResolvedMail, SourceFailure};
+pub use source::{DispatchPreflight, DispatchSource, PreflightFailure, ResolvedMail, SourceFailure};
 use super::{
     launch::{LaunchError, LaunchFence, LaunchScope},
     postbox::{self, PostboxCredentials, PostboxTransport, Submission},
@@ -65,14 +65,18 @@ impl<'a> DispatchWorker<'a> {
     /// deadline is shorter than the 120-second queue lease. On cancellation,
     /// database failure or timeout, leave any outstanding lease quarantinable
     /// by recovery; never assume a transaction or SMTP submission failed.
-    pub async fn run_one(&self, source: &impl DispatchSource) -> DispatchOutcome {
+    pub async fn run_one(
+        &self,
+        source: &impl DispatchSource,
+        preflight: &impl DispatchPreflight,
+    ) -> DispatchOutcome {
         let mut slot = match self.fence.try_dispatch_run() {
             Ok(Some(slot)) => slot,
             Ok(None) => return DispatchOutcome::Busy,
             Err(LaunchError::Stopped) => return DispatchOutcome::Stopped,
             Err(_) => return DispatchOutcome::Unavailable,
         };
-        let outcome = match timeout(ATTEMPT_LIMIT, self.run_inner(source)).await {
+        let outcome = match timeout(ATTEMPT_LIMIT, self.run_inner(source, preflight)).await {
             Ok(Ok(outcome)) => outcome,
             _ => {
                 self.stop();
@@ -86,6 +90,7 @@ impl<'a> DispatchWorker<'a> {
     async fn run_inner(
         &self,
         source: &impl DispatchSource,
+        preflight: &impl DispatchPreflight,
     ) -> Result<DispatchOutcome, DispatchStoreError> {
         let Some(initial) = self.permitted_snapshot().await? else {
             return Ok(DispatchOutcome::Stopped);
@@ -125,7 +130,7 @@ impl<'a> DispatchWorker<'a> {
         if postbox::validate_content(&mail.recipient, &mail.subject, &mail.body).is_err() {
             return self.finish(claim, MailOutcome::Failed).await;
         }
-        match timeout(SOURCE_LIMIT, source.preflight(&mail.recipient)).await {
+        match timeout(SOURCE_LIMIT, preflight.check(&mail.recipient)).await {
             Ok(Ok(())) => {}
             Ok(Err(PreflightFailure::InvalidRecipient)) => {
                 return self.finish(claim, MailOutcome::Cancelled).await;

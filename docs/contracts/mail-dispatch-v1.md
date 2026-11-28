@@ -15,3 +15,9 @@ The explicit worker method is not registered at startup. A shared process-local 
 Pre-reservation transient failures can defer only through the durable no-reservation fence. A committed reservation is never refunded or returned to pending. A rejected, accepted or unknown submission has a terminal outcome; ambiguous database or network completion is quarantined by lease recovery and never replayed. A local stop revokes future admissions, not a submission already admitted at consume_start.
 
 The trusted source/preflight interface is deliberately unimplemented at the application boundary until purpose-specific ownership and live eligibility are wired and tested. The dispatcher is not connected to HTTP routes, a polling loop or real provider acceptance. Before runtime startup, the manual stop handler must stop the same shared fence before changing database state. Test-send remains separately scoped; real Postbox calls are prohibited during CI.
+
+## Recipient composition and cancellation
+
+Dispatch event resolution and recipient preflight are separate ports. The web composition adapter uses the existing accounts recipient policy, shared domain cache and host-configured recursive DNS; it does not introduce another resolver, external mailbox-validation API or new dependency. Disposable-domain mode remains Observe. A successful preflight must match the exact canonical recipient already used for quota keys, without an address rewrite. An authoritative negative rejects the current attempt; DNS/policy uncertainty defers it. CI uses fake DNS and no external network.
+
+The worker now depends on a redacted persistence adapter rather than SQLx types. Dropping an in-flight worker future stops process-local authority before releasing its exclusive slot. The application still must wire trusted purpose-specific event resolution and the shared stop/activation lifecycle before any background startup.
