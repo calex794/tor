@@ -1,4 +1,4 @@
-use super::{unavailable, AudienceError, PgAudience};
+use super::{unavailable, AudienceError, PgAudience, ReportTimeout};
 use crate::services::audience::{
     book_evidence::validate, ClosedBookEvidenceReport, ClosedBookEvidenceRow, ClosedChapterCounts,
 };
@@ -14,15 +14,7 @@ impl PgAudience {
         book_ids: &[i64],
     ) -> Result<ClosedBookEvidenceReport, AudienceError> {
         let ids = validate(days, until_epoch, book_ids)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = self.begin_report(ReportTimeout::StatementAndLock).await?;
         let clock = sqlx::query(
             "SELECT extract(epoch FROM (date_trunc('hour',transaction_timestamp() AT TIME ZONE 'UTC')
                 AT TIME ZONE 'UTC'))::bigint AS latest,

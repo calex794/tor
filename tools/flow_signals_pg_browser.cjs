@@ -151,7 +151,6 @@ function savedPages() {
     for (const route of ['/odmen/audience/signals', '/odmen/audience/pages']) await response(await page.goto(base + route), 401);
     await page.goto(base + '/register');
     const email = marker.toLowerCase() + '@tor-ci.example';
-    await page.getByLabel('Отображаемое имя').fill('Signal report operator');
     await page.getByLabel('Электронная почта').fill(email);
     await page.getByLabel('Пароль (12–128 символов)').fill('SignalsBrowserPassword2026');
     await page.getByRole('button', {name: 'Создать учётную запись', exact: true}).click();

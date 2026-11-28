@@ -15,7 +15,6 @@ async function privateResponse(response, expected = 200) {
 }
 async function register(page, email) {
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill('Проверка каталога');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('CatalogueBrowserPassword2026');
   await page.getByRole('button', {name: 'Создать учётную запись', exact: true}).click();

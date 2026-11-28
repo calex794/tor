@@ -136,7 +136,6 @@ function makeDocxXml(xml) {
       try {
         const page = await context.newPage();
         await page.goto(base + '/register');
-        await page.getByLabel('Отображаемое имя').fill('Импортёр ' + name);
         await page.getByLabel('Электронная почта')
           .fill('h09.import.' + name + '@example.test');
         await page.getByLabel('Пароль (12–128 символов)').fill('H09ImportBrowser2026');

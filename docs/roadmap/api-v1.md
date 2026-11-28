@@ -1,5 +1,7 @@
 # TOR — HTTP API v1: выбранные маршруты, поля, статусы и контракты
 
+> **Planned AUTH-READ v1 (#1349):** [book-level guest excerpt contract](../contracts/auth-read-guest-preview-v1.md). Default-open existing reader API remains unchanged; restricted guest reader beyond the configured open chapter prefix returns a bounded excerpt instead of any full source or grant, with authenticated full FREE reading at the same chapter URL. New owner settings endpoint is proposed, not mounted.
+
 **Назначение:** исполнителям A–H не придумывать имена маршрутов, сериализацию, ограничения и семантику ошибок. Этот документ — **контракт для новой реализации TOR**, а не утверждение, что маршруты уже доступны. Сохраняемые из `bokarust` HTML URL указаны в [decisions-v1](decisions-v1.md); они вызывают те же службы, что JSON API. Поле `id` в новых JSON API — положительная десятичная строка, время — UTC RFC3339; деньги — целое число копеек.
 
 ## Общие договорённости
@@ -15,7 +17,7 @@
 
 | Метод+путь | Тело/выход | Право; успех | Отказ и тест |
 | --- | --- | --- | --- |
-| POST `/register`, POST `/login`, POST `/logout` | Уже существующие `application/x-www-form-urlencoded`: `email,display_name,password,csrf_token`; login без display; logout только csrf | Гость/владелец; серверная cookie, redirect/HTML. **Сохранить из bokarust** | duplicate email 409/форменный отказ; неверный Origin и cookie; лимит 4096 байт |
+| POST `/register`, POST `/login`, POST `/logout` | Уже существующие `application/x-www-form-urlencoded`: `email,password,csrf_token`; legacy display_name при регистрации необязателен, при отсутствии сервер создаёт нейтральное имя независимо от email; login без display; logout только csrf | Гость/владелец; серверная cookie, redirect/HTML. **Сохранить из bokarust** | duplicate email 409/форменный отказ; неверный Origin и cookie; лимит 4096 байт |
 | GET `/me` | HTML личный кабинет | Текущая сессия, no-store | Гость не видит данные |
 | GET `/api/v1/me` | `{id,display_name,handle,adult_enabled,delivery_settings}` | Только текущий Actor, 200 | 401 без cookie, никакого password_hash |
 | PATCH `/api/v1/me` | `{display_name?,handle?,adult_enabled?,delivery_settings?,expected_revision}` | Владелец, 200 + новая revision; первая успешная установка уникального handle бесплатна; существующие handle сохранены и считаются закреплёнными | 409 stale revision, HANDLE_UNAVAILABLE или HANDLE_LOCKED при попытке изменить/удалить закреплённый handle; 422 PRIVATE_EMAIL при использовании собственной почты в публичном имени; невозможно выставить чужой UserId |

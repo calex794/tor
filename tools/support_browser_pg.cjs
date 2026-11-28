@@ -1,4 +1,5 @@
 // S050/S051: a guest asks, logs in, keeps the chat and gets an admin answer.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
@@ -14,11 +15,11 @@ function administrator(email) {
 
 async function register(page, base, email, name) {
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill(name);
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('SupportOnlyBrowserPassword2026');
   await page.getByRole('button',{name:'Создать учётную запись'}).click();
   await page.waitForURL('**/me');
+  await setFixtureDisplayName(page, name);
 }
 
 module.exports = async (browser, base, out) => {
