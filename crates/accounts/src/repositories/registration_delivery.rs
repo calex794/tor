@@ -99,8 +99,7 @@ impl PgAccounts {
         let Some((address, revision, recipient, ip, binding)) = row else {
             return Ok(None);
         };
-        let Some(candidate) =
-            MailboxCandidate::from_account(request.recipient, &address, revision)
+        let Some(candidate) = MailboxCandidate::from_account(request.recipient, &address, revision)
         else {
             return Ok(None);
         };
