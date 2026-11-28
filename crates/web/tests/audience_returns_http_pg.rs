@@ -1,19 +1,21 @@
 //! FLOW: exact temporal fixtures exercise the real private HTTP/PG report.
 //! Historical fixtures stay labelled; Chromium proves real C progress adds no collection.
 #![forbid(unsafe_code)]
+#[path = "support/audience_http_fixture.rs"]
+mod audience_http_fixture;
 #[path = "support/legacy_analytics.rs"]
 mod legacy_analytics;
 
+use audience_http_fixture::{body, call, client};
 use axum::{
-    body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
+    http::{header, StatusCode},
     response::Response,
     Router,
 };
 use std::{
     io::{BufRead, BufReader, Write},
     num::NonZeroU32,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -22,22 +24,9 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
-use tower::ServiceExt;
 
 const TODAY: &str = "(now() AT TIME ZONE 'UTC')::date";
 const AGES: &str = "45,89,90,179,180";
-
-fn client(url: &str) -> Command {
-    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
-    let mut command = Command::new("psql");
-    command
-        .env(
-            "PGOPTIONS",
-            "-c statement_timeout=5000 -c lock_timeout=2000 -c idle_in_transaction_session_timeout=10000",
-        )
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url]);
-    command
-}
 
 fn pg(url: &str, sql: &str) -> String {
     let output = client(url).args(["--command", sql]).output().unwrap();
@@ -141,29 +130,6 @@ impl Drop for LockedReport {
         let _ = self.input.flush();
         let _ = self.child.wait();
     }
-}
-
-async fn call(app: &Router, path: &str, cookie: &str) -> Response {
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .uri(path)
-                .header(header::COOKIE, cookie)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap()
-}
-
-async fn body(response: Response) -> String {
-    String::from_utf8(
-        to_bytes(response.into_body(), 256 * 1024)
-            .await
-            .unwrap()
-            .to_vec(),
-    )
-    .unwrap()
 }
 
 fn private(response: &Response, status: StatusCode) {

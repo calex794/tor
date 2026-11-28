@@ -96,6 +96,11 @@ class SelectionTests(unittest.TestCase):
             {"rust", "reading_analytics"},
         )
 
+    def test_shared_audience_http_fixture_selects_both_required_lanes(self):
+        path = "crates/web/tests/support/audience_http_fixture.rs"
+        self.assertNotIn(path, READING_ANALYTICS_TEST_FILES)
+        self.assertEqual(enabled(select(ROOT, [path])), {"rust", "reading_analytics"})
+
     def test_only_image_test_does_not_boot_postgres_or_s3(self):
         result = select(ROOT, ["crates/ingest/tests/image_pipeline.rs"])
         self.assertEqual(enabled(result), {"rust", "image"})
