@@ -5,8 +5,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use std::net::{IpAddr, SocketAddr};
-use tor_accounts::services::auth_observation::AuthObservationSigner;
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::services::{
+    auth_observation::AuthObservationSigner, login_identity::submitted_attempt_key,
+    security::session_token_digest,
+};
 
 /// Only use X-Real-IP from a verified loopback reverse proxy when the
 /// operator has configured Nginx to overwrite it with $remote_addr.
@@ -42,7 +44,6 @@ pub(super) async fn limit(
     headers: &HeaderMap,
     peer: ConnectInfo<SocketAddr>,
 ) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{email}"));
     if let Some(ip) = verified_client_ip(peer.0.ip(), headers) {
         let address_key = session_token_digest(&format!("auth:{action}:peer:{ip}"));
         let address_ok = state
@@ -59,6 +60,17 @@ pub(super) async fn limit(
     }
     // Never fall back to a global loopback IP counter. Account-specific
     // throttling and the bounded Argon2 worker still apply in this case.
+    limit_identity(state, action, email).await
+}
+
+/// The submitted-identity budget remains independent of account lookup.
+/// The IP charge is made only once, before the lookup.
+pub(super) async fn limit_identity(
+    state: &AuthState,
+    action: &str,
+    identity: &str,
+) -> Result<[u8; 32], StatusCode> {
+    let identity_key = submitted_attempt_key(action, identity);
     let identity_ok = state
         .accounts
         .permit_auth_attempt(&identity_key, 8, 600)
@@ -104,6 +116,26 @@ impl SprayGuard {
     }
 }
 
+/// Source admission precedes account lookup. Enforcement counts submitted
+/// identifiers, never the private mapping to an account.
+pub(super) struct SpraySource {
+    ip: [u8; 32],
+    subnet: [u8; 32],
+    signer: AuthObservationSigner,
+    mode: SprayMode,
+}
+
+impl SpraySource {
+    pub(super) fn for_target(&self, identity: &str) -> SprayGuard {
+        SprayGuard {
+            ip: self.ip,
+            subnet: self.subnet,
+            target: self.signer.target(identity),
+            mode: self.mode,
+        }
+    }
+}
+
 pub(super) enum SprayError {
     Locked(u32),
     Unavailable,
@@ -114,9 +146,8 @@ pub(super) enum SprayError {
 /// accidental unlimited bypass. Unknown proxy peers never share a bucket.
 pub(super) async fn spray_start(
     state: &AuthState,
-    normalized_email: &str,
     verified_ip: Option<IpAddr>,
-) -> Result<Option<SprayGuard>, SprayError> {
+) -> Result<Option<SpraySource>, SprayError> {
     let mode = std::env::var("TOR_AUTH_SPRAY_MODE").unwrap_or_else(|_| "off".to_owned());
     let mode = parse_spray_mode(&mode).ok_or(SprayError::Unavailable)?;
     if mode == SprayMode::Off {
@@ -146,10 +177,10 @@ pub(super) async fn spray_start(
             return Err(SprayError::Locked(seconds));
         }
     }
-    Ok(Some(SprayGuard {
+    Ok(Some(SpraySource {
         ip: source,
         subnet,
-        target: signer.target(normalized_email),
+        signer,
         mode,
     }))
 }

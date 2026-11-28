@@ -18,10 +18,11 @@ use tor_accounts::{
     services::security::{
         generate_session_token, hash_password, session_token_digest, verify_password,
     },
-    services::validation as rules,
+    services::{login_identity::login_identity, validation as rules},
 };
 use tor_observability::services::auth::LoginOutcome;
 
+mod login_admission;
 mod return_target;
 use return_target::auth_return_target;
 
@@ -227,7 +228,7 @@ fn invalid_credentials() -> Response {
     auth_problem(
         StatusCode::UNAUTHORIZED,
         "Не удалось войти",
-        "Неверный адрес почты или пароль. Проверьте данные и попробуйте ещё раз.",
+        "Неверный логин, адрес почты или пароль. Проверьте данные и попробуйте ещё раз.",
         false,
     )
 }
@@ -441,56 +442,42 @@ pub(super) async fn login(
         observed.report(auth_observation::Outcome::InvalidForm, None);
         return invalid_credentials();
     }
-    let email = match rules::login(&form.email, &form.password) {
-        Ok(email) => email,
+    let identity = match login_identity(&form.email, &form.password) {
+        Ok(identity) => identity,
         Err(_) => {
             observed.report(auth_observation::Outcome::InvalidForm, None);
             return invalid_credentials();
         }
     };
     let audit = source;
-    let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
-        Ok(key) => key,
-        Err(status) => {
-            observed.report(
-                if status == StatusCode::TOO_MANY_REQUESTS {
-                    auth_observation::Outcome::RateLimited
-                } else {
-                    auth_observation::Outcome::Unavailable
-                },
-                None,
-            );
-            return auth_limit_error(status, false);
-        }
+    observed.set_identity(identity.as_str());
+    // Charge the verified IP and submitted identifier before any account lookup.
+    if let Err(status) =
+        login_limiter::limit(&state, "login", identity.as_str(), &headers, peer).await
+    {
+        return login_admission::rate_error(status, &mut observed);
+    }
+    let admission = match login_admission::admit(&state, &identity, audit, &mut observed).await {
+        Ok(admission) => admission,
+        Err(response) => return *response,
     };
-    let spray = match login_limiter::spray_start(&state, &email, audit.verified_ip).await {
-        Ok(guard) => guard,
-        Err(login_limiter::SprayError::Locked(seconds)) => {
-            observed.report(auth_observation::Outcome::RateLimited, None);
-            observability::record_login_outcome(LoginOutcome::RateLimited);
-            return spray_rate_error(seconds);
-        }
-        Err(login_limiter::SprayError::Unavailable) => {
-            eprintln!("TOR_AUTH_UNAVAILABLE stage=spray_preflight");
-            observed.report(auth_observation::Outcome::Unavailable, None);
-            return auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
-        }
+    let login_admission::Admission {
+        stored,
+        spray,
+        account_allowed,
+    } = admission;
+    let known_hash = if account_allowed {
+        stored.as_ref().map(|u| u.password_hash.clone())
+    } else {
+        None
     };
-    let stored = match state.accounts.find_user(&email).await {
-        Ok(stored) => stored,
-        Err(_) => {
-            observed.report(auth_observation::Outcome::Unavailable, None);
-            return login_storage_error(LoginOutcome::LookupUnavailable);
-        }
-    };
-    let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
     let verified = match state
         .password_jobs
         .run(move || match known_hash {
             Some(hash) => verify_password(&password, &hash),
             None => {
-                // Unknown accounts still perform costly work to limit timing leaks.
+                // Unknown and privately throttled accounts use the same dummy work.
                 let _ = hash_password(&password);
                 false
             }
@@ -525,7 +512,9 @@ pub(super) async fn login(
     };
     if !verified {
         observed.report(
-            if stored.is_some() {
+            if !account_allowed {
+                auth_observation::Outcome::RateLimited
+            } else if stored.is_some() {
                 auth_observation::Outcome::BadPassword
             } else {
                 auth_observation::Outcome::UnknownAccount
@@ -546,21 +535,20 @@ pub(super) async fn login(
         observed.report(auth_observation::Outcome::UnknownAccount, None);
         return invalid_credentials();
     };
-    if state
-        .accounts
-        .clear_auth_attempt(&identity_key)
-        .await
-        .is_err()
-    {
-        observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
-        return login_storage_error(LoginOutcome::AttemptResetUnavailable);
-    }
+    // Issuance rechecks the alias/hash and resets both proven budgets atomically.
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .insert_verified_session(user.id, &user.password_hash, &digest, ttl, audit)
+        .insert_verified_session_for_login(
+            user.id,
+            &user.password_hash,
+            &digest,
+            ttl,
+            audit,
+            &identity,
+        )
         .await
     {
         Ok(true) => {}

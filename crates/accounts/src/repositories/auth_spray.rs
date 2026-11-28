@@ -27,10 +27,11 @@ impl PgAccounts {
             .map(|seconds| seconds as u32))
     }
 
-    /// Persist only a confirmed failed password verification. The caller supplies
-    /// keyed HMAC values, not an email/IP string or user-controlled SQL.
+    /// Persist a rejected credential check, including private-budget denial
+    /// after dummy password work. The caller supplies keyed HMAC values, not
+    /// an email/IP string or user-controlled SQL.
     ///
-    /// A lock requires >=20 failures against >=12 different normalized identities
+    /// A lock requires >=20 rejections against >=12 distinct submitted identities
     /// in the 10-minute window. One account's password typo cannot lock a source.
     /// Subnet aggregates are never enforced: CGNAT/VPN users share a subnet.
     /// The existing per-identity and verified-peer limit remains authoritative.

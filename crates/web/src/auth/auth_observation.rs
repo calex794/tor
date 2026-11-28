@@ -47,6 +47,12 @@ impl RequestObservation {
         }
     }
 
+    /// Use the canonical email for a resolved account, or the validated
+    /// submitted identity for an unknown account. Never emit the raw value.
+    pub(super) fn set_identity(&mut self, identity: &str) {
+        self.normalized_email = Some(identity.to_owned());
+    }
+
     pub(super) fn report(&mut self, outcome: AuthAttemptOutcome, user_id: Option<i64>) {
         let Some(signer) = self.signer.as_ref() else {
             return;

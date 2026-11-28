@@ -48,6 +48,7 @@ pub struct PgAccounts {
     pool: PgPool,
 }
 
+#[derive(sqlx::FromRow)]
 pub struct StoredUser {
     pub id: i64,
     pub email_normalized: String,

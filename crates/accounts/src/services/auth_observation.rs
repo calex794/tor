@@ -35,9 +35,10 @@ impl AuthObservationSigner {
         digest
     }
 
-    /// The caller passes only the same normalized email used for account lookup.
-    pub fn target(&self, normalized_email: &str) -> [u8; 32] {
-        self.digest(b"target", normalized_email.as_bytes())
+    /// Diagnostic callers may use a canonical account identity; public spray
+    /// enforcement uses only the validated submitted identity.
+    pub fn target(&self, normalized_identity: &str) -> [u8; 32] {
+        self.digest(b"target", normalized_identity.as_bytes())
     }
 
     /// Distinguish a single verified address from its /24 or /64 network.

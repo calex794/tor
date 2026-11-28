@@ -215,6 +215,7 @@ if [[ "$CI_PG_SHARD" == "commerce" ]]; then
   cargo test -p tor-web --test s009_collections_http_pg -- --ignored --test-threads=1
   cargo test -p tor-web --test s030_owner_transfer_pg -- --ignored --test-threads=1
   cargo test -p tor-web --test auth_postgres -- --ignored
+  cargo test -p tor-web --test auth_spray_http_pg -- --ignored --test-threads=1
   env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
   TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
   env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_ADMIN_SUPPORT_REFUNDS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refunds_not_routed_to_buyer -- --ignored --test-threads=1
