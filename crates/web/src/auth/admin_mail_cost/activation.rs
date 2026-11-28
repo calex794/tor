@@ -168,10 +168,9 @@ pub(super) async fn confirm(
     let Some(Extension(control)) = control else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let (Some(challenge), Some(evidence)) = (
-        decode32(&form.challenge),
-        decode32(&form.evidence_sha256),
-    ) else {
+    let (Some(challenge), Some(evidence)) =
+        (decode32(&form.challenge), decode32(&form.evidence_sha256))
+    else {
         return deny(StatusCode::BAD_REQUEST);
     };
     if form.reviewed != "yes" {
@@ -200,7 +199,11 @@ pub(super) async fn confirm(
         return deny(StatusCode::UNAUTHORIZED);
     }
     let attempt_key = session_token_digest(&format!("auth:mail-activation-stepup:{actor}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 6, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return deny(StatusCode::TOO_MANY_REQUESTS),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

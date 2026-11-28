@@ -454,9 +454,12 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     // Even an administrator with valid CSRF and a saved profile cannot
     // initiate a review or trigger provider I/O through direct POST.
     assert!(!html.contains("/odmen/system-mail/activation/review"));
-    let policy_revision: i64 = pg(&url, "SELECT revision FROM mail_cost_policy WHERE singleton")
-        .parse()
-        .unwrap();
+    let policy_revision: i64 = pg(
+        &url,
+        "SELECT revision FROM mail_cost_policy WHERE singleton",
+    )
+    .parse()
+    .unwrap();
     let review = "/odmen/system-mail/activation/review";
     let confirm = "/odmen/system-mail/activation/confirm";
     let review_form = format!("csrf_token={csrf}&revision={policy_revision}");
@@ -473,9 +476,17 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            http(&app, "POST", route, token, &csrf, "https://evil.invalid", form.clone())
-                .await
-                .0,
+            http(
+                &app,
+                "POST",
+                route,
+                token,
+                &csrf,
+                "https://evil.invalid",
+                form.clone()
+            )
+            .await
+            .0,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -486,7 +497,10 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         );
     }
     assert_eq!(
-        pg(&url, "SELECT revision FROM mail_cost_policy WHERE singleton"),
+        pg(
+            &url,
+            "SELECT revision FROM mail_cost_policy WHERE singleton"
+        ),
         policy_revision.to_string()
     );
     // Stale revision must fail before any provider I/O.

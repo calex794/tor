@@ -37,8 +37,14 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/odmen/system-mail/reconcile", post(reconcile))
         .route("/odmen/system-mail/profile", post(save_profile))
         .route("/odmen/system-mail/probe", post(probe_profile))
-        .route("/odmen/system-mail/activation/review", post(activation::review))
-        .route("/odmen/system-mail/activation/confirm", post(activation::confirm))
+        .route(
+            "/odmen/system-mail/activation/review",
+            post(activation::review),
+        )
+        .route(
+            "/odmen/system-mail/activation/confirm",
+            post(activation::confirm),
+        )
 }
 
 #[derive(Deserialize)]
@@ -163,7 +169,10 @@ async fn page(
         key_ready,
         current.snapshot.limits.enabled,
     ));
-    if control.is_some() && key_ready && !current.snapshot.limits.enabled && saved.identity.is_some()
+    if control.is_some()
+        && key_ready
+        && !current.snapshot.limits.enabled
+        && saved.identity.is_some()
     {
         body.push_str(&activation::entry(&csrf, current.revision));
     }
