@@ -2,6 +2,8 @@
 //! All DB writes are confined to disposable /tor_ci.
 #[path = "scheduled_release_http_pg/guest_prefix_outbox.rs"]
 mod guest_prefix_outbox;
+#[path = "scheduled_release_http_pg/guest_prefix_scheduler.rs"]
+mod guest_prefix_scheduler;
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
