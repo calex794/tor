@@ -80,8 +80,5 @@ pub trait DispatchSource: Sync {
 /// A success must apply to the exact canonical transport mailbox checked;
 /// a timeout or unknown result is never eligibility.
 pub trait DispatchPreflight: Sync {
-    fn check(
-        &self,
-        recipient: &str,
-    ) -> impl Future<Output = Result<(), PreflightFailure>> + Send;
+    fn check(&self, recipient: &str) -> impl Future<Output = Result<(), PreflightFailure>> + Send;
 }

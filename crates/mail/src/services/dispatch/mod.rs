@@ -2,7 +2,6 @@
 mod policy;
 mod source;
 
-pub use source::{DispatchPreflight, DispatchSource, PreflightFailure, ResolvedMail, SourceFailure};
 use super::{
     launch::{LaunchError, LaunchFence, LaunchScope},
     postbox::{self, PostboxCredentials, PostboxTransport, Submission},
@@ -19,6 +18,9 @@ use crate::{
     repositories::dispatch::{DispatchStoreError, PgDispatchStore},
 };
 use policy::Denial;
+pub use source::{
+    DispatchPreflight, DispatchSource, PreflightFailure, ResolvedMail, SourceFailure,
+};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -155,7 +157,10 @@ impl<'a> DispatchWorker<'a> {
             self.stop();
             return self.defer(claim, DeferReason::BudgetPaused).await;
         }
-        let decision = self.store.reserve_for_dispatch(claim, keys, &before).await?;
+        let decision = self
+            .store
+            .reserve_for_dispatch(claim, keys, &before)
+            .await?;
         if let Some(denial) = policy::denial(decision) {
             return self.handle_denial(claim, denial).await;
         }

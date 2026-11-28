@@ -61,7 +61,10 @@ impl PgDispatchStore {
         keys: QuotaKeys,
         expected: &LaunchSnapshot,
     ) -> Result<QuotaDecision, DispatchStoreError> {
-        Ok(self.quota.reserve_for_dispatch(claim, keys, expected).await?)
+        Ok(self
+            .quota
+            .reserve_for_dispatch(claim, keys, expected)
+            .await?)
     }
 
     pub(crate) async fn prepare_for_dispatch(

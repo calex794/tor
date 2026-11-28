@@ -45,7 +45,9 @@ mod tests {
             Some(Denial::LeaseLost)
         ));
         assert!(matches!(
-            denial(QuotaDecision::RecipientSuppressed(SuppressionReason::Complaint)),
+            denial(QuotaDecision::RecipientSuppressed(
+                SuppressionReason::Complaint
+            )),
             Some(Denial::Finish(MailOutcome::Cancelled))
         ));
         assert!(matches!(

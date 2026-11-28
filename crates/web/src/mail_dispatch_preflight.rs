@@ -104,10 +104,7 @@ mod tests {
                 DnsAnswer::NxDomain { ttl: 60 },
                 PreflightFailure::InvalidRecipient,
             ),
-            (
-                DnsAnswer::TemporaryFailure,
-                PreflightFailure::Unavailable,
-            ),
+            (DnsAnswer::TemporaryFailure, PreflightFailure::Unavailable),
         ] {
             let preflight = MailDispatchPreflight::new(Arc::new(FakeDns {
                 answer,
