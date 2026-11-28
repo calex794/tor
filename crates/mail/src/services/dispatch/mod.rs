@@ -16,12 +16,9 @@ use crate::{
         suppression::AttemptRef,
         MailClaim, MailOutcome,
     },
-    repositories::{
-        launch::PgMailLaunch, postbox_feedback::PgPostboxFeedback, quota::PgMailQuota, PgMailQueue,
-    },
+    repositories::dispatch::{DispatchStoreError, PgDispatchStore},
 };
 use policy::Denial;
-use sqlx::PgPool;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -46,15 +43,12 @@ pub struct DispatchWorker<'a> {
     fence: &'a LaunchFence,
     signer: &'a QuotaKeySigner,
     master: &'a ProfileMasterKey,
-    queue: PgMailQueue,
-    quota: PgMailQuota,
-    launch: PgMailLaunch,
-    feedback: PgPostboxFeedback,
+    store: PgDispatchStore,
 }
 
 impl<'a> DispatchWorker<'a> {
     pub fn new(
-        pool: PgPool,
+        store: PgDispatchStore,
         fence: &'a LaunchFence,
         signer: &'a QuotaKeySigner,
         master: &'a ProfileMasterKey,
@@ -63,10 +57,7 @@ impl<'a> DispatchWorker<'a> {
             fence,
             signer,
             master,
-            queue: PgMailQueue::new(pool.clone()),
-            quota: PgMailQuota::new(pool.clone()),
-            launch: PgMailLaunch::new(pool.clone()),
-            feedback: PgPostboxFeedback::new(pool),
+            store,
         }
     }
 
@@ -75,29 +66,31 @@ impl<'a> DispatchWorker<'a> {
     /// database failure or timeout, leave any outstanding lease quarantinable
     /// by recovery; never assume a transaction or SMTP submission failed.
     pub async fn run_one(&self, source: &impl DispatchSource) -> DispatchOutcome {
-        let _slot = match self.fence.try_dispatch_run() {
+        let mut slot = match self.fence.try_dispatch_run() {
             Ok(Some(slot)) => slot,
             Ok(None) => return DispatchOutcome::Busy,
             Err(LaunchError::Stopped) => return DispatchOutcome::Stopped,
             Err(_) => return DispatchOutcome::Unavailable,
         };
-        match timeout(ATTEMPT_LIMIT, self.run_inner(source)).await {
+        let outcome = match timeout(ATTEMPT_LIMIT, self.run_inner(source)).await {
             Ok(Ok(outcome)) => outcome,
             _ => {
                 self.stop();
                 DispatchOutcome::Unavailable
             }
-        }
+        };
+        slot.complete();
+        outcome
     }
 
     async fn run_inner(
         &self,
         source: &impl DispatchSource,
-    ) -> Result<DispatchOutcome, sqlx::Error> {
+    ) -> Result<DispatchOutcome, DispatchStoreError> {
         let Some(initial) = self.permitted_snapshot().await? else {
             return Ok(DispatchOutcome::Stopped);
         };
-        let Some(profile) = self.launch.dispatch_profile(&initial).await? else {
+        let Some(profile) = self.store.dispatch_profile(&initial).await? else {
             self.stop();
             return Ok(DispatchOutcome::Stopped);
         };
@@ -116,7 +109,7 @@ impl<'a> DispatchWorker<'a> {
             return Ok(DispatchOutcome::Unavailable);
         };
         drop(secrets);
-        let Some(claim) = self.queue.claim_next().await? else {
+        let Some(claim) = self.store.claim_next().await? else {
             return Ok(DispatchOutcome::Idle);
         };
         let mail = match timeout(SOURCE_LIMIT, source.resolve(claim.intent)).await {
@@ -157,13 +150,13 @@ impl<'a> DispatchWorker<'a> {
             self.stop();
             return self.defer(claim, DeferReason::BudgetPaused).await;
         }
-        let decision = self.quota.reserve_for_dispatch(claim, keys, &before).await?;
+        let decision = self.store.reserve_for_dispatch(claim, keys, &before).await?;
         if let Some(denial) = policy::denial(decision) {
             return self.handle_denial(claim, denial).await;
         }
 
         // From here no path may defer or refund the committed reservation.
-        let Some(reserved) = self.launch.snapshot().await? else {
+        let Some(reserved) = self.store.snapshot().await? else {
             return self.cancel_reserved(claim).await;
         };
         if !matches!(
@@ -174,7 +167,7 @@ impl<'a> DispatchWorker<'a> {
         }
         let identity = profile.identity().identity_id();
         let Some(marker) = self
-            .feedback
+            .store
             .prepare_for_dispatch(claim, identity, keys, &reserved)
             .await?
         else {
@@ -184,7 +177,7 @@ impl<'a> DispatchWorker<'a> {
         else {
             return self.cancel_reserved(claim).await;
         };
-        let Some(current) = self.launch.snapshot().await? else {
+        let Some(current) = self.store.snapshot().await? else {
             return self.cancel_reserved(claim).await;
         };
         if current != reserved
@@ -208,7 +201,7 @@ impl<'a> DispatchWorker<'a> {
                         generation: claim.generation,
                     };
                     if !self
-                        .feedback
+                        .store
                         .bind_accepted_message(attempt, identity, &id)
                         .await?
                     {
@@ -230,8 +223,8 @@ impl<'a> DispatchWorker<'a> {
         self.finish(claim, outcome).await
     }
 
-    async fn permitted_snapshot(&self) -> Result<Option<LaunchSnapshot>, sqlx::Error> {
-        let Some(snapshot) = self.launch.snapshot().await? else {
+    async fn permitted_snapshot(&self) -> Result<Option<LaunchSnapshot>, DispatchStoreError> {
+        let Some(snapshot) = self.store.snapshot().await? else {
             self.stop();
             return Ok(None);
         };
@@ -249,7 +242,10 @@ impl<'a> DispatchWorker<'a> {
         let _ = self.fence.stop();
     }
 
-    async fn cancel_reserved(&self, claim: MailClaim) -> Result<DispatchOutcome, sqlx::Error> {
+    async fn cancel_reserved(
+        &self,
+        claim: MailClaim,
+    ) -> Result<DispatchOutcome, DispatchStoreError> {
         self.stop();
         self.finish(claim, MailOutcome::Cancelled).await
     }
@@ -258,7 +254,7 @@ impl<'a> DispatchWorker<'a> {
         &self,
         claim: MailClaim,
         denial: Denial,
-    ) -> Result<DispatchOutcome, sqlx::Error> {
+    ) -> Result<DispatchOutcome, DispatchStoreError> {
         match denial {
             Denial::Defer(reason) => self.defer(claim, reason).await,
             Denial::Finish(outcome) => self.finish(claim, outcome).await,
@@ -278,8 +274,8 @@ impl<'a> DispatchWorker<'a> {
         &self,
         claim: MailClaim,
         reason: DeferReason,
-    ) -> Result<DispatchOutcome, sqlx::Error> {
-        Ok(match self.queue.defer_unsubmitted(claim, reason).await? {
+    ) -> Result<DispatchOutcome, DispatchStoreError> {
+        Ok(match self.store.defer_unsubmitted(claim, reason).await? {
             DeferOutcome::Deferred => DispatchOutcome::Deferred(reason),
             DeferOutcome::Exhausted => DispatchOutcome::Exhausted,
             DeferOutcome::Refused => {
@@ -293,8 +289,8 @@ impl<'a> DispatchWorker<'a> {
         &self,
         claim: MailClaim,
         outcome: MailOutcome,
-    ) -> Result<DispatchOutcome, sqlx::Error> {
-        if self.queue.finish(claim, outcome).await? {
+    ) -> Result<DispatchOutcome, DispatchStoreError> {
+        if self.store.finish(claim, outcome).await? {
             Ok(DispatchOutcome::Finished(outcome))
         } else {
             self.stop();

@@ -262,6 +262,21 @@ fn dispatch_slot_is_exclusive_and_never_uses_test_authority() {
     assert!(!gate.dispatch_running.load(Ordering::Acquire));
 
     let (gate, _) = armed(LaunchScope::Dispatch);
-    drop(gate.try_dispatch_run().unwrap().unwrap());
+    let mut slot = gate.try_dispatch_run().unwrap().unwrap();
+    slot.complete();
+    drop(slot);
     assert!(gate.try_dispatch_run().unwrap().is_some());
+}
+
+#[test]
+fn cancelled_dispatch_stops_before_releasing_the_slot() {
+    let (gate, active) = armed(LaunchScope::Dispatch);
+    let slot = gate.try_dispatch_run().unwrap().unwrap();
+    drop(slot);
+    assert!(!gate.dispatch_running.load(Ordering::Acquire));
+    assert_eq!(
+        gate.permit_reservation(&active, LaunchScope::Dispatch),
+        Err(LaunchError::Stopped)
+    );
+    assert!(matches!(gate.try_dispatch_run(), Err(LaunchError::Stopped)));
 }

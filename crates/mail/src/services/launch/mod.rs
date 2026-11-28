@@ -52,11 +52,25 @@ pub struct LaunchFence {
     dispatch_running: AtomicBool,
 }
 
-pub(super) struct DispatchRun<'a>(&'a AtomicBool);
+pub(super) struct DispatchRun<'a> {
+    fence: &'a LaunchFence,
+    completed: bool,
+}
+
+impl DispatchRun<'_> {
+    pub(super) fn complete(&mut self) {
+        self.completed = true;
+    }
+}
 
 impl Drop for DispatchRun<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        // Dropping a cancelled future must stop new admissions before
+        // releasing the exclusive slot, including cancellation during SMTP.
+        if !self.completed {
+            let _ = self.fence.stop();
+        }
+        self.fence.dispatch_running.store(false, Ordering::Release);
     }
 }
 
@@ -76,7 +90,10 @@ impl LaunchFence {
             .dispatch_running
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .ok()
-            .map(|_| DispatchRun(&self.dispatch_running)))
+            .map(|_| DispatchRun {
+                fence: self,
+                completed: false,
+            }))
     }
 
     /// Caller first authenticates the live administrator. The returned nonce
