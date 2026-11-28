@@ -107,8 +107,7 @@ impl GuestPrefixConsumer {
                 // Ineligibility might be temporary. Only a strictly newer
                 // revision is stable supersession of this revision-bound job.
                 if self.repo.claimed_policy_superseded(job).await == Ok(true) {
-                    self.ack(claim, GuestPrefixWorkerOutcome::Superseded)
-                        .await
+                    self.ack(claim, GuestPrefixWorkerOutcome::Superseded).await
                 } else {
                     self.failure(claim, true).await
                 }
