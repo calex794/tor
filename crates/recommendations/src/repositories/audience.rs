@@ -1,5 +1,6 @@
 //! Numeric discovery read model for the separately authorized site admin.
 //! Reads anonymous retained daily facts; no profile or attribution is created.
+use crate::repositories::report_transaction::begin_read_report;
 use crate::services::audience::{
     validate_period, DiscoveryChannel, DiscoveryError, DiscoveryHealth, DiscoveryPeriod,
     DiscoveryReport, DiscoverySource,
@@ -23,15 +24,7 @@ impl PgDiscoveryAudience {
     /// SQL aggregates the complete retained range before returning eight rows.
     pub async fn report(&self, days: i32) -> Result<DiscoveryReport, DiscoveryError> {
         validate_period(days)?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = begin_read_report(&self.pool).await.map_err(unavailable)?;
         let rows = sqlx::query(REPORT_SQL)
             .bind(days)
             .fetch_all(&mut *tx)

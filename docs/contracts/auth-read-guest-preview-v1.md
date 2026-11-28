@@ -150,6 +150,23 @@ physical deletion authority, change existing pin checks or modify GC.
 Automatic publication/import/schedule and fenced backfill wiring remain a
 separate slice; no read route or activation is introduced by this storage slice.
 
+02c1 adds a bounded preparation discovery port. One request checks the
+current prepared book revision, then scans at most 64 consecutive existing
+chapter numbers beyond max(N, cursor), using the unique (book_id,chapter_no)
+index and a materialized limited page. Apply publication, hold, FREE, release
+and exact-derivative checks after the limit. The cursor advances over inspected
+numbers even when all are ineligible or already prepared; a short/empty page
+ends the sweep. No source body, provider request or full-catalog scan.
+Discovery is advisory: another writer may change eligibility before
+preparation; prepare_current still enforces the exact revision/source.
+A separate fenced G consumer and scheduling integration remain required.
+Unsupported literal markup is persisted as an immutable terminal
+projection_status=unsupported with empty text, zero count and the exact
+source hash; a valid empty/tiny projection is status=ready. Retries only
+accept identical results. A new exact edition is eligible for new work.
+Missing/corrupt data, unlike unsupported, remains a failure/rebuild case.
+No new FK or retention right, no public API and no rollout activation.
+
 New bodyless FREE full Markdown remains in verified S3 only; legacy PG text
 retains existing migration semantics. The projection is a small intentional
 derivative, rebuildable from source, never a substitute for source or an
