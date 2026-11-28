@@ -450,10 +450,16 @@ pub(super) async fn login(
         }
     };
     let audit = source;
-    let admission =
-        match login_admission::admit(&state, &identity, &headers, peer, audit, &mut observed)
-            .await
-        {
+    observed.set_identity(identity.as_str());
+    // Charge the verified IP and submitted identifier before any account lookup.
+    let submitted_key =
+        match login_limiter::limit(&state, "login", identity.as_str(), &headers, peer).await {
+            Ok(key) => key,
+            Err(status) => return login_admission::rate_error(status, &mut observed),
+        };
+    let admission = match login_admission::admit(&state, &identity, submitted_key, audit, &mut observed)
+        .await
+    {
             Ok(admission) => admission,
             Err(response) => return response,
         };

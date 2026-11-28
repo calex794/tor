@@ -19,6 +19,7 @@ pub mod free_pack_reader;
 pub mod free_pack_rollback;
 pub mod free_pack_sources;
 pub mod free_s3_publish;
+pub mod guest_prefix;
 pub mod personal_books;
 pub mod recommendation_policy;
 pub mod translation_team_analytics;

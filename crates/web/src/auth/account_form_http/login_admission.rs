@@ -4,12 +4,7 @@ use crate::{
     auth::{auth_observation, login_limiter, AuthState},
     observability,
 };
-use axum::{
-    extract::ConnectInfo,
-    http::{HeaderMap, StatusCode},
-    response::Response,
-};
-use std::net::SocketAddr;
+use axum::{http::StatusCode, response::Response};
 use tor_accounts::{
     domain::access_audit::LoginAuditContext, repositories::postgres::StoredUser,
     services::login_identity::LoginIdentity,
@@ -23,7 +18,10 @@ pub(super) struct Admission {
     pub(super) submitted_key: [u8; 32],
 }
 
-fn rate_error(status: StatusCode, observed: &mut auth_observation::RequestObservation) -> Response {
+pub(super) fn rate_error(
+    status: StatusCode,
+    observed: &mut auth_observation::RequestObservation,
+) -> Response {
     observed.report(
         if status == StatusCode::TOO_MANY_REQUESTS {
             auth_observation::Outcome::RateLimited
@@ -38,17 +36,12 @@ fn rate_error(status: StatusCode, observed: &mut auth_observation::RequestObserv
 pub(super) async fn admit(
     state: &AuthState,
     identity: &LoginIdentity,
-    headers: &HeaderMap,
-    peer: ConnectInfo<SocketAddr>,
+    submitted_key: [u8; 32],
     audit: LoginAuditContext,
     observed: &mut auth_observation::RequestObservation,
 ) -> Result<Admission, Response> {
-    // Preserve the existing IP/submitted-identity pre-admission and source
-    // spray fence. A new handle is not an unlimited lookup or Argon2 path.
-    observed.set_identity(identity.as_str());
-    let submitted_key = login_limiter::limit(state, "login", identity.as_str(), headers, peer)
-        .await
-        .map_err(|status| rate_error(status, observed))?;
+    // The route has already charged the IP and submitted identifier.
+    // Preserve the source spray fence before resolving the account.
     let source = match login_limiter::spray_start(state, audit.verified_ip).await {
         Ok(source) => source,
         Err(login_limiter::SprayError::Locked(seconds)) => {

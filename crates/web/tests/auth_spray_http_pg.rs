@@ -197,18 +197,20 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
         };
         let wrong =
             login_form(&identity, csrf).replace("StrongPasswordForAB02%21", "WrongPassword2026");
-        let denied = send(
-            &app,
-            request("POST", "/login", &wrong, &cookie, ORIGIN),
-        )
-        .await;
+        let denied = send(&app, request("POST", "/login", &wrong, &cookie, ORIGIN)).await;
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
         assert!(denied.headers().get(header::SET_COOKIE).is_none());
     }
     for identity in [&known, &handle] {
         let denied = send(
             &app,
-            request("POST", "/login", &login_form(identity, csrf), &cookie, ORIGIN),
+            request(
+                "POST",
+                "/login",
+                &login_form(identity, csrf),
+                &cookie,
+                ORIGIN,
+            ),
         )
         .await;
         assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
