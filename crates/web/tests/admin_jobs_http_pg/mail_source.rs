@@ -6,9 +6,7 @@ use tor_contracts::{
     paid_delivery::PositiveId,
 };
 use tor_mail::services::dispatch::{DispatchSource, SourceFailure};
-use tor_support::{
-    domain::Requester, repositories::postgres::PgSupport, services::SupportService,
-};
+use tor_support::{domain::Requester, repositories::postgres::PgSupport, services::SupportService};
 use tor_web::mail_dispatch_source::SupportDispatchSource;
 
 #[tokio::test]
@@ -107,7 +105,10 @@ async fn mail_04_support_reply_source_checks_owner_and_live_account() {
     );
     // Deleting the account removes the owned source, never sends to a stale address.
     pg(&url, &format!("DELETE FROM users WHERE id={}", users[0]));
-    assert_eq!(source.resolve(valid).await.err(), Some(SourceFailure::Cancelled));
+    assert_eq!(
+        source.resolve(valid).await.err(),
+        Some(SourceFailure::Cancelled)
+    );
     pg(
         &url,
         &format!("DELETE FROM users WHERE id IN ({},{})", users[1], users[2]),
