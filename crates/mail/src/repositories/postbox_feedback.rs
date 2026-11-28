@@ -25,6 +25,15 @@ pub enum PostboxDecision {
     InvalidRecipient,
 }
 
+enum ProofPreparation<'a> {
+    None,
+    Reset(&'a [u8; 32]),
+    Registration {
+        digest: &'a [u8; 32],
+        mailbox_revision: i64,
+    },
+}
+
 async fn guard(tx: &mut Transaction<'_, Postgres>) -> Result<Option<Vec<u8>>, sqlx::Error> {
     sqlx::query_scalar("SELECT key_binding FROM mail_send_budget_guard WHERE singleton FOR UPDATE")
         .fetch_one(&mut **tx)
@@ -43,7 +52,8 @@ impl PgPostboxFeedback {
         claim: MailClaim,
         identity_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(claim, identity_id, None, None).await
+        self.prepare_inner(claim, identity_id, ProofPreparation::None, None)
+            .await
     }
 
     /// The caller resolves the current request, verifies recipient policy,
@@ -56,7 +66,7 @@ impl PgPostboxFeedback {
         identity_id: &str,
         token_hash: &[u8; 32],
     ) -> Result<Option<String>, sqlx::Error> {
-        self.prepare_inner(claim, identity_id, Some(token_hash), None)
+        self.prepare_inner(claim, identity_id, ProofPreparation::Reset(token_hash), None)
             .await
     }
 
@@ -69,7 +79,12 @@ impl PgPostboxFeedback {
     ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
         let started = Instant::now();
         let marker = self
-            .prepare_inner(grant.claim(), identity_id, None, Some((grant, keys)))
+            .prepare_inner(
+                grant.claim(),
+                identity_id,
+                ProofPreparation::None,
+                Some((grant, keys)),
+            )
             .await?;
         Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, None, started)))
     }
@@ -88,21 +103,57 @@ impl PgPostboxFeedback {
             .prepare_inner(
                 grant.claim(),
                 identity_id,
-                Some(token_hash),
+                ProofPreparation::Reset(token_hash),
                 Some((grant, keys)),
             )
             .await?;
         Ok(marker.map(|marker| PreparedDispatch::new(grant, marker, Some(*token_hash), started)))
     }
 
+    /// Commit the proof and correlation together under the same charged
+    /// dispatch grant. Registration has no legacy preparation path.
+    pub async fn prepare_registration_dispatch(
+        &self,
+        grant: &DispatchGrant,
+        identity_id: &str,
+        digest: &[u8; 32],
+        mailbox_revision: i64,
+        keys: QuotaKeys,
+    ) -> Result<Option<PreparedDispatch>, sqlx::Error> {
+        let started = Instant::now();
+        let marker = self
+            .prepare_inner(
+                grant.claim(),
+                identity_id,
+                ProofPreparation::Registration {
+                    digest,
+                    mailbox_revision,
+                },
+                Some((grant, keys)),
+            )
+            .await?;
+        Ok(marker.map(|marker| {
+            PreparedDispatch::with_registration(grant, marker, *digest, mailbox_revision, started)
+        }))
+    }
+
     async fn prepare_inner(
         &self,
         claim: MailClaim,
         identity_id: &str,
-        reset_token_hash: Option<&[u8; 32]>,
+        proof: ProofPreparation<'_>,
         grant: Option<(&DispatchGrant, QuotaKeys)>,
     ) -> Result<Option<String>, sqlx::Error> {
-        if (claim.intent.purpose == MailPurpose::PasswordReset) != reset_token_hash.is_some() {
+        let correct_purpose = match (&proof, claim.intent.purpose) {
+            (ProofPreparation::Reset(_), MailPurpose::PasswordReset) => true,
+            (
+                ProofPreparation::Registration { mailbox_revision, .. },
+                MailPurpose::RegistrationConfirmation,
+            ) => grant.is_some() && *mailbox_revision > 0,
+            (ProofPreparation::None, MailPurpose::SupportReply | MailPurpose::ProjectNews) => true,
+            _ => false,
+        };
+        if !correct_purpose {
             return Ok(None);
         }
         if !valid_id(identity_id) {
@@ -114,9 +165,9 @@ impl PgPostboxFeedback {
             .map_err(|_| sqlx::Error::Protocol("mail randomness unavailable".to_owned()))?;
         let marker = hex::encode(bytes);
         let mut tx = self.pool.begin().await?;
-        // For reset, lock the account before the outbox/source/proof. Account
-        // changes and account deletion must serialize with proof issuance.
-        if reset_token_hash.is_some() {
+        // For proof-bearing messages, lock the account before the shared
+        // quota guard/outbox/source/proof. No locks survive into SMTP.
+        if !matches!(&proof, ProofPreparation::None) {
             let active: Option<i64> = sqlx::query_scalar(
                 "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
             )
@@ -210,7 +261,7 @@ impl PgPostboxFeedback {
             tx.rollback().await?;
             return Ok(None);
         }
-        if let Some(token_hash) = reset_token_hash {
+        if let ProofPreparation::Reset(token_hash) = &proof {
             // A-owned SQL port; verify the exact live source against the
             // just-prepared reservation and correlation under the same locks.
             let issued: bool = sqlx::query_scalar(
@@ -221,6 +272,28 @@ impl PgPostboxFeedback {
             .bind(claim.id)
             .bind(claim.generation)
             .bind(token_hash.as_slice())
+            .fetch_one(&mut *tx)
+            .await?;
+            if !issued {
+                tx.rollback().await?;
+                return Ok(None);
+            }
+        }
+        if let ProofPreparation::Registration {
+            digest,
+            mailbox_revision,
+        } = proof
+        {
+            let issued: bool = sqlx::query_scalar(
+                "SELECT account_issue_registration_mail_proof($1,$2,$3,$4,$5,$6,$7)",
+            )
+            .bind(claim.intent.recipient.get())
+            .bind(claim.intent.event_id.get())
+            .bind(claim.id)
+            .bind(claim.generation)
+            .bind(mailbox_revision)
+            .bind(&marker)
+            .bind(digest.as_slice())
             .fetch_one(&mut *tx)
             .await?;
             if !issued {

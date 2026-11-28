@@ -29,7 +29,7 @@ pub(super) async fn capture(
     Ok(())
 }
 
-fn digest(bytes: Vec<u8>) -> Result<[u8; 32], sqlx::Error> {
+pub(super) fn digest(bytes: Vec<u8>) -> Result<[u8; 32], sqlx::Error> {
     bytes
         .try_into()
         .map_err(|_| sqlx::Error::Protocol("invalid signup mail digest".to_owned()))

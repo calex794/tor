@@ -395,5 +395,7 @@ mod cost;
 mod postbox_feedback;
 mod postbox_profile;
 mod reconciliation;
+mod registration_dispatch;
+mod registration_proof;
 mod reset_proof;
 mod suppression;
