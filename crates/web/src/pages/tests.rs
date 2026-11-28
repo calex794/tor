@@ -111,7 +111,7 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
     assert!(page.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
     assert!(page.contains("role=\"alert\""));
     assert!(page.contains("Пароль должен содержать от 12 до 128 символов"));
-    assert!(page.contains("&lt;script&gt;ошибка&lt;/script&gt;"));
+    assert!(!page.contains("&lt;script&gt;ошибка&lt;/script&gt;"));
     assert!(page.contains("reader&quot;@example.test"));
     assert!(!page.contains("<script>ошибка</script>"));
     assert!(!page.contains("value=\"1234\""));

@@ -1,0 +1,119 @@
+//! Read-only launch observation and process-local activation intent.
+use sha2::{Digest, Sha256};
+use std::time::{Duration, Instant};
+
+pub(crate) const REVIEW_LIMIT: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LaunchScope {
+    OperatorTest(i64),
+    Dispatch,
+}
+#[derive(Clone, Eq, PartialEq)]
+pub(crate) struct LaunchBinding {
+    pub(crate) postmaster_epoch: i64,
+    pub(crate) database_oid: i64,
+    pub(crate) profile_digest: [u8; 32],
+    pub(crate) month: String,
+    pub(crate) evidence: [u8; 32],
+    pub(crate) reconciliation_revision: i64,
+    pub(crate) limits: [i64; 4],
+    pub(crate) pricing: [i64; 3],
+    pub(crate) reconciled_attempts: i64,
+}
+
+/// Constructed by the PostgreSQL repository, not from an HTTP form.
+/// No mailbox, secret, session or raw provider reply.
+#[derive(Clone, Eq, PartialEq)]
+pub struct LaunchSnapshot {
+    pub(crate) binding: LaunchBinding,
+    pub(crate) policy_revision: i64,
+    pub(crate) activation_digest: Option<[u8; 32]>,
+    pub(crate) enabled: bool,
+    pub(crate) boundary_pause: bool,
+    pub(crate) reserved_attempts: i64,
+    pub(crate) room_for_reservation: bool,
+    pub(crate) within_budget: bool,
+}
+
+impl LaunchSnapshot {
+    pub fn policy_revision(&self) -> i64 {
+        self.policy_revision
+    }
+
+    pub fn month(&self) -> &str {
+        &self.binding.month
+    }
+
+    pub fn evidence(&self) -> &[u8; 32] {
+        &self.binding.evidence
+    }
+
+    pub fn profile_digest(&self) -> &[u8; 32] {
+        &self.binding.profile_digest
+    }
+
+    pub(crate) fn ready_for_review(&self) -> bool {
+        !self.enabled
+            && self.activation_digest.is_none()
+            && !self.boundary_pause
+            && self.room_for_reservation
+            && self.binding.postmaster_epoch > 0
+            && self.binding.database_oid > 0
+            && self.binding.evidence != [0; 32]
+            && self.binding.profile_digest != [0; 32]
+            && self.binding.reconciliation_revision > 0
+            && self.binding.reconciliation_revision == self.policy_revision
+            && self.reserved_attempts == self.binding.reconciled_attempts
+            && self.reserved_attempts >= 0
+            && self.policy_revision.checked_add(1).is_some()
+    }
+}
+
+/// One process-bound, expiring intent. Never deserialize from browser input
+/// or persist it in the recovered database. It is not a send authorization.
+pub struct ActivationIntent {
+    pub(crate) reviewed: LaunchSnapshot,
+    pub(crate) scope: LaunchScope,
+    pub(crate) session: [u8; 32],
+    pub(crate) challenge: [u8; 32],
+    pub(crate) started: Instant,
+}
+
+impl ActivationIntent {
+    pub fn policy_revision(&self) -> i64 {
+        self.reviewed.policy_revision
+    }
+
+    pub(crate) fn fresh(&self) -> bool {
+        self.started.elapsed() < REVIEW_LIMIT
+    }
+
+    pub fn proof_digest(&self) -> [u8; 32] {
+        let b = &self.reviewed.binding;
+        let mut h = Sha256::new();
+        h.update(b"tor:mail:launch-intent:v1");
+        h.update(self.challenge);
+        h.update(self.session);
+        let (mode, recipient) = match self.scope {
+            LaunchScope::Dispatch => (0u8, 0i64),
+            LaunchScope::OperatorTest(id) => (1u8, id),
+        };
+        h.update([mode]);
+        h.update(recipient.to_be_bytes());
+        h.update(self.reviewed.policy_revision.to_be_bytes());
+        h.update(b.postmaster_epoch.to_be_bytes());
+        h.update(b.database_oid.to_be_bytes());
+        h.update(b.profile_digest);
+        h.update((b.month.len() as u64).to_be_bytes());
+        h.update(b.month.as_bytes());
+        h.update(b.evidence);
+        h.update(b.reconciliation_revision.to_be_bytes());
+        for v in b.limits.into_iter().chain(b.pricing) {
+            h.update(v.to_be_bytes());
+        }
+        h.update(b.reconciled_attempts.to_be_bytes());
+        h.update(self.reviewed.reserved_attempts.to_be_bytes());
+        h.finalize().into()
+    }
+}

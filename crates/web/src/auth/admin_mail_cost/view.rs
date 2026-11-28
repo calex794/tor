@@ -62,6 +62,7 @@ pub(super) fn body(view: &CostAdminView, csrf: &str) -> String {
         ""
     };
     let csrf = pages::escape_html(csrf);
+    let reconciliation = reconciliation_form(view, &csrf);
     format!(
         "<section class=\"section\"><div class=\"container\">\
          <h1>Системная почта</h1><p><a href=\"/odmen\">Администрирование</a></p>\
@@ -82,14 +83,55 @@ pub(super) fn body(view: &CostAdminView, csrf: &str) -> String {
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <button type=\"submit\">Остановить отправку</button></form>\
          <p>Остановка запрещает новые допуски; уже начатая отправка может завершиться. \
-         Включение почты и сверка месяца пока недоступны из этой формы. \
+         Включение почты пока недоступно из этой формы. \
          Пороговые предупреждения отображаются здесь, внешняя доставка уведомлений не подключена.</p>\
-         </div></section>",
+         {reconciliation}</div></section>",
         view.revision,
         l.warning_1 / 100,
         l.warning_2 / 100,
         l.news_pause / 100,
         l.monthly_limit / 100,
+    )
+}
+
+fn reconciliation_form(view: &CostAdminView, escaped_csrf: &str) -> String {
+    if view.snapshot.limits.enabled || view.snapshot.boundary_pause {
+        return "<p>Для сверки месяца остановите отправку и дождитесь окончания переходного периода.</p>"
+            .to_owned();
+    }
+    let usage = view.snapshot.usage.as_ref();
+    let month = usage
+        .and_then(|u| u.month_start.get(..7))
+        .map(pages::escape_html)
+        .unwrap_or_default();
+    let free = usage.map_or(0, |u| u.free_allowance);
+    let baseline = usage
+        .map(|u| u.baseline_kopecks.to_string())
+        .unwrap_or_default();
+    let rate = usage
+        .map(|u| u.rate_per_thousand.to_string())
+        .unwrap_or_default();
+    let attempts = usage
+        .map(|u| u.reserved_attempts.to_string())
+        .unwrap_or_default();
+    format!(
+        "<h2>Сверка расчётного месяца</h2>\
+         <p>Сначала независимо проверьте данные биллинга Postbox и историю резервирований. \
+         Если бесплатная квота неизвестна, укажите 0. Не уменьшайте учтённые расходы. \
+         SHA-256 связывает запись с проверенным документом, но не подтверждает его достоверность. \
+         Сверка не включает отправку и не заменяет проверку после восстановления.</p>\
+         <form method=\"post\" action=\"/odmen/system-mail/reconcile\" autocomplete=\"off\">\
+         <input type=\"hidden\" name=\"csrf_token\" value=\"{escaped_csrf}\">\
+         <input type=\"hidden\" name=\"revision\" value=\"{}\">\
+         <label>Месяц (МСК) <input type=\"month\" name=\"month\" value=\"{month}\" required></label>\
+         <label>Подтверждённая бесплатная квота <input type=\"number\" name=\"free_allowance\" min=\"0\" max=\"2000\" value=\"{free}\" required></label>\
+         <label>Учтённые внешние расходы (копейки) <input type=\"number\" name=\"baseline_kopecks\" min=\"0\" value=\"{baseline}\" required></label>\
+         <label>Верхний тариф за 1000 писем (копейки) <input type=\"number\" name=\"rate_per_thousand\" min=\"8032\" value=\"{rate}\" required></label>\
+         <label>Накопленные попытки <input type=\"number\" name=\"reserved_attempts\" min=\"0\" value=\"{attempts}\" required></label>\
+         <label>SHA-256 проверенных материалов <input name=\"evidence_sha256\" minlength=\"64\" maxlength=\"64\" pattern=\"[0-9a-fA-F]{{64}}\" required></label>\
+         <label><input type=\"checkbox\" name=\"reviewed\" value=\"yes\" required> Я проверил расходы, тариф и восстановленную историю независимо от этой базы.</label>\
+         <button type=\"submit\">Сохранить сверку без включения отправки</button></form>",
+        view.revision,
     )
 }
 

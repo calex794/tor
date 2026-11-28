@@ -27,7 +27,7 @@ pub fn registration_form_with_next(csrf: &str, next: Option<&str>) -> Html<Strin
 }
 
 /// Use server-side validation instead of the browser's locale-dependent
-/// English popups. Keep the email/name, but never replay the password.
+/// English popups. Keep the email, but never replay the password or legacy name.
 #[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form_with_error(
     csrf: &str,
@@ -40,7 +40,7 @@ pub fn registration_form_with_error(
 
 pub fn registration_form_with_error_and_next(
     csrf: &str,
-    display_name: &str,
+    _display_name: &str,
     email: &str,
     error: Option<&str>,
     next: Option<&str>,
@@ -56,7 +56,6 @@ pub fn registration_form_with_error_and_next(
     let (return_field, login_next) = auth_next_markup(next);
     let content = include_str!("../../templates/register_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
-        .replace("<!--DISPLAY_NAME-->", &escape_html(display_name))
         .replace("<!--EMAIL-->", &escape_html(email))
         .replace("<!--FORM_ERROR-->", &banner)
         .replace("<!--AUTH_RETURN_FIELD-->", &return_field)
@@ -421,8 +420,10 @@ mod tests {
         assert!(html.contains("novalidate"));
         assert!(html.contains("name=\"csrf_token\" value=\"csrf-value\""));
         assert!(html.contains("Пароль должен содержать от 12 до 128 символов"));
-        assert!(html.contains("Читатель &lt;b&gt;"));
+        assert!(!html.contains("Читатель &lt;b&gt;"));
         assert!(!html.contains("Читатель <b>"));
+        assert!(!html.contains("name=\"display_name\""));
+        assert!(html.contains("value=\"reader@example.test\""));
         assert!(html.contains("autocomplete=\"new-password\""));
         assert!(!html.contains("value=\"1234\""));
     }

@@ -1,4 +1,5 @@
 // E-08/S057: three real accounts, private mail, polling and blocking.
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
@@ -45,11 +46,11 @@ module.exports = async (browser, base, out) => {
         const context = await browser.newContext({ viewport: { width, height: 900 } });
         const page = await context.newPage();
         await page.goto(base + '/register');
-        await page.getByLabel('Отображаемое имя').fill('Почта ' + name + ' ' + suffix);
         await page.getByLabel('Электронная почта').fill(`mail.${name}.${suffix}@example.test`);
         await page.getByLabel('Пароль (12–128 символов)').fill('MailOnlyTestingPassword2026');
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
+        await setFixtureDisplayName(page, 'Почта ' + name + ' ' + suffix);
         await page.getByRole('link', { name: 'Личная почта', exact: true }).click();
         assert.equal(await page.getByLabel('Номер получателя').count(), 0);
         const id = fixtureUser(`mail.${name}.${suffix}@example.test`);
