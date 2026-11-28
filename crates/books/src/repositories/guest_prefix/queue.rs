@@ -79,8 +79,16 @@ impl PgGuestPrefix {
         let page = self
             .missing_page(book_id, policy_revision, after_chapter_no, limit)
             .await?;
-        let chapters: Vec<i64> = page.targets.iter().map(|target| target.chapter_id).collect();
-        let versions: Vec<i64> = page.targets.iter().map(|target| target.version_id).collect();
+        let chapters: Vec<i64> = page
+            .targets
+            .iter()
+            .map(|target| target.chapter_id)
+            .collect();
+        let versions: Vec<i64> = page
+            .targets
+            .iter()
+            .map(|target| target.version_id)
+            .collect();
         let enqueued = if chapters.is_empty() {
             0
         } else {

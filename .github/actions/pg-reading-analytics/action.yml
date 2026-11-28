@@ -55,6 +55,7 @@ runs:
         cargo test -p tor-reading --lib reuse16a_pg_profiles_and_pool_recovery -- --ignored --test-threads=1
         cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
         cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --lib reuse16b_pg_statement_only_and_pool_recovery -- --ignored --test-threads=1
         cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
         cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
         cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1

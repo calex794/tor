@@ -1,4 +1,5 @@
 use super::{unavailable, PgFlowVisits};
+use crate::repositories::report_transaction::begin_read_report;
 use crate::services::visits::{
     FlowVisitError, FlowVisitsPeriod, FlowVisitsReport, FlowVisitsRow, FLOW_VISIT_DAYS,
 };
@@ -12,15 +13,7 @@ impl PgFlowVisits {
         if !FLOW_VISIT_DAYS.contains(&days) {
             return Err(FlowVisitError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout='750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = begin_read_report(&self.pool).await.map_err(unavailable)?;
         let rows = sqlx::query(PERIODS_SQL)
             .bind(days)
             .fetch_all(&mut *tx)

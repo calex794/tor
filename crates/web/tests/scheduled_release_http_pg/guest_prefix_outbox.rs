@@ -72,7 +72,11 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
     assert_eq!(page.enqueued, 1);
     assert_eq!(page.next_after_chapter_no, None);
     assert_eq!(
-        prefix.enqueue_missing_page(book, 1, 0, 64).await.unwrap().enqueued,
+        prefix
+            .enqueue_missing_page(book, 1, 0, 64)
+            .await
+            .unwrap()
+            .enqueued,
         0
     );
     let first = outbox
@@ -96,7 +100,10 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
     );
     let payload = pg(
         &url,
-        &format!("SELECT payload::text FROM outbox_events WHERE id='{}'::uuid", first.id),
+        &format!(
+            "SELECT payload::text FROM outbox_events WHERE id='{}'::uuid",
+            first.id
+        ),
     );
     assert!(!payload.contains("private tail"));
     let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
@@ -174,7 +181,11 @@ async fn auth_read_real_outbox_claim_replay_and_stale_epoch() {
         .unwrap()
         .is_none());
     assert_eq!(
-        prefix.enqueue_missing_page(book, 1, 0, 64).await.unwrap().enqueued,
+        prefix
+            .enqueue_missing_page(book, 1, 0, 64)
+            .await
+            .unwrap()
+            .enqueued,
         0
     );
     assert_eq!(
