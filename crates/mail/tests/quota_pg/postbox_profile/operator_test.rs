@@ -21,11 +21,13 @@ pub(super) async fn exercise(
     let signer = QuotaKeySigner::from_hex(&"4f".repeat(32)).unwrap();
     let keys = signer.keys(recipient, None).unwrap();
     // CI-only binding; production never binds a key over existing history.
-    sqlx::query("UPDATE mail_send_budget_guard SET key_binding=$1 WHERE singleton AND key_binding IS NULL")
-        .bind(keys.signup_source().key_binding.as_slice())
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE mail_send_budget_guard SET key_binding=$1 WHERE singleton AND key_binding IS NULL",
+    )
+    .bind(keys.signup_source().key_binding.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
     assert!(matches!(
         launch
             .reserve_operator_test(grant, "foreign@example.invalid", &signer)
@@ -46,7 +48,9 @@ pub(super) async fn exercise(
     .await
     .unwrap();
     assert!(matches!(
-        launch.reserve_operator_test(grant, recipient, &signer).await,
+        launch
+            .reserve_operator_test(grant, recipient, &signer)
+            .await,
         Err(Quota(RecipientSuppressed(SuppressionReason::Complaint)))
     ));
     sqlx::query("DELETE FROM mail_recipient_suppression WHERE recipient_key=$1")
@@ -63,7 +67,9 @@ pub(super) async fn exercise(
     )
     .await;
     assert!(matches!(
-        launch.reserve_operator_test(grant, recipient, &signer).await,
+        launch
+            .reserve_operator_test(grant, recipient, &signer)
+            .await,
         Err(Quota(TransactionalReserve))
     ));
     clear(pool).await;
@@ -107,11 +113,13 @@ pub(super) async fn exercise(
         before.review_cost().usage.unwrap().reserved_attempts + 1
     );
     // No retry/pending state, even after the lease expires.
-    sqlx::query("UPDATE mail_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1")
-        .bind(receipt.outbox_id())
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE mail_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1",
+    )
+    .bind(receipt.outbox_id())
+    .execute(pool)
+    .await
+    .unwrap();
     PgMailQueue::new(pool.clone())
         .recover_expired()
         .await
