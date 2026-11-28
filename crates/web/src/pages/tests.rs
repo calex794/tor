@@ -111,7 +111,7 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
     assert!(page.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
     assert!(page.contains("role=\"alert\""));
     assert!(page.contains("Пароль должен содержать от 12 до 128 символов"));
-    assert!(page.contains("&lt;script&gt;ошибка&lt;/script&gt;"));
+    assert!(!page.contains("&lt;script&gt;ошибка&lt;/script&gt;"));
     assert!(page.contains("reader&quot;@example.test"));
     assert!(!page.contains("<script>ошибка</script>"));
     assert!(!page.contains("value=\"1234\""));
@@ -507,10 +507,10 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
 }
 
 #[test]
-fn s019_header_has_book_registration_on_desktop_and_mobile() {
+fn s019_guest_header_hides_book_registration_on_desktop_and_mobile() {
     let html = layout("Каталог", "Книги", "").0;
-    assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
-    assert!(html.contains("Создать книгу"));
+    assert!(!html.contains("href=\"/me/books/new\""));
+    assert!(!html.contains("Создать книгу"));
 }
 
 #[test]

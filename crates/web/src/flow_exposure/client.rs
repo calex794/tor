@@ -6,6 +6,31 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use sha2::{Digest, Sha256};
+
+fn observation_integrity() -> &'static str {
+    static INTEGRITY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        format!(
+            "sha256-{}",
+            STANDARD.encode(Sha256::digest(include_bytes!(
+                "../../assets/flow_observations.js"
+            )))
+        )
+    });
+    INTEGRITY.as_str()
+}
+
+// Only extend the precise reviewed guest dialog policy, never an arbitrary hash.
+fn dialog_only_directive(directive: &str) -> bool {
+    let mut tokens = directive.split_ascii_whitespace();
+    tokens.next() == Some("script-src")
+        && tokens
+            .next()
+            .is_some_and(|token| token == format!("'{}'", crate::header_nav::dialog_integrity()))
+        && tokens.next().is_none()
+}
+
 pub(super) async fn script() -> Response {
     (
         [
@@ -76,10 +101,23 @@ pub(super) async fn append_script(mut request: Request, next: Next) -> Response 
         return Response::from_parts(parts, Body::from(bytes));
     };
     let mut html = original.to_owned();
-    html.insert_str(
-        at,
-        "<script defer src=\"/assets/flow-observations.js\"></script>",
-    );
+    let pinned = parts
+        .headers
+        .get("content-security-policy")
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|policy| policy.split(';').any(dialog_only_directive));
+    if pinned {
+        let integrity = observation_integrity();
+        html.insert_str(
+            at,
+            &format!("<script defer src=\"/assets/flow-observations.js?v={integrity}\" integrity=\"{integrity}\"></script>"),
+        );
+    } else {
+        html.insert_str(
+            at,
+            "<script defer src=\"/assets/flow-observations.js\"></script>",
+        );
+    }
     if let Some(policy) = parts
         .headers
         .get("content-security-policy")
@@ -106,7 +144,9 @@ fn observation_policy(policy: &str) -> String {
         let mut tokens = directive.split_ascii_whitespace();
         let name = tokens.next().unwrap_or_default();
         has_connect |= name == "connect-src";
-        if matches!(name, "script-src" | "connect-src")
+        if dialog_only_directive(directive) {
+            directives.push(format!("{directive} '{}'", observation_integrity()));
+        } else if matches!(name, "script-src" | "connect-src")
             && tokens.next() == Some("'none'")
             && tokens.next().is_none()
         {

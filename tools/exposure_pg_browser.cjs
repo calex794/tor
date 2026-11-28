@@ -35,7 +35,7 @@ async function position(card,left){await card.evaluate((element,x)=>{Object.assi
     await nojsCard.locator('a[data-flow-link]').click();await np.waitForURL(base+`/books/${book}`);assert.deepEqual(counts(nojsProof),[0,0,0]);
     // Genuine admin role and native no-JS forms; no operator password fallback.
     const admin=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});const ap=await admin.newPage();await ap.goto(base+'/register');
-    await ap.getByLabel('Отображаемое имя').fill('Observation operator');const email=`exposure-browser-${stamp}@tor-ci.example`;
+    const email=`exposure-browser-${stamp}@tor-ci.example`;
     await ap.getByLabel('Электронная почта').fill(email);await ap.getByLabel('Пароль (12–128 символов)').fill('ObservationBrowserPassword2026');
     await ap.getByRole('button',{name:'Создать учётную запись',exact:true}).click();await ap.waitForURL('**/me');actor=num(`SELECT id FROM users WHERE email_normalized='${email}'`);
     await privateResponse(await ap.goto(base+'/odmen/audience/exposure'),403);sql(`INSERT INTO account_roles(user_id,role) VALUES(${actor},'administrator')`);

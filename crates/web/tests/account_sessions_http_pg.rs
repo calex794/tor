@@ -10,7 +10,10 @@ use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_accounts::{
+    repositories::PgAccounts,
+    services::security::{generate_session_token, session_token_digest},
+};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -80,6 +83,14 @@ async fn register(app: &Router, email: &str, display_name: &str) -> String {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
+    assert!(created
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| {
+            v.to_str()
+                .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+        }));
     cookie(&created, "tor-dev-session=")
 }
 
@@ -93,6 +104,10 @@ async fn login(app: &Router, email: &str) -> String {
     );
     let login = send(app, request("POST", "/login", &form, &csrf_cookie, ORIGIN)).await;
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
+    assert!(login.headers().get_all(header::SET_COOKIE).iter().any(|v| {
+        v.to_str()
+            .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+    }));
     cookie(&login, "tor-dev-session=")
 }
 
@@ -113,6 +128,150 @@ async fn session_id(accounts: &PgAccounts, cookie: &str) -> String {
         .find(|session| session.current)
         .expect("current session in own list")
         .id
+}
+
+#[tokio::test]
+#[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
+async fn a_03_bulk_session_revocation_preserves_current_and_foreign_http_pg() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog.clone(),
+        PgReader::new(catalog.pool().clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let email = format!("bulk-{nonce}%40example.invalid");
+    let current = register(&app, &email, "BulkOwner").await;
+    let second = login(&app, &email).await;
+    let foreign = register(
+        &app,
+        &format!("bulk-foreign-{nonce}%40example.invalid"),
+        "Foreign",
+    )
+    .await;
+    let current_digest = session_token_digest(current.split_once('=').unwrap().1);
+    let user = accounts
+        .active_session_user(&current_digest)
+        .await
+        .unwrap()
+        .unwrap();
+    let ttl = std::num::NonZeroU32::new(3600).unwrap();
+    let mut other_digests = Vec::new();
+    for index in 0..51 {
+        let digest = session_token_digest(&format!("bulk-{nonce}-{index}"));
+        accounts.insert_session(user, &digest, ttl).await.unwrap();
+        other_digests.push(digest);
+    }
+    let visible = accounts
+        .list_active_sessions(user, &current_digest)
+        .await
+        .unwrap();
+    assert_eq!(visible.len(), 50);
+    assert!(visible[0].current, "current device must never be cut off");
+    let page = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &current, ORIGIN),
+    )
+    .await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let html = body_of(page).await;
+    assert!(html.contains("Завершить все остальные сеансы"));
+    assert!(html.contains("Действует до (UTC)"));
+    assert!(!html.contains(&current));
+    let token = csrf(&html);
+    let cookies = format!("{current}; {csrf_cookie}");
+    let form =
+        format!("session_id=others&current_password=LongSecurePassword2026&csrf_token={token}");
+    let wrong = format!("session_id=others&current_password=wrong&csrf_token={token}");
+    for (body, jar, origin, status) in [
+        (
+            form.as_str(),
+            current.as_str(),
+            ORIGIN,
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            form.as_str(),
+            cookies.as_str(),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            wrong.as_str(),
+            cookies.as_str(),
+            ORIGIN,
+            StatusCode::UNAUTHORIZED,
+        ),
+    ] {
+        let denied = send(
+            &app,
+            request("POST", "/me/security/sessions", body, jar, origin),
+        )
+        .await;
+        assert_eq!(denied.status(), status);
+    }
+    assert_eq!(
+        accounts
+            .list_active_sessions(user, &current_digest)
+            .await
+            .unwrap()
+            .len(),
+        50
+    );
+    let success = send(
+        &app,
+        request("POST", "/me/security/sessions", &form, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(success.status(), StatusCode::SEE_OTHER);
+    assert_eq!(success.headers()[header::LOCATION], "/me/security/sessions");
+    assert!(!success.headers().contains_key(header::SET_COOKIE));
+    let remaining = accounts
+        .list_active_sessions(user, &current_digest)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert!(remaining[0].current);
+    for digest in other_digests {
+        assert_eq!(accounts.active_session_user(&digest).await.unwrap(), None);
+    }
+    for (session, expected) in [
+        (&current, StatusCode::OK),
+        (&second, StatusCode::SEE_OTHER),
+        (&foreign, StatusCode::OK),
+    ] {
+        assert_eq!(
+            send(&app, request("GET", "/me", "", session, ORIGIN))
+                .await
+                .status(),
+            expected
+        );
+    }
+    let repeated = send(
+        &app,
+        request("POST", "/me/security/sessions", &form, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(repeated.status(), StatusCode::SEE_OTHER);
+    let history = accounts.security_history(&current_digest).await.unwrap();
+    let bulk_events: Vec<_> = history
+        .iter()
+        .filter(|event| event.event_kind == "owner_revoke_others")
+        .collect();
+    assert_eq!(bulk_events.len(), 1);
+    assert_eq!(bulk_events[0].revoked_count, Some(52));
+    let refreshed = send(&app, navigation("/me", &second)).await;
+    assert_eq!(refreshed.status(), StatusCode::SEE_OTHER);
+    assert!(!has_session_cookie(&refreshed));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -169,6 +328,11 @@ async fn run_case() {
     let csrf_cookie = cookie(&shown, "tor-dev-csrf=");
     let html = body_of(shown).await;
     assert!(html.contains("Активные сеансы"));
+    assert!(html.contains("История безопасности"));
+    assert!(html.contains("Регистрация аккаунта"));
+    assert!(html.contains("Вход в аккаунт"));
+    assert!(!html.contains("Отзыв сеанса"));
+    assert!(!html.contains("127.0.0.1"), "never display audit IP");
     assert!(html.contains(&first_id));
     assert!(html.contains(&second_id));
     assert!(!html.contains(&foreign_id), "cannot view foreign sessions");
@@ -276,6 +440,29 @@ async fn run_case() {
         "owner's current session remains valid"
     );
 
+    let history = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &first, ORIGIN),
+    )
+    .await;
+    assert_eq!(history.status(), StatusCode::OK);
+    assert_eq!(history.headers()[header::CACHE_CONTROL], "no-store");
+    let history = body_of(history).await;
+    assert_eq!(history.matches("Отзыв сеанса").count(), 1);
+    assert!(history.contains("Завершено сеансов: 1"));
+    assert!(!history.contains(&second_id));
+    assert!(!history.contains(&foreign_id));
+    assert!(!history.contains(&second));
+    let other_history = send(
+        &app,
+        request("GET", "/me/security/sessions", "", &foreign, ORIGIN),
+    )
+    .await;
+    assert_eq!(other_history.status(), StatusCode::OK);
+    let other_history = body_of(other_history).await;
+    assert!(!other_history.contains("Отзыв сеанса"));
+    assert!(!other_history.contains(&first_id));
+
     let revoke_self =
         format!("session_id={first_id}&current_password=LongSecurePassword2026&csrf_token={token}");
     let own = send(
@@ -302,4 +489,97 @@ async fn run_case() {
             .status(),
         StatusCode::SEE_OTHER
     );
+}
+
+fn navigation(path: &str, cookies: &str) -> Request<Body> {
+    let mut req = request("GET", path, "", cookies, ORIGIN);
+    for (name, value) in [
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-dest", "document"),
+        ("sec-fetch-user", "?1"),
+    ] {
+        req.headers_mut().insert(name, value.parse().unwrap());
+    }
+    req
+}
+
+fn has_session_cookie(response: &Response) -> bool {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| v.to_str().is_ok_and(|v| v.starts_with("tor-dev-session=")))
+}
+
+#[tokio::test]
+#[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
+async fn a_03_rolling_session_browser_navigation_pg() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog.clone(),
+        PgReader::new(catalog.pool().clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let signed_in = register(
+        &app,
+        &format!("rolling-{nonce}%40example.invalid"),
+        "Rolling",
+    )
+    .await;
+    let actor = accounts
+        .active_session_user(&session_token_digest(signed_in.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
+    // A session issued by the previous release has the old shorter TTL.
+    let raw = generate_session_token();
+    let digest = session_token_digest(&raw);
+    accounts
+        .insert_session(actor, &digest, std::num::NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
+    let legacy = format!("tor-dev-session={raw}");
+    for req in [
+        request("GET", "/me", "", &legacy, ORIGIN),
+        navigation("/assets/site.css", &legacy),
+        navigation("/odmen", &legacy),
+        {
+            let mut req = navigation("/me", &legacy);
+            req.headers_mut()
+                .insert("sec-fetch-site", "cross-site".parse().unwrap());
+            req
+        },
+    ] {
+        assert!(!has_session_cookie(&send(&app, req).await));
+    }
+    let renewed = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(renewed.status(), StatusCode::OK);
+    assert_eq!(cookie(&renewed, "tor-dev-session="), legacy);
+    assert_eq!(renewed.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(renewed
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| {
+            v.to_str()
+                .is_ok_and(|v| v.starts_with("tor-dev-session=") && v.contains("Max-Age=2592000"))
+        }));
+    // A second qualifying request also repairs a missed Set-Cookie without
+    // issuing a second token or extending the database lifetime again.
+    let again = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(cookie(&again, "tor-dev-session="), legacy);
+    accounts.revoke_session(&digest).await.unwrap();
+    let denied = send(&app, navigation("/me", &legacy)).await;
+    assert_eq!(denied.status(), StatusCode::SEE_OTHER);
+    assert!(!has_session_cookie(&denied));
 }

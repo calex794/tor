@@ -101,6 +101,7 @@ mod paid_completion;
 mod password_change;
 mod password_reset;
 mod personal_books;
+mod postbox_feedback;
 mod private_reader;
 mod profile_http;
 mod public_profile;
@@ -110,6 +111,7 @@ mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
 mod referral_routes;
+mod registration_mail;
 mod reply_read_state;
 mod reset_delivery;
 mod saved_free_chapters;
@@ -154,6 +156,7 @@ fn router_inner(
     let notification_proof_delivery = notification_proof_delivery::ProofDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
+    let postbox_routes = postbox_feedback::router_from_env(&accounts, secure);
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
     let editorial_routes = crate::editorial_http::routes(accounts.clone(), cookies.clone());
@@ -237,7 +240,7 @@ fn router_inner(
         Router::new()
     };
     let app = Router::new()
-        .merge(admin_entry::storage_routes())
+        .merge(admin_entry::routes())
         .merge(checkout_only_purchases)
         .merge(settings_routes::router())
         .merge(surprise_http::router())
@@ -248,14 +251,7 @@ fn router_inner(
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
-        .route(
-            "/register",
-            get(account_form_http::show_registration).post(account_form_http::register),
-        )
-        .route(
-            "/login",
-            get(account_form_http::show_login).post(account_form_http::login),
-        )
+        .merge(account_form_http::router())
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(account_home::show))
         .route("/odmen", get(admin_entry::page))
@@ -265,6 +261,7 @@ fn router_inner(
             post(book_follow_actions::follow_creator),
         )
         .route("/users/{display_name}", get(public_profile::page))
+        .route("/users/by-handle/{handle}", get(public_profile::by_handle))
         .route("/users/{target_user_id}/friend", post(friendship::request))
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
@@ -278,32 +275,7 @@ fn router_inner(
         .merge(book_ordinary_deletion::router())
         .merge(book_ownership_finance::router())
         .merge(book_related::router().merge(book_origin_metadata::router()))
-        .route("/mail", get(mail::index))
-        .route("/mail/start/{recipient_user_id}", post(mail::start))
-        .route("/mail/{id}", get(mail::conversation))
-        .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
-        .route("/mail/{id}/block", post(mail::block))
-        .route(
-            "/mail/groups",
-            get(group_mail::index).post(group_mail::create),
-        )
-        .route("/mail/groups/{id}", get(group_mail::detail))
-        .route(
-            "/mail/groups/{id}/messages",
-            get(group_mail::poll).post(group_mail::send),
-        )
-        .route("/mail/groups/{id}/leave", post(group_mail::leave))
-        .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
-        .route("/mail/groups/{id}/disband", post(group_mail::disband))
-        .route("/books/{id}/room", get(book_rooms::page))
-        .route("/books/{id}/room/join", post(book_rooms::join))
-        .route("/books/{id}/room/messages", post(book_rooms::send))
-        .route("/books/{id}/room/leave", post(book_rooms::leave))
-        .route(
-            "/api/v1/me/messages",
-            get(mail_api::get).post(mail_api::post),
-        )
-        .route("/assets/mail.js", get(mail::script))
+        .merge(admin_mail_routes::member_routes())
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
@@ -442,7 +414,7 @@ fn router_inner(
     let app = app
         .merge(crate::recommendation_http::routes(rec_runtime.clone()))
         .merge(audience_routes);
-    let app = app.merge(editorial_routes);
+    let app = app.merge(editorial_routes).merge(postbox_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
 
@@ -588,7 +560,7 @@ async fn save_place(
     {
         Ok(()) => private_response(
             Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
-            &[],
+            &session_security::activity_cookies(&state, &headers).await,
         ),
         Err(ProgressError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(ProgressError::NotFound) => deny(StatusCode::NOT_FOUND),

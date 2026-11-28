@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 450] = [
+static ROUTES: [RouteRegistration; 461] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -460,6 +460,17 @@ static ROUTES: [RouteRegistration; 450] = [
     RouteRegistration::new("/odmen", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 447
     RouteRegistration::new("/odmen/storage/s3", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 448
     RouteRegistration::new("/odmen/storage/s3", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 449
+    RouteRegistration::new("/odmen/security/sessions", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 450
+    RouteRegistration::new("/odmen/security/sessions", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 451
+    RouteRegistration::new("/assets/tor-auth-dialog.js", "GET", "/assets/", Exact, Static, System, Free), // 452
+    RouteRegistration::new("/internal/mail/postbox-feedback", "POST", "/internal/mail/", Exact, TrafficSurface::Internal, ProductArea::Mail, Write), // 453
+    RouteRegistration::new("/odmen/system-mail", "GET", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 454
+    RouteRegistration::new("/odmen/system-mail", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 455
+    RouteRegistration::new("/odmen/system-mail/stop", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 456
+    RouteRegistration::new("/odmen/system-mail/reconcile", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 457
+    RouteRegistration::new("/odmen/system-mail/profile", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 458
+    RouteRegistration::new("/odmen/system-mail/probe", "POST", "/odmen/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 459
+    RouteRegistration::new("/users/by-handle/{handle}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 460
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

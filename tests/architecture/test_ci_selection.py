@@ -42,6 +42,12 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 self.assertEqual(enabled(select(ROOT, paths)), set(SUITES))
 
+    def test_mail_queue_runs_postgres_and_production_changes_run_full(self):
+        result = select(ROOT, ["crates/mail/src/repositories/mod.rs"])
+        self.assertEqual(enabled(result), set(SUITES))
+        result = select(ROOT, ["crates/mail/tests/slices_pg.rs"])
+        self.assertEqual(enabled(result), {"rust", "postgres"})
+
     def test_real_dependency_reaches_browser_for_recommendation_source(self):
         result = select(ROOT, ["crates/recommendations/src/services/ranking.rs"])
         self.assertTrue({"rust", "postgres", "rec_browser", "reader_browser", "visual", "cover_browser",
@@ -53,13 +59,14 @@ class SelectionTests(unittest.TestCase):
     def test_known_postgres_integration_test_edits_do_not_start_unrelated_suites(self):
         # These test files are already run directly by the mandatory PG job;
         # selecting a file still runs the entire Rust and PostgreSQL jobs.
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
         for path in (
             "crates/reading/tests/paid_tier_entitlement_pg.rs",
             "crates/web/tests/s020_age_editor_http_pg.rs",
             "crates/web/tests/s020_age_editor_browser_pg.rs",
             "crates/web/tests/c08_saved_free_http_pg.rs",
             "crates/social/tests/book_collections_pg.rs",
+            "crates/storage/tests/admin_s3_step_up_pg.rs",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, POSTGRES_RUNTIME_ONLY_TEST_FILES)
@@ -88,6 +95,11 @@ class SelectionTests(unittest.TestCase):
             enabled(select(ROOT, ["crates/search/tests/seo_pg/analytics.rs"])),
             {"rust", "reading_analytics"},
         )
+
+    def test_shared_audience_http_fixture_selects_both_required_lanes(self):
+        path = "crates/web/tests/support/audience_http_fixture.rs"
+        self.assertNotIn(path, READING_ANALYTICS_TEST_FILES)
+        self.assertEqual(enabled(select(ROOT, [path])), {"rust", "reading_analytics"})
 
     def test_only_image_test_does_not_boot_postgres_or_s3(self):
         result = select(ROOT, ["crates/ingest/tests/image_pipeline.rs"])

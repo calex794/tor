@@ -1,13 +1,15 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
 use super::{access_audit, auth_observation, honeypot, login_limiter, AuthState};
 use crate::{
-    auth_cookies::{private_response, SESSION_AGE},
+    auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
     observability, pages,
 };
 use axum::{
     extract::{ConnectInfo, Form, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
+    routing::get,
+    Router,
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
@@ -23,10 +25,17 @@ use tor_observability::services::auth::LoginOutcome;
 mod return_target;
 use return_target::auth_return_target;
 
+pub(super) fn router() -> Router<AuthState> {
+    Router::new()
+        .route("/register", get(show_registration).post(register))
+        .route("/login", get(show_login).post(login))
+        .route("/assets/tor-auth-dialog.js", get(dialog_script))
+}
+
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
     email: String,
-    display_name: String,
+    display_name: Option<String>,
     password: String,
     website: Option<String>,
     csrf_token: Option<String>,
@@ -49,27 +58,74 @@ pub(super) struct AuthReturnQuery {
     next: Option<String>,
 }
 
+fn dialog_requested(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-tor-auth-dialog")
+        .is_some_and(|value| value == "1")
+}
+
+// Switching modal forms must not invalidate a valid CSRF token in another
+// tab. Standalone navigation retains its existing fresh-token behavior.
+fn form_csrf(policy: &CookiePolicy, headers: &HeaderMap) -> (String, Vec<String>) {
+    if dialog_requested(headers) {
+        policy.csrf_for_page(headers)
+    } else {
+        let (token, cookie) = policy.csrf_token_cookie();
+        (token, vec![cookie])
+    }
+}
+
 pub(super) async fn show_registration(
     State(state): State<AuthState>,
     Query(query): Query<AuthReturnQuery>,
+    headers: HeaderMap,
 ) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
+    let (token, cookies) = form_csrf(&state.cookies, &headers);
     let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::registration_form_with_next(&token, next.as_deref()),
-        &[cookie],
+        &cookies,
     )
 }
 
 pub(super) async fn show_login(
     State(state): State<AuthState>,
     Query(query): Query<AuthReturnQuery>,
+    headers: HeaderMap,
 ) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
+    let (token, cookies) = form_csrf(&state.cookies, &headers);
     let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::login_form_with_next(&token, next.as_deref()),
-        &[cookie],
+        &cookies,
+    )
+}
+
+/// The dialog uses the exact same POST endpoints and security checks as the
+/// standalone forms. Only the successful response representation differs.
+fn auth_success(headers: &HeaderMap, next: Option<&str>, cookies: &[String]) -> Response {
+    if dialog_requested(headers) {
+        let mut response = private_response(StatusCode::NO_CONTENT, cookies);
+        response
+            .headers_mut()
+            .insert("x-tor-auth-dialog", HeaderValue::from_static("success"));
+        response
+    } else {
+        private_response(Redirect::to(next.unwrap_or("/me")), cookies)
+    }
+}
+
+pub(super) async fn dialog_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        include_str!("../../assets/tor-auth-dialog.js"),
     )
 }
 
@@ -91,7 +147,7 @@ fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
             StatusCode::BAD_REQUEST,
             pages::registration_form_with_error_and_next(
                 form.csrf_token.as_deref().unwrap_or(""),
-                &form.display_name,
+                form.display_name.as_deref().unwrap_or(""),
                 &form.email,
                 Some(reason),
                 next.as_deref(),
@@ -205,7 +261,11 @@ pub(super) async fn register(
             true,
         );
     }
-    let account = match rules::registration(&form.email, &form.display_name, &form.password) {
+    let account = match rules::registration_with_optional_name(
+        &form.email,
+        form.display_name.as_deref(),
+        &form.password,
+    ) {
         Ok(account) => account,
         Err(message) => {
             return private_response(
@@ -213,7 +273,7 @@ pub(super) async fn register(
                     StatusCode::BAD_REQUEST,
                     pages::registration_form_with_error_and_next(
                         form.csrf_token.as_deref().unwrap_or(""),
-                        &form.display_name,
+                        form.display_name.as_deref().unwrap_or(""),
                         &form.email,
                         Some(message),
                         next.as_deref(),
@@ -291,9 +351,10 @@ pub(super) async fn register(
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
+    let mail_source = super::registration_mail::capture(&account.email, audit.verified_ip);
     match state
         .accounts
-        .register_with_audited_session_referral(
+        .register_with_audited_session_referral_mail(
             &account.email,
             &account.display_name,
             &hashed,
@@ -306,6 +367,7 @@ pub(super) async fn register(
                 },
                 audit,
             },
+            mail_source,
         )
         .await
     {
@@ -316,8 +378,9 @@ pub(super) async fn register(
             tokio::spawn(async move {
                 let _ = referrals.finalize_one(user_id).await;
             });
-            private_response(
-                Redirect::to(next.as_deref().unwrap_or("/me")),
+            auth_success(
+                &headers,
+                next.as_deref(),
                 &[
                     state.cookies.session_cookie(&token),
                     state.cookies.cleared_guest_cookie(),
@@ -513,42 +576,12 @@ pub(super) async fn login(
     // Only an explicitly allowed local destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
-    private_response(
-        Redirect::to(next.as_deref().unwrap_or("/me")),
+    auth_success(
+        &headers,
+        next.as_deref(),
         &[state.cookies.session_cookie(&token)],
     )
 }
 
 #[cfg(test)]
-mod login_error_tests {
-    use super::*;
-    use axum::body::to_bytes;
-
-    #[tokio::test]
-    async fn too_many_login_attempts_has_clear_429_and_retry_after() {
-        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, false);
-        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
-        let body = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
-        let html = String::from_utf8(body.to_vec()).expect("UTF-8");
-        assert!(html.contains("Слишком много попыток входа"));
-        assert!(html.contains("10 минут"));
-        assert!(!html.contains("password_hash"));
-    }
-
-    #[tokio::test]
-    async fn registration_rate_limit_is_also_honest() {
-        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, true);
-        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
-    }
-
-    #[tokio::test]
-    async fn unavailable_storage_is_not_misreported_as_throttling() {
-        let reply = auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
-        assert_eq!(reply.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert!(reply.headers().get(header::RETRY_AFTER).is_none());
-        let html = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
-        assert!(String::from_utf8_lossy(&html).contains("Вход временно недоступен"));
-    }
-}
+mod tests;

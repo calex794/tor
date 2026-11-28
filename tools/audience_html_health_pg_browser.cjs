@@ -81,7 +81,6 @@ async function shot(page,name) {
     await privateResponse(await anonymous.goto(base+'/odmen/audience'),401);
     assert.equal(await anonymous.locator('[data-metric]').count(),0);
     await page.goto(base+'/register');
-    await page.getByLabel('Отображаемое имя').fill('Проверка качества HTML');
     await page.getByLabel('Электронная почта').fill(email);
     await page.getByLabel('Пароль (12–128 символов)').fill('HtmlHealthBrowserPassword2026');
     await page.getByRole('button',{name:'Создать учётную запись'}).click();

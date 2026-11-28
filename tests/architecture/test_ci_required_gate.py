@@ -161,6 +161,15 @@ class FoundationLogTests(unittest.TestCase):
             "I11_PRIVATE_S3_ENCRYPTED_BACKUP_VERIFIED",
             "DROP07_RESTORED_PACK_HISTORICAL_V1_OK",
             "FND05_RESTORED_FREE_ARCHIVE_HTTP_OK",
+            "DEPLOY07C_SAVED_FREE_LAYER_AND_REVOKED_DENIAL_OK",
+            "DEPLOY07C_CORRUPT_RESTORED_PACK_DENIED",
+            "I11_RESTORED_CHECKOUT_FINANCE_OK",
+            "I11_RESTORED_REFUND_FINANCE_REVOCATION_OK",
+            "I11_RESTORED_HISTORICAL_RIGHTS_DB_OK",
+            "D001_OFFSITE_VERIFIED_BEFORE_FIXTURE_SEAL_OK",
+            "D001_OFFSITE_RESTORED_SEAL_AND_V2_OK",
+            "D001_OFFSITE_SINGLE_EXACT_RESTORE_CI_OK",
+            "FND05_RESTORED_ACTIVE_COVER_HTTP_OK",
             "I11_PITR_ISOLATED_DRILL_OK report=/runner/drill.json",
         ]
         self.assertEqual(verify_foundation_log(job, log, SHA), f"{SHA}:{job}")
@@ -169,10 +178,26 @@ class FoundationLogTests(unittest.TestCase):
         paid = "purchased-v1-recovery"
         with self.assertRaisesRegex(GateError, "purchased V1 and KEK"):
             verify_foundation_log(paid, log, SHA)
-        self.assertEqual(verify_foundation_log(
-            paid, ["S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS\n"], SHA),
-            f"{SHA}:{paid}",
-        )
+        paid_log = [
+            "S334_PURCHASED_V1_AFTER_V2_PG_S3_KEK_RESTORE_PASS",
+            "DEPLOY07C_PAID_V1_V2_DB_EXACT_OK",
+            "DEPLOY07C_MISSING_WRONG_KEYS_AND_PROVIDER_DENIED",
+            "DEPLOY07C_CROSS_PURCHASE_AND_ANONYMOUS_DENIED",
+            "DEPLOY07C_BOTH_RESTORED_REFUNDS_DENIED",
+            "DEPLOY07C_PAID_SOURCE_UNCHANGED_OK",
+            "S334_HISTORICAL_KEK_V1_V2_RESTORE_PASS",
+        ]
+        self.assertEqual(verify_foundation_log(paid, paid_log, SHA), f"{SHA}:{paid}")
+        for job_id, complete in ((job, log), (paid, paid_log)):
+            for index, marker in enumerate(complete):
+                with self.subTest(job=job_id, marker=marker):
+                    with self.assertRaisesRegex(GateError, "missing foundation evidence"):
+                        verify_foundation_log(job_id, complete[:index] + complete[index+1:], SHA)
+                    for altered in (f"warning: {marker}", f"{marker} (skipped)"):
+                        with self.assertRaisesRegex(GateError, "missing foundation evidence"):
+                            verify_foundation_log(
+                                job_id, complete[:index] + [altered] + complete[index+1:], SHA
+                            )
 
 
 if __name__ == "__main__":

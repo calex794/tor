@@ -537,6 +537,15 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
             "missing installed constraint for {want_table}: {want_class}"
         );
     }
+    // A rebuildable excerpt follows authorized physical deletion; it must
+    // never become a reader pin or an independent retention obligation.
+    assert!(rows.iter().any(|row| {
+        row.0 == "public"
+            && row.1 == "chapter_version_guest_prefixes"
+            && row.5
+            && row.6 == "c"
+            && row.7 == "derived-guest-prefix"
+    }));
     let unreviewed = rows.iter().filter(|row| row.7 == "unreviewed").count();
     // This check stops schema review on any unknown edge. It is never a
     // deletion, ACL or retention gate; review of soft references is separate.
@@ -551,3 +560,142 @@ async fn d001_inventory_reports_installed_chapter_version_fk_obligations() {
         "new or changed chapter-version foreign keys need explicit review"
     );
 }
+
+#[tokio::test]
+#[ignore = "disposable PG18 tor_ci + GitHub CI only"]
+async fn d001_single_retirement_queue_rechecks_new_reader_obligations() {
+    let pool = pool().await;
+    let owner = user(&pool, "retirement-owner").await;
+    let reader = user(&pool, "retirement-reader").await;
+    let book_id = book(&pool, owner, "retirement-book").await;
+    let store = PgFreeS3Publication::new(pool.clone());
+    let initial = save(book_id, None, 0, "First retirement body", 'A');
+    let first = store.prepare_new(owner, &initial).await.unwrap();
+    let chapter = first.chapter_id;
+    store
+        .attach_verified_and_publish(
+            owner,
+            book_id,
+            (chapter, first.version_id),
+            metadata(&initial.body),
+        )
+        .await
+        .unwrap();
+
+    let mut editions = vec![first.version_id];
+    for revision in 1..=3_i64 {
+        let body = format!("Retirement body {revision}");
+        let key = char::from(b'A' + revision as u8);
+        let request = save(book_id, Some(chapter), revision, &body, key);
+        let prepared = store.prepare_edit(owner, &request).await.unwrap();
+        store
+            .attach_edit(owner, &request, &prepared, metadata(&body))
+            .await
+            .unwrap();
+        editions.push(prepared.version_id);
+    }
+    let record = "SELECT version_id FROM d001_record_free_single_retirement_candidates($1,$2,$3)
+                  ORDER BY version_id";
+    let page: Vec<i64> = sqlx::query_scalar(record)
+        .bind(chapter)
+        .bind(0_i64)
+        .bind(1_i32)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(page, editions[..1]);
+    let page: Vec<i64> = sqlx::query_scalar(record)
+        .bind(chapter)
+        .bind(editions[0])
+        .bind(128_i32)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(page, editions[1..3]);
+    let repeated: Vec<i64> = sqlx::query_scalar(record)
+        .bind(chapter)
+        .bind(0_i64)
+        .bind(128_i32)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repeated, editions[..3]);
+    let invalid = sqlx::query_scalar::<_, i64>(record)
+        .bind(chapter)
+        .bind(0_i64)
+        .bind(129_i32)
+        .fetch_all(&pool)
+        .await;
+    assert!(invalid.is_err());
+
+    // A delivery authorization issued against an old head must veto an old
+    // observation, even before the confirmation or saved pin is recorded.
+    sqlx::query(
+        "INSERT INTO reader_free_open_intents
+            (user_id,chapter_id,version_id,content_sha256,expires_at)
+         SELECT $1,chapter_id,version_id,sha256,now()+interval '5 minutes'
+         FROM free_chapter_storage_objects WHERE chapter_id=$2 AND version_id=$3",
+    )
+    .bind(reader)
+    .bind(chapter)
+    .bind(editions[0])
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         VALUES($1,$2,$3)",
+    )
+    .bind(reader)
+    .bind(chapter)
+    .bind(editions[1])
+    .execute(&pool)
+    .await
+    .unwrap();
+    let snapshot: Vec<(i64, bool)> = sqlx::query_as(
+        "SELECT version_id,candidate_now FROM d001_free_single_retirement_queue
+         WHERE chapter_id=$1 ORDER BY version_id",
+    )
+    .bind(chapter)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        snapshot,
+        vec![
+            (editions[0], false),
+            (editions[1], false),
+            (editions[2], true),
+        ]
+    );
+    let current: Vec<i64> = sqlx::query_scalar(record)
+        .bind(chapter)
+        .bind(0_i64)
+        .bind(128_i32)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(current, editions[2..3]);
+    let exact: bool = sqlx::query_scalar(
+        "SELECT q.object_key=f.object_key AND q.sha256=f.sha256
+            AND q.size_bytes=f.size_bytes AND q.bucket=f.bucket
+         FROM d001_free_single_retirement_queue q
+         JOIN free_chapter_storage_objects f USING(chapter_id,version_id)
+         WHERE q.chapter_id=$1 AND q.version_id=$2",
+    )
+    .bind(chapter)
+    .bind(editions[2])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(exact);
+    assert_eq!(counts(&pool, chapter).await, (2, 2, 4));
+    assert_eq!(published(&pool, chapter).await, editions[3]);
+    pool.close().await;
+}
+
+#[path = "d001_logical_retention_pg/single_delivery_fence.rs"]
+mod single_delivery_fence;
+
+#[path = "d001_logical_retention_pg/single_admission_gate.rs"]
+mod single_admission_gate;

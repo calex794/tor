@@ -1,0 +1,94 @@
+name: PostgreSQL reading analytics acceptance
+description: Shared isolated PostgreSQL analytics checks for required and manual CI
+runs:
+  using: composite
+  steps:
+    - name: Feature boundary checks
+      shell: bash -e {0}
+      run: python3 tools/check_feature_layout.py
+    - name: Prepare isolated database
+      shell: bash -e {0}
+      run: bash tools/ci_prepare_isolated_pg.sh
+    - name: Apply real SQLx migrations twice
+      shell: bash -e {0}
+      run: |
+        DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+        DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+    - name: Enable bounded lock diagnostics only on disposable analytics DB
+      shell: bash -e {0}
+      run: |
+        # Existing synthetic tor_ci service, never an operational database.
+        # Capture lock owner/waiter PIDs before the application's 50ms timeout.
+        # This changes the logging/deadlock check threshold, NOT lock_timeout.
+        psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+        ALTER DATABASE tor_ci SET log_lock_waits = on;
+        ALTER DATABASE tor_ci SET deadlock_timeout = '20ms';
+        ALTER DATABASE tor_ci SET log_error_verbosity = 'verbose';
+        ALTER DATABASE tor_ci SET log_parameter_max_length = 0;
+        ALTER DATABASE tor_ci SET log_parameter_max_length_on_error = 0;
+        SQL
+        observed="$(psql -X -v ON_ERROR_STOP=1 -At "$TEST_DATABASE_URL" <<'SQL'
+        SELECT current_database() = 'tor_ci' AND current_user = 'tor_app'
+          AND current_setting('log_lock_waits') = 'on'
+          AND current_setting('deadlock_timeout') = '20ms'
+          AND current_setting('log_error_verbosity') = 'verbose'
+          AND current_setting('log_parameter_max_length') = '0'
+          AND current_setting('log_parameter_max_length_on_error') = '0';
+        SQL
+        )"
+        test "$observed" = t
+        echo CI_PG_LOCK_DIAGNOSTICS_ENABLED
+    - name: Prepare explicit legacy and installed-upgrade analytics databases
+      shell: bash -e {0}
+      run: |
+        bash tools/ci_prepare_legacy_analytics.sh
+        cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+        cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+    - name: Installed 190 to current analytics retirement with canonical and preference preservation
+      shell: bash -e {0}
+      run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+    - name: Reader audience, FLOW and SEO PostgreSQL acceptance
+      shell: bash -e {0}
+      run: |
+        set -euo pipefail
+        started=$SECONDS
+        cargo test -p tor-reading --lib reuse16a_pg_profiles_and_pool_recovery -- --ignored --test-threads=1
+        cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --lib reuse16b_pg_statement_only_and_pool_recovery -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test continuation_stats_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test audience_returns_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_returns_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test audience_book_returns_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_book_returns_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test audience_group_returns_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+        cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test recommendation_share_admin_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test recommendations_admin_policy_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
+        cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1
+        cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
+        cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
+        cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
+        echo "CI_PG_ANALYTICS_TEST_SECONDS seconds=$((SECONDS-started))"

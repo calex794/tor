@@ -49,6 +49,72 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_system_mail_admin_role_and_csrf_are_required(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "if !actor.administrator",
+            "if false",
+        )
+        self.assert_detected("system mail missing live role")
+
+    def test_system_mail_post_cannot_skip_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "if !valid_csrf(&state, &headers, &form.csrf_token)",
+            "if false",
+            start="async fn save(",
+        )
+        self.assert_detected("POST /odmen/system-mail [save]")
+
+    def test_system_mail_reconciliation_cannot_skip_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "if !valid_csrf(&state, &headers, &form.csrf_token)",
+            "if false",
+            start="async fn reconcile(",
+        )
+        self.assert_detected("POST /odmen/system-mail/reconcile [reconcile]")
+
+    def test_system_mail_reconciliation_requires_stopped_budget(self):
+        self.mutate(
+            "crates/mail/src/repositories/cost/admin/reconciliation.rs",
+            "snapshot.limits.enabled || snapshot.boundary_pause",
+            "false",
+        )
+        self.assert_detected("POST /odmen/system-mail/reconcile [reconcile]")
+
+    def test_postbox_profile_requires_password_step_up(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            ".issue_administrator_postbox_step_up(",
+            ".skip_administrator_postbox_step_up(",
+        )
+        self.assert_detected("POST /odmen/system-mail/profile [save_profile]")
+
+    def test_postbox_probe_requires_exact_candidate_after_network(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/mod.rs",
+            "admin_confirm_probe(&digest, &candidate)",
+            "skip_confirm_probe(&digest, &candidate)",
+        )
+        self.assert_detected("POST /odmen/system-mail/probe [probe_profile]")
+
+    def test_postbox_relay_must_verify_actual_mac(self):
+        self.mutate(
+            "crates/mail/src/domain/postbox/relay.rs",
+            "mac.verify_slice(&provided)",
+            "mac.skip_verification(&provided)",
+        )
+        self.assert_detected("Postbox relay missing signature")
+
+    def test_system_mail_repository_requires_live_role_lock(self):
+        self.mutate(
+            "crates/mail/src/repositories/cost/admin.rs",
+            "FOR SHARE OF s,u,r",
+            "FOR SHARE OF s",
+        )
+        self.assert_detected("system mail missing live role")
+
     def test_s018_email_proof_routes_require_actor_scope_and_csrf(self):
         self.mutate(
             "crates/web/src/auth/notification_settings.rs",
@@ -904,6 +970,55 @@ class RilGovernanceTests(unittest.TestCase):
                     self.assert_detected("paid grant must reject failed shared session/Origin/CSRF gate")
                 finally:
                     target.write_text(original, encoding="utf-8")
+
+    def test_admin_sessions_require_live_role(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "if !actor.administrator", "if false",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_sessions_require_csrf_on_write(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)", "true",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_revoke_requires_password_proof(self):
+        self.mutate(
+            "crates/web/src/auth/admin_entry/sessions.rs",
+            "verify_password_for_step_up(&password, &hash)", "unchecked_proof(&password, &hash)",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_lookup_revalidates_database_role(self):
+        self.mutate(
+            "crates/accounts/src/repositories/admin_sessions.rs",
+            "role.role='administrator'", "role.role='author'",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_admin_session_mutation_requires_atomic_audit(self):
+        self.mutate(
+            "crates/accounts/src/repositories/admin_sessions.rs",
+            "INSERT INTO account_admin_session_revocation_events", "SELECT 1",
+        )
+        self.assert_detected("admin sessions lack live authority")
+
+    def test_s3_connection_requires_password_before_network(self):
+        self.mutate(
+            "crates/web/src/auth/admin_s3.rs",
+            "verify_password_for_step_up(&password, &hash)", "unchecked_proof(&password, &hash)",
+        )
+        self.assert_detected("S3 connection missing live role")
+
+    def test_s3_connection_requires_one_use_consumption(self):
+        self.mutate(
+            "crates/storage/src/repositories/admin_s3_profiles.rs",
+            "step_up_used_at IS NULL", "TRUE",
+        )
+        self.assert_detected("S3 connection missing live role")
 
 if __name__ == "__main__":
     unittest.main()

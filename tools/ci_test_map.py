@@ -70,7 +70,7 @@ BUILD_ONLY_WORKFLOWS = {"tor-s3-candidate-build.yml"}
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
-ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml", "tor-fallback-edge.yml", "tor-deploy-vm.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
 ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml", "tor-fnd06-two-release.yml"}
 POSTGRES_SUITES = {
@@ -85,7 +85,7 @@ CRITICAL_PACKAGES = {
     "tor-ads",  # Editorial availability and fresh administrator authority.
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",
+    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social", "tor-mail",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -128,6 +128,7 @@ TEST_SUITES = {
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/social/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/support/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/mail/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/web/tests/support_http_pg.rs": {"rust", "postgres"},
     "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
@@ -141,6 +142,7 @@ TEST_SUITES = {
     "tools/operator_trace_pg_browser.cjs": {"reader_browser"},
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
+    "tools/auth_dialog_browser.cjs": {"reader_browser"},
     "tools/mail_browser_pg.cjs": {"reader_browser"},
     "tools/support_browser_pg.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
@@ -174,12 +176,17 @@ TEST_SUITES = {
     "tools/checkout_http_pg_smoke.py": {"postgres"},
     "tools/tor_pg_restart_smoke.sh": {"postgres"},
     "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
+    "tools/stage_recovery_ci_release.py": {"postgres"},
     "tools/s061_cutover_pg_smoke.py": {"postgres"},
+    "tools/s061_session_continuity.py": {"postgres"},
+    "tools/tor_recovery_auth.py": {"postgres"},
     "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/drop07_pack_restore_ci.sh": {"backup_recovery"},
     "crates/web/tests/fnd05_restored_free_rights_pg_s3.rs": {"rust", "backup_recovery"},
+    "crates/web/tests/fnd05_restored_cover_pg_s3.rs": {"rust", "backup_recovery"},
     "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
+    "tools/i11_s334_paid_recovery_facts.sql": {"purchased_recovery"},
 }
 
 # Explicit PG integration test targets currently executed by the mandatory
@@ -196,6 +203,7 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/web/tests/ril_sqlx_http_pg.rs",
     "crates/search/tests/f04_rising_pg.rs",
     "crates/storage/tests/keyring_rotation_pg.rs",
+    "crates/storage/tests/admin_s3_step_up_pg.rs",
     "crates/storage/tests/storage_gc_pg.rs",
     "crates/storage/tests/storage_reconciliation_pg.rs",
     "crates/storage/tests/storage_paid_grant_pg.rs",
@@ -333,6 +341,7 @@ READING_ANALYTICS_TEST_FILES = frozenset({
 })
 TEST_SUITES.update({path: {"rust", "reading_analytics"} for path in READING_ANALYTICS_TEST_FILES})
 TEST_SUITES["crates/web/tests/support/audience_return_dates.rs"] = {"rust", "reading_analytics"}
+TEST_SUITES["crates/web/tests/support/audience_http_fixture.rs"] = {"rust", "reading_analytics"}
 # REUSE-07A: both FLOW entry points consume these exact shared test sources.
 for path in (
     "crates/web/tests/support/flow_http_fixture.rs",

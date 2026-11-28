@@ -92,17 +92,82 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert!(saved.adult_enabled);
     assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
     update.expected_revision = 1;
-    update.handle = Some(String::new());
     update.adult_enabled = Some(false);
+    for forbidden in [String::new(), format!("other{alice}")] {
+        update.handle = Some(forbidden);
+        assert!(matches!(
+            accounts.update_profile(alice, &update).await,
+            Err(ProfileError::HandleLocked)
+        ));
+        let saved = accounts.profile(alice).await.unwrap().unwrap();
+        assert_eq!(saved.revision, 1);
+        assert!(saved.adult_enabled);
+        assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    }
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(alice)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    update.handle = None;
+    update.display_name = Some(email.to_ascii_uppercase());
+    assert!(matches!(
+        accounts.update_profile(alice, &update).await,
+        Err(ProfileError::PrivateEmail)
+    ));
+    update.display_name = Some("Reader renamed".into());
     accounts.update_profile(alice, &update).await.unwrap();
     let saved = accounts.profile(alice).await.unwrap().unwrap();
-    assert!(saved.handle.is_none() && !saved.adult_enabled);
+    assert_eq!(saved.handle.as_deref(), Some(handle.as_str()));
+    assert_eq!(saved.display_name, "Reader renamed");
+    assert!(!saved.adult_enabled);
     let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM user_level_grants WHERE user_id=$1")
         .bind(alice)
         .fetch_one(accounts.pool())
         .await
         .unwrap();
     assert_eq!(grants, 0, "adult consent cannot create a pro/paid grant");
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_06_claimed_handle_resolves_only_active_account() {
+    let (accounts, user, _) = fixture("public-handle").await;
+    let handle = format!("profile{user}");
+    let update = ProfileUpdate {
+        display_name: Some("Stable reader".into()),
+        handle: Some(handle.clone()),
+        adult_enabled: None,
+        expected_revision: 0,
+    };
+    accounts.update_profile(user, &update).await.unwrap();
+    assert_eq!(
+        accounts
+            .public_profile_by_handle(&handle.to_ascii_uppercase())
+            .await
+            .unwrap(),
+        Some((user, "Stable reader".to_owned(), handle.clone()))
+    );
+    assert!(accounts
+        .public_profile_by_handle("private@example.invalid")
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(user)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    assert!(accounts
+        .public_profile_by_handle(&handle)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(accounts
+        .public_profile_address_parts(user)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 /// Source display-name keys ignore case; ambiguous legacy keys must never
@@ -504,4 +569,173 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
             .await
             .unwrap();
     assert_eq!(events, vec!["granted", "revoked"]);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn auth_05_security_history_is_owner_scoped_bounded_and_durable() {
+    use tor_accounts::domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily};
+
+    let (accounts, user, current) = fixture("security-history").await;
+    let (_, foreign_user, foreign) = fixture("security-history-foreign").await;
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let login = session_token_digest(&format!("history-login-{nonce}"));
+    let logout = session_token_digest(&format!("history-logout-{nonce}"));
+    let reset = session_token_digest(&format!("history-reset-{nonce}"));
+    let after_reset = session_token_digest(&format!("history-after-reset-{nonce}"));
+    let audit = LoginAuditContext {
+        verified_ip: Some("198.51.100.5".parse().unwrap()),
+        agent_family: UserAgentFamily::Firefox,
+        event_kind: LoginEventKind::PasswordLogin,
+    };
+    accounts
+        .insert_verified_session(user, "$argon2id$fixture", &login, ttl, audit)
+        .await
+        .unwrap();
+    accounts.insert_session(user, &logout, ttl).await.unwrap();
+    let selected = accounts
+        .list_active_sessions(user, &login)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.current)
+        .unwrap()
+        .id;
+    assert_eq!(
+        accounts
+            .revoke_owned_session(user, &current, &selected, "wrong-hash")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts
+            .revoke_owned_session(user, &current, &selected, "$argon2id$fixture")
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        accounts
+            .revoke_owned_session(user, &current, &selected, "$argon2id$fixture")
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(accounts.revoke_session(&logout).await.unwrap());
+    assert!(!accounts.revoke_session(&logout).await.unwrap());
+    assert!(accounts.security_history(&login).await.unwrap().is_empty());
+    let history = accounts.security_history(&current).await.unwrap();
+    assert_eq!(history.len(), 3);
+    assert!(history.iter().any(|event| {
+        event.event_kind == "password_login"
+            && event.browser_family.as_deref() == Some("firefox")
+            && event.revoked_count.is_none()
+    }));
+    for kind in ["owner_revoke", "session_ended"] {
+        assert_eq!(
+            history
+                .iter()
+                .filter(|event| event.event_kind == kind && event.revoked_count == Some(1))
+                .count(),
+            1
+        );
+    }
+    assert!(accounts
+        .security_history(&foreign)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(accounts
+        .security_history(&[0; 32])
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(accounts
+        .issue_password_reset(user, "$argon2id$fixture", &reset)
+        .await
+        .unwrap());
+    assert!(accounts
+        .consume_password_reset(&reset, "$argon2id$reset-hash")
+        .await
+        .unwrap());
+    assert!(!accounts
+        .consume_password_reset(&reset, "$argon2id$replayed")
+        .await
+        .unwrap());
+    assert!(accounts
+        .security_history(&current)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(accounts
+        .insert_verified_session(user, "$argon2id$reset-hash", &after_reset, ttl, audit)
+        .await
+        .unwrap());
+    let history = accounts.security_history(&after_reset).await.unwrap();
+    assert_eq!(history.len(), 5);
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_kind == "password_reset" && event.revoked_count == Some(1))
+            .count(),
+        1
+    );
+    assert_eq!(
+        accounts.active_session_user(&foreign).await.unwrap(),
+        Some(foreign_user)
+    );
+
+    // Expired historical records are excluded before cleanup; recent records
+    // cannot be rewritten by the runtime role.
+    sqlx::query(
+        "INSERT INTO account_security_events(user_id,event_kind,revoked_count,created_at)
+         VALUES($1,'password_reset',0,now()-INTERVAL '91 days')",
+    )
+    .bind(user)
+    .execute(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        accounts.security_history(&after_reset).await.unwrap().len(),
+        5
+    );
+    assert!(
+        sqlx::query("UPDATE account_security_events SET revoked_count=9 WHERE user_id=$1")
+            .bind(user)
+            .execute(accounts.pool())
+            .await
+            .is_err()
+    );
+    accounts.prune_security_data().await.unwrap();
+    let old: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM account_security_events
+         WHERE user_id=$1 AND created_at<now()-INTERVAL '90 days'",
+    )
+    .bind(user)
+    .fetch_one(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(old, 0);
+    sqlx::query(
+        "INSERT INTO account_security_events(user_id,event_kind,revoked_count)
+         SELECT $1,'password_reset',0 FROM generate_series(1,55)",
+    )
+    .bind(user)
+    .execute(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        accounts.security_history(&after_reset).await.unwrap().len(),
+        50
+    );
+    assert!(accounts
+        .security_history(&foreign)
+        .await
+        .unwrap()
+        .is_empty());
 }

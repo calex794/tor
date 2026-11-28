@@ -200,5 +200,6 @@ PY
     return 1
   fi
   grep -Fq 'PACK or manifest failed full verification' "$fixture/corrupt-frame.log"
+  echo 'DEPLOY07C_CORRUPT_RESTORED_PACK_DENIED'
   echo 'DROP07_RESTORED_PACK_HISTORICAL_V1_OK'
 }

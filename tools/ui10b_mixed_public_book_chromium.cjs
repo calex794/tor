@@ -3,8 +3,12 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const { createHash } = require("node:crypto");
 const path = require("node:path");
 const base = "http://127.0.0.1:3119";
+const integrity = "sha256-" + createHash("sha256").update(
+  fs.readFileSync(path.join(__dirname, "../crates/web/assets/tor-auth-dialog.js"))
+).digest("base64");
 function id(v) { assert.match(v || "", /^[1-9]\d*$/); return v; }
 function pair(v) {
   const items = (v || "").split(",");
@@ -39,7 +43,10 @@ fs.mkdirSync(out, { recursive: true });
             const response = await page.goto(base + "/books/" + book, { waitUntil: "load" });
             assert(response && response.status() === 200);
             const csp = (await response.allHeaders())["content-security-policy"] || "";
-            assert(csp.includes("script-src 'none'") && !csp.includes("unsafe-inline"));
+            assert(csp.includes("script-src '" + integrity + "';") &&
+              csp.includes("connect-src 'self';") &&
+              !csp.includes("script-src 'self'") && !csp.includes("unsafe-inline"));
+            assert.equal(await page.locator('script[src^="/assets/tor-auth-dialog.js"]').getAttribute('integrity'), integrity);
             assert.equal(await page.locator("html").getAttribute("data-tor-style"), style);
             assert.equal(await page.locator("html").getAttribute("data-tor-theme"), theme);
             assert.equal(await page.locator("h1#book-title").count(), 1);

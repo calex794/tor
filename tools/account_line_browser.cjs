@@ -12,11 +12,11 @@ const nonce=Date.now().toString();
 const email=`a-browser-${nonce}@example.invalid`;
 const shots=process.env.TOR_COVER_BROWSER_SHOTS;
 
-async function register(browser,mail,name) {
+async function register(browser,mail) {
   const context=await browser.newContext({viewport:{width:1440,height:1000}});
   const page=await context.newPage();
   await page.goto(`${base}/register`);
-  await page.locator('[name=display_name]').fill(name);
+  assert.equal(await page.locator('form[action="/register"] [name=display_name]').count(),0);
   await page.locator('[name=email]').fill(mail);
   await page.locator('[name=password]').fill(password);
   await Promise.all([page.waitForURL(`${base}/me`),page.locator('form[action="/register"] button').click()]);
@@ -62,9 +62,12 @@ async function inspectAccountNavigation(page,width) {
   const browser=await chromium.launch({headless:true});
   try {
     await honeypotBrowser(browser,base,email,password);
-    const alice=await register(browser,email,'A browser reader');
+    const alice=await register(browser,email);
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
-    const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
+    const bob=await register(browser,`b-browser-${nonce}@example.invalid`);
+    const bobName=await bob.page.locator('.me-role-card__value').innerText();
+    assert.match(bobName,/^Читатель №[0-9a-f]{16}$/);
+    assert.notEqual(await alice.page.locator('.me-role-card__value').innerText(),bobName);
     const second=await login(browser,email,password);
     for (const url of ['/me/library','/me/settings','/me/settings/password',
       '/me/security/sessions','/me/books','/me/books/new']) {
@@ -78,6 +81,28 @@ async function inspectAccountNavigation(page,width) {
     const returning=await browser.newContext({viewport:{width:390,height:844}});
     try {
       const page=await returning.newPage();
+      // NEwBOO parity: personal navigation is absent in guest HTML and
+      // visible only after a verified session, at both viewport sizes.
+      for (const width of [1440,390]) {
+        for (const [visitor,signedIn] of [[page,false],[alice.page,true]]) {
+          await visitor.setViewportSize({width,height:width===390?844:1000});
+          await visitor.goto(base+'/');
+          const header=visitor.locator('.site-header');
+          for (const href of ['/me/books/new','/me/library','/me','/me/books']) {
+            assert.equal(await header.locator(`a[href="${href}"]`).count(),signedIn?2:0,
+              `header ${href}: session=${signedIn}, viewport=${width}`);
+          }
+          const mobile=width===390;
+          if(mobile)await visitor.locator('summary.site-mobile-menu__trigger').click();
+          const nav=header.locator(mobile?'.site-mobile-nav':'.site-nav');
+          assert(await nav.locator('a[href="/catalog"]').isVisible());
+          if(signedIn) {
+            assert(await nav.locator('a[href="/me/books/new"]').isVisible());
+            assert(await nav.locator('a[href="/me/library"]').isVisible());
+          }
+          if(mobile)await visitor.locator('summary.site-mobile-menu__trigger').click();
+        }
+      }
       await page.goto(base+'/me/library');
       assert.equal(new URL(page.url()).pathname,'/login');
       assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');
@@ -133,18 +158,52 @@ async function inspectAccountNavigation(page,width) {
     assert.equal((await guest.request.get(`${base}/api/v1/me`)).status(),401);
     await alice.page.goto(`${base}/me/settings`);
     await alice.page.locator('[name=display_name]').fill('Updated A reader');
-    await alice.page.locator('[name=handle]').fill(`reader_${nonce}`);
     await alice.page.locator('[name=adult_enabled]').selectOption('true');
-    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/settings`),alice.page.locator('form[action="/me/settings"] button').click()]);
+    const settingsPost=()=>alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/settings`);
+    await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Сохранить настройки',exact:true}).click()]);
     await alice.page.waitForLoadState('networkidle');
     let profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
     assert.equal(profile.display_name,'Updated A reader');assert.equal(profile.adult_enabled,true);
     assert.equal(profile.revision,1);assert(!('password_hash' in profile));
+    assert(!('email' in profile));assert(!('email_normalized' in profile));
+    assert.equal(profile.handle,null);
+    const handle=`reader_${nonce}`;
+    await alice.page.locator('[name=handle]').fill(handle);
+    await Promise.all([settingsPost(),alice.page.getByRole('button',{name:'Закрепить логин',exact:true}).click()]);
+    await alice.page.waitForLoadState('networkidle');
+    profile=await (await alice.context.request.get(`${base}/api/v1/me`)).json();
+    assert.equal(profile.handle,handle);assert.equal(profile.revision,2);
+    assert.equal(await alice.page.locator('[name=handle]').count(),0);
+    assert(await alice.page.getByText('@'+handle,{exact:true}).isVisible());
+    const profilePath=`/users/by-handle/${handle}`;
+    const profileLink=alice.page.getByRole('link',{name:'Открыть публичный профиль'});
+    assert.equal(await profileLink.getAttribute('href'),profilePath);
+    await profileLink.click();
+    await alice.page.waitForURL(base+profilePath);
+    assert(await alice.page.getByRole('heading',{name:'Updated A reader',exact:true}).isVisible());
+    assert.equal(await alice.page.getByRole('button',{name:'Почта',exact:true}).count(),0);
+    const guestPage=await guest.newPage();
+    try {
+      const result=await guestPage.goto(base+profilePath);
+      assert.equal(result.status(),200);
+      assert.equal(result.headers()['cache-control'],'no-store');
+      assert(await guestPage.getByRole('heading',{name:'Updated A reader',exact:true}).isVisible());
+      assert.equal(await guestPage.getByRole('button',{name:'Почта',exact:true}).count(),0);
+      assert(!(await guestPage.content()).includes(email));
+    } finally {await guestPage.close();}
+    await bob.page.goto(base+profilePath);
+    assert(await bob.page.getByRole('button',{name:'Почта',exact:true}).isVisible());
+    await alice.page.goto(base+'/me/settings');
+    for(const replacement of ['',`other_${nonce}`]) {
+      const locked=await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{expected_revision:profile.revision,handle:replacement,csrf_token:profile.csrf_token}});
+      assert.equal(locked.status(),409);
+      assert.equal((await locked.json()).error.code,'HANDLE_LOCKED');
+    }
     const stale={expected_revision:0,display_name:'Stale request',csrf_token:profile.csrf_token};
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:stale})).status(),409);
-    assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:1}})).status(),403);
+    assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:profile.revision}})).status(),403);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{...stale,user_id:'1'}})).status(),422);
-    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,'B browser reader');
+    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,bobName);
     await fs.mkdir(shots,{recursive:true});
     for(const width of [1440,390]) {
       await alice.page.setViewportSize({width,height:1000});

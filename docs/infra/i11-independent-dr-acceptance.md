@@ -57,6 +57,50 @@ Required offsite assets:
 - Test a known wrong age identity or missing sealed bundle **against a disposable copy**: they must reject access. No plaintext KEK should be left on persistent storage.
 - This script is a **sample integrity check only**. It does not prove the full inventory, that the TOR application can decrypt and deliver the V1 or that refund/ACL state is intact.
 
+### C.1 AUTH-08c: identity reconciliation before recovered TOR startup
+
+If security-event continuity is not independently established, keep TOR
+offline. After the independently approved promotion of the recovered PG18
+cluster (the paused-replay tool does not authorize or perform promotion),
+review the restored catalog, roles, triggers, executable/configuration and
+network isolation. The only permitted client for the invalidation step is
+the local postgres OS identity via the private recovery socket. Independently
+record the approved application database, source cluster system identifier
+and SHA-256 pins of the protected staging and paused-replay receipts.
+
+On the approved isolated host, use the existing machine ID and private
+workspace boundary. Run the following with the operator's actual independently
+approved values, not values inferred from the untrusted restored database:
+
+```bash
+sudo python3 tools/tor_recovery_auth.py \
+  --source-machine-id "$SOURCE_MACHINE_ID" \
+  --target-machine-id "$TARGET_MACHINE_ID" \
+  --pg-port "$RECOVERY_PG_PORT" --database "$APP_DATABASE" \
+  --system-id "$SOURCE_PG_SYSTEM_ID" \
+  --stage-sha256 "$STAGE_RECEIPT_SHA256" \
+  --replay-sha256 "$PAUSED_REPLAY_RECEIPT_SHA256" \
+  --operator-confirm-promoted-offline-recovery
+```
+
+The default PLAN_ONLY counts live sessions without modifying the database.
+Only after reviewing that result, repeat with `--apply`. The guarded
+transaction locks the session table, rechecks the isolated database identity
+and absence of other clients, revokes live sessions and verifies none remain
+before commit. Repeat the read-only plan and require zero. Archive the
+redacted count and actual negative access evidence in the independent vault.
+Do not run against the source, a running TOR instance or an unapproved
+restore; failure or uncertain commit means keep TOR offline and inspect
+privately. Do not fabricate pins or bypass receipt/host guards.
+
+This is only a session invalidation step. The operator must separately
+reconcile account closures, password changes, role removals, password-reset
+tokens and other security events lost after the chosen recovery point,
+including any later recovery factors. A zero session count is not full
+identity reconciliation, does not establish RPO/RTO, does not authorize
+TOR startup/publication by itself, and is not a replacement for the
+independent DR evidence gate. Normal releases/restarts never call this tool.
+
 ### D. Business-level end-to-end recovery
 
 Start an isolated TOR using the recovered database, restored encrypted objects and independently recovered KEKs; disable billing capture, webhooks, outgoing mail, background side effects and access to live S3.
@@ -184,3 +228,20 @@ remains `NOT_ACCEPTED` and must fail this gate.
 - Existing CI: `tools/i11_pitr_drill.py` proves PG18 physical full + WAL recovery within one isolated local container, including wrong-key/unreachable-target negative checks; `sealed-remote-copy` and `postgres-runtime` exercise disposable environment recovery. Post-merge CI on `main@ca9acb3855c298a5811455c3906c06c85ffc5fea` passed [17/17](https://github.com/calex794/tor/actions/runs/43530755043).
 - **Still not demonstrated:** independently protected offsite PostgreSQL and S3 archives, complete inventory after partial deletion, offline custody of *real* recovery keys, full independent-host TOR/ACL recovery, real outage notifications and measured RPO/RTO.
 - No change in this document alters the live VPS, primary PostgreSQL, production S3, IAM, source objects, backup timers or migrations.
+
+## RECOVERY-10a: checkout finance after sealed logical restore (CI only)
+
+The existing sealed-remote-copy fixture additionally seeds the actual D-08
+checkout and idempotent replay using the existing commerce PostgreSQL test.
+The independently restored encrypted dump must retain the exact buyer wallet,
+debit, purchase, idempotency command, immutable posting, platform credit and
+creator earning, with the same IDs, references, amounts and timestamps as
+before backup. The source snapshot must remain unchanged. The witness is
+read-only and rejects missing or duplicate records; it checks 250 minor-unit
+gross = 50 platform + 200 creator and 750 remaining from the synthetic
+initial balance 1000. No initial funding journal is claimed. No real money,
+keys or live data are used. Reuse the existing CI job; no new workflow.
+This is a logical restore witness, not proof that those business records
+survive physical PITR. Later integrate the same real TOR schema and checkout
+witness into a disposable physical restore and add separate refund/Layer/
+creator-credit cases and HTTP decryption/ACL tests. Do not close S061.

@@ -1,5 +1,7 @@
 # TOR — единые контракты (решения приняты; код переносится по роадмапу)
 
+**AUTH-READ v1 (planned):** [book-level guest excerpt, open chapter prefix and authenticated full FREE reading](auth-read-guest-preview-v1.md). Existing books remain open by default; no owner activation until cross-route/storage/rollback acceptance. Tracks [#1349](https://github.com/calex794/tor/issues/1349).
+
 **REC/FLOW v2 P2a:** [остановка индивидуального runtime и граница P2b](flow-rec-runtime-retirement-v2.md). Новый сервер не возобновляет сбор по старым флагам; отдельные согласия удаляются из пользовательского пути. Это не утверждение полного SQL/RAM cutover или завершения этапов FLOW.
 
 Исходная спецификация описывала вопросы, которые исполнитель должен был «проработать». Эти решения **уже записаны** в исполняемой версии:

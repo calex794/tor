@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 
 from audit_release_candidate import (
     EvidenceError, GitHub, collect, latest_push_runs, require_current_main,
-    workflow_names,
+    require_pinned_main, workflow_names,
 )
 from release_branch_policy import evaluate_branch_policy, same_ruleset_revision
 
@@ -124,17 +124,22 @@ def evaluate(runs: list[dict], sha: str) -> tuple[str, str]:
     return "pass", "Both registered push workflows completed successfully"
 
 
-def fetch_runs(repo: str, sha: str, token: str) -> list[dict]:
-    payload = _fetch_json(repo, token, "actions/runs", {
-        "head_sha": sha, "event": "push", "per_page": 100,
-    })
+def fetch_runs(repo: str, sha: str, token: str, *, pinned_main=False) -> list[dict]:
+    params = {"head_sha": sha, "event": "push", "per_page": 100}
+    if pinned_main:
+        params["branch"] = "main"
+    payload = _fetch_json(repo, token, "actions/runs", params)
     if (not isinstance(payload, dict)
             or not isinstance(payload.get("workflow_runs"), list)
             or not isinstance(payload.get("total_count"), int)
             or payload["total_count"] != len(payload["workflow_runs"])
             or len(payload["workflow_runs"]) > 100):
         raise ValueError("Incomplete GitHub Actions run pagination")
-    return payload["workflow_runs"]
+    rows = payload["workflow_runs"]
+    if pinned_main and any(not isinstance(row, dict) or row.get("head_branch") != "main"
+                           for row in rows):
+        raise ValueError("pinned release requires main push workflow evidence")
+    return rows
 
 
 def main() -> int:
@@ -142,6 +147,8 @@ def main() -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=1200)
+    parser.add_argument("--pinned-main", action="store_true",
+                        help="permit a verified historical main SHA, never an off-main commit")
     parser.add_argument("--policy-only", action="store_true",
                         help="read-only verify current SHA and branch protection; no CI/SSH")
     opts = parser.parse_args()
@@ -154,8 +161,9 @@ def main() -> int:
         return 1
 
     api = GitHub(token)
+    guard = require_pinned_main if opts.pinned_main else require_current_main
     try:
-        require_current_main(api, opts.sha)
+        guard(api, opts.sha)
         state, detail = verify_policy(opts.repo, token)
     except (EvidenceError, ValueError, URLError, HTTPError, TimeoutError) as exc:
         print(f"TOR_CI_REFUSED: cannot verify main rules: {type(exc).__name__}", file=sys.stderr)
@@ -165,7 +173,7 @@ def main() -> int:
         return 1
     if opts.policy_only:
         try:
-            require_current_main(api, opts.sha)
+            guard(api, opts.sha)
         except EvidenceError as exc:
             print(f"TOR_CI_REFUSED: main moved during policy verification: {exc}", file=sys.stderr)
             return 1
@@ -175,8 +183,10 @@ def main() -> int:
     deadline = time.monotonic() + opts.timeout_seconds
     while True:
         try:
-            outcome, detail = evaluate(fetch_runs(opts.repo, opts.sha, token),
-                                       opts.sha)
+            outcome, detail = evaluate(
+                fetch_runs(opts.repo, opts.sha, token, pinned_main=opts.pinned_main),
+                opts.sha,
+            )
         except (ValueError, URLError, HTTPError, TimeoutError) as exc:
             print(f"TOR_CI_REFUSED: cannot fetch CI: {type(exc).__name__}", file=sys.stderr)
             return 1
@@ -185,13 +195,13 @@ def main() -> int:
             # A workflow success can hide missing/skipped suite jobs. Reuse the
             # exact-main release auditor, including every matrix child, fail-closed.
             try:
-                report = collect(api, opts.sha)
+                report = collect(api, opts.sha, pinned_main=opts.pinned_main)
                 if not report["ci_complete"]:
                     print("TOR_CI_REFUSED: incomplete suite evidence: "
                           + "; ".join(report["blockers"]), file=sys.stderr)
                     return 1
                 state, detail = verify_policy(opts.repo, token)
-                require_current_main(api, opts.sha)
+                guard(api, opts.sha)
             except (EvidenceError, ValueError, URLError, HTTPError,
                     TimeoutError, OSError) as exc:
                 print(f"TOR_CI_REFUSED: final audit incomplete: "
@@ -200,7 +210,8 @@ def main() -> int:
             if state != "pass":
                 print(f"TOR_CI_REFUSED: I-06 after CI: {detail}", file=sys.stderr)
                 return 1
-            print("TOR_CI_VERIFIED: exact-main rules + every suite and matrix child + ci-required")
+            scope = "pinned-main" if opts.pinned_main else "exact-main"
+            print(f"TOR_CI_VERIFIED: {scope} rules + every suite and matrix child + ci-required")
             return 0
         if outcome == "fail" or time.monotonic() >= deadline:
             print("TOR_CI_REFUSED: no verified complete green main build", file=sys.stderr)

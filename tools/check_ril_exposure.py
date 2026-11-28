@@ -226,6 +226,30 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("POST", "/odmen/storage/s3", "save", "admin_s3_connection"),
                 }
             )
+            allow_admin_sessions = (
+                row["source"] == "crates/web/src/auth/admin_entry/sessions.rs"
+                and key in {
+                    ("GET", "/odmen/security/sessions", "page", "admin_session_management"),
+                    ("POST", "/odmen/security/sessions", "revoke", "admin_session_management"),
+                }
+            )
+            # Exact system-mail controls with separately checked role/CSRF
+            # and service-to-service HMAC; no general internal prefix exception.
+            allow_system_mail = (
+                row["source"] == "crates/web/src/auth/admin_mail_cost/mod.rs"
+                and key in {
+                    ("GET", "/odmen/system-mail", "page", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail", "save", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/stop", "stop", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/reconcile", "reconcile", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/profile", "save_profile", "admin_system_mail"),
+                    ("POST", "/odmen/system-mail/probe", "probe_profile", "admin_system_mail"),
+                }
+            )
+            allow_postbox_relay = (
+                row["source"] == "crates/web/src/auth/postbox_feedback.rs"
+                and key == ("POST", "/internal/mail/postbox-feedback", "receive", "postbox_relay")
+            )
             allow_continuation_admin = (
                 row["source"] == "crates/web/src/auth.rs"
                 and key == ("GET", "/odmen/audience/continuations",
@@ -236,7 +260,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
             if not (allow_odmen or allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
-                    or allow_ratio_admin or allow_rec_admin_page or allow_continuation_admin or allow_s3_connection):
+                    or allow_ratio_admin or allow_rec_admin_page or allow_continuation_admin or allow_s3_connection or allow_admin_sessions
+                    or allow_system_mail or allow_postbox_relay):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

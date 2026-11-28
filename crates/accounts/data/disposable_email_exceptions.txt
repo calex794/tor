@@ -1,0 +1,1 @@
+# Reviewed exact-domain exceptions, sorted alphabetically (one per line).

@@ -1,0 +1,100 @@
+name: TOR disposable deployment VM
+on:
+  pull_request:
+    paths:
+      - 'ops/install/**'
+      - 'ops/fallback/**'
+      - 'ops/systemd/**'
+      - 'ops/tor-web.service.example'
+      - 'ops/init-tor-database.sh'
+      - 'ops/apply-tor-migrations-vps.sh'
+      - 'ops/go-live-postgres-vps.sh'
+      - 'tools/build_tor_production_web.sh'
+      - 'tools/prepare_clean_install.py'
+      - 'tools/activate_clean_install.py'
+      - 'tools/release_bundle_v2.py'
+      - 'tools/managed_edge_release.py'
+      - 'tools/managed_systemd_release.py'
+      - 'tools/coordinated_release.py'
+      - 'tools/release_executor_v2.py'
+      - 'tools/install_release_v2.py'
+      - 'ops/bootstrap-one-click-v2.sh'
+      - 'ops/one-click-release-v2-wrapper.sh'
+      - 'ops/one-click-release-vps.sh'
+      - '.github/workflows/tor-one-click-release.yml'
+      - 'tools/release_ancestry.py'
+      - 'tools/adopt_edge_vhost.py'
+      - 'tests/deploy/**'
+      - '.github/workflows/tor-deploy-vm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  vm:
+    # Never a self-hosted runner, VPS, protected deploy environment or SSH job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build real approved production-profile Rust executables
+        run: |
+          bash tools/build_tor_production_web.sh
+          cargo build --locked --release -p tor-migrations --bin tor-migrate
+          cargo build --locked --release -p tor-observability --bin tor-trace-store
+      - name: Prepare authenticated Ubuntu mirrors
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
+      - name: Provision isolated disposable VM system services
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/bash tests/deploy/hosted_vm_setup.sh 2>&1 | tee "$RUNNER_TEMP/deploy-vm-setup.log"
+      - name: Real first start, signed update, failure and interrupted release recovery
+        shell: bash
+        env:
+          # Job permissions are contents: read; not a production secret.
+          TOR_VM_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Keep the token off the subprocess command line and environment.
+          actions_read_token="$TOR_VM_GITHUB_TOKEN"
+          unset TOR_VM_GITHUB_TOKEN
+          printf '%s' "$actions_read_token" | sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_WORKSPACE /usr/bin/python3 -I -B tests/deploy/hosted_vm_acceptance.py | tee "$RUNNER_TEMP/deploy-vm.log"
+          unset actions_read_token
+          grep -Fxq 'DEPLOY08A_VM_ACCEPTANCE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_HEALTHY_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08C_REAL_RECOVERED_BASELINE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_AUTHENTICATED_LIVE_ANCESTRY_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_UNAPPROVED_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_FAILED_REPAIR_STOPPED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_SIGNED_REPAIR_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08D_REAL_INTERRUPTED_REPAIR_RECOVERED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_EXISTING_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_VM_TOR_SUDOERS_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_V1_OUTAGE_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_VHOST_PIN_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_V1_V2_BOOTSTRAP_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08E_REAL_SUDO_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_LOOPBACK_SSH_READY' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_WRONG_HOST_KEY_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_SSH_STAGE_ONLY_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_TAMPERED_INBOX_REFUSED' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08F_REAL_SSH_SIGNED_UPDATE_OK' "$RUNNER_TEMP/deploy-vm.log"
+          grep -Fxq 'DEPLOY08G_REMOTE_VERIFY_OK' "$RUNNER_TEMP/deploy-vm.log"
+      - name: Retain sanitized fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-deploy-vm-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/deploy-vm-setup.log
+            ${{ runner.temp }}/deploy-vm.log
+          if-no-files-found: warn
+          retention-days: 10

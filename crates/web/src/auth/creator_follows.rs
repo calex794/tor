@@ -81,9 +81,10 @@ async fn write(
     if let Err(error) = result {
         return deny(error_status(error));
     }
-    let destination = match state.accounts.user_display_name(creator).await {
-        Ok(Some(name)) => profile_path(&name),
-        Ok(None) => "/me/creators".to_owned(),
+    let destination = match state.accounts.public_profile_address_parts(creator).await {
+        Ok(Some((_, Some(handle)))) => format!("/users/by-handle/{handle}"),
+        Ok(Some((Some(name), None))) => profile_path(&name),
+        Ok(_) => "/me/creators".to_owned(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     private_response(Redirect::to(&destination), &[])

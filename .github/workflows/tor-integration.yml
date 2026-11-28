@@ -43,6 +43,8 @@ jobs:
         run: node --test tools/s006_free_progress_reconcile.test.mjs
       - name: S006 paid reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_paid_progress_reconcile.test.mjs
+      - name: MAIL-01g2b relay protocol offline tests (no network)
+        run: python3 -m unittest discover -s tests/architecture -p test_postbox_relay.py
       - name: Rust formatting
         run: cargo fmt --all -- --check
   demo:
@@ -182,22 +184,15 @@ jobs:
           node-version: '22'
       - name: Chromium for S037 swap acceptance
         run: |
-          npm install --no-save playwright@1.56.1
           # PG jobs use the default headless browser; unlike pixel-layout jobs,
           # they do not install headed Chromium or fetch optional font packs.
           # The full PostgreSQL/HTTP/Chromium regression still runs below.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
       - name: PostgreSQL client
         run: |
           # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
           # Fall back to apt if a future runner image removes either binary.
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
       - name: Create isolated roles and database
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -296,296 +291,20 @@ jobs:
           if PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c 'CREATE TABLE forbidden (x int)'; then exit 1; fi
       - name: Seed visible and hidden rows
         run: |
-          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
-          VALUES (1,'ci:1','ru','TOR CI public','public','basic'),
-                 (2,'ci:2','ru','TOR CI hidden','draft','basic'),
-                 (3,'ci:3','ru','TOR CI held','public','basic');
-          UPDATE books SET admin_hold=true WHERE id=3;
-          -- Author/genre fixtures cover public, hidden and held rows with identical metadata.
-          UPDATE books SET author_name='Жюль', genres=ARRAY['фэнтези','приключения']
-          WHERE id IN (1,2,3);
-          SQL
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 < tools/ci_pg_runtime_fixtures/books.sql
       - name: Seed G-07/G-09 owned cover job fixtures
         run: |
-          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO users(id,email_normalized,display_name,password_hash)
-          OVERRIDING SYSTEM VALUE
-          SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
-            FROM generate_series(901,905) AS id;
-          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
-          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id,'basic'
-            FROM generate_series(901,905) AS id;
-          SQL
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 < tools/ci_pg_runtime_fixtures/cover_jobs.sql
       - name: Seed published free and protected chapters
         run: |
-          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO chapters (id, book_id, chapter_no, title, visibility, access_level, price_amount, reader_released_at)
-          VALUES
-            (101, 1, 1, 'Начало истории', 'public', 'free', 0, NULL),
-            (102, 1, 2, 'Секретный черновик', 'draft', 'free', 0, NULL),
-            (103, 1, 3, 'Платная глава', 'public', 'paid', 250, NULL),
-            (104, 2, 1, 'Глава скрытой книги', 'public', 'free', 0, NULL),
-            (105, 3, 1, 'Глава заблокированной книги', 'public', 'free', 0, NULL),
-            (106, 1, 4, 'Запланированная глава', 'public', 'free', 0, now() + INTERVAL '1 day'),
-            (107, 1, 5, 'Глава на модерации', 'public', 'free', 0, NULL),
-            (108, 1, 6, 'Продолжение', 'public', 'free', 0, NULL);
-          UPDATE chapters SET admin_hold=true WHERE id=107;
-          INSERT INTO chapter_versions (id, chapter_id, version_no, body_markdown)
-          VALUES
-            (201, 101, 1, '**Первая строка** и <script>alert(1)</script>'),
-            (202, 102, 1, 'PRIVATE-DRAFT-MARKER'),
-            (203, 103, 1, 'PRIVATE-PAID-MARKER'),
-            (204, 104, 1, 'PRIVATE-BOOK-MARKER'),
-            (205, 105, 1, 'PRIVATE-HOLD-MARKER'),
-            (206, 106, 1, 'PRIVATE-FUTURE-MARKER'),
-            (207, 107, 1, 'PRIVATE-MODERATED-MARKER'),
-            (208, 108, 1, 'Текст следующей опубликованной главы');
-          INSERT INTO chapter_publications(chapter_id, version_id)
-          VALUES (101,201),(102,202),(103,203),(104,204),
-                 (105,205),(106,206),(107,207),(108,208);
-          SQL
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 < tools/ci_pg_runtime_fixtures/chapters.sql
       - name: Advance explicit-ID fixture sequences as schema owner
         run: |
           # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
           # Fix all seeded entities before running tests that INSERT default IDs.
-          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT max(id) FROM users),1), true);
-          SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
-          SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
-          SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
-          SQL
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 < tools/ci_pg_runtime_fixtures/sequences.sql
       - name: Database and HTTP integration
-        run: |
-          # REC13 Chromium runs in its own required PostgreSQL job; remaining commands keep their order.
-          ci_pg_started=$SECONDS
-          ci_pg_phase_done() {
-            local phase="$1"
-            echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
-            ci_pg_started=$SECONDS
-          }
-          # Diagnose compilation versus test execution without changing any Cargo command.
-          # The env -u executions retain their own timing boundaries.
-          ci_pg_cargo_index=0
-          cargo() {
-            local start_us=${EPOCHREALTIME/./}
-            local status=0
-            local package=unknown target=lib prev= arg
-            for arg in "$@"; do
-              case "$prev" in
-                -p) package="$arg" ;;
-                --test) target="$arg" ;;
-              esac
-              case "$arg" in
-                -p|--test) prev="$arg" ;;
-                *) prev= ;;
-              esac
-            done
-            command cargo "$@" || status=$?
-            local end_us=${EPOCHREALTIME/./}
-            ci_pg_cargo_index=$((ci_pg_cargo_index + 1))
-            printf 'CI_PG_CARGO_MS seq=%d package=%s target=%s elapsed_ms=%d status=%d\n' \
-              "$ci_pg_cargo_index" "$package" "$target" "$(((end_us-start_us)/1000))" "$status"
-            return "$status"
-          }
-          if [[ "$CI_PG_SHARD" == "foundation" ]]; then
-            cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
-            cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
-            cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test paid_author_source_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test free_chapter_storage_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
-            cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
-            cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
-            cargo test -p tor-ingest --test outbox_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test cover_worker_pg -- --ignored
-            cargo test -p tor-books --test postgres_catalog -- --ignored
-            cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
-            ci_pg_phase_done "traffic_storage_catalog"
-          fi
-          if [[ "$CI_PG_SHARD" == "foundation" ]]; then
-            cargo test -p tor-search --test search_pg -- --ignored
-            cargo test -p tor-search --test f04_rising_pg -- --ignored --test-threads=1
-            cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
-            cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
-            cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
-            cargo test -p tor-search --test f03_unicode_pg -- --ignored
-            cargo test -p tor-books --test authoring_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_lifecycle_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test origin_metadata_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
-            cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test chapter_import_worker_contention_pg -- --ignored --test-threads=1 --show-output
-            cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_related_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test public_related_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test title_suggestions_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
-            cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
-            cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
-            cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
-            cargo test -p tor-books --lib s020_pg_access_level_monotonic_live_grant_membership_and_cas -- --ignored --test-threads=1
-            cargo test -p tor-web --test s020_age_editor_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test free_s3_lifecycle_pg -- --ignored --test-threads=1
-             cargo test -p tor-books --test d001_logical_retention_pg -- --ignored --test-threads=1
-             cargo test -p tor-books --test d001_historical_anchor_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test chapter_release_pg -- --ignored
-            cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_delayed_schedule_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_slot_occurrences_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_slot_frontier_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_slot_release_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test book_slot_paid_release_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test scheduled_release_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
-            ci_pg_phase_done "books_import_authoring"
-          fi
-          if [[ "$CI_PG_SHARD" == "reading" ]]; then
-            cargo test -p tor-reading --test postgres_reading -- --ignored
-            cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test progress_postgres -- --ignored
-            cargo test -p tor-reading --test ret00_resume_next_free_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test age_tier_progress_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
-            cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test chapter_thanks_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test book_stats_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test book_likes_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
-            cargo test -p tor-reading --test library_postgres -- --ignored
-            cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
-            cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
-            cargo test -p tor-reading --test c08_verified_free_open_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test c08_saved_free_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test ret01_import_follow_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1 --show-output
-            ci_pg_phase_done "reading_library"
-          fi
-          if [[ "$CI_PG_SHARD" == "reading" ]]; then
-            cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
-            cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test recommendation_preferences_legacy_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1 --skip contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests
-            cargo test -p tor-recommendations --test catalog_legacy_history_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test analytics_invalidation_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
-            cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s046_achievements_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
-            cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
-            cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
-            cargo test -p tor-discussions --test paid_chapter_comments_pg s011_ -- --ignored --test-threads=1
-            cargo test -p tor-discussions --test text_issues_pg e_12_ -- --ignored --test-threads=1
-            ci_pg_phase_done "referrals_recommendations_social"
-          fi
-          if [[ "$CI_PG_SHARD" == "commerce" ]]; then
-            cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
-            # S020 P0: real authenticated single/batch HTTP checkout age parity.
-            TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --test s020_age_checkout_http_pg s020_age_checkout_http_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
-             cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1 --show-output
-            cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
-            # H/UI-18: execute new package-cover ownership, moderation, cleanup and entitlement PG test.
-            cargo test -p tor-commerce --test layers_pg h_ui_18_ -- --ignored --test-threads=1
-            # H/UI-19: enforce new direct and batch sale restrictions on disposable PostgreSQL.
-            cargo test -p tor-commerce --test layers_pg h_ui_19_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test batch_checkout_pg h_ui_19_ -- --ignored --test-threads=1
-            # H/UI-21: registration-based owner-selected early window, with atomic mixed batch.
-            cargo test -p tor-commerce --test layers_pg h_ui_21_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test batch_checkout_pg h_ui_21_ -- --ignored --test-threads=1
-            # H/UI-20: validate only visible active package links and no direct debit.
-            cargo test -p tor-commerce --test layers_pg h_ui_20_ -- --ignored --test-threads=1
-            TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test package_paid_links_http_pg h_ui_20_ -- --ignored --test-threads=1
-            # Enable owner Layer management for exactly this isolated PG/HTTP suite.
-            # All other tests and the actual application retain the default OFF gate.
-            TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
-            # S031 Layer wallet + browser-form acceptance: explicit flags per disposable suite.
-            TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
-            TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
-             cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test d08_finance_pg s038_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test d09_payout_reject_pg d_09_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test d09_payout_approval_quote_pg d_09_quote_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test d09_payout_posting_pg d_09_post_ -- --ignored --test-threads=1
-            cargo test -p tor-commerce --test d09_payout_mature_pg d_09_post_ -- --ignored --test-threads=1
-            cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
-            cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
-            ci_pg_phase_done "commerce_support"
-          fi
-          if [[ "$CI_PG_SHARD" == "commerce" ]]; then
-            cargo test -p tor-web --test postgres_http -- --ignored
-            cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s033_personal_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-social --test book_shares_pg -- --ignored --test-threads=1
-            cargo test -p tor-social --test book_collections_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s016_book_shares_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s049_book_share_reports_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s049_book_content_reports_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s049_comment_appeals_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s049_free_comment_reports_http_pg -- --ignored --nocapture --test-threads=1
-            cargo test -p tor-web --test s009_collections_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test s030_owner_transfer_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test auth_postgres -- --ignored
-            env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
-            TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
-            env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_ADMIN_SUPPORT_REFUNDS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refunds_not_routed_to_buyer -- --ignored --test-threads=1
-            TOR_PAID_CHECKOUT_ENABLED=1 TOR_ADMIN_SUPPORT_REFUNDS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_admin_support_search_exact_purchase_prepare_approve_and_replay -- --ignored --test-threads=1
-            
-            env -u TOR_S039_PAYOUT_REJECT_HTTP_ENABLED cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_disabled_by_default -- --ignored --test-threads=1
-            TOR_S039_PAYOUT_REJECT_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_admin_role_csrf_idempotent_rejection -- --ignored --test-threads=1
-            env -u TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_disabled_by_default -- --ignored --test-threads=1
-            TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_admin_only_and_no_wallet_movement -- --ignored --test-threads=1
-            cargo test -p tor-web --test s039_payout_step_up_pg s039_password_step_up_is_session_bound_and_posted_only_once -- --ignored --test-threads=1
-            env -u TOR_S039_PAYOUT_POST_HTTP_ENABLED cargo test -p tor-web --test s039_payout_post_http_pg s039_payout_post_http_closed_by_default -- --ignored --test-threads=1
-            TOR_S039_PAYOUT_POST_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_post_http_pg s039_payout_post_http_role_password_csrf_exact_once_and_replay -- --ignored --test-threads=1
-            cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
-            cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
-            cargo test -p tor-web --test paid_grants_http_pg -- --ignored --nocapture --test-threads=1
-            TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
-              TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
-              cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
-            ci_pg_phase_done "http_security"
-          fi
+        run: bash tools/ci_pg_runtime_acceptance.sh
 
       - name: Disk usage after database and HTTP integration
         run: |
@@ -638,8 +357,11 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          # Reuse the verified binary without two additional Cargo invocations.
+          # Reuse the already-built real web and migrator. Build the remaining
+          # real payload executable; never start the optional trace writer.
           test -x ./target/debug/tor-web
+          test -x ./target/debug/tor-migrate
+          cargo build -p tor-observability --bin tor-trace-store
           bash tools/tor_pg_backup_restore_smoke.sh
       - name: S061 build previous binary (manual opt-in only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && matrix.shard == 'foundation' }}
@@ -697,7 +419,7 @@ jobs:
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
           # All four test targets share the same crate and test flags;
           # Cargo still executes each complete target, with one frontend invocation.
-          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
@@ -763,30 +485,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Feature boundary checks
-        run: python3 tools/check_feature_layout.py
-      - name: Prepare isolated database
-        run: bash tools/ci_prepare_isolated_pg.sh
-      - name: Apply real SQLx migrations twice
-        run: |
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-      - name: Prepare explicit legacy and installed-upgrade analytics databases
-        if: ${{ matrix.lane == 'historical' }}
-        run: |
-          bash tools/ci_prepare_legacy_analytics.sh
-          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
-          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
-      - name: Installed 190 to current analytics retirement with canonical and preference preservation
-        if: ${{ matrix.lane == 'historical' }}
-        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
-      - name: REC13 real Chromium and historical HTTP acceptance
-        env:
-          TOR_REC13_LANE: ${{ matrix.lane }}
-        run: bash tools/rec13_browser_acceptance.sh
-      - name: 100k catalogue contextual model PostgreSQL acceptance
-        if: ${{ matrix.lane == 'current' }}
-        run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1 --nocapture
+      - name: Run shared PostgreSQL REC13 browser acceptance
+        uses: ./.github/actions/pg-rec-browser
+        with:
+          lane: ${{ matrix.lane }}
       - name: Confirm committed source was tested
         if: always()
         run: git diff --exit-code
@@ -840,86 +542,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: postgres-runtime-no-debug-v1
-      - name: Feature boundary checks
-        run: python3 tools/check_feature_layout.py
-      - name: Prepare isolated database
-        run: bash tools/ci_prepare_isolated_pg.sh
-      - name: Apply real SQLx migrations twice
-        run: |
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-      - name: Enable bounded lock diagnostics only on disposable analytics DB
-        run: |
-          # Existing synthetic tor_ci service, never an operational database.
-          # Capture lock owner/waiter PIDs before the application's 50ms timeout.
-          # This changes the logging/deadlock check threshold, NOT lock_timeout.
-          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
-          ALTER DATABASE tor_ci SET log_lock_waits = on;
-          ALTER DATABASE tor_ci SET deadlock_timeout = '20ms';
-          ALTER DATABASE tor_ci SET log_error_verbosity = 'verbose';
-          ALTER DATABASE tor_ci SET log_parameter_max_length = 0;
-          ALTER DATABASE tor_ci SET log_parameter_max_length_on_error = 0;
-          SQL
-          observed="$(psql -X -v ON_ERROR_STOP=1 -At "$TEST_DATABASE_URL" <<'SQL'
-          SELECT current_database() = 'tor_ci' AND current_user = 'tor_app'
-            AND current_setting('log_lock_waits') = 'on'
-            AND current_setting('deadlock_timeout') = '20ms'
-            AND current_setting('log_error_verbosity') = 'verbose'
-            AND current_setting('log_parameter_max_length') = '0'
-            AND current_setting('log_parameter_max_length_on_error') = '0';
-          SQL
-          )"
-          test "$observed" = t
-          echo CI_PG_LOCK_DIAGNOSTICS_ENABLED
-      - name: Prepare explicit legacy and installed-upgrade analytics databases
-        run: |
-          bash tools/ci_prepare_legacy_analytics.sh
-          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
-          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
-      - name: Installed 190 to current analytics retirement with canonical and preference preservation
-        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
-      - name: Reader audience, FLOW and SEO PostgreSQL acceptance
-        run: |
-          set -euo pipefail
-          started=$SECONDS
-          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test continuation_stats_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test audience_returns_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_returns_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test audience_book_returns_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_book_returns_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test audience_group_returns_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test recommendation_share_admin_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test recommendations_admin_policy_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
-          echo "CI_PG_ANALYTICS_TEST_SECONDS seconds=$((SECONDS-started))"
+      - name: Run shared PostgreSQL reading analytics acceptance
+        uses: ./.github/actions/pg-reading-analytics
       - name: Confirm committed source was tested
         if: always()
         run: git diff --exit-code
@@ -1001,13 +625,7 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -1053,11 +671,10 @@ jobs:
       - name: Install Chromium
         run: |
           ci_chromium_setup_started=$SECONDS
-          npm install --no-save playwright@1.56.1
           # Prefer the same lean headless-shell installation as REC13.
           # Validate a real Chromium launch; missing OS libraries trigger the
           # existing dependency-install path rather than a skipped browser test.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
           chromium_probe() {
             node -e 'const p=require("playwright"); if(require("playwright/package.json").version !== "1.56.1") process.exit(1); p.chromium.launch({headless:true}).then(browser=>browser.close()).catch(error=>{console.error(error);process.exit(1)})'
           }
@@ -1097,6 +714,7 @@ jobs:
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/auth_dialog_browser.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
@@ -1149,11 +767,9 @@ jobs:
           cargo build -p tor-observability --bin tor-trace-store
       - name: Install headless browser
         run: |
-          npm install --no-save playwright@1.56.1
           # Ubuntu 24.04 already has the runtime libraries. Optional fonts can
           # disappear from apt mirrors and are not a browser acceptance test.
-          npx playwright install --only-shell chromium
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Browser layout checks and screenshots
         run: |
           set -euo pipefail
@@ -1225,120 +841,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Create disposable PostgreSQL roles and apply canonical migrations
-        run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
-          psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-cover-browser-ci-migrator';
-          CREATE ROLE tor_app LOGIN PASSWORD 'tor-cover-browser-ci-app';
-          CREATE DATABASE tor_ci OWNER tor_migrator;
-          SQL
-          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
-          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
-          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          DATABASE_URL="$MIGRATION_URL" cargo run -p tor-migrations --bin tor-migrate
-      - name: Start checksum-verified MinIO on loopback
-        run: |
-          set -euo pipefail
-          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release" --output "$RUNNER_TEMP/$release"
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
-          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
-          test "$expected" = "$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)"
-          chmod 700 "$RUNNER_TEMP/$release"
-          mkdir -p "$RUNNER_TEMP/tor-cover-minio"
-          MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
-            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-cover-minio" \
-              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
-              > "$RUNNER_TEMP/minio.log" 2>&1 &
-          ready=0
-          for i in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          test "$ready" = 1
-      - name: Prepare isolated reset test mailbox
-        run: |
-          mkdir -m 700 -p "$RUNNER_TEMP/account-reset-mail"
-          cat > "$RUNNER_TEMP/account-reset-sendmail" <<'PYMAIL'
-          #!/usr/bin/env python3
-          import hashlib, os, pathlib, sys
-          message = sys.stdin.read()
-          recipient = next(line[4:].strip() for line in message.splitlines() if line.startswith('To: '))
-          if not recipient.endswith('@example.invalid'):
-              sys.exit(2)
-          dest = pathlib.Path(os.environ['TOR_RESET_TEST_MAIL_DIR']) / hashlib.sha256(recipient.encode()).hexdigest()
-          fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-          with os.fdopen(fd, 'w') as output:
-              output.write(message)
-          PYMAIL
-          chmod 700 "$RUNNER_TEMP/account-reset-sendmail"
-      - name: Create private test bucket using existing verified S3 provider test
-        run: |
-          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
-      - name: Build real Rust server with private S3 enabled
-        run: cargo build -p tor-web --features s3-covers
-      - name: Install Chromium
-        run: |
-          npm install --no-save playwright@1.56.1
-          npx playwright install --only-shell chromium
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
-      - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
-        env:
-          TOR_COVER_S3_BUCKET: tor-private-cover-ci
-          TOR_COVER_WORKER_ENABLED: '1'
-          TOR_COVER_EXPECT_LOSSY_WEBP: '1'
-          TOR_AUTH_ENABLED: '1'
-          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
-          TOR_LISTEN_ADDR: 127.0.0.1:3098
-          DATABASE_URL: ${{ env.APP_URL }}
-          AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: tor-cover-ci-user
-          AWS_SECRET_ACCESS_KEY: tor-cover-ci-secret-only
-          AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000
-          AWS_EC2_METADATA_DISABLED: 'true'
-          TOR_COVER_BROWSER_SHOTS: ${{ runner.temp }}/cover-browser-shots
-          TOR_PASSWORD_RESET_ENABLED: '1'
-          TOR_RESET_SENDMAIL: ${{ runner.temp }}/account-reset-sendmail
-          TOR_RESET_MAIL_FROM: no-reply@example.invalid
-          TOR_RESET_TEST_MAIL_DIR: ${{ runner.temp }}/account-reset-mail
-        run: |
-          set -euo pipefail
-          mkdir -p "$TOR_COVER_BROWSER_SHOTS"
-          ./target/debug/tor-web > "$RUNNER_TEMP/cover-web.log" 2>&1 &
-          server=$!
-          trap 'kill "$server" 2>/dev/null || true' EXIT
-          ready=0
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
-            sleep 1
-          done
-          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/cover-web.log"; exit 1; fi
-          node tools/author_cover_pg_visual_smoke.cjs
-          node tools/account_line_browser.cjs
-          # The private bucket must stay inaccessible to anonymous browsers.
-          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
-          test "$code" = 403
+      - name: Run shared PostgreSQL cover browser acceptance
+        uses: ./.github/actions/pg-cover-browser
       - name: Diagnostic logs if the browser journey fails
         if: failure()
         run: |
@@ -1486,131 +990,8 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Compile private S3 cover adapter without provider credentials
-        run: cargo check -p tor-web --features s3-covers
-      - name: Start upstream release of MinIO on loopback with SHA-256 verification
-        run: |
-          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release" --output "$RUNNER_TEMP/$release"
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
-          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
-          test "${#expected}" -eq 64
-          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
-          test "$actual" = "$expected"
-          chmod 700 "$RUNNER_TEMP/$release"
-          mkdir -p "$RUNNER_TEMP/tor-minio-data"
-          MINIO_ROOT_USER=tor-cover-ci-user MINIO_ROOT_PASSWORD=tor-cover-ci-secret-only \
-            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-minio-data" \
-              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
-              > "$RUNNER_TEMP/tor-cover-minio.log" 2>&1 &
-          ready=0
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != 1 ]; then
-            tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log"
-            exit 1
-          fi
-      - name: Test signed S3 PUT HEAD GET, integrity and strict size bounds
-        env:
-          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
-          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
-          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
-        run: |
-          cargo fmt --all -- --check
-          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
-          cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
-          cargo test -p tor-imports --features s3 \
-            repositories::s3::tests::s023_private_source_put_get_conflict_and_delete \
-            -- --ignored --test-threads=1
-      - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
-        run: |
-          set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
-          psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
-          CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
-          CREATE DATABASE tor_ci OWNER tor_migrator;
-          SQL
-          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
-          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
-          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
-          PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci \
-            psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO users(id,email_normalized,display_name,password_hash)
-          OVERRIDING SYSTEM VALUE VALUES
-          (950,'obs09-owner@example.invalid','Test cover owner','$argon2id$test');
-          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
-          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950,'basic');
-          SQL
-      - name: Run signed MinIO and restricted PG whole-cover user scenario
-        env:
-          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
-          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
-          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
-        run: |
-          cargo test -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- --ignored --test-threads=1
-          cargo clippy -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- -D warnings
-      - name: MOD-COVER private GC read-only preview (disposable PG, no S3 deletes)
-        env:
-          PGUSER: tor_app
-          PGPASSWORD: tor-obs09-app
-          PGDATABASE: tor_ci
-        run: |
-          set -euo pipefail
-          report=$(psql -X -v ON_ERROR_STOP=1 -f tools/mod_cover_gc_dry_run.sql)
-          printf '%s\n' "$report" | grep -Fq 'private_variants'
-          printf '%s\n' "$report" | grep -Fq 'private_sources'
-          printf '%s\n' "$report" | grep -Fq 'retain_attached_slot'
-          printf '%s\n' "$report" | grep -Fq 'ROLLBACK'
-      - name: Read-only cover-size inventory against disposable PG
-        env:
-          PGUSER: tor_app
-          PGPASSWORD: tor-obs09-app
-          PGDATABASE: tor_ci
-        run: |
-          set -euo pipefail
-          report=$(psql -X -v ON_ERROR_STOP=1 -f tools/cover_lossy_inventory.sql)
-          printf '%s\n' "$report" | grep -Fq 'tor-cover-webp-lossy-q85-v2'
-          printf '%s\n' "$report" | grep -Fq 'ROLLBACK'
-      - name: Deny anonymous S3 access to actual PG-attached WebP cover
-        run: |
-          set -euo pipefail
-          key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
-            -c "SELECT v.storage_key FROM cover_variants v \
-                JOIN cover_variant_jobs j ON j.id=v.job_id \
-                JOIN book_cover_slots s ON s.job_id=j.id AND s.book_id=j.book_id \
-                WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
-          [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
-          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            "http://127.0.0.1:9000/tor-private-obs09-ci/$key")"
-          test "$status" = 403
-      - name: Assert direct anonymous URL cannot read the private cover
-        run: |
-          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
-          test "$code" = 403
+      - name: Run shared private S3 cover acceptance
+        uses: ./.github/actions/pg-cover-s3
       # This parallel S3 runner has spare time after real MinIO/PG acceptance.
       # Required CI only: run the shared lint here when both Rust and PG run.
       - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
@@ -1746,72 +1127,17 @@ jobs:
           node-version: '22'
       - name: Install PostgreSQL client
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
       - name: Prepare disposable tor_ci with separate app/migrator privileges
-        run: |
-          set -euo pipefail
-          psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
-          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
-          CREATE DATABASE tor_ci OWNER tor_migrator;
-          SQL
-          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
-          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
-          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
-          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-          GRANT USAGE ON SCHEMA public TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
-            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
-          SQL
-          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+        run: bash tools/ci_paid_e2e_prepare_pg.sh
       - name: Start checksum-verified upstream MinIO on loopback
-        run: |
-          set -euo pipefail
-          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
-          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release" --output "$RUNNER_TEMP/$release"
-          curl --fail --location --silent --show-error --retry 3 \
-            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
-          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
-          test "$(printf '%s' "$expected" | wc -c)" -eq 64
-          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
-          test "$actual" = "$expected"
-          chmod 700 "$RUNNER_TEMP/$release"
-          mkdir -p "$RUNNER_TEMP/tor-paid-minio"
-          MINIO_API_CORS_ALLOW_ORIGIN=http://127.0.0.1:3098 \
-          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
-            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-paid-minio" \
-              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
-              > "$RUNNER_TEMP/tor-paid-minio.log" 2>&1 &
-          ready=0
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != 1 ]; then
-            tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log"
-            exit 1
-          fi
+        run: bash tools/ci_paid_e2e_start_minio.sh
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
-          npm install --no-save playwright@1.56.1
           # ubuntu-24.04 has the shared libraries required by default headless
           # Chromium. Avoid retrying optional fonts over apt mirrors.
-          npx playwright install --only-shell chromium
           # Fail closed if the real browser cannot launch on this runner.
-          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+          bash tools/ci_prepare_chromium.sh install-and-probe
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         id: foundation
         env:
@@ -1819,50 +1145,7 @@ jobs:
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
           TOR_PAID_READER_SHOTS: ${{ runner.temp }}/tor-paid-reader-visual
-        run: |
-          set -euo pipefail
-          export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
-          foundation_log="$(mktemp "$RUNNER_TEMP/tor-fnd07.XXXXXXXX")"
-          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH" "$foundation_log"' EXIT
-          python3 tools/check_feature_layout.py
-          cargo fmt -p tor-web -- --check
-          node --check tools/paid_grant_webcrypto_e2e.mjs
-          node --check tools/layer_reader_minio_chromium_e2e.cjs
-          node --check tools/paid_reader_minio_chromium_e2e.cjs
-          node --check tools/s035_contiguous_paid_browser.cjs
-          node --check tools/paid_reader_private_media_browser.cjs
-          node --check tools/drop_06b_pack_chromium.cjs
-          node --check tools/d05_layer_toc_chromium.cjs
-          node --check tools/d05_layer_free_live_chromium.cjs
-          node --check tools/d05_four_live_layer_chromium.cjs
-          node --check tools/d05_four_archived_layer_live_chromium.cjs
-          node tools/drop_06b_pack_chromium.cjs
-          # True Chromium validates 2 archived FREE + 2 Layer PAID TOC
-          # without public /reader links, escaped titles, or full PACK URLs.
-          node tools/d05_layer_toc_chromium.cjs
-          cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg --features s3-free -- --ignored --test-threads=1
-          node tools/layer_reader_minio_chromium_e2e.cjs
-          # Keep the 30s S3 URL checks next to their fixture, never after slow Cargo tests.
-          node tools/paid_grant_webcrypto_e2e.mjs
-          node tools/paid_reader_minio_chromium_e2e.cjs
-          node tools/paid_reader_private_media_browser.cjs
-          cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
-          # free_author_s3_pg includes the DROP-04b/06b PG18+MinIO cases;
-          # do not rerun the same fixed-identity fixtures in this database.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free --test free_author_s3_pg -- --ignored --test-threads=1 --show-output
-          # D-05/#1022: a real old Layer buyer opens immutable FREE V1
-          # from private SINGLE after owner deletion and moderator approval.
-          TOR_FREE_S3_PUBLIC_ORIGIN=http://127.0.0.1:9000 cargo test -p tor-web --features s3-free,s3-paid --test layer_free_private_s3_pg -- --ignored --test-threads=1 --show-output
-          # DROP-07a: actual-byte evidence only, on this disposable PG/MinIO.
-          # These checks cannot authorize orphan classification or S3 DELETE.
-          cargo test -p tor-books --test free_expected_inventory_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-books --test free_inventory_cycles_pg -- --ignored --test-threads=1 --show-output
-          cargo test -p tor-web --features s3-free --test free_inventory_operator_pg_minio -- --ignored --test-threads=1 --show-output | tee "$foundation_log"
-          cargo test -p tor-storage --features s3 --test free_expected_inventory_s3 -- --ignored --test-threads=1 --show-output
-          bash tools/drop_04d_worker_ci.sh | tee -a "$foundation_log"
-          python3 tools/verify_ci_gate.py record-foundation paid-private-e2e "$foundation_log"
+        run: bash tools/ci_paid_e2e_acceptance.sh
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4
@@ -1950,13 +1233,7 @@ jobs:
       - name: Create disposable PostgreSQL roles, database and SQLx schema
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
@@ -2042,13 +1319,7 @@ jobs:
       - name: Prepare isolated PostgreSQL roles and SQLx schema
         run: |
           set -euo pipefail
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';

@@ -43,7 +43,6 @@ async function screenshot(page, name) {
       const page = await context.newPage();
       const email = 'f05.visual.' + viewport + '@example.test';
       await page.goto(base + '/register');
-      await page.getByLabel('Отображаемое имя').fill('Читатель F05 ' + viewport);
       await page.getByLabel('Электронная почта').fill(email);
       await page.getByLabel('Пароль (12–128 символов)').fill('F05BrowserSafePassword2026');
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
@@ -187,7 +186,6 @@ async function screenshot(page, name) {
         const badgePage = await badgeContext.newPage();
         const badgeEmail = 'f12.visual.' + viewport + '@example.test';
         await badgePage.goto(base + '/register');
-        await badgePage.getByLabel('Отображаемое имя').fill('Читатель F12 ' + viewport);
         await badgePage.getByLabel('Электронная почта').fill(badgeEmail);
         await badgePage.getByLabel('Пароль (12–128 символов)').fill('F12BrowserSafePassword2026');
         await badgePage.getByRole('button', { name: 'Создать учётную запись' }).click();

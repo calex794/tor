@@ -48,10 +48,20 @@ pub struct SeoBookFacts {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SeoChapterFacts {
     pub chapter_id: u64,
+    /// Full only with a positive B/C guest authorization fact. A signed-in
+    /// full response, FREE price or public book alone is not that fact.
+    pub guest_text: SeoChapterGuestText,
     pub book: SeoBookFacts,
     pub visibility: SeoVisibility,
     pub access: SeoChapterAccess,
     pub has_public_version: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SeoChapterGuestText {
+    Full,
+    Excerpt,
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -112,6 +122,7 @@ pub enum SeoReason {
     ChapterNotPublic,
     ChapterNotFree,
     ChapterHasNoPublicVersion,
+    ChapterNotGuestFull,
     ShadowDisabled,
     DifferentIndexOwner,
     DuplicateView,

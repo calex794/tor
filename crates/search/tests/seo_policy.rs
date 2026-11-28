@@ -1,6 +1,7 @@
 use tor_search::domain::seo::{
     seo_route_class, SeoBookFacts, SeoBookView, SeoCatalogView, SeoChapterAccess, SeoChapterFacts,
-    SeoMode, SeoPage, SeoReason, SeoRobots, SeoRouteClass, SeoSite, SeoVisibility,
+    SeoChapterGuestText, SeoMode, SeoPage, SeoReason, SeoRobots, SeoRouteClass, SeoSite,
+    SeoVisibility,
 };
 use tor_search::services::seo::SeoPolicy;
 
@@ -18,6 +19,7 @@ fn book() -> SeoBookFacts {
 fn chapter() -> SeoChapterFacts {
     SeoChapterFacts {
         chapter_id: 123,
+        guest_text: SeoChapterGuestText::Full,
         book: book(),
         visibility: SeoVisibility::AnonymousPublic,
         access: SeoChapterAccess::Free,
@@ -338,4 +340,52 @@ fn f_08_seo_01_private_surfaces_remain_noindex_in_all_modes() {
             }
         }
     }
+}
+
+#[test]
+fn auth_read_preview_and_unknown_never_index_even_on_approved_domains() {
+    for guest_text in [SeoChapterGuestText::Excerpt, SeoChapterGuestText::Unknown] {
+        for site in [SeoSite::Pandaolate, SeoSite::Shadow] {
+            for mode in [SeoMode::Disabled, SeoMode::Pilot, SeoMode::Public] {
+                let facts = SeoChapterFacts {
+                    guest_text,
+                    book: SeoBookFacts {
+                        index_owner: site,
+                        pilot_approved: true,
+                        shadow_enabled: true,
+                        ..book()
+                    },
+                    ..chapter()
+                };
+                let decision = policy(site, mode).decide(SeoPage::Chapter(facts));
+                assert_eq!(decision.reason, SeoReason::ChapterNotGuestFull);
+                assert_eq!(decision.robots, SeoRobots::NoIndexNoFollow);
+                assert!(!decision.indexable());
+                assert!(!decision.sitemap_included);
+                assert_eq!(decision.canonical_path, None);
+            }
+        }
+    }
+}
+
+#[test]
+fn auth_read_book_can_index_without_indexable_chapter_text() {
+    let seo = policy(SeoSite::Pandaolate, SeoMode::Public);
+    assert!(seo
+        .decide(SeoPage::Book {
+            book: book(),
+            view: SeoBookView::Canonical,
+        })
+        .indexable());
+    let preview = SeoChapterFacts {
+        guest_text: SeoChapterGuestText::Excerpt,
+        ..chapter()
+    };
+    assert!(!seo.decide(SeoPage::Chapter(preview)).sitemap_included);
+    // A positive guest text fact does not override paid/held/publication.
+    let paid = SeoChapterFacts {
+        access: SeoChapterAccess::Paid,
+        ..chapter()
+    };
+    assert!(!seo.decide(SeoPage::Chapter(paid)).indexable());
 }

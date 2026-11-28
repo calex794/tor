@@ -49,13 +49,7 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
-            psql --version
-            echo "Using preinstalled PostgreSQL client"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client
-          fi
+          bash tools/ci_prepare_pg_client.sh
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -101,11 +95,10 @@ jobs:
       - name: Install Chromium
         run: |
           ci_chromium_setup_started=$SECONDS
-          npm install --no-save playwright@1.56.1
           # Prefer the same lean headless-shell installation as REC13.
           # Validate a real Chromium launch; missing OS libraries trigger the
           # existing dependency-install path rather than a skipped browser test.
-          npx playwright install --only-shell chromium
+          bash tools/ci_prepare_chromium.sh install
           chromium_probe() {
             node -e 'const p=require("playwright"); if(require("playwright/package.json").version !== "1.56.1") process.exit(1); p.chromium.launch({headless:true}).then(browser=>browser.close()).catch(error=>{console.error(error);process.exit(1)})'
           }
@@ -145,6 +138,7 @@ jobs:
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/auth_dialog_browser.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs

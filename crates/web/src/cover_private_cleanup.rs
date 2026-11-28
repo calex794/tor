@@ -1,8 +1,12 @@
 //! MOD-COVER-01: opt-in cleanup of retired PRIVATE staged WebP variants.
 //! It is separate from public origin removal and CDN invalidation.
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tor_books::repositories::cover_private_cleanup::PgPrivateCoverVariantRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
+
+use self::removal::{finish_private_removal, PRIVATE_REMOVAL_TIMEOUT};
+
+pub(crate) mod removal;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct PrivateCoverCleanupResult {
@@ -39,31 +43,17 @@ impl PrivateCoverVariantCleanup {
             ..PrivateCoverCleanupResult::default()
         };
         for item in claims {
-            let operation = tokio::time::timeout(
-                Duration::from_secs(12),
+            if finish_private_removal(
+                PRIVATE_REMOVAL_TIMEOUT,
                 self.storage
                     .remove_private_staging_variant(&item.storage_key),
+                self.ledger.removed(item.id, item.lease_epoch),
+                self.ledger.retry(item.id, item.lease_epoch),
             )
-            .await;
-            if matches!(operation, Ok(Ok(()))) {
-                if !self
-                    .ledger
-                    .removed(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
+            .await?
+            {
                 result.removed += 1;
             } else {
-                if !self
-                    .ledger
-                    .retry(item.id, item.lease_epoch)
-                    .await
-                    .map_err(|_| CoverError::Unavailable)?
-                {
-                    return Err(CoverError::LostLease);
-                }
                 result.deferred += 1;
             }
         }

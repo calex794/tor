@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
+POLICIES = {"admin_system_mail", "postbox_relay", "admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection"}
+PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises", "admin_s3_connection", "admin_session_management"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/odmen/mail", "admin_mail::index"): "users",
     ("GET", "/odmen/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -256,8 +256,11 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "paid_comment_appeals":
         return source.parent / "book_paid_comment_appeals.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
-        return (source.parent / "admin_mail.rs"
-                if module == "admin_mail"
+        # The extracted member route wiring keeps the exact original handlers
+        # and policies; permit only these explicitly reviewed sibling modules.
+        allowed = {"admin_mail", "mail", "mail_api", "group_mail", "book_rooms"}
+        return (source.parent / f"{module}.rs"
+                if module in allowed
                 else root / "__unsupported_admin_mail_handler__")
     if source == root / "crates/web/src/auth/referral_routes.rs":
         # Only these three sibling handlers may be bound through the F-09 router.
@@ -494,6 +497,159 @@ def _audience_funnel_is_bounded(body: str) -> bool:
     )
 
 
+# MAIL-01: exact route bindings, not general administrator or token exceptions.
+SYSTEM_MAIL_ADMIN = {
+    ("GET", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "page"): ".admin_view(&digest)",
+    ("POST", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "save"): ".admin_save_limits(&digest,",
+    ("POST", "/odmen/system-mail/stop", "crates/web/src/auth/admin_mail_cost/mod.rs", "stop"): ".admin_stop(&digest)",
+    ("POST", "/odmen/system-mail/reconcile", "crates/web/src/auth/admin_mail_cost/mod.rs", "reconcile"): ".admin_reconcile_month(&digest,",
+    ("POST", "/odmen/system-mail/profile", "crates/web/src/auth/admin_mail_cost/mod.rs", "save_profile"): ".admin_save_candidate(&digest,",
+    ("POST", "/odmen/system-mail/probe", "crates/web/src/auth/admin_mail_cost/mod.rs", "probe_profile"): ".admin_load_candidate(&digest,",
+}
+POSTBOX_RELAY = (
+    "POST", "/internal/mail/postbox-feedback",
+    "crates/web/src/auth/postbox_feedback.rs", "receive",
+)
+
+
+def _system_mail_key(entry: dict[str, str]) -> tuple[str, str, str, str]:
+    return tuple(entry.get(field, "") for field in ("method", "template", "source", "handler"))
+
+
+def _system_mail_policy(entry: dict[str, str], body: str,
+                        functions: dict[str, str]) -> list[str] | None:
+    key = _system_mail_key(entry)
+    policy = entry["policy"]
+    label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
+    if key not in SYSTEM_MAIL_ADMIN and key != POSTBOX_RELAY:
+        if policy in {"admin_system_mail", "postbox_relay"}:
+            return [f"{label}: mail policy is reserved for exact reviewed routes"]
+        return None
+
+    if key in SYSTEM_MAIL_ADMIN:
+        op = SYSTEM_MAIL_ADMIN[key]
+        operator = functions.get("operator", "")
+        csrf = functions.get("valid_csrf", "")
+        repo = functions.get("__mail_cost_repository", "")
+        guarded = all(marker in body for marker in (
+            "match operator(&state, &headers).await",
+            "Err(error) => return deny(error)",
+            op,
+        )) and body.index("operator(&state, &headers)") < body.index(op)
+        live = all(marker in operator for marker in (
+            ".session_token(headers)", "session_token_digest(&token)",
+            ".session_actor(&digest)", "if !actor.administrator",
+            "return Err(StatusCode::NOT_FOUND)", "ok_or(StatusCode::NOT_FOUND)",
+        ))
+        store = all(marker in repo for marker in (
+            "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+            "r.role='administrator' AND r.is_active", "s.revoked_at IS NULL",
+            "s.expires_at>clock_timestamp()", "u.account_state='active'",
+            "FOR SHARE OF s,u,r", "mail_send_budget_guard",
+            "INSERT INTO mail_cost_admin_audit", "WHERE singleton AND revision=$7",
+            "enabled: old.enabled", "enabled: false", "tx.commit().await?",
+        ))
+        if entry["handler"] == "reconcile":
+            reconciliation = functions.get("__mail_month_reconciliation", "")
+            store = store and all(marker in reconciliation for marker in (
+                "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+                "revision(&mut tx).await? != expected_revision",
+                "snapshot.limits.enabled || snapshot.boundary_pause",
+                "next.reserved_attempts < previous.reserved_attempts",
+                "next.reserved_attempts < known", "WHERE singleton AND NOT enabled",
+                "INSERT INTO mail_cost_month_reconciliation_audit", "tx.commit().await?",
+            ))
+        if entry["handler"] in {"save_profile", "probe_profile"}:
+            profile = functions.get("__mail_profile_repository", "")
+            helper = functions.get("__mail_profile_http", "")
+            store = store and all(marker in profile for marker in (
+                "operator(&mut tx, digest).await?", "stopped(&mut tx).await?",
+                "r.role='administrator' AND r.is_active", "FOR SHARE OF u,r",
+                "revoked_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE",
+                "mail_send_budget_guard WHERE singleton FOR UPDATE",
+                "SELECT enabled FROM mail_cost_policy WHERE singleton", "if enabled {",
+            ))
+            guarded = guarded and "|| !profile::secure_origin(&state)" in body
+            guarded = guarded and all(marker in helper for marker in (
+                "state.cookies.secure", 'uri.scheme_str() == Some("http")',
+                'matches!(uri.host(), Some("127.0.0.1" | "localhost"))',
+                'TOR_POSTBOX_PROFILE_MASTER_KEY', 'TOR_POSTBOX_PROFILE_KEY_VERSION',
+            ))
+            if entry["handler"] == "save_profile":
+                guarded = guarded and all(marker in body for marker in (
+                    "permit_auth_attempt(&attempt_key, 6, 600)", "verify_password_for_step_up(&password, &hash)",
+                    "master.seal(identity, next_revision, &secrets)",
+                    ".issue_administrator_postbox_step_up(", "&candidate.intent_digest()",
+                )) and body.index("verify_password_for_step_up(") < body.index(".issue_administrator_postbox_step_up(") < body.index(op)
+                store = store and all(marker in profile for marker in (
+                    "step_up_used_at IS NULL", "step_up_payload_digest=$6",
+                    "POSTBOX_PROFILE_STEP_UP_SCOPE", "INSERT INTO mail_postbox_profile_audit",
+                    "WHERE singleton AND revision=$7",
+                ))
+            else:
+                guarded = guarded and all(marker in body for marker in (
+                    "permit_auth_attempt(&attempt_key, 3, 60)", "master.open(&candidate)",
+                    "PostboxTransport::new(candidate.identity().sender())",
+                    "transport.probe(&credentials).await", "admin_confirm_probe(&digest, &candidate)",
+                )) and body.index(op) < body.index("transport.probe(") < body.index("admin_confirm_probe(")
+                store = store and all(marker in profile for marker in (
+                    "AND revision=$1 AND identity_id=$2 AND sender=$3",
+                    "AND key_version=$4 AND nonce=$5 AND ciphertext=$6",
+                ))
+        write_guard = entry["method"] == "GET" or (
+            "if !valid_csrf(&state, &headers, &form.csrf_token)" in body
+            and "return deny(StatusCode::FORBIDDEN)" in body
+            and body.index("if !valid_csrf(") < body.index(op)
+            and "state.cookies.same_origin(headers) && state.cookies.valid_csrf(headers, token)" in csrf
+        )
+        if not (policy == "admin_system_mail" and guarded and live and store and write_guard):
+            return [f"{label}: system mail missing live role, CSRF, quota lock or audit guard"]
+        return []
+
+    # This is service-to-service HMAC, not a browser session or a public write.
+    # Verify the receive order and actual cryptographic/identity implementation.
+    normalized = re.sub(r"\s+", "", body)
+    crypto = re.sub(r"\s+", "", functions.get("__mail_relay_crypto", ""))
+    router = functions.get("router", "")
+    config = functions.get("router_from_env", "")
+    required = (
+        'single_header(&headers,"x-tor-mail-timestamp")',
+        'single_header(&headers,"x-tor-mail-signature")',
+        "state.auth.authenticate(timestamp,signature,&body,now.as_secs())",
+        "Err(RelayError::Unauthorized)=>returnresponse(StatusCode::UNAUTHORIZED)",
+        "Err(RelayError::ForeignIdentity)=>returnresponse(StatusCode::FORBIDDEN)",
+        "state.permits.try_acquire()",
+        "state.store.record_verified_event(&event,&state.signer)",
+        "tokio::time::timeout(",
+    )
+    ordered = (
+        all(marker in normalized for marker in required)
+        and normalized.index(required[2]) < normalized.index(required[5]) < normalized.index(required[6])
+    )
+    checked = (
+        all(marker in crypto for marker in (
+            "body.len()>MAX_EVENT_BYTES", "now.abs_diff(sent)>MAX_SKEW_SECONDS",
+            "mac.verify_slice(&provided)", "PostboxEvent::parse(body)",
+            "event.identity_id()!=self.identity",
+        ))
+        and crypto.index("mac.verify_slice(&provided)") < crypto.index("PostboxEvent::parse(body)")
+    )
+    configured = (
+        "DefaultBodyLimit::max(MAX_BODY)" in router
+        and "TOR_MAIL_POSTBOX_RELAY_ENABLED" in config
+        and '!= Ok("1")' in config
+        and "if !secure" in config
+        and "TOR_POSTBOX_RELAY_KEY" in config
+        and "TOR_MAIL_QUOTA_KEY" in config
+        and "TOR_POSTBOX_IDENTITY_ID" in config
+        and "relay.eq_ignore_ascii_case(quota)" in functions.get("configure", "")
+        and "Semaphore::new(4)" in functions.get("configure", "")
+    )
+    if not (policy == "postbox_relay" and ordered and checked and configured):
+        return [f"{label}: Postbox relay missing signature, identity, bounded ingress or default-off guard"]
+    return []
+
+
 def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
@@ -501,6 +657,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     body = functions.get(handler)
     if body is None:
         return [f"{label}: handler function missing or renamed"]
+    mail_findings = _system_mail_policy(entry, body, functions)
+    if mail_findings is not None:
+        return mail_findings
     evidence = _with_known_helpers(body, functions)
     if _paid_grant_auth_binding(entry):
         request_auth = functions.get("__paid_grant_request_auth", "")
@@ -1012,10 +1171,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if audited_s3_connection:
         evidence += "\n" + functions.get("operator", "")
     if policy == "admin_s3_connection":
-        repository = _production(
-            (ROOT / "crates/storage/src/repositories/admin_s3_profiles.rs")
-                .read_text(encoding="utf-8")
-        )
+        repository = functions.get("__admin_s3_repo", "")
         auth_guard = all(v in evidence for v in (
             "session_token(headers)", "session_token_digest(&token)",
             "session_actor(&digest)", "!actor.administrator",
@@ -1024,20 +1180,83 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ))
         store_guard = all(v in repository for v in (
             "TOR_S3_ADMIN_MASTER_KEY", "Aes256Gcm",
-            "FOR SHARE OF s,u,r", "account_state='active'",
+            "FOR SHARE OF u,r", "account_state='active'",
             "save_verified", "admin_s3_profile_audit",
-            "valid_bucket(bucket)",
+            "valid_bucket(bucket)", "UPDATE sessions SET step_up_used_at=clock_timestamp()",
+            "step_up_proof_hash=$3", "step_up_scope=$4",
+            "step_up_payload_digest=$5", "step_up_expires_at>clock_timestamp()",
+            "step_up_used_at IS NULL", "S3_CONNECTION_STEP_UP_SCOPE",
+            "if consumed != 1", "tx.commit().await",
         ))
         connect_guard = (
             entry["method"] != "POST" or all(v in body for v in (
                 "state.cookies.same_origin(&headers)",
                 "state.cookies.valid_csrf(&headers, &csrf)",
                 "master_key_ready()", "head_bucket()",
-                "YANDEX_ENDPOINT", ".save_verified(&digest, &bucket",
-            ))
+                "YANDEX_ENDPOINT", ".save_verified(&digest, &proof, &bucket",
+                "permit_auth_attempt(&attempt_key, 6, 600)",
+                "verify_password_for_step_up(&password, &hash)",
+                "issue_administrator_s3_step_up(actor, &digest, &verified_password, &intent)",
+                "connection_intent_digest(&bucket, &access, &secret)",
+                "Ok(None) => return deny(StatusCode::UNAUTHORIZED)",
+            )) and (
+                entry["method"] != "POST" or
+                body.index("verify_password_for_step_up") < body.index("issue_administrator_s3_step_up")
+                < body.index("head_bucket()") < body.index(".save_verified(")
+            )
         )
         if not (audited_s3_connection and auth_guard and store_guard and connect_guard):
-            errors.append(f"{label}: S3 connection missing live role, CSRF, fixed provider, or encrypted persistence")
+            errors.append(f"{label}: S3 connection missing live role, CSRF, password proof, fixed provider, or encrypted persistence")
+    # AUTH-04b: only the exact reviewed administrative session routes.
+    admin_session_route = (
+        entry["source"] == "crates/web/src/auth/admin_entry/sessions.rs"
+        and admin_key in {
+            ("GET", "/odmen/security/sessions", "page"),
+            ("POST", "/odmen/security/sessions", "revoke"),
+        }
+    )
+    audited_admin_sessions = admin_session_route and policy == "admin_session_management"
+    if admin_session_route and not audited_admin_sessions:
+        errors.append(f"{label}: administrator session policy downgraded")
+    if policy == "admin_session_management":
+        operator_guard = functions.get("operator", "")
+        guarded = (
+            "match operator(&state, &headers).await" in body
+            and "Err(status) => return deny(status)" in body
+            and all(marker in operator_guard for marker in (
+                "session_token(headers)", "session_token_digest(&token)",
+                "session_actor(&digest)", "if !actor.administrator",
+                "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
+            ))
+        )
+        evidence += "\n" + operator_guard
+        operation = (
+            ".administrator_session_overview(&digest, target)"
+            if entry["method"] == "GET" else
+            ".revoke_administrator_target_sessions(&digest, form.user_id, selected, &proof)"
+        )
+        repo = functions.get("__admin_session_repo", "")
+        repository_guard = all(marker in repo for marker in (
+            "requester.revoked_at IS NULL", "requester.expires_at>now()",
+            "administrator.account_state='active'", "role.role='administrator'",
+            "role.is_active", "LIMIT 50",
+            "pg_advisory_xact_lock(18001,1)", "FOR UPDATE",
+            "role='administrator' AND is_active FOR SHARE",
+            "password.matches_hash(&hash)", "expires_at>clock_timestamp()",
+            "WHERE user_id=$1 AND revoked_at IS NULL",
+            "INSERT INTO account_admin_session_revocation_events", "tx.commit().await?",
+        ))
+        write_guard = entry["method"] == "GET" or all(marker in body for marker in (
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+            "permit_auth_attempt(&key, 8, 600)",
+            "verify_password_for_step_up(&password, &hash)",
+            "Ok(None) => return deny(StatusCode::UNAUTHORIZED)",
+        ))
+        if not (audited_admin_sessions and guarded and repository_guard and write_guard
+                and operation in body
+                and body.index("operator(&state, &headers).await") < body.index(operation)):
+            errors.append(f"{label}: admin sessions lack live authority, exact target, password/CSRF or atomic audit")
     audited_surprises = (
         policy == "admin_surprises"
         and entry["source"] == "crates/web/src/auth/surprise_admin.rs"
@@ -1108,7 +1327,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
-            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection):
+            or audited_ratio_admin or audited_rec_admin_pages or audited_continuation_admin or admin_entry_proof or audited_s3_connection or audited_admin_sessions):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -2358,6 +2577,20 @@ def check(root: Path = ROOT) -> list[str]:
                 ).get("charge", "")
             except OSError:
                 source_cache[path]["__layer_charge"] = ""
+        if _system_mail_key(entry) in SYSTEM_MAIL_ADMIN or _system_mail_key(entry) == POSTBOX_RELAY:
+            for evidence_name, relative_path in (
+                ("__mail_cost_repository", "crates/mail/src/repositories/cost/admin.rs"),
+                ("__mail_month_reconciliation", "crates/mail/src/repositories/cost/admin/reconciliation.rs"),
+                ("__mail_profile_repository", "crates/mail/src/repositories/postbox_profile.rs"),
+                ("__mail_profile_http", "crates/web/src/auth/admin_mail_cost/profile.rs"),
+                ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
+            ):
+                try:
+                    source_cache[path][evidence_name] = _strip_comments(
+                        _production((root / relative_path).read_text(encoding="utf-8"))
+                    )
+                except OSError:
+                    source_cache[path][evidence_name] = ""
         if _paid_grant_auth_binding(entry):
             try:
                 parent = _strip_comments(_production((root / entry["source"]).read_text(encoding="utf-8")))
@@ -2391,6 +2624,18 @@ def check(root: Path = ROOT) -> list[str]:
                     helper_functions = {}
                 for name in names:
                     source_cache[path]["__flow_" + name] = helper_functions.get(name, "")
+        if entry.get("policy") == "admin_s3_connection":
+            repository = root / "crates/storage/src/repositories/admin_s3_profiles.rs"
+            source_cache[path]["__admin_s3_repo"] = (
+                _strip_comments(_production(repository.read_text(encoding="utf-8")))
+                if repository.exists() else ""
+            )
+        if entry.get("policy") == "admin_session_management":
+            repository = root / "crates/accounts/src/repositories/admin_sessions.rs"
+            source_cache[path]["__admin_session_repo"] = (
+                _strip_comments(_production(repository.read_text(encoding="utf-8")))
+                if repository.exists() else ""
+            )
         if entry.get("policy") == "support_requester":
             identity_file = root / "crates/web/src/auth/support_identity.rs"
             source_cache[path]["__support_identity"] = (

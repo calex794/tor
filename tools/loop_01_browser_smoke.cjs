@@ -1,4 +1,5 @@
 'use strict';
+const { setFixtureDisplayName } = require('./browser_profile_fixture.cjs');
 // Loop 1: real browser and disposable PostgreSQL; no external email/push.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
@@ -15,11 +16,11 @@ function assert(condition, why) {
 
 async function register(page, name, address) {
   await page.goto(base + '/register');
-  await page.getByLabel('Отображаемое имя').fill(name);
   await page.getByLabel('Электронная почта').fill(address);
   await page.getByLabel('Пароль (12–128 символов)').fill('LoopOneBrowser2026Pass');
   await page.getByRole('button', { name: 'Создать учётную запись' }).click();
   await page.waitForURL(base + '/me');
+  await setFixtureDisplayName(page, name);
 }
 
 async function screenshot(page, screen, step) {

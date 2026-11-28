@@ -1,5 +1,6 @@
 """C-owned explicit state stays read-only and never revives optional tracking."""
 import pathlib
+from ci_workflow_sources import expand_ci_actions
 import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 def read(path):
@@ -9,8 +10,12 @@ class FlowExplicitChoices(unittest.TestCase):
     def test_only_existing_product_choices_enter_the_read_only_snapshot(self):
         repo = read("crates/reading/src/repositories/audience/intent.rs")
         query = read("crates/reading/src/repositories/audience/intent.sql")
-        for required in ["REPEATABLE READ READ ONLY", "750ms", "validate_period(days)?"]:
+        for required in ["begin_report(ReportTimeout::StatementOnly)", "validate_period(days)?"]:
             self.assertIn(required, repo)
+        self.assertLess(repo.index("validate_period(days)?"), repo.index("begin_report("))
+        helper = read("crates/reading/src/repositories/audience/transaction.rs")
+        for required in ["REPEATABLE READ READ ONLY", "SET LOCAL statement_timeout = '750ms'"]:
+            self.assertIn(required, helper)
         for required in ["reader_library_items", "reader_book_follows", "count(DISTINCT user_id)", "transaction_timestamp()"]:
             self.assertIn(required, query)
         for forbidden in ["INSERT ", "UPDATE ", "DELETE ", "rec_", "flow_navigation", "outbox_events", "email", "title"]:
@@ -42,11 +47,11 @@ class FlowExplicitChoices(unittest.TestCase):
         )
         for file in (".github/workflows/tor-integration.yml",
                      ".github/workflows/tor-pg-reading-analytics.yml"):
-            ci = read(file)
+            ci = expand_ci_actions(read(file))
             for required in commands:
                 with self.subTest(workflow=file, command=required):
                     self.assertIn(required, ci)
-        sequential = read(".github/workflows/tor-pg-runtime.yml")
+        sequential = expand_ci_actions(read(".github/workflows/tor-pg-runtime.yml"))
         for required in commands:
             self.assertNotIn(required, sequential)
 

@@ -112,7 +112,6 @@ async function denied(page, status) {
     });
     await denied(page,401);
     await page.goto(base+'/register');
-    await page.getByLabel('Отображаемое имя').fill('Проверка сохранённых измерений');
     await page.getByLabel('Электронная почта').fill(email);
     await page.getByLabel('Пароль (12–128 символов)').fill('RetirementBrowserPassword2026');
     await page.getByRole('button',{name:'Создать учётную запись'}).click();

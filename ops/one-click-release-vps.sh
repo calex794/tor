@@ -30,25 +30,13 @@ done
 exec 9>/run/lock/tor-one-click-release.lock
 flock -n 9 || refuse 'another TOR release is running'
 
-# Verify the candidate is the *present* main. The pinned go-live script also
-# checks twice (before SQLx and before changing the service).
-main_sha=$(
-  curl -fsSL --retry 2 --max-time 15 \
-    -H 'Accept: application/vnd.github+json' \
-    https://api.github.com/repos/calex794/tor/git/ref/heads/main |
-  python3 -c '
-import json
-import re
-import sys
-body = json.load(sys.stdin)
-ref = body.get("ref")
-sha = body.get("object", {}).get("sha", "")
-if ref != "refs/heads/main" or not re.fullmatch(r"[a-f0-9]{40}", sha):
-    sys.exit(1)
-print(sha)
-'
-) || refuse 'cannot verify current GitHub main'
-[[ "$main_sha" == "$sha" ]] || refuse 'GitHub main advanced; run the button again'
+# Under the same root release lock, require active <= candidate <= main.
+# The root-installed verifier is never taken from the writable inbox.
+guard=/usr/local/sbin/tor-release-ancestry
+[[ -f "$guard" && ! -L "$guard" &&
+   $(stat -c '%U:%G:%a' "$guard") == root:root:755 ]] ||
+  refuse 'trusted ancestry guard missing; run the reviewed root bootstrap'
+python3 -I "$guard" "$sha" --from-active || refuse 'unsafe release ancestry'
 
 systemctl is-active --quiet postgresql@18-main.service ||
   refuse 'PostgreSQL is not active'
@@ -196,15 +184,15 @@ curl --fail --silent --show-error --location --retry 2 --max-time 20 \
 bash -n "$runner" || refuse 'pinned go-live shell is invalid'
 printf 'TOR_RELEASE_PREPARED %s\n' "$sha"
 if [[ "$recovery" == 1 ]]; then
-  # Consume only after all signed artifact verification and current-main proof.
+  # Consume only after all signed artifact verification and forward-main proof.
   # A failed recovery needs a new explicit operator approval, never a replay.
   require_recovery_approval "$approval" "$sha" ||
     refuse 'root recovery approval changed during verification'
   rm -f -- "$approval"
   echo "TOR_RECOVERY_APPROVED $sha"
-  bash "$runner" "$sha" --recover
+  bash "$runner" "$sha" --recover --forward
 else
-  bash "$runner" "$sha"
+  bash "$runner" "$sha" --forward
 fi
 [[ $(readlink -f /opt/tor/current) == "$target" ]] ||
   refuse 'activated release symlink does not match candidate'

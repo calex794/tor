@@ -4,6 +4,9 @@
 use super::postgres::PgAccounts;
 use crate::services::security::{generate_session_token, session_token_digest, VerifiedPassword};
 use sqlx::Row;
+use tor_contracts::auth::{
+    MAIL_ACTIVATION_STEP_UP_SCOPE, POSTBOX_PROFILE_STEP_UP_SCOPE, S3_CONNECTION_STEP_UP_SCOPE,
+};
 
 const REFUND_SCOPE: &str = "finance.refund.approve.v1";
 const PAYOUT_SCOPE: &str = "finance.payout.post.v1";
@@ -74,8 +77,76 @@ impl PgAccounts {
         .await
     }
 
+    /// One-use proof for the exact submitted encrypted-profile intent.
+    pub async fn issue_administrator_s3_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        intent_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            S3_CONNECTION_STEP_UP_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id: 1,
+                revision: 1,
+                digest: intent_digest,
+            },
+        )
+        .await
+    }
+
+    /// Bind the proof to the exact sealed candidate and observed revision.
+    pub async fn issue_administrator_postbox_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        expected_revision: i64,
+        intent_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            POSTBOX_PROFILE_STEP_UP_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id: 1,
+                revision: expected_revision,
+                digest: intent_digest,
+            },
+        )
+        .await
+    }
+
+    /// Separate scope for exact stopped launch review.
+    pub async fn issue_administrator_mail_activation_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        expected_revision: i64,
+        intent_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            MAIL_ACTIVATION_STEP_UP_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id: 1,
+                revision: expected_revision,
+                digest: intent_digest,
+            },
+        )
+        .await
+    }
+
     /// Authorizes only the specified decision digest. The caller must
-    /// construct this digest from the exact pending financial operation.
+    /// construct this digest from the exact pending protected operation.
     /// A one-time proof is stored only as SHA-256 on the active session.
     async fn issue_administrator_step_up(
         &self,
@@ -134,7 +205,7 @@ impl PgAccounts {
         let stored_hash: String = session
             .try_get("password_hash")
             .map_err(|_| StepUpIssueError::Unavailable)?;
-        if !verified_password.matches_hash(&stored_hash) {
+        if !verified_password.is_fresh() || !verified_password.matches_hash(&stored_hash) {
             return Err(StepUpIssueError::StepUpRequired);
         }
 
