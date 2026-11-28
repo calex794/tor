@@ -1,5 +1,7 @@
 //! S058: author form -> scheduled release -> private reader -> first public release.
 //! All DB writes are confined to disposable /tor_ci.
+#[path = "scheduled_release_http_pg/guest_prefix_outbox.rs"]
+mod guest_prefix_outbox;
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},

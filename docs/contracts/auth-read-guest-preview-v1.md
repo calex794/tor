@@ -159,7 +159,28 @@ numbers even when all are ineligible or already prepared; a short/empty page
 ends the sweep. No source body, provider request or full-catalog scan.
 Discovery is advisory: another writer may change eligibility before
 preparation; prepare_current still enforces the exact revision/source.
-A separate fenced G consumer and scheduling integration remain required.
+02c2a uses the existing outbox_events, not a new job queue. A bounded
+missing-page producer rechecks current candidate facts in one INSERT/SELECT
+and enqueues a distinct GuestPrefixPrepare event for guest_prefix_prepare_v1.
+Payload is exactly book/chapter/version/revision/algorithm plus the registered
+source digest (NULL only for legacy PG editions without a stored digest).
+No source text, URL, storage key or session. One dedupe key per exact target
+and revision; duplicate sweeps cannot enqueue duplicate events. Discovery
+and enqueue are advisory, so a concurrent change is still rejected at the
+consumer's write. A subsequent reconciliation pass starts a new keyset
+sweep; delivery of a stale event is not proof of any current projection.
+The fenced preparation port validates the actual claimed event and payload;
+after locking book/chapter/publication, it locks that same live outbox row,
+checks epoch, deadline, expected digest and unacknowledged consumer, then
+rechecks the lease before committing the immutable derivative. A successor
+cannot claim the locked row mid-commit. A lost acknowledgement permits an
+identical idempotent retry via PgOutbox, not a second derivative. Unfenced
+prepare_current is retained only for trusted direct preparation and tests;
+the background consumer must call prepare_claimed. The existing G consumer
+owns acknowledgement/retry. The next slice must bind source retrieval,
+obsolete-vs-retry classification, verified SINGLE/PACK I/O and worker
+dispatch; automatic scheduling, dead-letter recovery and repair of a
+missing previously delivered derivative remain explicit follow-ups.
 Unsupported literal markup is persisted as an immutable terminal
 projection_status=unsupported with empty text, zero count and the exact
 source hash; a valid empty/tiny projection is status=ready. Retries only
