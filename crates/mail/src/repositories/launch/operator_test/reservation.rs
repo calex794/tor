@@ -57,7 +57,7 @@ impl PgMailLaunch {
     ) -> Result<OperatorTestReservation, OperatorTestReserveError> {
         use OperatorTestReserveError::Quota;
         let mut tx = self.pool.begin().await?;
-        let (before, context) = checked_context(&mut tx, grant, allowlisted_recipient).await?;
+        let (before, context) = checked_context(&mut tx, grant, allowlisted_recipient, false).await?;
         let keys = signer
             .keys(context.recipient(), None)
             .map_err(|_| ProfileError::Invalid)?;

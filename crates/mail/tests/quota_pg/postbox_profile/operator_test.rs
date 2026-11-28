@@ -7,11 +7,13 @@ use tor_mail::{
         suppression::SuppressionReason,
     },
     repositories::launch::{OperatorTestReserveError, PgMailLaunch},
+    services::launch::{LaunchError, LaunchFence},
 };
 
 pub(super) async fn exercise(
     pool: &PgPool,
     launch: &PgMailLaunch,
+    fence: &LaunchFence,
     grant: &OperatorTestGrant,
     recipient: &str,
     before: &LaunchSnapshot,
@@ -112,12 +114,88 @@ pub(super) async fn exercise(
         after.review_cost().usage.unwrap().reserved_attempts,
         before.review_cost().usage.unwrap().reserved_attempts + 1
     );
-    // No retry/pending state, even after the lease expires.
+    // Final preparation must not trust the earlier charge alone.
+    assert!(matches!(
+        launch
+            .prepare_operator_test(grant, &receipt, "foreign@example.invalid", &signer)
+            .await,
+        Err(ProfileError::Forbidden)
+    ));
+    assert!(matches!(
+        launch
+            .prepare_operator_test(grant, &receipt, recipient, &wrong)
+            .await,
+        Err(ProfileError::Conflict)
+    ));
     sqlx::query(
-        "UPDATE mail_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1",
+        "INSERT INTO mail_recipient_suppression(recipient_key,reason,source_reserved_at) \
+         VALUES($1,'complaint',clock_timestamp())",
+    )
+    .bind(keys.recipient().as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        launch
+            .prepare_operator_test(grant, &receipt, recipient, &signer)
+            .await,
+        Err(ProfileError::Conflict)
+    ));
+    sqlx::query("DELETE FROM mail_recipient_suppression WHERE recipient_key=$1")
+        .bind(keys.recipient().as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+    let start = launch
+        .prepare_operator_test(grant, &receipt, recipient, &signer)
+        .await
+        .unwrap();
+    assert_eq!(start.recipient(), recipient);
+    let marker = start.marker().to_owned();
+    assert!(marker.starts_with("<tor-"));
+    let completion = fence.consume_operator_test_start(start).unwrap();
+    assert_eq!(
+        fence.precheck_operator_test(grant, before),
+        Err(LaunchError::Stopped)
+    );
+    assert!(matches!(
+        launch
+            .prepare_operator_test(grant, &receipt, recipient, &signer)
+            .await,
+        Err(ProfileError::Conflict)
+    ));
+    // Simulate a positive SMTP acknowledgement; no real provider call.
+    assert!(launch
+        .finish_operator_test(&completion, MailOutcome::Accepted, Some("ci-test-receipt"))
+        .await
+        .unwrap());
+    assert!(!launch
+        .finish_operator_test(&completion, MailOutcome::Uncertain, None)
+        .await
+        .unwrap());
+    let result: (String, String, String) = sqlx::query_as(
+        "SELECT m.status,f.marker,f.provider_message_id FROM mail_outbox m \
+         JOIN mail_feedback_attempts f ON f.outbox_id=m.id AND f.generation=m.generation \
+         WHERE m.id=$1",
     )
     .bind(receipt.outbox_id())
-    .execute(pool)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(result.0, "accepted");
+    assert_eq!(format!("<tor-{}@pandaolate.ru>", result.1), marker);
+    assert_eq!(result.2, "ci-test-receipt");
+    assert!(launch.snapshot().await.unwrap().unwrap() == after);
+    // Expired test leases remain terminal uncertain, never pending/deferred.
+    // Isolated fixture row only; no charge or SMTP is associated with it.
+    let expired: i64 = sqlx::query_scalar(
+        "INSERT INTO mail_outbox \
+         (purpose,event_id,recipient_user_id,status,generation,lease_until) \
+         VALUES('operator_test',900000000000,$1,'leased',1,clock_timestamp()-interval '1 second') \
+         RETURNING id",
+    )
+    .bind(grant.actor())
+    .fetch_one(pool)
     .await
     .unwrap();
     PgMailQueue::new(pool.clone())
@@ -125,7 +203,7 @@ pub(super) async fn exercise(
         .await
         .unwrap();
     let status: String = sqlx::query_scalar("SELECT status FROM mail_outbox WHERE id=$1")
-        .bind(receipt.outbox_id())
+        .bind(expired)
         .fetch_one(pool)
         .await
         .unwrap();

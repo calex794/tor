@@ -108,11 +108,7 @@ impl PgPostboxFeedback {
         if !valid_id(identity_id) {
             return Err(sqlx::Error::Protocol("invalid Postbox identity".to_owned()));
         }
-        let mut bytes = [0_u8; 32];
-        OsRng
-            .try_fill_bytes(&mut bytes)
-            .map_err(|_| sqlx::Error::Protocol("mail randomness unavailable".to_owned()))?;
-        let marker = hex::encode(bytes);
+        let marker = new_marker()?;
         let mut tx = self.pool.begin().await?;
         // For reset, lock the account before the outbox/source/proof. Account
         // changes and account deletion must serialize with proof issuance.
@@ -303,20 +299,7 @@ impl PgPostboxFeedback {
         if let Some(message_id) = provider_message_id.filter(|id| valid_id(id)) {
             // The shared guard serializes feedback and other receipt binding.
             // If another attempt owns the ID, keep the exact local marker.
-            sqlx::query(
-                "UPDATE mail_feedback_attempts f SET provider_message_id=$4 \
-                 WHERE f.outbox_id=$1 AND f.generation=$2 AND f.identity_id=$3 \
-                 AND (f.provider_message_id IS NULL OR f.provider_message_id=$4) \
-                 AND NOT EXISTS (SELECT 1 FROM mail_feedback_attempts other \
-                     WHERE other.identity_id=$3 AND other.provider_message_id=$4 \
-                     AND (other.outbox_id,other.generation)<>(f.outbox_id,f.generation))",
-            )
-            .bind(claim.id)
-            .bind(claim.generation)
-            .bind(identity_id)
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
+            bind_receipt(&mut tx, claim.id, claim.generation, identity_id, message_id).await?;
         }
         tx.commit().await?;
         Ok(true)
@@ -454,4 +437,38 @@ impl PgPostboxFeedback {
         tx.commit().await?;
         Ok(count)
     }
+}
+
+pub(super) fn new_marker() -> Result<String, sqlx::Error> {
+    let mut bytes = [0_u8; 32];
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| sqlx::Error::Protocol("mail randomness unavailable".to_owned()))?;
+    Ok(hex::encode(bytes))
+}
+
+/// Caller holds the common guard. An existing receipt is never overwritten
+/// by a conflicting ID; the original message marker remains authoritative.
+pub(super) async fn bind_receipt(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+    generation: i32,
+    identity_id: &str,
+    message_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE mail_feedback_attempts f SET provider_message_id=$4 \
+         WHERE f.outbox_id=$1 AND f.generation=$2 AND f.identity_id=$3 \
+         AND (f.provider_message_id IS NULL OR f.provider_message_id=$4) \
+         AND NOT EXISTS (SELECT 1 FROM mail_feedback_attempts other \
+             WHERE other.identity_id=$3 AND other.provider_message_id=$4 \
+             AND (other.outbox_id,other.generation)<>(f.outbox_id,f.generation))",
+    )
+    .bind(id)
+    .bind(generation)
+    .bind(identity_id)
+    .bind(message_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
