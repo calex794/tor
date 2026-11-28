@@ -338,3 +338,84 @@ fn shutdown_retires_authority_and_rejects_late_activation() {
         Err(LaunchError::Stopped)
     );
 }
+
+#[test]
+fn review_precheck_is_exact_non_consuming_and_never_arms_dispatch() {
+    let gate = LaunchFence::new();
+    let snapshot = stopped();
+    let scope = LaunchScope::Dispatch;
+    let challenge = gate.begin_review(&snapshot, scope, SESSION).unwrap();
+    let evidence = snapshot.evidence();
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
+        Ok(())
+    );
+    let mut wrong_nonce = challenge;
+    wrong_nonce[0] ^= 1;
+    assert_eq!(
+        gate.precheck_review(&wrong_nonce, &SESSION, &snapshot, scope, evidence),
+        Err(LaunchError::Conflict)
+    );
+    assert_eq!(
+        gate.precheck_review(&challenge, &[8; 32], &snapshot, scope, evidence),
+        Err(LaunchError::Conflict)
+    );
+    assert_eq!(
+        gate.precheck_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            LaunchScope::OperatorTest(7),
+            evidence,
+        ),
+        Err(LaunchError::Conflict)
+    );
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, &[6; 32]),
+        Err(LaunchError::Conflict)
+    );
+    let mut changed = snapshot.clone();
+    changed.policy_revision += 1;
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &changed, scope, evidence),
+        Err(LaunchError::Conflict)
+    );
+    assert_eq!(
+        gate.permit_reservation(&snapshot, scope),
+        Err(LaunchError::Stopped)
+    );
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
+        Ok(())
+    );
+    let intent = gate
+        .confirm_review(
+            &challenge,
+            &SESSION,
+            &snapshot,
+            evidence,
+            snapshot.profile_digest(),
+        )
+        .unwrap();
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
+        Err(LaunchError::Stopped)
+    );
+    drop(intent);
+    let challenge = gate.begin_review(&snapshot, scope, SESSION).unwrap();
+    let mut state = gate.state.lock().unwrap();
+    let State::Reviewing(review) = &mut *state else {
+        panic!("missing review");
+    };
+    review.started -= REVIEW_LIMIT;
+    drop(state);
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
+        Err(LaunchError::Conflict)
+    );
+    gate.retire().unwrap();
+    assert_eq!(
+        gate.precheck_review(&challenge, &SESSION, &snapshot, scope, evidence),
+        Err(LaunchError::Stopped)
+    );
+}

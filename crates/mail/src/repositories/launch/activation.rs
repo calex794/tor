@@ -1,13 +1,38 @@
 //! One explicit, password-protected transaction. No network or worker start.
-use super::{load, lock_guard, PgMailLaunch};
+use super::{load, load_profile, lock_guard, PgMailLaunch};
 use crate::{
-    domain::launch::{ActivationIntent, LaunchScope},
+    domain::{
+        launch::{ActivationIntent, LaunchScope, LaunchSnapshot},
+        postbox_profile::SealedProfile,
+    },
     repositories::postbox_profile::{operator, ProfileError},
 };
 use sha2::{Digest, Sha256};
 use tor_contracts::auth::MAIL_ACTIVATION_STEP_UP_SCOPE;
 
 impl PgMailLaunch {
+    /// An exact stopped review and encrypted candidate under one quota lock.
+    /// No password proof, network access, policy change or send authorization.
+    /// Repeat after a non-sending probe to recheck live role and all bindings.
+    pub async fn admin_review_candidate(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<(LaunchSnapshot, SealedProfile), ProfileError> {
+        let mut tx = self.pool.begin().await?;
+        operator(&mut tx, digest).await?;
+        lock_guard(&mut tx).await?;
+        let snapshot = load(&mut tx).await?.ok_or(ProfileError::Conflict)?;
+        if !snapshot.ready_for_review() {
+            return Err(ProfileError::Conflict);
+        }
+        let candidate = load_profile(&mut tx).await?;
+        if !candidate.valid() || &candidate.intent_digest() != snapshot.profile_digest() {
+            return Err(ProfileError::Conflict);
+        }
+        tx.commit().await?;
+        Ok((snapshot, candidate))
+    }
+
     /// The caller must complete the local fence with a fresh observation
     /// after a successful commit. On any failure stop the local fence.
     pub async fn admin_activate(

@@ -46,19 +46,7 @@ impl PgMailLaunch {
         if !dispatch_matches(&mut tx, grant, false).await? {
             return Ok(None);
         }
-        let row: DispatchProfileRow = sqlx::query_as(
-            "SELECT identity_id,sender,revision,key_version,nonce,ciphertext \
-             FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        let profile = SealedProfile {
-            identity: ProfileIdentity::new(row.0, row.1).map_err(|_| invalid())?,
-            revision: row.2,
-            key_version: row.3,
-            nonce: row.4.try_into().map_err(|_| invalid())?,
-            ciphertext: row.5,
-        };
+        let profile = load_profile(&mut tx).await?;
         if !profile.valid() || &profile.intent_digest() != grant.before.profile_digest() {
             return Ok(None);
         }
@@ -190,6 +178,23 @@ pub(super) async fn legacy_allowed(
     )
     .fetch_one(&mut **tx)
     .await
+}
+
+/// Read the sealed profile under the caller's existing quota lock.
+async fn load_profile(tx: &mut Transaction<'_, Postgres>) -> Result<SealedProfile, sqlx::Error> {
+    let row: DispatchProfileRow = sqlx::query_as(
+        "SELECT identity_id,sender,revision,key_version,nonce,ciphertext \
+         FROM mail_postbox_profile WHERE singleton AND ciphertext IS NOT NULL",
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(SealedProfile {
+        identity: ProfileIdentity::new(row.0, row.1).map_err(|_| invalid())?,
+        revision: row.2,
+        key_version: row.3,
+        nonce: row.4.try_into().map_err(|_| invalid())?,
+        ciphertext: row.5,
+    })
 }
 
 async fn lock_guard(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
