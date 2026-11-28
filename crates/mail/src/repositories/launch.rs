@@ -10,6 +10,8 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use tor_contracts::mail::MailPurpose;
 
 mod activation;
+mod dispatch;
+pub(super) use dispatch::{dispatch_matches, has_activation_receipt};
 
 #[derive(Clone)]
 pub struct PgMailLaunch {

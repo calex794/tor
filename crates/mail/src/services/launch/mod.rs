@@ -3,7 +3,14 @@
 pub use crate::domain::launch::LaunchScope;
 use crate::domain::launch::{ActivationIntent, LaunchSnapshot, REVIEW_LIMIT};
 use rand::{rngs::OsRng, RngCore};
-use std::{mem, sync::Mutex, time::Instant};
+use std::{
+    mem,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    time::Instant,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
@@ -42,11 +49,51 @@ struct Approval {
 #[derive(Default)]
 pub struct LaunchFence {
     state: Mutex<State>,
+    dispatch_running: AtomicBool,
+}
+
+pub(super) struct DispatchRun<'a> {
+    fence: &'a LaunchFence,
+    completed: bool,
+}
+
+impl DispatchRun<'_> {
+    pub(super) fn complete(&mut self) {
+        self.completed = true;
+    }
+}
+
+impl Drop for DispatchRun<'_> {
+    fn drop(&mut self) {
+        // Dropping a cancelled future must stop new admissions before
+        // releasing the exclusive slot, including cancellation during SMTP.
+        if !self.completed {
+            let _ = self.fence.stop();
+        }
+        self.fence.dispatch_running.store(false, Ordering::Release);
+    }
 }
 
 impl LaunchFence {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// One dispatch attempt per shared fence; never acquire the worker slot
+    /// in test mode or hold the state mutex across a network operation.
+    pub(super) fn try_dispatch_run(&self) -> Result<Option<DispatchRun<'_>>, LaunchError> {
+        let state = self.state.lock().map_err(|_| LaunchError::Unavailable)?;
+        if !matches!(&*state, State::Armed(a) if a.scope == LaunchScope::Dispatch) {
+            return Err(LaunchError::Stopped);
+        }
+        Ok(self
+            .dispatch_running
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok()
+            .map(|_| DispatchRun {
+                fence: self,
+                completed: false,
+            }))
     }
 
     /// Caller first authenticates the live administrator. The returned nonce

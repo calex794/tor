@@ -477,6 +477,8 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         ),
         "1"
     );
+    exercise_local_stop(&app, &url, &session, &csrf).await;
+    pg(&url, "DELETE FROM mail_cost_months");
     pg(
         &url,
         "UPDATE mail_postbox_profile SET identity_id=NULL,sender=NULL,key_version=NULL,
@@ -487,4 +489,93 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
         &format!("DELETE FROM account_roles WHERE user_id={actor}"),
     );
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
+}
+
+async fn exercise_local_stop(app: &Router, url: &str, session: &str, csrf: &str) {
+    use tor_mail::{
+        domain::cost::MonthUsage,
+        repositories::{
+            cost::{admin::MonthReconciliation, PgMailCost},
+            launch::PgMailLaunch,
+        },
+        services::launch::{LaunchError, LaunchScope},
+    };
+
+    let digest = session_token_digest(session);
+    let catalog = PgCatalog::connect(url).await.unwrap();
+    let pool = catalog.pool();
+    let cost = PgMailCost::new(pool.clone());
+    let current = cost.admin_view(&digest).await.unwrap();
+    let month = pg(
+        url,
+        "SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date::text",
+    );
+    let known: i64 = pg(
+        url,
+        "SELECT count(*) FROM (
+         SELECT outbox_id,generation FROM mail_send_reservations
+         WHERE reserved_at>=date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+           AT TIME ZONE 'Europe/Moscow'
+         UNION SELECT outbox_id,generation FROM mail_feedback_attempts
+         WHERE reserved_at>=date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+           AT TIME ZONE 'Europe/Moscow'
+         ) attempts",
+    )
+    .parse()
+    .unwrap();
+    let mut usage = current.snapshot.usage.unwrap_or(MonthUsage {
+        month_start: month,
+        free_allowance: 0,
+        baseline_kopecks: 0,
+        rate_per_thousand: 8032,
+        reserved_attempts: known,
+    });
+    usage.reserved_attempts = usage.reserved_attempts.max(known);
+    cost.admin_reconcile_month(
+        &digest,
+        current.revision,
+        &MonthReconciliation {
+            usage,
+            evidence_sha256: [23; 32],
+        },
+    )
+    .await
+    .unwrap();
+    let snapshot = PgMailLaunch::new(pool.clone())
+        .snapshot()
+        .await
+        .unwrap()
+        .unwrap();
+    let fence = tor_web::mail_dispatch_runtime::launch_fence();
+    let challenge = fence
+        .begin_review(&snapshot, LaunchScope::Dispatch, digest)
+        .unwrap();
+    // An authenticated, same-origin stop must revoke the exact pending
+    // process-local review even when the persistent policy is already stopped.
+    assert_eq!(
+        http(
+            app,
+            "POST",
+            "/odmen/system-mail/stop",
+            Some(session),
+            csrf,
+            ORIGIN,
+            format!("csrf_token={csrf}")
+        )
+        .await
+        .0,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        fence
+            .confirm_review(
+                &challenge,
+                &digest,
+                &snapshot,
+                snapshot.evidence(),
+                snapshot.profile_digest()
+            )
+            .err(),
+        Some(LaunchError::Stopped)
+    );
 }

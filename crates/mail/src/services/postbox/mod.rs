@@ -115,6 +115,30 @@ fn mailbox(value: &str) -> Option<Address> {
     value.parse().ok()
 }
 
+pub(super) fn validate_content(
+    recipient: &str,
+    subject: &str,
+    body: &str,
+) -> Result<Address, PrepareFailure> {
+    use PrepareFailure::*;
+    let recipient = mailbox(recipient).ok_or(InvalidRecipient)?;
+    if subject.is_empty()
+        || subject.len() > MAX_SUBJECT_BYTES
+        || subject.chars().any(char::is_control)
+    {
+        return Err(InvalidSubject);
+    }
+    if body.is_empty()
+        || body.len() > MAX_BODY_BYTES
+        || body
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
+    {
+        return Err(InvalidBody);
+    }
+    Ok(recipient)
+}
+
 /// Private message content is kept only in the current attempt, not logged
 /// or serialized to the durable reference queue.
 pub struct PreparedPostboxMessage {
@@ -148,21 +172,7 @@ impl PostboxTransport {
         marker: &str,
     ) -> Result<PreparedPostboxMessage, PrepareFailure> {
         use PrepareFailure::*;
-        let recipient = mailbox(recipient).ok_or(InvalidRecipient)?;
-        if subject.is_empty()
-            || subject.len() > MAX_SUBJECT_BYTES
-            || subject.chars().any(char::is_control)
-        {
-            return Err(InvalidSubject);
-        }
-        if body.is_empty()
-            || body.len() > MAX_BODY_BYTES
-            || body
-                .chars()
-                .any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
-        {
-            return Err(InvalidBody);
-        }
+        let recipient = validate_content(recipient, subject, body)?;
         if !marker.starts_with('<') || !marker.ends_with('>') || marker_token(marker).is_none() {
             return Err(InvalidMarker);
         }

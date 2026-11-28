@@ -287,6 +287,7 @@ async fn mail_01_f1_atomic_rolling_quota_reserve_and_restart() {
 }
 
 mod cost;
+mod dispatch;
 mod postbox_feedback;
 mod postbox_profile;
 mod reconciliation;

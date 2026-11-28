@@ -190,9 +190,10 @@ async fn save(
     if !valid_csrf(&state, &headers, &form.csrf_token) {
         return deny(StatusCode::FORBIDDEN);
     }
-    let Some(limits) = rubles(&form) else {
+    let Some(limits) = rubles(&form).filter(|limits| limits.valid()) else {
         return deny(StatusCode::BAD_REQUEST);
     };
+    let _control = crate::mail_dispatch_runtime::stop_for_change().await;
     match store(&state)
         .admin_save_limits(&digest, form.revision, limits)
         .await
@@ -214,6 +215,7 @@ async fn stop(
     if !valid_csrf(&state, &headers, &form.csrf_token) {
         return deny(StatusCode::FORBIDDEN);
     }
+    let _control = crate::mail_dispatch_runtime::stop_for_change().await;
     match store(&state).admin_stop(&digest).await {
         Ok(()) => private_response(Redirect::to("/odmen/system-mail"), &[]),
         Err(error) => deny(status(error)),
@@ -235,6 +237,7 @@ async fn reconcile(
     let Some(request) = form.request() else {
         return deny(StatusCode::BAD_REQUEST);
     };
+    let _control = crate::mail_dispatch_runtime::stop_for_change().await;
     match store(&state)
         .admin_reconcile_month(&digest, form.revision, &request)
         .await
@@ -324,6 +327,7 @@ async fn save_profile(
         Err(StepUpIssueError::InvalidIntent) => return deny(StatusCode::BAD_REQUEST),
         Err(StepUpIssueError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let _control = crate::mail_dispatch_runtime::stop_for_change().await;
     match profile::store(&state)
         .admin_save_candidate(&digest, &proof, form.revision, &candidate)
         .await

@@ -1,0 +1,33 @@
+# MAIL 4/6 — dispatch gate
+
+Start with durable reference-only scheduling. A valid live leased claim may return to pending only if neither a reservation nor a feedback correlation has committed for its exact generation. The shared budget lock serializes deferral with reservation and correlation. No raw SMTP text, address, body or token is stored. Delay DNS/source/provider uncertainty 30–480 seconds with bounded backoff; pace 2 seconds, recipient cooldown 120 seconds, daily window 24 hours, paused budget one hour. After six pre-reservation claims, mark failed instead of looping forever. Claim only due work, advance the generation on every claim, preserve the existing uniqueness fence and transactional priority. Expired claims still become uncertain (no automatic replay); a definitive SMTP rejection after reservation requires a separate durable outcome path, not this deferral method.
+
+The production runtime is not started by this PR yet. Next changes within this gate bind exact activation, source/account, recipient preflight, quota, marker and single SMTP submission, with bounded deadlines. An administrator test must have its own exact purpose/recipient and may not reuse a normal dispatch grant. No actual provider call or deployment.
+
+## Dispatch reservation and send-start binding
+
+The new dispatch-specific quota and feedback methods compare the exact current snapshot under the common budget lock, including the observed counter, profile digest, database epoch, month, budget and activation receipt. Only a durable dispatch-mode receipt is accepted; operator-test mode cannot reserve or start normal work. The reservation carries its activation digest; feedback preparation requires the same digest, exact recipient HMAC and configured provider identity. Existing offline low-level calls cannot reserve or prepare when a real activation receipt is current. No legacy accounting rows are rewritten. The runtime must also use the independent process-local LaunchFence immediately before reserve and after durable send-start, resolve the trusted source, and serialize a single worker. These repository methods alone are not authorization to send or a worker.
+
+## One-shot dispatch executor
+
+The explicit worker method is not registered at startup. A shared process-local fence permits at most one running dispatch attempt; operator-test mode is not dispatch authority. A single invocation observes the active budget and exact sealed profile, obtains the current trusted source, derives quota keys (including committed registration evidence), validates MIME inputs and performs a non-sending recipient preflight. It connects/authenticates once, re-resolves the exact source before reserve and again before durable feedback preparation, checks the fresh launch snapshot, and consumes local authority immediately before the single-use SMTP submission. Source and preflight operations have five-second deadlines; the whole invocation has a 90-second deadline, shorter than the queue lease.
+
+Pre-reservation transient failures can defer only through the durable no-reservation fence. A committed reservation is never refunded or returned to pending. A rejected, accepted or unknown submission has a terminal outcome; ambiguous database or network completion is quarantined by lease recovery and never replayed. A local stop revokes future admissions, not a submission already admitted at consume_start.
+
+The trusted source/preflight interface is deliberately unimplemented at the application boundary until purpose-specific ownership and live eligibility are wired and tested. The dispatcher is not connected to HTTP routes, a polling loop or real provider acceptance. Before runtime startup, the manual stop handler must stop the same shared fence before changing database state. Test-send remains separately scoped; real Postbox calls are prohibited during CI.
+
+## Recipient composition and cancellation
+
+Dispatch event resolution and recipient preflight are separate ports. The web composition adapter uses the existing accounts recipient policy, shared domain cache and host-configured recursive DNS; it does not introduce another resolver, external mailbox-validation API or new dependency. Disposable-domain mode remains Observe. A successful preflight must match the exact canonical recipient already used for quota keys, without an address rewrite. An authoritative negative rejects the current attempt; DNS/policy uncertainty defers it. CI uses fake DNS and no external network.
+
+The worker now depends on a redacted persistence adapter rather than SQLx types. Dropping an in-flight worker future stops process-local authority before releasing its exclusive slot. The application still must wire trusted purpose-specific event resolution and the shared stop/activation lifecycle before any background startup.
+
+## Shared operator stop
+
+The web runtime owns one lazy process-local fence, shared by future activation and worker composition. Authenticated and CSRF-checked operator mutations (stop, validated budget change, reconciliation, exact-password-authorized profile save) revoke local authority before database mutation. A control mutex serializes these operations and revokes again after acquisition; future activation must share that mutex. No SQL or SMTP is performed under the fence's synchronous state mutex. A stopped database alone is not proof of process-local revocation; the HTTP regression explicitly tests a pending review with an already stopped database. The runtime still has no activation endpoint or automatic worker startup.
+
+## First trusted source: support replies
+
+The support repository resolves an exact message ID, registered conversation owner and matching successful administrator reply audit, without returning conversation text. The account repository reads the current active account's canonical transport address independently. The application source implements only SupportReply, renders a generic Russian notification and uses the trusted HTTPS application origin's /support path. It does not interpret unsupported purposes as permission to send. PostgreSQL acceptance checks owner mismatch, requester messages, deleted accounts and address changes. No guest mailbox, private conversation text, arbitrary recipient or browser-supplied link is accepted.
+
+This is a read/render adapter only. No enqueue hook, runtime activation or polling is installed. Active canonical mailbox syntax is not ownership proof; the dedicated account-verification and purpose-specific eligibility policy must be accepted before enabling live support notifications. Existing reader-news consent is not repurposed as general account verification.

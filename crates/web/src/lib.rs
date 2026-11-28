@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
-    services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
+    services::{GetPublicBook, PublicBookRepository},
 };
 use tor_reading::{repositories::PgReader, services::ReadingError};
 pub mod achievement_consumer;
@@ -48,6 +48,9 @@ mod header_nav;
 mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
+pub mod mail_dispatch_preflight;
+pub mod mail_dispatch_runtime;
+pub mod mail_dispatch_source;
 pub mod package_cover_cleanup;
 mod recommendation_http;
 pub mod recommendation_worker;
@@ -89,6 +92,8 @@ pub mod paid_author_publish;
 pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
 mod paid_reader_router;
+mod public_catalog_cards;
+use public_catalog_cards::public_cards;
 mod public_reader_http;
 mod site_icons;
 mod toc_window_http;
@@ -160,28 +165,6 @@ async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
         }
     }
     (StatusCode::OK, "ok") // demo mode has neither PG adapter
-}
-async fn public_cards(
-    repo: &dyn PublicBookRepository,
-    limit: usize,
-) -> Result<Vec<pages::PublicBookCard>, StatusCode> {
-    let result = ListPublicBooks::new(repo)
-        .execute(limit)
-        .await
-        .map_err(|error| match error {
-            CatalogError::InvalidLimit => StatusCode::BAD_REQUEST,
-            CatalogError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-        })?;
-    Ok(result
-        .into_iter()
-        .map(|book| pages::PublicBookCard {
-            id: book.id(),
-            title: book.title().to_owned(),
-            language: book.key().target_language().to_owned(),
-            author_name: None,
-            genres: Vec::new(),
-        })
-        .collect())
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
