@@ -7,9 +7,7 @@ use tor_books::{
     },
     services::authoring::AuthorError,
 };
-use tor_ingest::repositories::outbox::{
-    ClaimedEvent, FailureDisposition, OutboxError, PgOutbox,
-};
+use tor_ingest::repositories::outbox::{ClaimedEvent, FailureDisposition, OutboxError, PgOutbox};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GuestPrefixWorkerOutcome {
