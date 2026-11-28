@@ -1,4 +1,5 @@
 use super::{books, unavailable, PgDiscoveryAudience};
+use crate::repositories::report_transaction::begin_read_report;
 use crate::services::audience::{
     groups::{
         GroupDiscoveryQuery, GroupDiscoveryReport, GroupDiscoveryRow, GROUP_DISCOVERY_PAGE_SIZE,
@@ -17,15 +18,7 @@ impl PgDiscoveryAudience {
         query: &GroupDiscoveryQuery,
     ) -> Result<GroupDiscoveryReport, DiscoveryError> {
         let query = GroupDiscoveryQuery::new(query.days, query.kind, query.after.clone())?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = begin_read_report(&self.pool).await.map_err(unavailable)?;
         // The report joins only fixed SQL constants; all filter values are bound.
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql::report()))
             .bind(query.days)
