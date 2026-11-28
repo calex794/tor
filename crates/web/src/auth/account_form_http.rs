@@ -452,37 +452,32 @@ pub(super) async fn login(
     let audit = source;
     observed.set_identity(identity.as_str());
     // Charge the verified IP and submitted identifier before any account lookup.
-    let submitted_key =
-        match login_limiter::limit(&state, "login", identity.as_str(), &headers, peer).await {
-            Ok(key) => key,
-            Err(status) => return login_admission::rate_error(status, &mut observed),
-        };
-    let admission = match login_admission::admit(
-        &state,
-        &identity,
-        submitted_key,
-        audit,
-        &mut observed,
-    )
-    .await
+    if let Err(status) =
+        login_limiter::limit(&state, "login", identity.as_str(), &headers, peer).await
     {
+        return login_admission::rate_error(status, &mut observed);
+    }
+    let admission = match login_admission::admit(&state, &identity, audit, &mut observed).await {
         Ok(admission) => admission,
         Err(response) => return *response,
     };
     let login_admission::Admission {
         stored,
         spray,
-        identity_key,
-        submitted_key,
+        account_allowed,
     } = admission;
-    let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
+    let known_hash = if account_allowed {
+        stored.as_ref().map(|u| u.password_hash.clone())
+    } else {
+        None
+    };
     let password = form.password;
     let verified = match state
         .password_jobs
         .run(move || match known_hash {
             Some(hash) => verify_password(&password, &hash),
             None => {
-                // Unknown accounts still perform costly work to limit timing leaks.
+                // Unknown and privately throttled accounts use the same dummy work.
                 let _ = hash_password(&password);
                 false
             }
@@ -517,7 +512,9 @@ pub(super) async fn login(
     };
     if !verified {
         observed.report(
-            if stored.is_some() {
+            if !account_allowed {
+                auth_observation::Outcome::RateLimited
+            } else if stored.is_some() {
                 auth_observation::Outcome::BadPassword
             } else {
                 auth_observation::Outcome::UnknownAccount
@@ -538,13 +535,7 @@ pub(super) async fn login(
         observed.report(auth_observation::Outcome::UnknownAccount, None);
         return invalid_credentials();
     };
-    if login_admission::clear(&state, identity_key, submitted_key)
-        .await
-        .is_err()
-    {
-        observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
-        return login_storage_error(LoginOutcome::AttemptResetUnavailable);
-    }
+    // Issuance rechecks the alias/hash and resets both proven budgets atomically.
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");

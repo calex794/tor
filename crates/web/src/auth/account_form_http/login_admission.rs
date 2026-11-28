@@ -1,4 +1,4 @@
-//! Admit both login aliases through the existing canonical account budget.
+//! Admit both login aliases through one private account budget.
 use super::{auth_limit_error, login_storage_error, spray_rate_error};
 use crate::{
     auth::{auth_observation, login_limiter, AuthState},
@@ -14,8 +14,7 @@ use tor_observability::services::auth::LoginOutcome;
 pub(super) struct Admission {
     pub(super) stored: Option<StoredUser>,
     pub(super) spray: Option<login_limiter::SprayGuard>,
-    pub(super) identity_key: [u8; 32],
-    pub(super) submitted_key: [u8; 32],
+    pub(super) account_allowed: bool,
 }
 
 pub(super) fn rate_error(
@@ -36,12 +35,10 @@ pub(super) fn rate_error(
 pub(super) async fn admit(
     state: &AuthState,
     identity: &LoginIdentity,
-    submitted_key: [u8; 32],
     audit: LoginAuditContext,
     observed: &mut auth_observation::RequestObservation,
 ) -> Result<Admission, Box<Response>> {
-    // The route has already charged the IP and submitted identifier.
-    // Preserve the source spray fence before resolving the account.
+    // The route already charged IP and submitted identifier before lookup.
     let source = match login_limiter::spray_start(state, audit.verified_ip).await {
         Ok(source) => source,
         Err(login_limiter::SprayError::Locked(seconds)) => {
@@ -70,41 +67,21 @@ pub(super) async fn admit(
         .map_or(identity.as_str(), |user| user.email_normalized.as_str());
     observed.set_identity(canonical);
 
-    // Every resolved account uses the pre-existing email budget. The input
-    // budget is only an additional lookup guard, not a second password budget.
-    // Unknown identities retain the original one-bucket behavior.
-    let identity_key = if canonical == identity.as_str() {
-        submitted_key
-    } else {
-        login_limiter::limit_identity(state, "login", canonical)
-            .await
-            .map_err(|status| Box::new(rate_error(status, observed)))?
-    };
-    let spray = source.map(|source| source.for_target(canonical));
+    // Keep private budget exhaustion out of the public 429 responses.
+    let account_allowed = state
+        .accounts
+        .permit_login_account_attempt(stored.as_ref().map(|user| user.id), identity)
+        .await
+        .map_err(|_| {
+            eprintln!("TOR_AUTH_UNAVAILABLE stage=account_rate_limit");
+            Box::new(rate_error(StatusCode::SERVICE_UNAVAILABLE, observed))
+        })?;
+    // The observable spray threshold counts submitted identities, not the
+    // private relationship between a mailbox and a public handle.
+    let spray = source.map(|source| source.for_target(identity.as_str()));
     Ok(Admission {
         stored,
         spray,
-        identity_key,
-        submitted_key,
+        account_allowed,
     })
-}
-
-pub(super) async fn clear(
-    state: &AuthState,
-    identity_key: [u8; 32],
-    submitted_key: [u8; 32],
-) -> Result<(), StatusCode> {
-    if identity_key != submitted_key {
-        state
-            .accounts
-            .clear_auth_attempt(&submitted_key)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    }
-    state
-        .accounts
-        .clear_auth_attempt(&identity_key)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(())
 }

@@ -223,6 +223,9 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
     let html = std::str::from_utf8(&html).unwrap();
     assert!(html.contains(&format!("@http{alice_id}")));
     assert!(!html.contains("name=\"handle\""));
+    let stable = format!("/users/by-handle/http{alice_id}");
+    assert!(html.contains(&format!("href=\"{stable}\"")));
+    assert_stable_public_profile(&app, &stable, alice_id, &cookies, csrf).await;
     let change = serde_json::json!({"current_password":"OriginalSecurePassword2026","new_password":"NewSecurePassword2026","csrf_token":csrf});
     let changed = call(
         &app,
@@ -256,3 +259,84 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
 
 #[path = "auth_spray_http_pg.rs"]
 mod auth_spray;
+
+async fn assert_stable_public_profile(
+    app: &Router,
+    stable: &str,
+    alice_id: i64,
+    cookies: &str,
+    csrf: &str,
+) {
+    for path in [
+        stable.to_owned(),
+        format!("/users/by-handle/HTTP{alice_id}"),
+    ] {
+        let response = call(app, "GET", &path, "", ORIGIN, String::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains("<h1>Alice updated</h1>"));
+        assert!(html.contains(&format!("@http{alice_id}")));
+        assert!(html.contains("noindex"));
+        assert!(!html.contains("http-alice-"));
+        assert!(!html.contains("password_hash"));
+        assert!(!html.contains(">Почта</button>"));
+    }
+    for path in [
+        "/users/by-handle/private%40example.invalid".to_owned(),
+        format!("/users/by-handle/missing{alice_id}"),
+        "/users/by-handle/ab".to_owned(),
+    ] {
+        assert_eq!(
+            call(app, "GET", &path, "", ORIGIN, String::new())
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    // Display-name collisions cannot redirect a stable handle to another account.
+    let renamed = serde_json::json!({
+        "expected_revision": 1,
+        "display_name": "Bob",
+        "csrf_token": csrf
+    });
+    let response = call(
+        app,
+        "PATCH",
+        "/api/v1/me",
+        cookies,
+        ORIGIN,
+        renamed.to_string(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = call(app, "GET", stable, "", ORIGIN, String::new()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("<h1>Bob</h1>"));
+    assert!(html.contains(&format!("@http{alice_id}")));
+    assert_eq!(
+        call(app, "GET", "/users/Bob", "", ORIGIN, String::new())
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let restored = serde_json::json!({
+        "expected_revision": 2,
+        "display_name": "Alice updated",
+        "csrf_token": csrf
+    });
+    let response = call(
+        app,
+        "PATCH",
+        "/api/v1/me",
+        cookies,
+        ORIGIN,
+        restored.to_string(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+}

@@ -15,7 +15,7 @@ pub fn profile_settings(p: &Profile, csrf: &str, error: Option<&str>) -> Html<St
         .unwrap_or_default();
     let handle_section = match p.handle.as_deref() {
         Some(handle) => format!(
-            r#"<h2>Уникальный логин</h2><p><strong>@{}</strong></p><p>Логин закреплён. Бесплатное изменение или удаление недоступно.</p>"#,
+            r#"<h2>Уникальный логин</h2><p><strong>@{0}</strong></p><p>Логин закреплён. Бесплатное изменение или удаление недоступно.</p><p><a href="/users/by-handle/{0}">Открыть публичный профиль</a></p>"#,
             escape_html(handle)
         ),
         None => format!(

@@ -167,8 +167,8 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap_or("").starts_with("tor-dev-session=")));
-    // Upper-case handle login resolves the same active account and clears both
-    // the submitted handle guard and the original canonical email budget.
+    // Upper-case handle login resolves the same active account and clears
+    // the submitted handle guard and the private account budget.
     let alias = send(
         &app,
         request(
@@ -197,11 +197,21 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
         };
         let wrong =
             login_form(&identity, csrf).replace("StrongPasswordForAB02%21", "WrongPassword2026");
-        let denied = send(&app, request("POST", "/login", &wrong, &cookie, ORIGIN)).await;
+        let mut req = request("POST", "/login", &wrong, &cookie, ORIGIN);
+        req.extensions_mut().insert(ConnectInfo(SocketAddr::from((
+            [198, 51, 100, 95 + (i % 2) as u8],
+            40002,
+        ))));
+        let denied = send(&app, req).await;
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
         assert!(denied.headers().get(header::SET_COOKIE).is_none());
     }
-    for identity in [&known, &handle] {
+    // Both public alias buckets still have room. Even a correct password
+    // fails after the shared private budget is exhausted, with exactly
+    // the same public response as a nonexistent account.
+    std::env::set_var("TOR_AUTH_SPRAY_MODE", "observe");
+    let mut bodies = Vec::new();
+    for identity in [&known, &handle, &unknown, &missing_handle] {
         let denied = send(
             &app,
             request(
@@ -213,10 +223,30 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
             ),
         )
         .await;
-        assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
         assert!(denied.headers().get(header::SET_COOKIE).is_none());
-        assert_eq!(denied.headers()[header::RETRY_AFTER], "600");
-        assert!(!text(denied).await.contains(&known));
+        assert!(denied.headers().get(header::RETRY_AFTER).is_none());
+        let body = text(denied).await;
+        assert!(!body.contains(&known));
+        assert!(!body.contains(&handle));
+        bodies.push(body);
+    }
+    assert!(bodies.windows(2).all(|pair| pair[0] == pair[1]));
+
+    // The observable spray threshold must not depend on private alias linkage.
+    for identity in [&known, &handle, &unknown, &missing_handle] {
+        let target = signer.target(identity);
+        let seen: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM auth_spray_targets
+             WHERE scope='ip' AND source_key=$1 AND target_key=$2)",
+        )
+        .bind(ip.as_slice())
+        .bind(target.as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(seen);
     }
     std::env::remove_var("TOR_AUTH_SPRAY_MODE");
     std::env::remove_var("TOR_AUTH_SPRAY_KEY");

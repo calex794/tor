@@ -35,10 +35,10 @@ impl AuthObservationSigner {
         digest
     }
 
-    /// Known accounts use the canonical normalized email for both login aliases.
-    /// Unknown accounts use the validated, normalized submitted identity.
-    pub fn target(&self, normalized_email: &str) -> [u8; 32] {
-        self.digest(b"target", normalized_email.as_bytes())
+    /// Diagnostic callers may use a canonical account identity; public spray
+    /// enforcement uses only the validated submitted identity.
+    pub fn target(&self, normalized_identity: &str) -> [u8; 32] {
+        self.digest(b"target", normalized_identity.as_bytes())
     }
 
     /// Distinguish a single verified address from its /24 or /64 network.

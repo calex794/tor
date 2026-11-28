@@ -5,8 +5,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use std::net::{IpAddr, SocketAddr};
-use tor_accounts::services::auth_observation::AuthObservationSigner;
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::services::{
+    auth_observation::AuthObservationSigner, login_identity::submitted_attempt_key,
+    security::session_token_digest,
+};
 
 /// Only use X-Real-IP from a verified loopback reverse proxy when the
 /// operator has configured Nginx to overwrite it with $remote_addr.
@@ -61,14 +63,14 @@ pub(super) async fn limit(
     limit_identity(state, action, email).await
 }
 
-/// An alias may require a second, canonical account admission after lookup.
+/// The submitted-identity budget remains independent of account lookup.
 /// The IP charge is made only once, before the lookup.
 pub(super) async fn limit_identity(
     state: &AuthState,
     action: &str,
     identity: &str,
 ) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{identity}"));
+    let identity_key = submitted_attempt_key(action, identity);
     let identity_ok = state
         .accounts
         .permit_auth_attempt(&identity_key, 8, 600)
@@ -114,8 +116,8 @@ impl SprayGuard {
     }
 }
 
-/// Source admission is performed before account lookup; bind the target only
-/// after resolving the alias to the same canonical email as ordinary login.
+/// Source admission precedes account lookup. Enforcement counts submitted
+/// identifiers, never the private mapping to an account.
 pub(super) struct SpraySource {
     ip: [u8; 32],
     subnet: [u8; 32],
