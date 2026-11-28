@@ -24,6 +24,19 @@ impl MailboxCandidate {
     pub fn transport_address(&self) -> &str {
         &self.transport
     }
+
+    /// The canonical worker binds proof issuance to this non-reused revision.
+    pub fn revision(&self) -> i64 {
+        self.revision
+    }
+
+    /// Compare only private, account-owned facts, not a posted address.
+    pub fn same_mailbox(&self, other: &Self) -> bool {
+        self.user_id == other.user_id
+            && self.revision == other.revision
+            && self.address_sha256 == other.address_sha256
+            && self.transport == other.transport
+    }
 }
 
 impl PgAccounts {
@@ -44,54 +57,6 @@ impl PgAccounts {
         }))
     }
 
-    /// Internal proof storage primitive. The future common dispatcher must
-    /// bind issuance to its reserved source and durable correlation transaction.
-    /// No HTTP handler or production caller is wired by this slice.
-    /// Keep the raw random challenge in memory only. Reissue at most once
-    /// per minute; an already verified mailbox needs no new challenge.
-    pub async fn issue_email_ownership_proof(
-        &self,
-        expected: &MailboxCandidate,
-        challenge_sha256: &[u8; 32],
-    ) -> Result<bool, sqlx::Error> {
-        if *challenge_sha256 == [0; 32] {
-            return Ok(false);
-        }
-        let mut tx = self.pool().begin().await?;
-        let current: Option<(String, i64)> = sqlx::query_as(
-            "SELECT email_normalized,mail_ownership_revision
-             FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
-        )
-        .bind(expected.user_id.get())
-        .fetch_optional(&mut *tx)
-        .await?;
-        if !current.is_some_and(|(address, revision)| {
-            revision == expected.revision
-                && session_token_digest(&address) == expected.address_sha256
-        }) {
-            return Ok(false);
-        }
-        let saved: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO account_email_ownership AS p
-                (user_id,address_sha256,challenge_sha256,issued_at,expires_at)
-             VALUES($1,$2,$3,statement_timestamp(),statement_timestamp()+interval '30 minutes')
-             ON CONFLICT(user_id) DO UPDATE SET
-                 address_sha256=EXCLUDED.address_sha256,
-                 challenge_sha256=EXCLUDED.challenge_sha256,
-                 issued_at=EXCLUDED.issued_at,expires_at=EXCLUDED.expires_at
-             WHERE p.verified_at IS NULL
-               AND p.issued_at<=statement_timestamp()-interval '60 seconds'
-             RETURNING user_id",
-        )
-        .bind(expected.user_id.get())
-        .bind(expected.address_sha256.as_slice())
-        .bind(challenge_sha256.as_slice())
-        .fetch_optional(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(saved.is_some())
-    }
-
     /// Only a live authenticated actor may consume its own proof. The
     /// caller resolves that actor from the session, not a posted user ID.
     /// Confirmation is single-use and has no authentication side effect.
@@ -101,25 +66,27 @@ impl PgAccounts {
         challenge_sha256: &[u8; 32],
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
-        let current: Option<String> = sqlx::query_scalar(
-            "SELECT email_normalized FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        let current: Option<(String, i64)> = sqlx::query_as(
+            "SELECT email_normalized,mail_ownership_revision
+             FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
         )
         .bind(actor.get())
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(current) = current else {
+        let Some((current, revision)) = current else {
             return Ok(false);
         };
         let consumed: Option<i64> = sqlx::query_scalar(
             "UPDATE account_email_ownership
              SET verified_at=statement_timestamp(),challenge_sha256=NULL,expires_at=NULL
              WHERE user_id=$1 AND address_sha256=$2 AND challenge_sha256=$3
-               AND verified_at IS NULL AND expires_at>statement_timestamp()
+               AND mailbox_revision=$4 AND verified_at IS NULL AND expires_at>statement_timestamp()
              RETURNING user_id",
         )
         .bind(actor.get())
         .bind(session_token_digest(&current).as_slice())
         .bind(challenge_sha256.as_slice())
+        .bind(revision)
         .fetch_optional(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -136,7 +103,8 @@ impl PgAccounts {
             "SELECT u.email_normalized FROM users u
              JOIN account_email_ownership p ON p.user_id=u.id
              WHERE u.id=$1 AND u.account_state='active' AND p.verified_at IS NOT NULL
-               AND p.address_sha256=sha256(convert_to(u.email_normalized,'UTF8'))",
+               AND p.address_sha256=sha256(convert_to(u.email_normalized,'UTF8'))
+               AND p.mailbox_revision=u.mail_ownership_revision",
         )
         .bind(actor.get())
         .fetch_optional(self.pool())

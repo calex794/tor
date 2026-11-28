@@ -102,10 +102,7 @@ async fn mail_05_registration_handoff_is_exact_bounded_and_invalidated() {
         .bind(id).execute(&db).await.unwrap();
 
     let proof = session_token_digest(&generate_session_token());
-    assert!(accounts
-        .issue_email_ownership_proof(&candidate, &proof)
-        .await
-        .unwrap());
+    seed_ownership(&db, request.recipient, &proof).await;
     assert!(accounts
         .consume_email_ownership_proof(request.recipient, &proof)
         .await
@@ -138,10 +135,12 @@ async fn mail_05_registration_handoff_is_exact_bounded_and_invalidated() {
         .await
         .unwrap()
         .is_none());
-    assert!(!accounts
-        .issue_email_ownership_proof(&candidate, &proof)
+    let current = accounts
+        .mailbox_candidate(request.recipient)
         .await
-        .unwrap());
+        .unwrap()
+        .unwrap();
+    assert!(!candidate.same_mailbox(&current));
 
     for id in [id, other] {
         sqlx::query("DELETE FROM users WHERE id=$1")
