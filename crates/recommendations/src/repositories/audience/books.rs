@@ -1,4 +1,5 @@
 use super::{unavailable, PgDiscoveryAudience};
+use crate::repositories::report_transaction::begin_read_report;
 use crate::services::audience::{
     books::{
         BookDiscoveryCounts, BookDiscoveryMetrics, BookDiscoveryPeriod, BookDiscoveryQuery,
@@ -26,15 +27,7 @@ impl PgDiscoveryAudience {
             query.without_tag,
             query.after_id,
         )?;
-        let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
-            .execute(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let mut tx = begin_read_report(&self.pool).await.map_err(unavailable)?;
         // The report joins only fixed SQL constants; all filter values are bound.
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql::report()))
             .bind(query.days)

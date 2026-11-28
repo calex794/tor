@@ -107,6 +107,17 @@ tail; UI ellipsis is separate. N<=1 or no safe nonempty boundary -> CTA
 without text. Bound both scan (existing chapter input limits) and projection
 (<=2000 scalar values and <=8000 UTF-8 bytes). A short chapter is never
 promoted to full access merely because it fits the maximum.
+02a uses the existing restricted Markdown tokenizer moved to a shared pure
+contracts module with an unchanged reading facade and an alternate visible
+text sink. Normalize whitespace within blocks and preserve paragraph breaks.
+Pin unicode-segmentation 1.12.0 for the versioned grapheme rule. If literal
+image/link destinations or HTML-like markup survive the historical tokenizer,
+v1 conservatively returns CTA-only instead of guessing at unsupported syntax.
+The internal maximum prefix uses a strict grapheme cap; nearby natural
+boundary preference is applied to the selected guest percentage, not to
+the stored maximum. No full source or full visible text is retained by the
+result. This slice is pure only; exact version/SHA persistence and safe
+HTML escaping of the selected plain text remain required.
 
 Store one bounded derived maximum-prefix projection (p=50) per needed exact
 FREE edition, not four copies or a full chapter. Candidate shape:
@@ -120,6 +131,41 @@ Re-cut with same boundary rules at requested p; increasing percent reveals at
 most the stored prefix and never fetches the complete chapter per guest read.
 Do not expose N, internal projection digest, full source digest, byte offsets
 or content plan to guest as part of the preview response.
+
+02b persists one bounded derivative keyed by chapter_id, version_id and
+algorithm_version with exact source and prefix SHA-256. A trusted B/G worker
+must supply verified bytes for the current FREE edition, never an actor or
+browser-provided arbitrary version. Verify book policy revision, cutoff,
+publication and content hash under the book/chapter/publication locks before
+committing; stale or mismatched work cannot attach. Legacy NULL content_sha256
+is verified from the immutable PG body only during preparation, never during
+guest delivery. Exact duplicate preparation is idempotent; inconsistent
+existing rows fail closed. Derivative rows may be removed/rebuilt without
+changing an edition; they add no independent retention or entitlement.
+The D-001 installed foreign-key inventory explicitly classifies the exact
+validated composite FK with ON DELETE CASCADE as derived-guest-prefix.
+The regression checks logical, reader-retained and physical edition counts
+are unchanged by projection preparation. This classification does not grant
+physical deletion authority, change existing pin checks or modify GC.
+Automatic publication/import/schedule and fenced backfill wiring remain a
+separate slice; no read route or activation is introduced by this storage slice.
+
+02c1 adds a bounded preparation discovery port. One request checks the
+current prepared book revision, then scans at most 64 consecutive existing
+chapter numbers beyond max(N, cursor), using the unique (book_id,chapter_no)
+index and a materialized limited page. Apply publication, hold, FREE, release
+and exact-derivative checks after the limit. The cursor advances over inspected
+numbers even when all are ineligible or already prepared; a short/empty page
+ends the sweep. No source body, provider request or full-catalog scan.
+Discovery is advisory: another writer may change eligibility before
+preparation; prepare_current still enforces the exact revision/source.
+A separate fenced G consumer and scheduling integration remain required.
+Unsupported literal markup is persisted as an immutable terminal
+projection_status=unsupported with empty text, zero count and the exact
+source hash; a valid empty/tiny projection is status=ready. Retries only
+accept identical results. A new exact edition is eligible for new work.
+Missing/corrupt data, unlike unsupported, remains a failure/rebuild case.
+No new FK or retention right, no public API and no rollout activation.
 
 New bodyless FREE full Markdown remains in verified S3 only; legacy PG text
 retains existing migration semantics. The projection is a small intentional
