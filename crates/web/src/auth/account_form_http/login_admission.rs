@@ -51,7 +51,10 @@ pub(super) async fn admit(
         }
         Err(login_limiter::SprayError::Unavailable) => {
             eprintln!("TOR_AUTH_UNAVAILABLE stage=spray_preflight");
-            return Err(Box::new(rate_error(StatusCode::SERVICE_UNAVAILABLE, observed)));
+            return Err(Box::new(rate_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                observed,
+            )));
         }
     };
     let stored = state
