@@ -502,6 +502,9 @@ SYSTEM_MAIL_ADMIN = {
     ("GET", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "page"): ".admin_view(&digest)",
     ("POST", "/odmen/system-mail", "crates/web/src/auth/admin_mail_cost/mod.rs", "save"): ".admin_save_limits(&digest,",
     ("POST", "/odmen/system-mail/stop", "crates/web/src/auth/admin_mail_cost/mod.rs", "stop"): ".admin_stop(&digest)",
+    ("POST", "/odmen/system-mail/reconcile", "crates/web/src/auth/admin_mail_cost/mod.rs", "reconcile"): ".admin_reconcile_month(&digest,",
+    ("POST", "/odmen/system-mail/profile", "crates/web/src/auth/admin_mail_cost/mod.rs", "save_profile"): ".admin_save_candidate(&digest,",
+    ("POST", "/odmen/system-mail/probe", "crates/web/src/auth/admin_mail_cost/mod.rs", "probe_profile"): ".admin_load_candidate(&digest,",
 }
 POSTBOX_RELAY = (
     "POST", "/internal/mail/postbox-feedback",
@@ -546,6 +549,53 @@ def _system_mail_policy(entry: dict[str, str], body: str,
             "INSERT INTO mail_cost_admin_audit", "WHERE singleton AND revision=$7",
             "enabled: old.enabled", "enabled: false", "tx.commit().await?",
         ))
+        if entry["handler"] == "reconcile":
+            reconciliation = functions.get("__mail_month_reconciliation", "")
+            store = store and all(marker in reconciliation for marker in (
+                "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+                "revision(&mut tx).await? != expected_revision",
+                "snapshot.limits.enabled || snapshot.boundary_pause",
+                "next.reserved_attempts < previous.reserved_attempts",
+                "next.reserved_attempts < known", "WHERE singleton AND NOT enabled",
+                "INSERT INTO mail_cost_month_reconciliation_audit", "tx.commit().await?",
+            ))
+        if entry["handler"] in {"save_profile", "probe_profile"}:
+            profile = functions.get("__mail_profile_repository", "")
+            helper = functions.get("__mail_profile_http", "")
+            store = store and all(marker in profile for marker in (
+                "operator(&mut tx, digest).await?", "stopped(&mut tx).await?",
+                "r.role='administrator' AND r.is_active", "FOR SHARE OF u,r",
+                "revoked_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE",
+                "mail_send_budget_guard WHERE singleton FOR UPDATE",
+                "SELECT enabled FROM mail_cost_policy WHERE singleton", "if enabled {",
+            ))
+            guarded = guarded and "|| !profile::secure_origin(&state)" in body
+            guarded = guarded and all(marker in helper for marker in (
+                "state.cookies.secure", 'uri.scheme_str() == Some("http")',
+                'matches!(uri.host(), Some("127.0.0.1" | "localhost"))',
+                'TOR_POSTBOX_PROFILE_MASTER_KEY', 'TOR_POSTBOX_PROFILE_KEY_VERSION',
+            ))
+            if entry["handler"] == "save_profile":
+                guarded = guarded and all(marker in body for marker in (
+                    "permit_auth_attempt(&attempt_key, 6, 600)", "verify_password_for_step_up(&password, &hash)",
+                    "master.seal(identity, next_revision, &secrets)",
+                    ".issue_administrator_postbox_step_up(", "&candidate.intent_digest()",
+                )) and body.index("verify_password_for_step_up(") < body.index(".issue_administrator_postbox_step_up(") < body.index(op)
+                store = store and all(marker in profile for marker in (
+                    "step_up_used_at IS NULL", "step_up_payload_digest=$6",
+                    "POSTBOX_PROFILE_STEP_UP_SCOPE", "INSERT INTO mail_postbox_profile_audit",
+                    "WHERE singleton AND revision=$7",
+                ))
+            else:
+                guarded = guarded and all(marker in body for marker in (
+                    "permit_auth_attempt(&attempt_key, 3, 60)", "master.open(&candidate)",
+                    "PostboxTransport::new(candidate.identity().sender())",
+                    "transport.probe(&credentials).await", "admin_confirm_probe(&digest, &candidate)",
+                )) and body.index(op) < body.index("transport.probe(") < body.index("admin_confirm_probe(")
+                store = store and all(marker in profile for marker in (
+                    "AND revision=$1 AND identity_id=$2 AND sender=$3",
+                    "AND key_version=$4 AND nonce=$5 AND ciphertext=$6",
+                ))
         write_guard = entry["method"] == "GET" or (
             "if !valid_csrf(&state, &headers, &form.csrf_token)" in body
             and "return deny(StatusCode::FORBIDDEN)" in body
@@ -2530,6 +2580,9 @@ def check(root: Path = ROOT) -> list[str]:
         if _system_mail_key(entry) in SYSTEM_MAIL_ADMIN or _system_mail_key(entry) == POSTBOX_RELAY:
             for evidence_name, relative_path in (
                 ("__mail_cost_repository", "crates/mail/src/repositories/cost/admin.rs"),
+                ("__mail_month_reconciliation", "crates/mail/src/repositories/cost/admin/reconciliation.rs"),
+                ("__mail_profile_repository", "crates/mail/src/repositories/postbox_profile.rs"),
+                ("__mail_profile_http", "crates/web/src/auth/admin_mail_cost/profile.rs"),
                 ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
             ):
                 try:

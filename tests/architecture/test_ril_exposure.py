@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 461)  # AUTH-PROFILE-04a.
-        self.assertEqual(report["route_pairs"], 458)  # AUTH-PROFILE-04a.
+        self.assertEqual(report["route_bindings"], 464)  # AUTH-PROFILE-04a.
+        self.assertEqual(report["route_pairs"], 461)  # AUTH-PROFILE-04a.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -71,7 +71,7 @@ class RilExposureTests(unittest.TestCase):
         original = json.loads(path.read_text(encoding="utf-8"))
         routes = [row for row in original["routes"]
                   if row["policy"] in {"admin_system_mail", "postbox_relay"}]
-        self.assertEqual(len(routes), 4)
+        self.assertEqual(len(routes), 7)
         for row in routes:
             for field, value in (
                 ("template", row["template"] + "/extra"),
