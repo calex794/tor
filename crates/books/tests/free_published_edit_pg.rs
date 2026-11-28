@@ -3,6 +3,8 @@
 //! against real disposable PostgreSQL 18, not a fake transaction.
 #[path = "free_published_edit_pg/guest_prefix.rs"]
 mod guest_prefix;
+#[path = "free_published_edit_pg/guest_prefix_sweep.rs"]
+mod guest_prefix_sweep;
 use sqlx::PgPool;
 use tor_books::{
     repositories::postgres::PgAuthoring,
