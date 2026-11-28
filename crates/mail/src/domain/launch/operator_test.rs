@@ -1,4 +1,4 @@
-//! One-shot test admission. No queue claim or send-start witness yet.
+//! One-shot test admission. A charged reservation is not a send-start witness.
 use super::{LaunchSnapshot, REVIEW_LIMIT};
 use std::time::Instant;
 
@@ -14,6 +14,18 @@ pub struct OperatorTestGrant {
 impl OperatorTestGrant {
     pub fn actor(&self) -> i64 {
         self.actor
+    }
+
+    pub(crate) fn matches_reserved(&self, current: &LaunchSnapshot) -> bool {
+        self.started.elapsed() < REVIEW_LIMIT
+            && current.enabled
+            && !current.boundary_pause
+            && current.within_budget
+            && current.binding == self.before.binding
+            && current.policy_revision == self.before.policy_revision
+            && current.activation_digest.is_some()
+            && current.activation_digest == self.before.activation_digest
+            && self.before.reserved_attempts.checked_add(1) == Some(current.reserved_attempts)
     }
 
     pub(crate) fn matches(&self, current: &LaunchSnapshot) -> bool {

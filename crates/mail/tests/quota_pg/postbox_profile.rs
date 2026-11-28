@@ -202,6 +202,8 @@ async fn exercise_launch_fence(
 
     let cost = PgMailCost::new(pool.clone());
     let launch = PgMailLaunch::new(pool.clone());
+    // Disposable fixture only: isolate rolling quota rows for this test.
+    clear(pool).await;
     // Disposable fixture only: create a genuinely reconciled, stopped month.
     // The production repository must never reset accounting or audit history.
     sqlx::query("DELETE FROM mail_cost_months")
@@ -379,13 +381,7 @@ async fn exercise_launch_fence(
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE mail_cost_months SET reserved_attempts=reserved_attempts+1 WHERE month_start=$1::date",
-    )
-    .bind(&month)
-    .execute(pool)
-    .await
-    .unwrap();
+    operator_test::exercise(pool, &launch, &grant, &recipient, &active).await;
     let reserved = launch.snapshot().await.unwrap().unwrap();
     assert!(matches!(
         launch.operator_test_context(&grant, &recipient).await,
@@ -606,3 +602,5 @@ async fn exercise_dispatch_grant(
     );
     clear(pool).await;
 }
+
+mod operator_test;

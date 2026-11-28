@@ -36,6 +36,6 @@ pub(super) fn quota_action(decision: QuotaDecision) -> QuotaAction {
         | KeyMismatch
         | RegistrationEvidenceRequired
         | PasswordResetEvidenceRequired => Stop,
-        AlreadyReserved | StaleClaim => Quarantine,
+        AlreadyReserved | StaleClaim | OperatorTestDaily | OperatorTestCooldown => Quarantine,
     }
 }
