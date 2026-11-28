@@ -35,9 +35,10 @@ pub async fn prepare_verified_job<S: FreeChapterStore>(
                 .map_err(|_| AuthorError::Unavailable)?
                 .map(Some);
         }
-        GuestPrefixSource::Single(stored) | GuestPrefixSource::Pack { edition: stored, .. } => {
-            stored
-        }
+        GuestPrefixSource::Single(stored)
+        | GuestPrefixSource::Pack {
+            edition: stored, ..
+        } => stored,
     };
     if !valid_private_bucket(trusted_bucket) || stored.bucket != trusted_bucket {
         return Err(AuthorError::Unavailable);

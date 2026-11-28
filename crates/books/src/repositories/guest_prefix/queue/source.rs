@@ -114,8 +114,17 @@ impl PgGuestPrefix {
         let Some(row) = self.claimed_source_row(job).await? else {
             return Ok(None);
         };
-        let (body, hash, generation, kind, gen_size, pack_bucket, single_bucket, single_size, matches) =
-            &row;
+        let (
+            body,
+            hash,
+            generation,
+            kind,
+            gen_size,
+            pack_bucket,
+            single_bucket,
+            single_size,
+            matches,
+        ) = &row;
         if !matches {
             return Err(AuthorError::Conflict);
         }
@@ -149,9 +158,7 @@ impl PgGuestPrefix {
             (Some(current), Some("single")) if current > 0 && gen_size == single_size => {
                 (false, *single_size, single_bucket.as_ref())
             }
-            (Some(current), Some("pack")) if current > 0 => {
-                (true, *gen_size, pack_bucket.as_ref())
-            }
+            (Some(current), Some("pack")) if current > 0 => (true, *gen_size, pack_bucket.as_ref()),
             _ => return Err(AuthorError::Unavailable),
         };
         let size_bytes = u64::try_from(size.ok_or(AuthorError::Unavailable)?)

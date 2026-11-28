@@ -34,7 +34,10 @@ async fn auth_read_claimed_sources_single_and_pack_are_exact_bodyless() {
             ChapterImportWorkerResult::Completed
         );
         assert_eq!(f.count("chapter_publications"), 2);
-        assert_eq!(f.count("free_chapter_storage_objects"), if packed { 0 } else { 2 });
+        assert_eq!(
+            f.count("free_chapter_storage_objects"),
+            if packed { 0 } else { 2 }
+        );
         // Existing isolated import fixture starts as a draft. Only this test
         // book is made basic/public and prepared; rollout remains closed.
         pg(
