@@ -94,7 +94,8 @@ async fn auth_read_sweep_advances_over_skips_and_terminal_results() {
     assert_eq!(page.next_after_chapter_no, Some(11));
     for _ in 0..2 {
         assert_eq!(
-            repo.prepare_current(page.targets[0], unsupported_body).await,
+            repo.prepare_current(page.targets[0], unsupported_body)
+                .await,
             Ok(GuestPrefixPreparation::NoExcerpt)
         );
     }
