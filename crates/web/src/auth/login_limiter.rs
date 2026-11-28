@@ -33,8 +33,7 @@ pub(super) fn verified_client_ip(peer: IpAddr, headers: &HeaderMap) -> Option<Ip
 }
 
 /// Bound Argon2 work per account, and per verified client IP when available.
-/// The old implementation keyed all Nginx visitors to 127.0.0.1 and could
-/// lock everyone out after 60 unrelated login attempts in ten minutes.
+/// Registration and the existing email login keep the exact original budget.
 pub(super) async fn limit(
     state: &AuthState,
     action: &str,
@@ -42,7 +41,18 @@ pub(super) async fn limit(
     headers: &HeaderMap,
     peer: ConnectInfo<SocketAddr>,
 ) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{email}"));
+    limit_peer(state, action, headers, peer).await?;
+    limit_identity(state, action, email).await
+}
+
+/// Admit a verified peer before account lookup or password work. The original
+/// 60-attempt budget and verified reverse-proxy policy remain unchanged.
+pub(super) async fn limit_peer(
+    state: &AuthState,
+    action: &str,
+    headers: &HeaderMap,
+    peer: ConnectInfo<SocketAddr>,
+) -> Result<(), StatusCode> {
     if let Some(ip) = verified_client_ip(peer.0.ip(), headers) {
         let address_key = session_token_digest(&format!("auth:{action}:peer:{ip}"));
         let address_ok = state
@@ -57,6 +67,17 @@ pub(super) async fn limit(
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
     }
+    Ok(())
+}
+
+/// Keep the public submitted-identity bucket independent of account lookup.
+/// The key and 8-attempt budget are byte-for-byte compatible with email login.
+pub(super) async fn limit_identity(
+    state: &AuthState,
+    action: &str,
+    identity: &str,
+) -> Result<[u8; 32], StatusCode> {
+    let identity_key = session_token_digest(&format!("auth:{action}:identity:{identity}"));
     // Never fall back to a global loopback IP counter. Account-specific
     // throttling and the bounded Argon2 worker still apply in this case.
     let identity_ok = state
