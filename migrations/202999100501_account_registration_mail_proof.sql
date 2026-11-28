@@ -41,7 +41,7 @@ BEGIN
     CROSS JOIN stamp
     WHERE u.id=p_user AND p_event=u.id AND u.account_state='active'
       AND u.mail_ownership_revision=p_revision
-      AND s.forwarded_at IS NOT NULL AND s.forwarded_at<=stamp.at
+      -- The durable outbox proves handoff even if its acknowledgement was lost.
       AND s.created_at>stamp.at-interval '24 hours' AND s.created_at<=stamp.at
       AND m.purpose='registration_confirmation' AND m.event_id=u.id
       AND m.recipient_user_id=u.id AND m.status='leased'

@@ -70,8 +70,8 @@ async fn mail_05_registration_proof_requires_exact_reserved_correlation() {
     let source = signer.keys(&address, None).unwrap().signup_source();
     sqlx::query(
         "INSERT INTO account_registration_mail_sources
-             (user_id,recipient_key,registration_ip_key,key_binding,forwarded_at)
-         VALUES($1,$2,NULL,$3,clock_timestamp())",
+             (user_id,recipient_key,registration_ip_key,key_binding)
+         VALUES($1,$2,NULL,$3)",
     )
     .bind(id)
     .bind(source.recipient_key.as_slice())
@@ -133,6 +133,8 @@ async fn mail_05_registration_proof_requires_exact_reserved_correlation() {
             .unwrap();
     assert_eq!(count, 0);
 
+    // A lost handoff acknowledgement is harmless: the durable outbox is
+    // authoritative even while forwarded_at remains NULL.
     // Reproduce the intended repository transaction with no network calls.
     let mut tx = pool.begin().await.unwrap();
     insert_marker(&mut tx, claim, &marker).await;
