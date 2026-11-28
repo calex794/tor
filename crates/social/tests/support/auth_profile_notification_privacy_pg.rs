@@ -203,3 +203,155 @@ async fn e_08_auth_profile_06a_historical_marker_audit_is_bounded_and_read_only(
     assert_eq!(stored, 2);
     cleanup(&pool, &users).await;
 }
+
+/// Repair only confirmed actor-event snapshots, preserving all event/read
+/// metadata. A locked row fails closed, and an identical retry is a no-op.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_auth_profile_06b_repair_is_bounded_atomic_and_idempotent() {
+    let (pool, users) = fixture().await;
+    let (sender, recipient, outsider) = (users[0], users[1], users[2]);
+    let mail = MailService::new(PgMail::new(pool.clone()));
+    let friends = PgFriendships::new(pool.clone());
+    let notifications = PgNotifications::new(pool.clone());
+    let handle = format!("repair{sender}");
+    sqlx::query("INSERT INTO account_settings(user_id,handle) VALUES($1,$2)")
+        .bind(sender)
+        .bind(&handle)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let conversation = mail.start(sender, recipient).await.unwrap();
+    mail.send(sender, conversation, "KEEP USER TEXT", &key(93))
+        .await
+        .unwrap();
+    friends.request(sender, recipient).await.unwrap();
+    for _ in 0..12 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM user_notifications WHERE recipient_user_id=$1 ORDER BY id",
+    )
+    .bind(recipient)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(notifications.mark_read(recipient, ids[0]).await.unwrap());
+    let expected = notifications.list(recipient, None, 50).await.unwrap();
+    let metadata = "SELECT jsonb_agg(to_jsonb(n)-'title'-'body'-'url' ORDER BY id)::text
+                    FROM user_notifications n WHERE id=ANY($1)";
+    let before: String = sqlx::query_scalar(metadata)
+        .bind(&ids)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE user_notifications
+         SET title='old@example.invalid',body='old@example.invalid',
+             url='/users/old%40example.invalid' WHERE id=ANY($1)",
+    )
+    .bind(&ids)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // A conflicting actor must not authorize a rewrite.
+    sqlx::query("UPDATE user_notifications SET actor_user_id=$2 WHERE id=$1")
+        .bind(ids[1])
+        .bind(outsider)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM user_notifications WHERE id=$1 FOR UPDATE")
+        .bind(ids[0])
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    assert_eq!(
+        notifications
+            .repair_legacy_notification_batch(ids[0] - 1, ids[0], 1)
+            .await,
+        Err(MailError::Unavailable)
+    );
+    lock.rollback().await.unwrap();
+    let unchanged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_notifications WHERE id=ANY($1)
+         AND body='old@example.invalid'",
+    )
+    .bind(&ids)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unchanged, 2);
+
+    let first = notifications
+        .repair_legacy_notification_batch(ids[0] - 1, ids[0], 1)
+        .await
+        .unwrap();
+    assert_eq!(first.last_scanned_id, Some(ids[0]));
+    assert_eq!((first.scanned, first.eligible, first.repaired), (1, 1, 1));
+    let mismatched = notifications
+        .repair_legacy_notification_batch(ids[1] - 1, ids[1], 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        (mismatched.scanned, mismatched.eligible, mismatched.repaired),
+        (1, 0, 0)
+    );
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_notifications WHERE id=ANY($1)
+         AND body='old@example.invalid'",
+    )
+    .bind(&ids)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining, 1);
+    sqlx::query("UPDATE user_notifications SET actor_user_id=$2 WHERE id=$1")
+        .bind(ids[1])
+        .bind(sender)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second = notifications
+        .repair_legacy_notification_batch(ids[1] - 1, ids[1], 1)
+        .await
+        .unwrap();
+    assert_eq!(second.repaired, 1);
+    let after: String = sqlx::query_scalar(metadata)
+        .bind(&ids)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(after, before);
+    assert_eq!(
+        notifications.list(recipient, None, 50).await.unwrap(),
+        expected
+    );
+    for row in expected {
+        let persisted: (String, String, String) =
+            sqlx::query_as("SELECT title,body,url FROM user_notifications WHERE id=$1")
+                .bind(row.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted, (row.title, row.body, row.url));
+        let replay = notifications
+            .repair_legacy_notification_batch(row.id - 1, row.id, 1)
+            .await
+            .unwrap();
+        assert_eq!((replay.scanned, replay.eligible, replay.repaired), (1, 0, 0));
+    }
+    assert!(notifications.list(outsider, None, 50).await.unwrap().is_empty());
+    assert_eq!(
+        notifications
+            .repair_legacy_notification_batch(0, ids[1], 101)
+            .await,
+        Err(MailError::Invalid)
+    );
+    cleanup(&pool, &users).await;
+}
