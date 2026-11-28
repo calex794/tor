@@ -24,7 +24,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
     // S3-ADMIN adds a reviewed GET/POST connection profile.
     // AUTH-04b adds two reviewed administrator session routes.
     // AUTH-UI-01 adds the integrity-pinned dialog asset; MAIL-01 adds four routes.
-    assert_eq!(unique.len(), 460);
+    assert_eq!(unique.len(), 462);
 }
 #[path = "tests/route_guardrails.rs"]
 mod route_guardrails;

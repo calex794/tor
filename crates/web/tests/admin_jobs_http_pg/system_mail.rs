@@ -450,6 +450,59 @@ async fn mail_03_profile_http_save_never_sends_or_reveals_credentials() {
     assert!(!html.contains("ci-access-fixture"));
     assert!(!html.contains("ci-secret-fixture"));
     assert!(!html.contains("name=\"enabled\""));
+    // This router has no explicitly configured managed worker extension.
+    // Even an administrator with valid CSRF and a saved profile cannot
+    // initiate a review or trigger provider I/O through direct POST.
+    assert!(!html.contains("/odmen/system-mail/activation/review"));
+    let policy_revision: i64 = pg(
+        &url,
+        "SELECT revision FROM mail_cost_policy WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    let review = "/odmen/system-mail/activation/review";
+    let confirm = "/odmen/system-mail/activation/confirm";
+    let review_form = format!("csrf_token={csrf}&revision={policy_revision}");
+    let confirm_form = format!(
+        "csrf_token={csrf}&challenge={}&evidence_sha256={}&reviewed=yes&current_password={password}",
+        "ab".repeat(32),
+        "cd".repeat(32),
+    );
+    for (route, form) in [(review, review_form), (confirm, confirm_form)] {
+        assert_eq!(
+            http(&app, "POST", route, None, &csrf, ORIGIN, form.clone())
+                .await
+                .0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            http(
+                &app,
+                "POST",
+                route,
+                token,
+                &csrf,
+                "https://evil.invalid",
+                form.clone()
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            http(&app, "POST", route, token, &csrf, ORIGIN, form)
+                .await
+                .0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    assert_eq!(
+        pg(
+            &url,
+            "SELECT revision FROM mail_cost_policy WHERE singleton"
+        ),
+        policy_revision.to_string()
+    );
     // Stale revision must fail before any provider I/O.
     let probe = format!("csrf_token={csrf}&revision={revision}");
     assert_eq!(

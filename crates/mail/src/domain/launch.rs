@@ -1,5 +1,8 @@
 //! Read-only launch observation and process-local activation intent.
-use super::MailClaim;
+use super::{
+    cost::{CostLimits, CostSnapshot, MonthUsage},
+    MailClaim,
+};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
@@ -52,6 +55,28 @@ impl LaunchSnapshot {
 
     pub fn profile_digest(&self) -> &[u8; 32] {
         &self.binding.profile_digest
+    }
+
+    /// Non-secret values from the same observation that is bound to the review.
+    pub fn review_cost(&self) -> CostSnapshot {
+        let b = &self.binding;
+        CostSnapshot {
+            limits: CostLimits {
+                enabled: self.enabled,
+                warning_1: b.limits[0],
+                warning_2: b.limits[1],
+                news_pause: b.limits[2],
+                monthly_limit: b.limits[3],
+            },
+            usage: Some(MonthUsage {
+                month_start: b.month.clone(),
+                free_allowance: b.pricing[0],
+                baseline_kopecks: b.pricing[1],
+                rate_per_thousand: b.pricing[2],
+                reserved_attempts: self.reserved_attempts,
+            }),
+            boundary_pause: self.boundary_pause,
+        }
     }
 
     pub(crate) fn ready_for_review(&self) -> bool {

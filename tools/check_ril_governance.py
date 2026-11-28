@@ -505,6 +505,8 @@ SYSTEM_MAIL_ADMIN = {
     ("POST", "/odmen/system-mail/reconcile", "crates/web/src/auth/admin_mail_cost/mod.rs", "reconcile"): ".admin_reconcile_month(&digest,",
     ("POST", "/odmen/system-mail/profile", "crates/web/src/auth/admin_mail_cost/mod.rs", "save_profile"): ".admin_save_candidate(&digest,",
     ("POST", "/odmen/system-mail/probe", "crates/web/src/auth/admin_mail_cost/mod.rs", "probe_profile"): ".admin_load_candidate(&digest,",
+    ("POST", "/odmen/system-mail/activation/review", "crates/web/src/auth/admin_mail_cost/mod.rs", "activation::review"): ".admin_review_candidate(&digest)",
+    ("POST", "/odmen/system-mail/activation/confirm", "crates/web/src/auth/admin_mail_cost/mod.rs", "activation::confirm"): ".admin_review_candidate(&digest)",
 }
 POSTBOX_RELAY = (
     "POST", "/internal/mail/postbox-feedback",
@@ -514,6 +516,20 @@ POSTBOX_RELAY = (
 
 def _system_mail_key(entry: dict[str, str]) -> tuple[str, str, str, str]:
     return tuple(entry.get(field, "") for field in ("method", "template", "source", "handler"))
+
+
+def _mail_probe_guard(helper: str) -> bool:
+    probe = re.sub(r"\s+", "", _functions(helper).get("probe_candidate", ""))
+    return probe == (
+        "pub(super)asyncfnprobe_candidate(master:&ProfileMasterKey,candidate:&SealedProfile,)"
+        "->Result<(),StatusCode>{"
+        "letsecrets=master.open(candidate).map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;"
+        "letcredentials=PostboxCredentials::new(secrets.access().into(),secrets.secret().into())"
+        ".map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;"
+        "lettransport=PostboxTransport::new(candidate.identity().sender())"
+        ".map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;"
+        "transport.probe(&credentials).await.map_err(|_|StatusCode::BAD_GATEWAY)}"
+    )
 
 
 def _system_mail_policy(entry: dict[str, str], body: str,
@@ -611,13 +627,93 @@ def _system_mail_policy(entry: dict[str, str], body: str,
                 ))
             else:
                 guarded = guarded and all(marker in body for marker in (
-                    "permit_auth_attempt(&attempt_key, 3, 60)", "master.open(&candidate)",
-                    "PostboxTransport::new(candidate.identity().sender())",
-                    "transport.probe(&credentials).await", "admin_confirm_probe(&digest, &candidate)",
-                )) and body.index(op) < body.index("transport.probe(") < body.index("admin_confirm_probe(")
+                    "permit_auth_attempt(&attempt_key, 3, 60)",
+                    "profile::probe_candidate(&master, &candidate).await",
+                    "admin_confirm_probe(&digest, &candidate)",
+                )) and body.index(op) < body.index("profile::probe_candidate(") < body.index("admin_confirm_probe(")
+                guarded = guarded and _mail_probe_guard(helper)
                 store = store and all(marker in profile for marker in (
                     "AND revision=$1 AND identity_id=$2 AND sender=$3",
                     "AND key_version=$4 AND nonce=$5 AND ciphertext=$6",
+                ))
+        if entry["handler"] in {"activation::review", "activation::confirm"}:
+            profile = functions.get("__mail_profile_repository", "")
+            helper = functions.get("__mail_profile_http", "")
+            activation = functions.get("__mail_activation_repository", "")
+            launch = functions.get("__mail_launch_repository", "")
+            runtime = re.sub(r"\s+", "", functions.get("__mail_profile_runtime", ""))
+            compact = re.sub(r"\s+", "", body)
+            guarded = guarded and all(marker in body for marker in (
+                "|| !profile::secure_origin(&state)",
+                "let Some(Extension(control)) = control else",
+                "return deny(StatusCode::SERVICE_UNAVAILABLE)",
+                "PgMailLaunch::new(state.accounts.pool().clone())",
+            ))
+            guarded = guarded and all(marker in helper for marker in (
+                "state.cookies.secure", 'uri.scheme_str() == Some("http")',
+                'matches!(uri.host(), Some("127.0.0.1" | "localhost"))',
+            ))
+            guarded = guarded and (
+                "pub(crate)fnfence(&self)->&LaunchFence{&self.fence}" in runtime
+                and "fence:Arc<LaunchFence>" in runtime
+            )
+            store = store and all(marker in profile for marker in (
+                "r.role='administrator' AND r.is_active", "FOR SHARE OF u,r",
+                "revoked_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE",
+            )) and all(marker in activation for marker in (
+                "operator(&mut tx, digest).await?", "lock_guard(&mut tx).await?",
+                "snapshot.ready_for_review()", "candidate.intent_digest() != snapshot.profile_digest()",
+                "current != intent.reviewed", "step_up_used_at IS NULL",
+                "step_up_payload_digest=$6", "MAIL_ACTIVATION_STEP_UP_SCOPE",
+                "WHERE singleton AND NOT enabled AND revision=$2",
+                "INSERT INTO mail_launch_activation_audit", "tx.commit().await?",
+            )) and "mail_send_budget_guard WHERE singleton FOR UPDATE" in launch
+            if entry["handler"] == "activation::review":
+                guarded = guarded and (
+                    "snapshot.policy_revision()!=form.revision" in compact
+                    and "control.fence().begin_review(&snapshot,LaunchScope::Dispatch,digest)" in compact
+                    and compact.index(".admin_review_candidate(") < compact.index(".begin_review(")
+                    and ".admin_activate(" not in compact
+                    and ".complete_activation(" not in compact
+                )
+            else:
+                sequence = (
+                    ".admin_review_candidate(&digest).await",
+                    ".precheck_review(",
+                    "verify_password_for_step_up(&password,&hash)",
+                    "profile::probe_candidate(&master,&candidate).await",
+                    ".admin_review_candidate(&digest).await",
+                    ".confirm_review(",
+                    ".issue_administrator_mail_activation_step_up(",
+                    ".admin_activate(&digest,&proof,&intent).await",
+                    ".snapshot().await",
+                    ".complete_activation(intent,&active)",
+                )
+                cursor = 0
+                for marker in sequence:
+                    index = compact.find(marker, cursor)
+                    if index < 0:
+                        guarded = False
+                        break
+                    cursor = index + len(marker)
+                guarded = guarded and all(marker in compact for marker in (
+                    'form.reviewed!="yes"', 'LaunchScope::Dispatch',
+                    "permit_auth_attempt(&attempt_key,6,600)",
+                    "permit_auth_attempt(&probe_key,3,60)",
+                    'session_token_digest(&format!("mail:postbox-probe:{actor}"))',
+                    "fresh!=snapshot||fresh_candidate.intent_digest()!=candidate.intent_digest()",
+                    "&candidate.intent_digest()", "&intent.proof_digest()",
+                    "matchprofile::master_key()",
+                )) and _mail_probe_guard(helper)
+                wrapper = re.sub(r"\s+", "", _functions(helper).get("master_key", ""))
+                guarded = guarded and wrapper == (
+                    "pub(super)fnmaster_key()->Result<ProfileMasterKey,StatusCode>{"
+                    "crate::flow_runtime::mail::profile_master_key()"
+                    ".map_err(|_|StatusCode::SERVICE_UNAVAILABLE)}"
+                ) and all(marker in runtime for marker in (
+                    'std::env::var("TOR_POSTBOX_PROFILE_KEY_VERSION")',
+                    'std::env::var("TOR_POSTBOX_PROFILE_MASTER_KEY")',
+                    "ProfileMasterKey::from_base64(version,&encoded)",
                 ))
         write_guard = entry["method"] == "GET" or (
             "if !valid_csrf(&state, &headers, &form.csrf_token)" in body
@@ -2607,6 +2703,8 @@ def check(root: Path = ROOT) -> list[str]:
                 ("__mail_profile_repository", "crates/mail/src/repositories/postbox_profile.rs"),
                 ("__mail_profile_http", "crates/web/src/auth/admin_mail_cost/profile.rs"),
                 ("__mail_profile_runtime", "crates/web/src/flow_runtime/mail.rs"),
+                ("__mail_activation_repository", "crates/mail/src/repositories/launch/activation.rs"),
+                ("__mail_launch_repository", "crates/mail/src/repositories/launch.rs"),
                 ("__mail_relay_crypto", "crates/mail/src/domain/postbox/relay.rs"),
             ):
                 try:
@@ -2615,6 +2713,17 @@ def check(root: Path = ROOT) -> list[str]:
                     )
                 except OSError:
                     source_cache[path][evidence_name] = ""
+        if (_system_mail_key(entry) in SYSTEM_MAIL_ADMIN
+                and entry["handler"] in {"activation::review", "activation::confirm"}):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+                imported = "use super::{operator, pages, profile, valid_csrf, AuthState};" in child
+                for name in ("operator", "valid_csrf"):
+                    source_cache[path][name] = parent.get(name, "") if imported else ""
+            except OSError:
+                source_cache[path]["operator"] = ""
+                source_cache[path]["valid_csrf"] = ""
         if _paid_grant_auth_binding(entry):
             try:
                 parent = _strip_comments(_production((root / entry["source"]).read_text(encoding="utf-8")))

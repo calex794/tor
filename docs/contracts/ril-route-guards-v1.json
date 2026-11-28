@@ -3238,6 +3238,20 @@
     },
     {
       "method": "POST",
+      "template": "/odmen/system-mail/activation/review",
+      "source": "crates/web/src/auth/admin_mail_cost/mod.rs",
+      "handler": "activation::review",
+      "policy": "admin_system_mail"
+    },
+    {
+      "method": "POST",
+      "template": "/odmen/system-mail/activation/confirm",
+      "source": "crates/web/src/auth/admin_mail_cost/mod.rs",
+      "handler": "activation::confirm",
+      "policy": "admin_system_mail"
+    },
+    {
+      "method": "POST",
       "template": "/internal/mail/postbox-feedback",
       "source": "crates/web/src/auth/postbox_feedback.rs",
       "handler": "receive",

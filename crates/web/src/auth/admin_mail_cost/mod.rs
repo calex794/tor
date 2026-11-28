@@ -25,6 +25,7 @@ use tor_mail::repositories::cost::{
 
 use zeroize::Zeroizing;
 
+mod activation;
 mod profile;
 mod view;
 use profile::{ProbeForm, ProfileForm};
@@ -36,6 +37,14 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/odmen/system-mail/reconcile", post(reconcile))
         .route("/odmen/system-mail/profile", post(save_profile))
         .route("/odmen/system-mail/probe", post(probe_profile))
+        .route(
+            "/odmen/system-mail/activation/review",
+            post(activation::review),
+        )
+        .route(
+            "/odmen/system-mail/activation/confirm",
+            post(activation::confirm),
+        )
 }
 
 #[derive(Deserialize)]
@@ -134,7 +143,11 @@ fn store(state: &AuthState) -> PgMailCost {
     PgMailCost::new(state.accounts.pool().clone())
 }
 
-async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+async fn page(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    control: Option<Extension<MailControl>>,
+) -> Response {
     let digest = match operator(&state, &headers).await {
         Ok(value) => value,
         Err(error) => return deny(error),
@@ -149,12 +162,20 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut body = view::body(&current, &csrf);
+    let key_ready = profile::master_key().is_ok() && profile::secure_origin(&state);
     body.push_str(&profile::body(
         &saved,
         &csrf,
-        profile::master_key().is_ok() && profile::secure_origin(&state),
+        key_ready,
         current.snapshot.limits.enabled,
     ));
+    if control.is_some()
+        && key_ready
+        && !current.snapshot.limits.enabled
+        && saved.identity.is_some()
+    {
+        body.push_str(&activation::entry(&csrf, current.revision));
+    }
     let mut response = private_response(
         pages::layout("Системная почта", "Локальная оценка бюджета Postbox", &body),
         &cookies,
@@ -391,22 +412,8 @@ async fn probe_profile(
         Ok(value) => value,
         Err(error) => return deny(profile::status(error)),
     };
-    let secrets = match master.open(&candidate) {
-        Ok(value) => value,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    use tor_mail::services::postbox::{PostboxCredentials, PostboxTransport};
-    let credentials =
-        match PostboxCredentials::new(secrets.access().into(), secrets.secret().into()) {
-            Ok(value) => value,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        };
-    let transport = match PostboxTransport::new(candidate.identity().sender()) {
-        Ok(value) => value,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    if transport.probe(&credentials).await.is_err() {
-        return deny(StatusCode::BAD_GATEWAY);
+    if let Err(error) = profile::probe_candidate(&master, &candidate).await {
+        return deny(error);
     }
     if let Err(error) = store.admin_confirm_probe(&digest, &candidate).await {
         return deny(profile::status(error));

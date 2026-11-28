@@ -91,6 +91,33 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("POST /odmen/system-mail/profile [save_profile]")
 
+    def test_mail_activation_rejects_missing_confirmation_guards(self):
+        path = "crates/web/src/auth/admin_mail_cost/activation.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for before, after in (
+            ("!valid_csrf(&state, &headers, &form.csrf_token)", "false"),
+            (".precheck_review(", ".skip_precheck("),
+            ("verify_password_for_step_up(&password, &hash)", "unchecked_password(&password, &hash)"),
+            ("profile::probe_candidate(&master, &candidate)", "profile::skip_probe(&master, &candidate)"),
+            (".issue_administrator_mail_activation_step_up(", ".unchecked_step_up("),
+            (".complete_activation(intent, &active)", ".unchecked_activation(intent, &active)"),
+        ):
+            with self.subTest(before=before):
+                try:
+                    self.mutate(path, before, after, start="pub(super) async fn confirm(")
+                    self.assert_detected("POST /odmen/system-mail/activation/confirm")
+                finally:
+                    target.write_text(original, encoding="utf-8")
+
+    def test_shared_postbox_probe_cannot_skip_authentication(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail_cost/profile.rs",
+            ".probe(&credentials)", ".unchecked_probe(&credentials)",
+        )
+        self.assert_detected("POST /odmen/system-mail/probe [probe_profile]")
+        self.assert_detected("POST /odmen/system-mail/activation/confirm")
+
     def test_postbox_probe_requires_exact_candidate_after_network(self):
         self.mutate(
             "crates/web/src/auth/admin_mail_cost/mod.rs",
