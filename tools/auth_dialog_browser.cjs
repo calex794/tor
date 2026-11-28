@@ -95,7 +95,8 @@ async function openDialog(page, mobile = false) {
     assert.ok((await desktop.context().cookies(base)).some(c =>
       c.name === 'tor-dev-csrf' && c.value === csrf), 'CSRF cookie changed across tabs');
     await native.close();
-    await dialog.getByLabel('Отображаемое имя').fill('Auth Dialog Reader');
+    assert.equal(await dialog.locator('[name="display_name"]').count(), 0);
+    assert.equal(await dialog.locator('input[required]').count(), 2);
     await dialog.getByLabel('Электронная почта').fill(email);
     await dialog.getByLabel('Пароль (12–128 символов)').fill('short');
     const weak = desktop.waitForResponse(r => r.url() === base + '/register' && r.request().method() === 'POST');

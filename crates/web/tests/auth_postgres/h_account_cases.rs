@@ -57,10 +57,22 @@ pub(super) async fn login_returns_to_public_reader(app: &Router, logged: &Respon
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
 }
 
+pub(super) async fn assert_neutral_registered_account(lookup: &PgAccounts) -> String {
+    let account = lookup
+        .find_user("tor_ci_account@example.com")
+        .await
+        .expect("account lookup")
+        .expect("persisted account");
+    assert!(account.display_name.starts_with("Читатель №"));
+    assert!(!account.display_name.contains("tor_ci_account"));
+    assert!(account.password_hash.starts_with("$argon2id$"));
+    assert!(!account.password_hash.contains("LongSecurePassword2026"));
+    account.display_name
+}
+
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
-    let weak_password = format!(
-        "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"
-    );
+    let weak_password =
+        format!("email=tor_ci_account%40example.com&password=1234&csrf_token={csrf}");
     let invalid = send(
         app,
         request("POST", "/register", &weak_password, csrf_cookie, ORIGIN),
@@ -74,9 +86,9 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     assert!(invalid_html.contains("Пароль должен содержать от 12 до 128 символов"));
     assert!(invalid_html.contains("value=\"tor_ci_account@example.com\""));
     assert!(!invalid_html.contains("value=\"1234\""));
-    // Untrusted input is escaped even when the server rejects a weak password.
+    // Retain and escape only the email field; never echo a legacy public name.
     let unsafe_name =
-        format!("email=x%40example.com&display_name=%3Cscript%3E&password=1234&csrf_token={csrf}");
+        format!("email=x%3Cscript%3E%40example.com&display_name=PRIVATE_LEGACY_NAME&password=1234&csrf_token={csrf}");
     let bad_name = send(
         app,
         request("POST", "/register", &unsafe_name, csrf_cookie, ORIGIN),
@@ -85,7 +97,9 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     assert_eq!(bad_name.status(), StatusCode::BAD_REQUEST);
     let escaped_html = body_of(bad_name).await;
     assert!(escaped_html.contains("&lt;script&gt;"));
-    assert!(!escaped_html.contains("value=\"<script>\""));
+    assert!(!escaped_html.contains("x<script>"));
+    assert!(!escaped_html.contains("PRIVATE_LEGACY_NAME"));
+    assert!(!escaped_html.contains("name=\"display_name\""));
     // AB-03/04: traps are private, do not create a session, and never write an account.
     let decoy = send(
         app,

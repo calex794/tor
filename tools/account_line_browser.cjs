@@ -12,11 +12,11 @@ const nonce=Date.now().toString();
 const email=`a-browser-${nonce}@example.invalid`;
 const shots=process.env.TOR_COVER_BROWSER_SHOTS;
 
-async function register(browser,mail,name) {
+async function register(browser,mail) {
   const context=await browser.newContext({viewport:{width:1440,height:1000}});
   const page=await context.newPage();
   await page.goto(`${base}/register`);
-  await page.locator('[name=display_name]').fill(name);
+  assert.equal(await page.locator('form[action="/register"] [name=display_name]').count(),0);
   await page.locator('[name=email]').fill(mail);
   await page.locator('[name=password]').fill(password);
   await Promise.all([page.waitForURL(`${base}/me`),page.locator('form[action="/register"] button').click()]);
@@ -62,9 +62,12 @@ async function inspectAccountNavigation(page,width) {
   const browser=await chromium.launch({headless:true});
   try {
     await honeypotBrowser(browser,base,email,password);
-    const alice=await register(browser,email,'A browser reader');
+    const alice=await register(browser,email);
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
-    const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
+    const bob=await register(browser,`b-browser-${nonce}@example.invalid`);
+    const bobName=await bob.page.locator('.me-role-card__value').innerText();
+    assert.match(bobName,/^Читатель №[0-9a-f]{16}$/);
+    assert.notEqual(await alice.page.locator('.me-role-card__value').innerText(),bobName);
     const second=await login(browser,email,password);
     for (const url of ['/me/library','/me/settings','/me/settings/password',
       '/me/security/sessions','/me/books','/me/books/new']) {
@@ -200,7 +203,7 @@ async function inspectAccountNavigation(page,width) {
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:stale})).status(),409);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:'https://evil.invalid'},data:{...stale,expected_revision:profile.revision}})).status(),403);
     assert.equal((await alice.context.request.patch(`${base}/api/v1/me`,{headers:{Origin:base},data:{...stale,user_id:'1'}})).status(),422);
-    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,'B browser reader');
+    assert.equal((await (await bob.context.request.get(`${base}/api/v1/me`)).json()).display_name,bobName);
     await fs.mkdir(shots,{recursive:true});
     for(const width of [1440,390]) {
       await alice.page.setViewportSize({width,height:1000});

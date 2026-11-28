@@ -9,7 +9,6 @@ module.exports = async function checkSpoilers(browser, base, out) {
     try {
       const page = await context.newPage();
       await page.goto(base + '/register');
-      await page.getByLabel('Отображаемое имя').fill('Читатель спойлеров');
       await page.getByLabel('Электронная почта').fill(`spoiler.${name}@example.test`);
       await page.getByLabel('Пароль (12–128 символов)').fill('SpoilerTestPassword2026');
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
@@ -61,7 +60,6 @@ module.exports = async function checkSpoilers(browser, base, out) {
       try {
         const replyPage = await responder.newPage();
         await replyPage.goto(base + '/register');
-        await replyPage.getByLabel('Отображаемое имя').fill('Второй читатель');
         await replyPage.getByLabel('Электронная почта').fill(`reply.${name}@example.test`);
         await replyPage.getByLabel('Пароль (12–128 символов)').fill('ReplyTestPassword2026');
         await replyPage.getByRole('button', { name: 'Создать учётную запись' }).click();

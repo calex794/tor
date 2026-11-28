@@ -5,6 +5,8 @@ use crate::domain::MailError;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
+#[path = "notification_actor_text.rs"]
+mod actor_text;
 #[path = "notification_continuation.rs"]
 mod continuation;
 #[path = "notification_daily_digest.rs"]
@@ -23,6 +25,19 @@ mod revision_counts;
 pub use daily_chapter_digest::DailyChapterDigestEntry;
 #[path = "notification_profile_url.rs"]
 mod profile_url;
+
+type NotificationRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
@@ -172,8 +187,24 @@ impl PgNotifications {
                       ELSE n.body END AS body,
                       n.url,
                       to_char((n.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),
-                      n.read_at IS NOT NULL
+                      n.read_at IS NOT NULL,
+                      notice_event.event_type,
+                      CASE WHEN source_actor.account_state='active'
+                             AND strpos(lower(source_actor.display_name),
+                                        source_actor.email_normalized)=0
+                           THEN source_actor.display_name END,
+                      CASE WHEN notice_event.payload->>'recipient_user_id'=n.recipient_user_id::text
+                             AND notice_event.payload->>'actor_user_id'=n.actor_user_id::text
+                           THEN notice_event.payload->>'object_id' END
                FROM user_notifications n
+               -- Reconstruct only mailbox-like legacy actor snapshots. The
+               -- event and actor IDs are authoritative, never the saved text.
+               LEFT JOIN outbox_events notice_event ON notice_event.id=n.source_event_id
+                 AND (strpos(n.title,'@')>0 OR strpos(n.body,'@')>0
+                      OR strpos(n.url,'@')>0 OR strpos(lower(n.url),'%40')>0)
+               LEFT JOIN users source_actor ON source_actor.id=n.actor_user_id
+                 AND notice_event.payload->>'actor_user_id'=n.actor_user_id::text
+                 AND notice_event.payload->>'recipient_user_id'=n.recipient_user_id::text
                WHERE n.recipient_user_id=$1 AND ($2::bigint IS NULL OR n.id<$2)
                  AND {}
                  AND (
@@ -214,26 +245,38 @@ impl PgNotifications {
             read_policy::VISIBLE
         );
         // Only the static read_policy::VISIBLE predicate is interpolated; values are bound.
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
-            sqlx::AssertSqlSafe(sql),
-        )
-        .bind(actor)
-        .bind(before)
-        .bind(i64::from(limit))
-        .bind(section)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(unavailable)?;
+        let rows = sqlx::query_as::<_, NotificationRow>(sqlx::AssertSqlSafe(sql))
+            .bind(actor)
+            .bind(before)
+            .bind(i64::from(limit))
+            .bind(section)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|r| UserNotification {
-                id: r.0,
-                kind: r.1,
-                title: r.2,
-                body: r.3,
-                url: r.4,
-                created_at: r.5,
-                is_read: r.6,
+            .map(|r| {
+                let mut row = UserNotification {
+                    id: r.0,
+                    kind: r.1,
+                    title: r.2,
+                    body: r.3,
+                    url: r.4,
+                    created_at: r.5,
+                    is_read: r.6,
+                };
+                if let Some((_, title, body, url)) = r.7.as_deref().and_then(|kind| {
+                    actor_text::project(
+                        kind,
+                        r.8.as_deref(),
+                        r.9.as_deref().and_then(|id| id.parse().ok()),
+                    )
+                }) {
+                    row.title = title.to_owned();
+                    row.body = body;
+                    row.url = url;
+                }
+                row
             })
             .collect())
     }

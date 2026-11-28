@@ -65,7 +65,6 @@ async function privateResponse(response, expected = 200) {
     await privateResponse(await page.goto(base + '/odmen/audience/exposure?window=closed'), 401);
     await page.goto(base + '/register');
     const email = 'flow-report-' + stamp + '@tor-ci.example';
-    await page.getByLabel('Отображаемое имя').fill('Report operator');
     await page.getByLabel('Электронная почта').fill(email);
     await page.getByLabel('Пароль (12–128 символов)').fill('ReportBrowserPassword2026');
     await page.getByRole('button', {name: 'Создать учётную запись', exact: true}).click();

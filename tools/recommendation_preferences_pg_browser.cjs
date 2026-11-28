@@ -65,7 +65,6 @@ async function privateResponse(response, status=200) {
 }
 async function register(page,email) {
   await page.goto(base+'/register');
-  await page.getByLabel('Отображаемое имя').fill('Выбор книг');
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByLabel('Пароль (12–128 символов)').fill('PreferenceBrowserPassword2026');
   await page.getByRole('button',{name:'Создать учётную запись'}).click();
