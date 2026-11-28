@@ -12,7 +12,9 @@ use std::{
 };
 use tor_accounts::{
     repositories::PgAccounts,
-    services::{auth_observation::AuthObservationSigner, security::hash_password},
+    services::{
+        auth_observation::AuthObservationSigner, profile::ProfileUpdate, security::hash_password,
+    },
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
@@ -72,10 +74,20 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
     let known = format!("spray-known-{nonce}@example.invalid");
     let unknown = format!("spray-unknown-{nonce}@example.invalid");
     let hash = hash_password("StrongPasswordForAB02!").unwrap();
-    accounts
+    let actor = accounts
         .insert_user(&known, "Spray Reader", &hash)
         .await
         .unwrap();
+    let handle = format!("spray_{nonce:x}");
+    let missing_handle = format!("missing_{nonce:x}");
+    let mut claim = ProfileUpdate {
+        display_name: None,
+        handle: Some(handle.clone()),
+        adult_enabled: None,
+        expected_revision: 0,
+    };
+    claim.validate().unwrap();
+    assert_eq!(accounts.update_profile(actor, &claim).await.unwrap(), 1);
     let signer = AuthObservationSigner::from_hex(&"a9".repeat(32)).unwrap();
     let (ip, net) = signer.source(SocketAddr::from((PEER, 40002)).ip());
     for i in 0..20 {
@@ -121,7 +133,7 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
     .await;
     assert_eq!(rejected.status(), StatusCode::FORBIDDEN);
 
-    for email in [&known, &unknown] {
+    for email in [&known, &unknown, &handle, &missing_handle] {
         let reply = send(
             &app,
             request("POST", "/login", &login_form(email, csrf), &cookie, ORIGIN),
@@ -155,6 +167,55 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap_or("").starts_with("tor-dev-session=")));
+    // Upper-case handle login resolves the same active account and clears both
+    // the submitted handle guard and the original canonical email budget.
+    let alias = send(
+        &app,
+        request(
+            "POST",
+            "/login",
+            &login_form(&handle.to_uppercase(), csrf),
+            &cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(alias.status(), StatusCode::SEE_OTHER);
+    assert!(alias
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| v.to_str().unwrap_or("").starts_with("tor-dev-session=")));
+
+    // Eight wrong passwords total, not eight per alias. Varying the case
+    // of the handle must not create another bucket.
+    for i in 0..8 {
+        let identity = if i % 2 == 0 {
+            known.clone()
+        } else {
+            handle.to_uppercase()
+        };
+        let wrong =
+            login_form(&identity, csrf).replace("StrongPasswordForAB02%21", "WrongPassword2026");
+        let denied = send(
+            &app,
+            request("POST", "/login", &wrong, &cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        assert!(denied.headers().get(header::SET_COOKIE).is_none());
+    }
+    for identity in [&known, &handle] {
+        let denied = send(
+            &app,
+            request("POST", "/login", &login_form(identity, csrf), &cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(denied.headers().get(header::SET_COOKIE).is_none());
+        assert_eq!(denied.headers()[header::RETRY_AFTER], "600");
+        assert!(!text(denied).await.contains(&known));
+    }
     std::env::remove_var("TOR_AUTH_SPRAY_MODE");
     std::env::remove_var("TOR_AUTH_SPRAY_KEY");
 }

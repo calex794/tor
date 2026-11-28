@@ -35,7 +35,8 @@ impl AuthObservationSigner {
         digest
     }
 
-    /// The caller passes only the same normalized email used for account lookup.
+    /// Known accounts use the canonical normalized email for both login aliases.
+    /// Unknown accounts use the validated, normalized submitted identity.
     pub fn target(&self, normalized_email: &str) -> [u8; 32] {
         self.digest(b"target", normalized_email.as_bytes())
     }

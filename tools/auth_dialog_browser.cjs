@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const base = 'http://127.0.0.1:3098';
 const password = 'Dialog-Test-Password-2026';
-const email = 'auth-dialog.' + Date.now() + '@example.test';
+const nonce = Date.now();
+const email = 'auth-dialog.' + nonce + '@example.test';
+const handle = 'dialog_' + nonce;
 const shots = process.env.TOR_READER_SHOTS;
 
 async function openDialog(page, mobile = false) {
@@ -115,6 +117,13 @@ async function openDialog(page, mobile = false) {
     assert.equal(await desktop.locator('#tor-auth-dialog').count(), 0);
     const signedBook = await desktop.reload();
     assert.ok(signedBook.headers()['content-security-policy'].includes("script-src 'none'"));
+    const profile = await (await desktop.request.get(base + '/api/v1/me')).json();
+    assert.equal(profile.handle, null);
+    const claimed = await desktop.request.patch(base + '/api/v1/me', {
+      headers: { Origin: base },
+      data: { handle, expected_revision: profile.revision, csrf_token: profile.csrf_token },
+    });
+    assert.equal(claimed.status(), 200);
     await desktopContext.close();
 
     const paywall = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -126,7 +135,7 @@ async function openDialog(page, mobile = false) {
     await paywallDialog.locator('form[action="/login"]').waitFor();
     assert.equal(paywall.url(), locked);
     assert.ok(!(await paywall.content()).includes('PRIVATE-PAID-MARKER'));
-    await paywallDialog.getByLabel('Электронная почта').fill(email);
+    await paywallDialog.getByLabel('Логин или электронная почта', { exact: true }).fill(handle.toUpperCase());
     await paywallDialog.getByLabel('Пароль', { exact: true }).fill(password);
     const lockedLogin = paywall.waitForResponse(r => r.url() === base + '/login' && r.request().method() === 'POST');
     await paywallDialog.getByRole('button', { name: 'Войти', exact: true }).click();
@@ -149,7 +158,7 @@ async function openDialog(page, mobile = false) {
     });
     assert.ok(dimensions.width <= dimensions.viewport && dimensions.height <= dimensions.screen);
     if (shots) await mobile.screenshot({ path: path.join(shots, 'auth-dialog-mobile.png') });
-    await login.getByLabel('Электронная почта').fill(email);
+    await login.getByLabel('Логин или электронная почта', { exact: true }).fill(email);
     await login.getByLabel('Пароль', { exact: true }).fill('wrong-password');
     const bad = mobile.waitForResponse(r => r.url() === base + '/login' && r.request().method() === 'POST');
     await login.getByRole('button', { name: 'Войти', exact: true }).click();

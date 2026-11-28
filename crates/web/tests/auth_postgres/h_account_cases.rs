@@ -252,7 +252,7 @@ pub(super) async fn rejected_login(app: &Router, bad_login: &str, login_csrf_coo
     assert_eq!(bad.headers()[header::CACHE_CONTROL], "no-store");
     let login_error = body_of(bad).await;
     assert!(login_error.contains("account-error__card"));
-    assert!(login_error.contains("Неверный адрес почты или пароль"));
+    assert!(login_error.contains("Неверный логин, адрес почты или пароль"));
     assert!(login_error.contains("href=\"/login\""));
     // A real password with a filled decoy must never issue a session.
     let csrf = bad_login.split("csrf_token=").nth(1).expect("login csrf");
