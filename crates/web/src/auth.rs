@@ -261,6 +261,7 @@ fn router_inner(
             post(book_follow_actions::follow_creator),
         )
         .route("/users/{display_name}", get(public_profile::page))
+        .route("/users/by-handle/{handle}", get(public_profile::by_handle))
         .route("/users/{target_user_id}/friend", post(friendship::request))
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))

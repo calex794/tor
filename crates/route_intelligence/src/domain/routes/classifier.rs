@@ -472,6 +472,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/odmen/system-mail/reconcile"), "POST") => Some(457),
         (Some("/odmen/system-mail/profile"), "POST") => Some(458),
         (Some("/odmen/system-mail/probe"), "POST") => Some(459),
+        (Some("/users/by-handle/{handle}"), "GET") => Some(460),
         _ => None,
     };
     index

@@ -129,6 +129,47 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert_eq!(grants, 0, "adult consent cannot create a pro/paid grant");
 }
 
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_06_claimed_handle_resolves_only_active_account() {
+    let (accounts, user, _) = fixture("public-handle").await;
+    let handle = format!("profile{user}");
+    let update = ProfileUpdate {
+        display_name: Some("Stable reader".into()),
+        handle: Some(handle.clone()),
+        adult_enabled: None,
+        expected_revision: 0,
+    };
+    accounts.update_profile(user, &update).await.unwrap();
+    assert_eq!(
+        accounts
+            .public_profile_by_handle(&handle.to_ascii_uppercase())
+            .await
+            .unwrap(),
+        Some((user, "Stable reader".to_owned(), handle.clone()))
+    );
+    assert!(accounts
+        .public_profile_by_handle("private@example.invalid")
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(user)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    assert!(accounts
+        .public_profile_by_handle(&handle)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(accounts
+        .public_profile_address_parts(user)
+        .await
+        .unwrap()
+        .is_none());
+}
+
 /// Source display-name keys ignore case; ambiguous legacy keys must never
 /// silently resolve to the first account or reveal any different account.
 #[tokio::test]
