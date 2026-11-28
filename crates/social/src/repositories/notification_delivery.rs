@@ -1,7 +1,7 @@
 //! E-08/RET-R03: durable in-app projection of shared outbox events.
 //! Keeping the consumer separate preserves the notification reader's size cap.
 use super::super::mail::{blocked, pair_lock, unavailable};
-use super::{continuation, profile_url::encode_segment};
+use super::{actor_text, continuation};
 use crate::domain::MailError;
 use sqlx::PgPool;
 
@@ -164,75 +164,30 @@ pub(super) async fn pending(pool: &PgPool, limit: u16) -> Result<usize, MailErro
             user_exists && !is_blocked && actor > 0 && recipient > 0 && actor != recipient && member
         };
         if allowed {
-            let name: String = if kind == "reader.continuation.requested" {
-                String::new()
+            let (category, title, body, url) = if kind == "reader.continuation.requested" {
+                let signal = owner_demand.as_ref().expect("validated owner demand");
+                let short_title: String = signal.title.chars().take(110).collect();
+                (
+                    "continuation_demand",
+                    "Читатели ждут продолжения",
+                    format!("Книга «{short_title}». Запросов на продолжение: {}. Подробнее — в статистике.", signal.waiting),
+                    "/me/stats/continuations".to_owned(),
+                )
             } else {
-                sqlx::query_scalar("SELECT display_name FROM users WHERE id=$1")
-                    .bind(actor)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(unavailable)?
-            };
-            let (category, title, body, url) = match kind.as_str() {
-                "reader.continuation.requested" => {
-                    let signal = owner_demand.as_ref().expect("validated owner demand");
-                    let short_title: String = signal.title.chars().take(110).collect();
-                    (
-                        "continuation_demand",
-                        "Читатели ждут продолжения",
-                        format!("Книга «{short_title}». Запросов на продолжение: {}. Подробнее — в статистике.", signal.waiting),
-                        "/me/stats/continuations".to_owned(),
-                    )
-                }
-                "reader.chapter.released" => (
-                    "chapter_created",
-                    "Новая глава",
-                    format!("{name} опубликовал новую главу"),
-                    format!("/reader/{object_id}"),
-                ),
-                "reader.chapter.updated" => (
-                    "chapter_updated",
-                    "Глава обновлена",
-                    format!("{name} обновил главу"),
-                    format!("/read/{object_id}"),
-                ),
-                "social.mail.created" => (
-                    "mail",
-                    "Новое сообщение",
-                    format!("{name} написал вам"),
-                    format!("/mail/{object_id}"),
-                ),
-                "social.group_mail.created" => (
-                    "mail",
-                    "Новое сообщение в группе",
-                    format!("{name} написал в группе"),
-                    format!("/mail/groups/{object_id}"),
-                ),
-                "social.group_creator_transfer.proposed" => (
-                    "mail",
-                    "Предложение управлять группой",
-                    format!("{name} предлагает вам управление группой"),
-                    "/mail/group-transfers".to_owned(),
-                ),
-                "social.friendship.requested" => (
-                    "friendship",
-                    "Новая заявка в друзья",
-                    format!("{name} хочет добавить вас в друзья."),
-                    format!("/users/{}", encode_segment(&name)),
-                ),
-                "social.friendship.accepted" => (
-                    "friendship",
-                    "Заявка в друзья принята",
-                    format!("{name} теперь у вас в друзьях."),
-                    format!("/users/{}", encode_segment(&name)),
-                ),
-                "social.friendship.removed" => (
-                    "friendship",
-                    "Удаление из друзей",
-                    format!("{name} удалил вас из друзей."),
-                    format!("/users/{}", encode_segment(&name)),
-                ),
-                _ => unreachable!("event_type is closed by SQL"),
+                let (name, handle): (Option<String>, Option<String>) = sqlx::query_as(
+                    "SELECT CASE WHEN u.account_state='active'
+                                  AND strpos(lower(u.display_name),u.email_normalized)=0
+                                 THEN u.display_name END,
+                            CASE WHEN u.account_state='active' THEN s.handle END
+                     FROM users u LEFT JOIN account_settings s ON s.user_id=u.id
+                     WHERE u.id=$1",
+                )
+                .bind(actor)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+                actor_text::project(&kind, name.as_deref(), handle.as_deref(), Some(object_id))
+                    .expect("event_type is closed by SQL")
             };
             sqlx::query(
                 "INSERT INTO user_notifications

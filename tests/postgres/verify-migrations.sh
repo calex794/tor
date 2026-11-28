@@ -88,7 +88,28 @@ SQL
   apply tor_migrations_upgrade "${migrations[@]:split_index:$((paid_index-split_index))}"
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
     -f tests/postgres/fnd01-seed-paid-legacy.sql
-  apply tor_migrations_upgrade "${migrations[@]:paid_index}"
+  # AUTH-PROFILE-03a: seed legacy public mailbox names immediately before
+  # installing the privacy constraint, not into a fresh already-guarded schema.
+  local privacy_index=-1
+  for (( i=paid_index; i<${#migrations[@]}; i++ )); do
+    if [[ ${migrations[i]##*/} == \
+         202999100072_auth_public_name_email_privacy.sql ]]; then
+      privacy_index=$i
+      break
+    fi
+  done
+  if (( privacy_index <= paid_index )); then
+    echo 'AUTH-PROFILE-03a upgrade boundary not found' >&2
+    exit 1
+  fi
+  apply tor_migrations_upgrade "${migrations[@]:paid_index:$((privacy_index-paid_index))}"
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/auth-profile-03a-seed.sql
+  apply tor_migrations_upgrade "${migrations[@]:privacy_index}"
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
+    -f tests/postgres/auth-profile-03a-verify.sql
+  psql -X -v ON_ERROR_STOP=1 -d tor_migrations_fresh \
+    -f tests/postgres/auth-profile-03a-guard.sql
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
     -f tests/postgres/fnd01-verify-retained-s3.sql
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade \
